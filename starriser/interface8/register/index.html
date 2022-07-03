@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<meta charset="utf-8" />
+	<title>Registration Starriser</title>
+	<script type="text/javascript">
+		(function(g,f){"use strict";var h=function(e){if("object"!==typeof e.document)throw Error("Cookies.js requires a `window` with a `document` object");var b=function(a,d,c){return 1===arguments.length?b.get(a):b.set(a,d,c)};b._document=e.document;b._cacheKeyPrefix="cookey.";b._maxExpireDate=new Date("Fri, 31 Dec 9999 23:59:59 UTC");b.defaults={path:"/",secure:!1};b.get=function(a){b._cachedDocumentCookie!==b._document.cookie&&b._renewCache();return b._cache[b._cacheKeyPrefix+a]};b.set=function(a,d,c){c=b._getExtendedOptions(c); c.expires=b._getExpiresDate(d===f?-1:c.expires);b._document.cookie=b._generateCookieString(a,d,c);return b};b.expire=function(a,d){return b.set(a,f,d)};b._getExtendedOptions=function(a){return{path:a&&a.path||b.defaults.path,domain:a&&a.domain||b.defaults.domain,expires:a&&a.expires||b.defaults.expires,secure:a&&a.secure!==f?a.secure:b.defaults.secure}};b._isValidDate=function(a){return"[object Date]"===Object.prototype.toString.call(a)&&!isNaN(a.getTime())};b._getExpiresDate=function(a,d){d=d||new Date; "number"===typeof a?a=Infinity===a?b._maxExpireDate:new Date(d.getTime()+1E3*a):"string"===typeof a&&(a=new Date(a));if(a&&!b._isValidDate(a))throw Error("`expires` parameter cannot be converted to a valid Date instance");return a};b._generateCookieString=function(a,b,c){a=a.replace(/[^#$&+\^`|]/g,encodeURIComponent);a=a.replace(/\(/g,"%28").replace(/\)/g,"%29");b=(b+"").replace(/[^!#$&-+\--:<-\[\]-~]/g,encodeURIComponent);c=c||{};a=a+"="+b+(c.path?";path="+c.path:"");a+=c.domain?";domain="+c.domain: "";a+=c.expires?";expires="+c.expires.toUTCString():"";return a+=c.secure?";secure":""};b._getCacheFromString=function(a){var d={};a=a?a.split("; "):[];for(var c=0;c<a.length;c++){var e=b._getKeyValuePairFromCookieString(a[c]);d[b._cacheKeyPrefix+e.key]===f&&(d[b._cacheKeyPrefix+e.key]=e.value)}return d};b._getKeyValuePairFromCookieString=function(a){var b=a.indexOf("="),b=0>b?a.length:b;return{key:decodeURIComponent(a.substr(0,b)),value:decodeURIComponent(a.substr(b+1))}};b._renewCache=function(){b._cache= b._getCacheFromString(b._document.cookie);b._cachedDocumentCookie=b._document.cookie};b._areEnabled=function(){var a="1"===b.set("cookies.js",1).get("cookies.js");b.expire("cookies.js");return a};b.enabled=b._areEnabled();return b},e="object"===typeof g.document?h(g):h;"function"===typeof define&&define.amd?define(function(){return e}):"object"===typeof exports?("object"===typeof module&&"object"===typeof module.exports&&(exports=module.exports=e),exports.Cookies=e):g.Cookies=e})("undefined"===typeof window? this:window);
+	</script>
+	<script type="text/javascript">
+		var ajax = (function () {
+			'use strict';
+
+			var AJAX_FINISH = 4;
+			var HTTP_SUCCESS = 200;
+			function ajax (url, data, callback) {
+				var xhr = new XMLHttpRequest();
+
+				xhr.open('POST', url);
+
+				xhr.onreadystatechange = done; //TODO Añadir eventos
+				xhr.withCredentials = true;
+
+				xhr.send(JSON.stringify(data));
+
+				function done (event) {
+					if(typeof callback === 'undefined') return;
+					useCallbackOnSuccess(xhr, data, event, callback);
+				}
+			}
+
+			function useCallbackOnSuccess (xhr, data, event, callback) {
+
+				var ajaxNotFinish = xhr.readyState !== AJAX_FINISH;
+
+				if(ajaxNotFinish) return;
+
+				var HTTPfail = xhr.status !== HTTP_SUCCESS;
+
+				if(HTTPfail){
+					return;
+				}
+
+				var response = decodeJSON(event.target.responseText);
+
+				if(!response){
+					var errorMessage = {error: true};
+					callback(errorMessage);
+				}
+
+				callback(response);
+			}
+
+			function decodeJSON (string) {
+				var response;
+
+				try {
+					response = JSON.parse(string);
+
+					// Handle non-exception-throwing cases:
+					// Neither JSON.parse(false) or JSON.parse(1234) throw errors, hence the type-checking,
+					// but... JSON.parse(null) returns 'null', and typeof null === "object",
+					// so we must check for that, too.
+					if (response && typeof response === "object" && response !== null) {
+						return response;
+					}
+				}
+				catch (e) { }
+
+				return false;
+			}
+
+			return ajax;
+		})();
+
+	</script>
+</head>
+<body>
+	<input id="user" type="text" placeholder="Usuario">
+	<input id="pass" type="password" placeholder="Contraseña">
+	<input id="button" type="button" value="Register">
+	<script type="text/javascript">
+		(function () {
+			'use strict';
+
+			var button = document.getElementById('button');
+			var inputs = document.getElementsByTagName('input');
+
+			button.addEventListener('click', sendRequest);
+			inputs[1].addEventListener('keyup', detectEnter.bind(null, sendRequest));
+			inputs[2].addEventListener('keyup', detectEnter.bind(null, sendRequest));
+
+			function detectEnter (callback, event) {
+				if(event.which === 13) callback();
+			}
+
+			function sendRequest () {
+				var user = document.getElementById('user');
+				var pass = document.getElementById('pass');
+				ajax(
+					getLocalUrl(':3005/create-user'),
+					{
+						user: user.value,
+						password: pass.value,
+						action: "register"
+					},
+					function (response) {
+						console.log(response);
+						if(response.error) return console.error('Registration error');
+						console.log('Registration complete');
+						document.location.replace(getLocalUrl('/login'));
+					}
+				);
+			}
+
+			function getLocalUrl (str) {
+				var domain = document.domain;
+				if(!str) str = '';
+
+				if(domain.indexOf('http') !== 0)
+					return 'http://' + document.domain + str;
+
+				return document.domain + str;
+			}
+		})();
+	</script>
+</body>
+</html>

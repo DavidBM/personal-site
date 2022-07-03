@@ -1,0 +1,71 @@
+
+.planetView.container{
+	width: 1000px;
+	margin: 0 auto;
+	position: relative;
+	z-index: 10;
+	display: none;
+	left: -$centerDisplacementByPlanetChanger;
+}
+
+$i: 0;
+$posyInitial: (0px, 120px, 240px, 450px);
+$widths: (392, 340, 380, 500);
+$posyb: 0;
+$posyp: 0;
+@each $rule in Lab, MineB, Shield, MineA, Defense, MineN, Shipyard, Commerce { //Este bucle posiciona los botones del planeta.
+
+	$posyb: nth($posyInitial, floor($i / 2) + 1);
+
+	@if $i != 0 {
+		@if $i % 2 == 0{
+			$posyp: $posyp + 120px;
+		}
+	}
+
+	$width: nth($widths, floor($i / 2) + 1);
+
+	$backWidth: 0;
+	@if $i % 2 != 0 {
+		$backWidth: -1 * (1000px - $width);
+	}
+
+
+	.planetView.button#{$rule} {
+		width: $width + px;
+		height: 120px;
+		position: absolute;
+		@if $i % 2 == 0 {
+			left: 0;
+		} @else {
+			right: 0;
+		}
+		top: $posyp + 145px;
+		background: url($CTSpriteBP) $backWidth -1*$posyb;
+		display: none;
+		z-index: 15;
+	}
+	$i: $i + 1;
+}
+
+.planetView.buttonCommerce .button_extension{
+	position: absolute;
+	bottom: 100%;
+	height: 62px;
+	width: 167px;
+	left: 0;
+	background: url($CTSpriteBP) -500px -388px;
+}
+
+.planetView.buttonShipyard .button_extension{
+	position: absolute;
+	bottom: 100%;
+	height: 62px;
+	width: 167px;
+	right: 0;
+	background: url($CTSpriteBP) -333px -388px;
+}
+
+.planetView.buttonShipyard, .planetView.buttonCommerce{
+	z-index: 14;
+}

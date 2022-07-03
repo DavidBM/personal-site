@@ -1,0 +1,42 @@
+<html>
+<head>
+	<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+	<title>Canvas 1</title>
+	<script type="text/javascript" src="js.js"></script>
+	<script type="text/javascript" src="jquery.js"></script>
+	<script type="text/javascript" src="mousewheel.js"></script>
+	<script type="text/javascript" src="lz-string.js"></script>
+	<link rel="stylesheet" type="text/css" href="css.css">
+	<meta name="viewport" content="initial-scale=1.0,minimum-scale=1.0,maximum-scale=1.0,width=device-width,user-scalable=no" />
+</head>
+<body>
+
+<canvas id="micanvas" unselectable="on" class="unselectable"></canvas>
+<div class="interface">
+	<p class="fase fase1 poner_cumulos">P1: Poner supercúmulos</p>
+	<p class="fase fase2 poner_cumulos" style="display:none">P2: Generar cumulos</p>
+	<p class="fase fase3 poner_cumulos" style="display:none">P3: Generar links</p>
+	<p class="fase fase4 poner_cumulos" style="display:none">P4: Generar Sistemas</p>
+	<p class="fase siguiente_fase poner_cumulos">Siguiente fase</p>
+	<p class="datos">Cúmulos: 0</p>
+	<p class="zoom_in">+</p>
+	<p class="zoom_out">-</p>
+</div>
+<img src="sol_alta_resolucion.png" id="imagen_sol_1" style="display: none;"></img>
+
+
+<script type="text/javascript">
+	var canvas = new Canvas();
+
+	$(".zoom_in").bind("mousedown touchstart", function () {
+		canvas.manualZoomInOut("+");
+	});
+
+	$(".zoom_out").bind("mousedown touchstart", function () {
+		canvas.manualZoomInOut("-");
+	});
+</script>
+
+
+</body>
+</html>

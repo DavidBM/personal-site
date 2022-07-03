@@ -1,0 +1,627 @@
+/*Si estas leyendo este css:
+Primero: felicidades, eres curioso, eso es bueno. 
+Segundo: Si ves cosas raras en el css es por el Explorer 6… Si, aún hay gente que lo usa, y no es poca.
+*/
+
+@font-face {
+font-family: "Sansation_l";
+src: url("contenido/SANSATION_LIGHT.TTF");
+}
+@font-face {
+font-family: "Sansation_n";
+src: url("contenido/SANSATION_REGULAR.TTF");
+}
+@font-face {
+font-family: "Sansation_b";
+src: url("contenido/SANSATION_BOLD.TTF");
+}
+
+* {
+margin:0;
+padding:0;
+font-family: "Sansation_n", Arial, Verdana;
+font-size:12px;
+}
+
+a{
+outline: none;
+}
+ 
+ :focus{
+ outline: 0
+ }
+ 
+ .clear{
+ clear:both;
+ height:1px;
+ }
+ 
+body{
+background: #070119 url("contenido/orion-nebula-hd-wallpaper-estrecho.jpg") 50% 0 no-repeat;
+}
+/*%% MENU SISTEMA / SUPERIOR %%*/
+
+#menu_superior{
+height:29px;
+width:100%;
+background: url("contenido/fondo_menu_superior_mini.png") repeat-x;
+}
+
+/*%%%%%%%CUERPO%%%%%%%*/
+
+#cuerpo {
+width:1000px;
+margin:0 auto 50px auto;
+position:relative;
+}
+
+/*%% MENU RECURSOS / ASISTENTE %%*/
+	
+		/*RECURSOS*/
+
+		#menu_recursos{
+		float:left;
+		height:76px;
+		width: 470px;
+		background: url("contenido/fondo_menus_superiores.png") no-repeat !important;
+		background: url("contenido/fondo_menus_superioresie6.png") no-repeat;
+		position:relative;
+		}
+		
+		.recurso_cristal,.recurso_metal,.recurso_protio,.recurso_tritio,.recurso_energia{
+		position: absolute;
+		color: #cfe4ff;
+		font-size: 14px;
+		top:48px;
+		text-align:center;
+		width:80px;
+		line-height:16px;
+		}
+		
+		.recurso_cristal{
+		left:20px;
+		}
+		
+		.recurso_metal{
+		left:108px;
+		}
+		
+		.recurso_protio{
+		left:194px;
+		}
+		
+		.recurso_tritio{
+		left:282px;
+		}
+		
+		.recurso_energia{
+		left:366px;
+		color: #ffc600;
+		}
+		
+		.mostrar_recursos_emergente, .mostrar_recursos_emergente_energia{
+		height:62px;
+		width:88px;
+		float:left;
+		position:relative;
+		left:14px;	
+		}
+		
+		.recurso_emergente, .recurso_emergente_energia{
+		height:38px;
+		width:150px;
+		margin: 0 auto;
+		background: url("contenido/emergente.png") no-repeat;
+		position:relative;
+		top: 54px;
+		left: -34px;
+		display:none;
+		font-family: "Sansation_n", Arial, Verdana;
+		color: #fff;
+		line-height:47px;
+		text-align: center;
+		text-decoration: none;
+		z-index:6;
+		}
+		
+		.recurso_emergente_energia{
+		width:200px;
+		background: url("contenido/emergente.png") 0 -76px no-repeat;
+		top: 55px;
+		left: -55px;
+		display:none;
+		line-height:45px;
+		}
+		
+		.recurso_emergente span, .recurso_emergente_energia span{
+		color: #eee;
+		font-family: "Sansation_n", Arial, Verdana;
+		font-size: 14px;
+		}
+		
+		div.mostrar_recursos_emergente:hover > a.recurso_emergente, 
+		div.mostrar_recursos_emergente_energia:hover > a.recurso_emergente_energia{
+		display:block;
+		}
+		
+		/*ASISTENTE*/
+		
+		#menu_asistentes{
+		float:right;
+		height:74px;
+		width: 474px;
+		background: url("contenido/fondo_menus_superiores.png") 0 -76px no-repeat !important;
+		background: url("contenido/fondo_menus_superioresie6.png") 0 -76px no-repeat;
+		}
+
+/*%%MENU GENERAL ó IZQUIERDA%%*/
+		
+#menu_general {
+width: 252px;
+background: url("contenido/menu-izquierda-fondo.png") repeat-y !important;
+background: url("contenido/menu-izquierda-fondoie6.png") repeat-y;
+float:left;
+position: relative;
+left: 0;
+top: 9px;
+margin-bottom: 60px;
+margin-bottom: 60px;
+clear: both;
+}
+
+#menu_general_fin{
+position:absolute;
+top:100%;
+left:0;
+width:252px;
+height: 59px;
+background: url("contenido/menu-izquierda-fondo_fin.png") no-repeat !important;
+background: url("contenido/menu-izquierda-fondo_finie6.png") no-repeat;
+}
+
+		/*BOTONES*/
+		
+		#menu_general_zona_superior{
+		height:47px;
+		width:252px;
+		position:absolute;
+		top:0;
+		left:0;
+		z-index:5;
+		}
+		
+		#boton_izquierda_galaxia, #boton_izquierda_sector, #boton_izquierda_sistema, #boton_izquierda_planeta, #boton_izquierda_galaxia_active, #boton_izquierda_sector_active, #boton_izquierda_sistema_active, #boton_izquierda_planeta_active{
+		display:block;
+		height:100%;
+		background-image: url("contenido/botones_superior_menu-izquierda.png") !important;
+		background-image: url("contenido/botones_superior_menu-izquierdaie6.png");
+		position: absolute;
+		top:0;
+		}
+			/*botones sin hover ni active*/
+		#boton_izquierda_galaxia{
+		background-position: 0 0;
+		width: 66px;
+		left:0;
+		}
+		
+		#boton_izquierda_sector{
+		background-position: -66px 0;
+		width: 55px;
+		left:66px;
+		}
+		
+		#boton_izquierda_sistema{
+		background-position: -121px 0;
+		width: 56px;
+		left:121px;
+		}
+		
+		#boton_izquierda_planeta{
+		background-position: -177px 0;
+		width: 74px;
+		left:177px;
+		}
+		
+			/*botones con hover*/
+			
+		#boton_izquierda_galaxia:hover{
+		background-position: 0 -47px !important;
+		background-position: 0 0;
+		width: 66px;
+		left:0;
+		}
+		
+		#boton_izquierda_sector:hover{
+		background-position: -66px -47px !important;
+		background-position: -66px 0;
+		width: 55px;
+		left:66px;
+		}
+		
+		#boton_izquierda_sistema:hover{
+		background-position: -121px -47px !important;
+		background-position: -121px 0;
+		width: 56px;
+		left:121px;
+		}
+		
+		#boton_izquierda_planeta:hover{
+		background-position: -177px -47px !important;
+		background-position: -177px 0;
+		width: 74px;
+		left:177px;
+		}
+		
+			/*botones con ative*/
+		#boton_izquierda_galaxia:active{
+		background-position: 0 -94px !important;
+		background-position: 0 0;
+		width: 66px;
+		left:0;
+		}
+		
+		#boton_izquierda_sector:active{
+		background-position: -66px -94px !important;
+		background-position: -66px 0;
+		width: 55px;
+		left:66px;
+		}
+		
+		#boton_izquierda_sistema:active{
+		background-position: -121px -94px !important;
+		background-position: -121px 0;
+		width: 56px;
+		left:121px;
+		}
+		
+		#boton_izquierda_planeta:active{
+		background-position: -177px -94px !important;
+		background-position: -177px 0;
+		width: 74px;
+		left:177px;
+		}
+		
+			/*botones en la seccion actual*/
+		
+		#boton_izquierda_galaxia_active{
+		background-position: 0 -141px;
+		width: 66px;
+		left:0;
+		}
+		
+		#boton_izquierda_sector_active{
+		background-position: -66px -141px;
+		width: 55px;
+		left:66px;
+		}
+		
+		#boton_izquierda_sistema_active{
+		background-position: -121px -141px;
+		width: 56px;
+		left:121px;
+		}
+		
+		#boton_izquierda_planeta_active{
+		background-position: -177px -141px;
+		width: 74px;
+		left:177px;
+		}
+		
+		/*EMERJENTE BOTON IZQUERDA*/
+		
+		.boton_izquierda_emergente{
+		height:38px;
+		width:92px;
+		margin: 0 auto;
+		background: url("contenido/emergente.png") 0 -38px no-repeat;
+		position:absolute;
+		top: -21px;
+		z-index:5;
+		display:none;
+		}
+		
+		.boton_izquierda_emergente a{
+		display:block;
+		height:100%;
+		width:100%;
+		line-height: 24px;
+		color: #fff;
+		text-align:center;
+		font-family: "Sansation_n", Arial, Verdana;
+		text-decoration:none;
+		}
+		
+		a#boton_izquierda_galaxia:hover + p.boton_izquierda_emergente, 
+		a#boton_izquierda_galaxia_active:hover + p.boton_izquierda_emergente, 
+		a#boton_izquierda_galaxia + p.boton_izquierda_emergente:hover, 
+		a#boton_izquierda_galaxia_active + p.boton_izquierda_emergente:hover{
+		display:block;
+		left: -10px;
+		}
+		
+		a#boton_izquierda_sector:hover + p.boton_izquierda_emergente, 
+		a#boton_izquierda_sector_active:hover + p.boton_izquierda_emergente, 
+		a#boton_izquierda_sector + p.boton_izquierda_emergente:hover, 
+		a#boton_izquierda_sector_active + p.boton_izquierda_emergente:hover{
+		display:block;
+		left: 49px;
+		}
+		
+		a#boton_izquierda_sistema:hover + p.boton_izquierda_emergente, 
+		a#boton_izquierda_sistema_active:hover + p.boton_izquierda_emergente, 
+		a#boton_izquierda_sistema + p.boton_izquierda_emergente:hover, 
+		a#boton_izquierda_sistema_active + p.boton_izquierda_emergente:hover{
+		display:block;
+		left: 103px;
+		}
+		
+		a#boton_izquierda_planeta:hover + p.boton_izquierda_emergente, 
+		a#boton_izquierda_planeta_active:hover + p.boton_izquierda_emergente, 
+		a#boton_izquierda_planeta + p.boton_izquierda_emergente:hover, 
+		a#boton_izquierda_planeta_active + p.boton_izquierda_emergente:hover{
+		display:block;
+		left: 153px;
+		}
+		
+		/*ZONA INFERIOR MENU IZQUIERDA*/
+		
+		#menu_general_zona_inferior{
+		margin: 0 auto;
+		width: 240px;
+		height: 100px; /*es un min-height, pero explorer 6 no lo entiende*/
+		position:relative;
+		top: 47px;
+		}
+		
+		/*NOTIFICACION GENERAL*/
+		
+		#notificacion_general, #notificacion_general_informes, #notificacion_general_combates{
+		display:block;
+		height:45px;
+		width:50px;
+		position:absolute;
+		top: -21px;
+		left: 224px;
+		z-index:5;
+		}
+		
+		#notificacion_general{
+		background: url("contenido/Boton_de_estado_general.png") 0 0 !important;
+		background: url("contenido/Boton_de_estado_generalie6.png") 0 0 ;
+		}
+		
+		#notificacion_general_informes{
+		background: url("contenido/Boton_de_estado_general.png") 0 -116px !important;
+		background: url("contenido/Boton_de_estado_generalie6.png") 0 -116px ;
+		}
+		
+		#notificacion_general_combates{
+		background: url("contenido/Boton_de_estado_general.png") 0 -228px !important;
+		background: url("contenido/Boton_de_estado_generalie6.png") 0 -228px ;
+		}
+		
+		#notificacion_general:active{
+		background-position: 0 -60px !important; 
+		}
+		
+		#notificacion_general_informes:active{
+		background-position: 0 -172px !important; 
+		}
+		
+		#notificacion_general_combates:active{
+		background-position: 0 -284px !important; 
+		}
+
+/*%% CUERPO CENTRO %%*/
+
+#cuerpo_centro {
+width: 727px;
+position: relative;
+float:left;
+top:9px;
+left:2px;
+background: url("contenido/centro_fondo.png") !important;
+background: url("contenido/centro_fondoie6.png");
+margin-bottom: 150px;
+}
+
+#cuerpo_centro_fin{
+position:absolute;
+top:100%;
+left:0;
+background: url("contenido/centro_fondo_fin.png") no-repeat !important;
+background: url("contenido/centro_fondo_finie6.png") no-repeat;
+height: 93px;
+width: 727px;
+z-index:1 !important;
+*z-index:-1 !important;
+z-index:-1;
+}
+
+		/*TITULO*/
+		
+		#titulo_centro{
+		height: 47px;
+		width:100%;
+		position:absolute;
+		top: 0;
+		left: 0;
+		}
+		
+		#titulo_centro_img{
+		width:400px;
+		height:47px;
+		position:absolute;
+		left:55px;
+		top:4px;
+		background: url("contenido/Titulo_ventana.png") no-repeat !important;
+		background: url("contenido/Titulo_ventanaie6.png") no-repeat;
+		}
+		
+		/*MENU PLANETAS FLECHA*/
+		
+		.punto_borde_absolute_100_0{
+		position:absolute;
+		top:0;
+		left:100%;
+		height:0;
+		width:0;
+		}
+		
+		#flecha_menu_planetas, #flecha_menu_planetas_active{
+		height:43px;
+		width:216px;
+		position:absolute;
+		z-index:5;
+		top: 3px;
+		right: 4px;
+		background: transparent;
+		cursor:pointer;
+		}
+		
+		div#flecha_menu_planetas:hover, #flecha_menu_planetas_active{
+		background: url("contenido/flecha_menu_planetas.png") 100% 0 no-repeat !important;
+		background: url("contenido/flecha_menu_planetasie6.png") 100% 0 no-repeat;
+		}
+		
+		div#flecha_menu_planetas:active, #flecha_menu_planetas_active:active{
+		background: url("contenido/flecha_menu_planetas.png") 100% -43px no-repeat !important;
+		background: url("contenido/flecha_menu_planetasie6.png") 100% 0 no-repeat;
+		}
+		
+		/*LISTA PLANETAS*/
+		
+		#lista_planetas{
+		height:47px;
+		width: 216px;
+		float:right;
+		position:relative;
+		z-index:5;
+		}
+		
+		#lista_planetas_lista{
+		background: url("contenido/lista_desplegable_planetas_fondo.png") no-repeat !important;
+		background: url("contenido/lista_desplegable_planetas_fondoie6.png") no-repeat;
+		width:100%;
+		position:absolute;
+		top:42px;
+		left:0;
+		display:none;
+		z-index:5;
+		}
+		
+		#lista_planetas_lista_fin{
+		background: url("contenido/lista_desplegable_planetas_fondo_fin.png") no-repeat;
+		position:absolute;
+		top:100%;
+		left:1px;
+		width: 210px;
+		height: 21px;
+		z-index:5;
+		}
+		
+		.planeta_de_la_lista{
+		height:47px;
+		width:100%;
+		position:relative;
+		}
+		
+		.planeta_de_la_lista img{
+		position:absolute;
+		top:9px;
+		left:10px;
+		}
+		
+		.planeta_de_la_lista p{
+		width:150px;
+		float:left;
+		padding: 0 0 0 70px;
+		text-align:left;
+		position:relative;
+		top:11px;
+		right: 20px;
+		color: #fff;
+		font-size:16px;
+		font-family: "Sansation_b", Arial, Verdana;
+		line-height:14px;
+		}
+		
+		.planeta_de_la_lista span{
+		color: #00d2ff;
+		}
+		
+		.iehackablock{
+		display:block;
+		text-decoration: none !important;
+		text-decoration: underline;
+		color: #fff;
+		}
+		 
+		 /*---*/
+		
+		.planeta_de_la_lista_active{
+		position:absolute;
+		top:0;
+		left:0;
+		}
+		
+		.planeta_de_la_lista_active img{
+		position:absolute;
+		top:8px;
+		left:4px;
+		}
+		
+		.planeta_de_la_lista_active p{
+		width:150px;
+		float:left;
+		text-align:left;
+		position:relative;
+		top:11px;
+		left:39px;
+		color: #fff;
+		font-size:16px;
+		font-family: "Sansation_b", Arial, Verdana;
+		line-height:14px;
+		}
+		
+		.planeta_de_la_lista span{
+		color: #00d2ff;
+		}
+		
+		/*---*/
+		
+		span.texto_verde_lista_planetas{
+		color: #12ff00;
+		}
+		
+		span.texto_amarillo_lista_planetas{
+		color: #ffde00;
+		}
+		
+		span.texto_rojo_lista_planetas{
+		color: #ff1e00;
+		}
+		
+		.planeta_lista_hover{
+		display:block;
+		position:absolute;
+		top:0;
+		left:0;
+		height:100%;
+		width:100%;
+		}
+		
+		div.planeta_de_la_lista:hover{
+			background: url("contenido/fondo_planetas_lista_planetas.png") 5px 8px no-repeat;
+		}
+		
+	/*CONTENIDO CENTRO*/
+	
+		#contenido_centro{
+		height:300px;
+		width:705px;
+		position:relative;
+		top: 63px;
+		left: 11px
+		}

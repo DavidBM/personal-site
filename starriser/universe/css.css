@@ -1,0 +1,102 @@
+* {
+	margin: 0;
+	padding: 0;
+}
+
+body {
+	width: 100%;
+	height: 100%;
+	background: #000;
+}
+
+.unselectable {
+	-webkit-touch-callout: none; 
+	-webkit-user-select: none; 
+	-khtml-user-select: none; 
+	-moz-user-select: none; 
+	-ms-user-select: none; 
+	user-select: none; 
+}
+
+#micanvas {
+	position: absolute; 
+	height: 100%; 
+	width: 100%;
+	background: url("fondo_galaxia.gif");
+}
+
+.zoom_in, .zoom_out{
+	position: absolute;
+	display: block;
+	line-height: 50px;
+	height: 52px;
+	bottom: 10px;
+	left: 10px;
+	width: 52px;
+	background: #fff;
+	color: #000;
+	border-radius: 5px 0 0 5px;
+	text-align: center;
+	font-size: 24px;
+	z-index: 10;
+	cursor: pointer;
+}
+
+.zoom_out{
+	bottom: 10px;
+	left: 63px;
+	border-radius: 0 5px 5px 0;
+}
+
+.interface{
+	position: absolute;
+	top: 0;
+	left: 0;
+	bottom: 0;
+	width: 200px;
+	background: rgba(50, 50, 50, 0.7);
+}
+
+.fase{
+	float: left;
+	width: 160px;
+	margin: 10px;
+	padding: 0 10px;
+	background: #555566;
+	font-family: "Courier New", Courier, monospace;
+	color: #ffffff;
+	line-height: 35px;
+	border-radius: 2px;
+	font-size: 12px;
+	cursor: pointer;
+}
+
+.fase:hover{
+	float: left;
+	padding: 0 9px;
+	line-height: 33px;
+	border: solid 1px #777788;
+
+}
+
+.siguiente_fase{
+	background: #898326;
+}
+
+.siguiente_fase:hover{
+	border-color: #C4B91B;
+}
+
+.datos{
+	position: absolute;
+	bottom: 80px;
+	line-height: 25px;
+	color: #000000;
+	font-family: "Courier New", Courier, monospace;
+	text-align: center;
+	display: block;
+	width: 180px;
+	left: 10px;
+	background: #999999;
+	border-radius: 2px;
+}

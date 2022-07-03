@@ -1,0 +1,290 @@
+/* http://meyerweb.com/eric/tools/css/reset/ 
+   v2.0 | 20110126
+   License: none (public domain)
+*/
+
+html, body, div, span, applet, object, iframe,
+h1, h2, h3, h4, h5, h6, p, blockquote, pre,
+a, abbr, acronym, address, big, cite, code,
+del, dfn, em, img, ins, kbd, q, s, samp,
+small, strike, strong, sub, sup, tt, var,
+b, u, i, center,
+dl, dt, dd, ol, ul, li,
+fieldset, form, label, legend,
+table, caption, tbody, tfoot, thead, tr, th, td,
+article, aside, canvas, details, embed, 
+figure, figcaption, footer, header, hgroup, 
+menu, nav, output, ruby, section, summary,
+time, mark, audio, video {
+	margin: 0;
+	padding: 0;
+	border: 0;
+	font-size: 100%;
+	/*font: inherit;*/
+	vertical-align: baseline;
+}
+/* HTML5 display-role reset for older browsers */
+article, aside, details, figcaption, figure, 
+footer, header, hgroup, menu, nav, section {
+	display: block;
+}
+body {
+	line-height: 1;
+}
+ol, ul {
+	list-style: none;
+}
+blockquote, q {
+	quotes: none;
+}
+blockquote:before, blockquote:after,
+q:before, q:after {
+	content: '';
+	content: none;
+}
+table {
+	border-collapse: collapse;
+	border-spacing: 0;
+}
+/********************************/
+
+*{
+	font-family: 'Press Start 2P', cursive;
+}
+
+textarea, input, select {
+    border: 3px solid #000000;
+}
+
+.ventana_juego, .ventana_menu, .ventana_juego_editor, #canvas {
+	margin: 25px auto;
+	background: #9f9f9f;
+	border: 10px solid #000;
+	position: relative;
+}
+
+.ventana_juego_editor{
+	background: url("contenido/cuadricula.png");
+	cursor: default;
+}
+
+.title{
+	background: url("contenido/title.png");
+	height: 150px;
+	width: 900px;
+	margin: 0 auto;
+}
+
+.boton_menu_play{
+	padding: 20px 0;
+	margin: 30px auto;
+	border: 10px solid #fff;
+	background: #000;
+	width: 650px;
+	text-align: center;
+	color: #fff;
+	font-size: 32px;
+	cursor: pointer;
+}
+
+
+.boton_menu_option{
+	padding: 20px 0;
+	margin: 15px auto;
+	border: 5px solid #eee;
+	background: #000;
+	width: 500px;
+	text-align: center;
+	color: #fff;
+	font-size: 32px;
+	cursor: pointer;
+}
+
+.cuadro_pared_normal, .snake_block, .cuadro_isotope, .walker_block, .beast_block, .shooter_block, .cuadro_winnerpoint{
+	background: #000;
+	position: absolute;
+}
+
+.snake_block{
+	background: #0BE39B;
+	/*box-shadow: 0 0 5px #0BE39B;*/
+}
+
+.snake_block_l1{
+	background: #39FABA;
+	/*box-shadow: 0 0 5px #39FABA;*/
+}
+
+.snake_block_l2{
+	background: #BAFFE8;
+	/*box-shadow: 0 0 5px #BAFFE8, 0 0 5px #BAFFE8;*/
+}
+
+.snake_block_l3{
+	background: #DBFFF3;
+	/*box-shadow: 0 0 5px #fff, 0 0 5px #DBFFF3;*/
+}
+
+.snake_block_l4{
+	background: #F2FFFB;
+	/*box-shadow: 0 0 5px #DBFFF3, 0 0 5px #F2FFFB;*/
+}
+
+.cuadro_isotope{
+	background: #BAFFE8;
+	/*box-shadow: 0 0 5px #BAFFE8, 0 0 35px #BAFFE8, 0 0 15px #39FABA;*/
+}
+.cuadro_winnerpoint{
+	background: #99FF6B;
+	/*box-shadow: 0 0 3px 1px #99FF6B;*/
+}
+
+
+.walker_block{
+	background: #112970;
+	/*box-shadow: 0 0 3px 1px #112970;*/
+}
+.shooter_block{
+	background: #5B116D;
+	/*box-shadow: 0 0 3px 1px #5B116D;*/
+}
+.beast_block{
+	background: #6D111D;
+	/*box-shadow: 0 0 3px 1px #6D111D;*/
+}
+
+.canvas_map_editor{
+	width: 1200px;
+	position: relative;
+	margin: 0 auto;
+}
+
+.menu_map_editor{
+	width: 1200px;
+	height: 111px;
+	border: 1px solid #000;
+	margin: 10px auto;
+}
+
+.menu_map_editor p, .menu_map_editor input, .menu_map_editor select, .boton_select_map{
+    border: 3px solid #000000;
+    float: left;
+    height: 19px;
+    line-height: 19px;
+    margin: 3px;
+    padding: 3px;
+    cursor: pointer;
+    font-size: 16px;
+}
+
+.boton_select_map{
+    background: none repeat scroll 0 0 #FFFFFF;
+    float: none;
+    margin: 5px auto;
+    width: 480px;
+}
+
+.menu_map_editor select{
+	height: 31px;
+}
+
+.menu_map_editor input{
+	width: 100px;
+}
+
+input.editor_map_input_name{
+	width: 250px;
+}
+
+input.editor_map_input_name_r{
+	width: 250px;
+	float: right;
+}
+
+.menu_map_editor p:hover, .menu_map_editor p.active{
+	color: #fff;
+	background-color: #000;
+	border-color: #fff;
+}
+
+.information_map_editor{
+	border: none !important;
+	background: none !important;
+	color: #000 !important;
+	position: relative;
+	top: 3px;
+}
+
+.import_map_menu{
+	width: 500px;
+	position: absolute;
+	left: 330px;
+	top: 200px;
+	background: #fff;
+	border: 3px solid #000;
+	padding: 20px;
+}
+
+.import_map_menu textarea{
+	width: 494px;
+}
+
+.import_map_menu p{
+    border: 3px solid #000000;
+    float: left;
+    height: 19px;
+    line-height: 19px;
+    margin: 3px 6px 3px 0;
+    padding: 3px;
+    cursor: pointer;
+    font-size: 16px;
+}
+
+.import_map_menu p:hover{
+	color: #fff;
+	background-color: #000;
+	border-color: #fff;
+}
+
+.div_50_porcien{
+	float: left;
+	width: 50%;
+	height: 529px;
+	overflow-x: hidden;
+	overflow-y: auto;
+}
+
+.atras_map_menu{
+	margin: 5px;
+	font-size: 60px;
+	cursor: pointer;
+}
+
+.objetivo_pantalla{
+    background: none repeat scroll 0 0 #FFFFFF;
+    border: 3px solid #000000;
+    font-size: 16px;
+    left: 688px;
+    padding: 20px;
+    position: absolute;
+    top: 88px;
+    width: 500px;
+    z-index: 50;
+    text-align: center;
+}
+
+.boton_dificultad{
+    background: none repeat scroll 0 0 #000000;
+    border: 3px solid #FFFFFF;
+    color: #FFFFFF;
+    font-size: 8px;
+    margin: 10px;
+    padding: 10px;
+    position: absolute;
+    right: 0;
+    top: -1px;
+}
+
+.borrar_mapa{
+	float: right;
+}

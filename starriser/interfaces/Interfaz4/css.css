@@ -1,0 +1,1515 @@
+/* http://meyerweb.com/eric/tools/css/reset/ 
+   v2.0 | 20110126
+   License: none (public domain)
+*/
+
+html, body, div, span, applet, object, iframe,
+h1, h2, h3, h4, h5, h6, p, blockquote, pre,
+a, abbr, acronym, address, big, cite, code,
+del, dfn, em, img, ins, kbd, q, s, samp,
+small, strike, strong, sub, sup, tt, var,
+b, u, i, center,
+dl, dt, dd, ol, ul, li,
+fieldset, form, label, legend,
+table, caption, tbody, tfoot, thead, tr, th, td,
+article, aside, canvas, details, embed, 
+figure, figcaption, footer, header, hgroup, 
+menu, nav, output, ruby, section, summary,
+time, mark, audio, video {
+	margin: 0;
+	padding: 0;
+	border: 0;
+	font-size: 100%;
+	font: inherit;
+	vertical-align: baseline;
+}
+/* HTML5 display-role reset for older browsers */
+article, aside, details, figcaption, figure, 
+footer, header, hgroup, menu, nav, section {
+	display: block;
+}
+body {
+	line-height: 1;
+}
+ol, ul {
+	list-style: none;
+}
+blockquote, q {
+	quotes: none;
+}
+blockquote:before, blockquote:after,
+q:before, q:after {
+	content: '';
+	content: none;
+}
+table {
+	border-collapse: collapse;
+	border-spacing: 0;
+}
+
+
+/*Si estas leyendo este css:
+Primero: felicidades, eres curioso, eso es bueno. 
+Segundo: Si ves cosas raras en el css es por Explorer
+*/
+
+@font-face {
+font-family: 	"Sansation_l";
+src: 			url("contenido/SANSATION_LIGHT.TTF");
+}
+@font-face {
+font-family: 	"Sansation_n";
+src: 			url("contenido/SANSATION_REGULAR.TTF");
+}
+@font-face {
+font-family: 	"Sansation_b";
+src: 			url("contenido/SANSATION_BOLD.TTF");
+}
+
+* {
+margin:			0;
+padding:		0;
+font-family: 	"Sansation_n", Arial, Verdana !important;
+font-size:		12px;
+color: #e8e8e8;
+}
+
+textarea {
+	resize: 	none;
+}
+
+a{
+	outline: 	none;
+}
+
+body, html{
+	height: 	100%;
+	width: 		100%;
+	min-width:  1000px;
+}
+
+body{
+	position: relative;
+}
+
+.clear{
+	clear: both;
+	height: 1px;
+}
+
+.texto_rojo{
+	color: #FF2E2E;
+}
+
+.texto_verde{
+	color: #14C729;
+}
+
+.texto_azul {
+    color: #00BBFF;
+}
+
+#menu_superior{
+	height:		29px;
+	width:		100%;
+	min-width:  1000px;
+	background: url("contenido/fondo_menu_superior_mini.png") repeat-x;
+	position:	absolute;
+	top: 		0;
+	left:		0;
+	z-index:  	3;
+}
+
+#menu_superior_recursos{
+    background: url("contenido/fondo_menu_superior.png");
+    height: 79px;
+    position: absolute;
+    top: 29px;
+    width: 997px;
+    z-index: 2;
+}
+
+#galaxia{
+	background: url("contenido/fondo_galaxia.png");
+	position:	absolute;
+	top:  		0;
+	left: 		0;
+	z-index:  	0;
+	min-width: 	1000px;
+}
+
+.univer_background, .univer_marcadores{
+    position: absolute;
+}
+
+.univers_image {
+    height: 	100%;
+    left: 		0;
+    position: 	absolute;
+    top: 		0;
+    width: 		100%;
+    z-index: 	0;
+    overflow:	hidden;
+}
+
+.univers_image img{
+	width: 		100%;
+	height: 	100%;
+}
+
+.univers_sector{
+	border: 	1px solid #2D6980;
+	border: 	1px solid rgba(0,187,255,.2);
+	background: rgba(0,187,255, 0.035);
+}
+
+.soles_sector_padre{
+	width: 		100%;
+	height: 	100%;
+	display: 	block;
+	position:	relative;
+	overflow: 	hidden;
+}
+
+.sector_sol{
+	position: 	absolute;
+	display: 	none;
+}
+
+.sol_fondo_orbitas{ 
+	height: 	0%;
+	width: 		0%;
+	margin:		0;
+	position: 	absolute;
+	top: 		50%;
+	left:		50%;
+	display:	none;
+}
+.sol_fondo_orbitas img{ 
+	height: 	100%;
+	width: 		100%;
+	margin:		0;
+	position: 	absolute;
+	top: 		0%;
+	left:		0%;
+}
+
+.sol_fondo_contenedor{
+	height: 	60%;
+	width: 		60%;
+	position:	absolute;
+}
+
+.sol_fondo{ 
+	height: 	20%;
+	width: 		20%;
+	margin:		40%;
+	position: 	absolute;
+	top: 		0;
+	left:		0;
+}
+
+.sol_fondo_planeta{
+	height: 	5%;
+	width: 		5%;
+	position: 	absolute;
+	cursor: pointer;
+}
+
+.sol_fondo_planeta img{
+	height: 	100%;
+	width: 		100%;
+	position: 	absolute;
+	margin:		0;
+	top:		0;
+	left:		0;
+}
+
+.centro_universo_sector{
+	background: rgba(0, 0 ,0 , 0.1);
+}
+
+.select_drag_background{
+	position: 	absolute;
+	top:		0;
+	left: 		0;
+	width: 		100%;
+	height: 	100%;
+	z-index: 	100;
+}
+
+.marcador_galaxia{
+	background: url("contenido/marcadores.png");
+	width: 		32px;
+	height: 	49px;
+	margin: 	-46px 0 0 -15px;
+	position:	absolute;
+	z-index: 	5;
+	cursor: 	pointer;
+}
+
+.marcador_galaxia_titulo{
+	width: 		110px;
+	text-align: center;
+	padding: 	2px 5px;
+	background: url("contenido/fondo_titulo_marcadores.png");
+	height: 	21px;
+	color: 		#BFF0FF;
+	margin: 	-20px 0 0 -44px;
+	line-height:20px;
+	opacity: 	0.8;
+	font-size: 	13px;
+}
+
+.marcador_azul{
+	background-position: 0 0;
+}
+
+.marcador_naranja{
+	background-position: -32px 0;
+}
+
+.marcador_amarillo{
+	background-position: -64px 0;
+}
+
+.marcador_verde{
+	background-position: -96px 0;
+}
+
+.marcador_rojo{
+	background-position: -128px 0;
+}
+
+.marcador_violeta{
+	background-position: -160px 0;
+}
+
+.marcador_celeste{
+	background-position: -192px 0;
+}
+
+.marcador_morado{
+	background-position: -224px 0;
+}
+
+.multimarcador{
+	background-position: 0 -49px;
+	width: 		48px;
+	margin: 	-48px 0 0 -23px;
+}
+
+.multimarcador .marcador_galaxia_titulo{
+	margin: 	-20px 0 0 -36px;
+}
+
+#interfaz_imagen_planeta{
+    background: url("contenido/info_planeta_fondo.png") repeat scroll 0 0 transparent;
+    bottom: 0;
+    height: 245px;
+    left: 0;
+    position: absolute;
+    width: 242px;
+}
+
+#interfaz_datos_planeta{
+    background: url("contenido/info_planeta_fondo.png") repeat scroll -242px -190px transparent;
+    bottom: 0;
+    height: 55px;
+    left: 242px;
+    position: absolute;
+    width: 475px;
+}
+
+#interfaz_datos_botones{
+    background: url("contenido/botones_fondo.png") repeat scroll 0 0 transparent;
+    bottom: 153px;
+    height: 113px;
+    left: 0;
+    position: absolute;
+    width: 105px;
+}
+
+.info_planeta_sol{
+    background: url("contenido/info_planetas_soles.png") repeat scroll 0 0 transparent;
+    height: 245px;
+    width: 242px;
+}
+
+.info_planeta_planeta{
+    background: url("contenido/info_planetas_planeta.png") repeat scroll 0 0 transparent;
+    height: 100%;
+    width: 100%;
+    position: absolute;
+    bottom: 0;
+    cursor: pointer;
+}
+
+.boton_interfaz1{
+	background: url("contenido/botones_interfaz1.png") 0 0;
+	height: 42px;
+	width: 100px;
+	float: left;
+	position: relative;
+	top: 15px;
+	left: 2px;
+	cursor: pointer;
+}
+
+.boton_interfaz1 p{
+    background: none repeat scroll 0 0 #232C2D;
+    border: 1px solid #3DC5D4;
+    border-radius: 3px 3px 3px 3px;
+    box-shadow: 0 0 3px #3DC5D4;
+    display: none;
+    font-family: sansation_l;
+    font-size: 12px;
+    left: 106px;
+    padding: 2px;
+    position: absolute;
+    top: 12px;
+    width: 300px;
+    z-index: 5;
+}
+
+.boton_interfaz1:hover p{
+	display: block;
+}
+
+.boton_interfaz_mensaje{
+	background-position: 0 -47px;
+}
+
+.boton_interfaz_atacar{
+	background-position: 0 -282px;
+}
+
+.boton_interfaz_desplegar{
+	background-position: 0 -188px;
+}
+
+.boton_interfaz_bloquear{
+	background-position: 0 -94px;
+}
+
+.boton_interfaz_ocupar{
+	background-position: 0 -141px;
+}
+
+.boton_interfaz_enviar_recursos{
+	background-position: 0 -235px;
+}
+
+.boton_interfaz_espiar{
+	background-position: 0 -329px;
+}
+
+.boton_interfaz_zoom{
+	background-position: 0 -376px;
+}
+
+.boton_interfaz_poner_marcador{
+	background-position: 0 -423px;
+}
+
+.boton_interfaz_borrar_marcador{
+	background-position: 0 -470px;
+}
+
+.boton_entrar_planeta{
+	background-position: 0 -517px;
+}
+/* Hover... maldito mozilla y w3c que no quieren poner background-position-x...*/
+
+.boton_interfaz_colonizar:hover{
+	background-position: -99px 0;
+}
+
+.boton_interfaz_mensaje:hover{
+	background-position: -99px -47px;
+}
+
+.boton_interfaz_atacar:hover{
+	background-position: -99px -282px;
+}
+
+.boton_interfaz_desplegar:hover{
+	background-position: -99px -188px;
+}
+
+.boton_interfaz_bloquear:hover{
+	background-position: -99px -94px;
+}
+
+.boton_interfaz_ocupar:hover{
+	background-position: -99px -141px;
+}
+
+.boton_interfaz_enviar_recursos:hover{
+	background-position: -99px -235px;
+}
+
+.boton_interfaz_espiar:hover{
+	background-position: -99px -329px;
+}
+
+.boton_interfaz_zoom:hover{
+	background-position: -99px -376px;
+}
+
+.boton_interfaz_poner_marcador:hover{
+	background-position: -99px -423px;
+}
+
+.boton_interfaz_borrar_marcador:hover{
+	background-position: -99px -470px;
+}
+
+.boton_entrar_planeta:hover{
+	background-position: -99px -517px;
+}
+/*Active*/
+.boton_interfaz_colonizar:active{
+	background-position: -197px 0;
+}
+
+.boton_interfaz_mensaje:active{
+	background-position: -197px -47px;
+}
+
+.boton_interfaz_atacar:active{
+	background-position: -197px -282px;
+}
+
+.boton_interfaz_desplegar:active{
+	background-position: -197px -188px;
+}
+
+.boton_interfaz_bloquear:active{
+	background-position: -197px -94px;
+}
+
+.boton_interfaz_ocupar:active{
+	background-position: -197px -141px;
+}
+
+.boton_interfaz_enviar_recursos:active{
+	background-position: -197px -235px;
+}
+
+.boton_interfaz_espiar:active{
+	background-position: -197px -329px;
+}
+
+.boton_interfaz_zoom:active{
+	background-position: -197px -376px;
+}
+
+.boton_interfaz_poner_marcador:active{
+	background-position: -197px -423px;
+}
+
+.boton_interfaz_borrar_marcador:active{
+	background-position: -197px -470px;
+}
+
+.boton_entrar_planeta:active{
+	background-position: -197px -517px;
+}
+
+.interfaz_informacion_planeta{
+    float: left;
+    font-size: 14px;
+    height: 20px;
+    margin: 13px 10px -12px 6px;
+    overflow: hidden;
+    width: 219px;
+    word-wrap: break-word;
+    white-space: nowrap;
+}
+
+.interfaz_informacion_planeta span{
+    font-size: 14px;
+    word-wrap: break-word;
+    position: fixed;
+    white-space: pre-wrap;
+}
+
+.nombre_planeta_en_galaxia{
+    background: 0 0 #111111;
+    border: 1px solid #333333;
+    border-radius: 3px;
+    bottom: -34%;
+    cursor: pointer;
+    font-family: "sansation_l";
+    font-size: 11.0329px;
+    left: -85%;
+    padding: 2px;
+    position: relative;
+    text-align: center;
+    width: 270%;
+}
+
+.ventana_principal_padre_contenedor{
+	min-height: 100%;
+	position: relative;
+	top: 0;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	display: none;
+	z-index: 1;
+}
+
+.ventana_principal_fondo{
+	width: 1046px;
+	position: relative;
+	top: 0;
+	left: 0;
+	height: 100%;
+	margin: 0 auto 0 auto;
+	padding: 0;
+	background: url("contenido/fondo_menu_principal_01.png") 0 0 no-repeat;
+	overflow: hidden;
+	z-index: 2;
+}
+
+.ventana_principal_fondo_footer{
+	width: 1046px;
+	position: absolute;
+	bottom: 0;
+	left: 0;
+	height: 31px;
+	background: url("contenido/fondo_menu_principal_03.png") 0 -15px no-repeat;
+}
+
+.ventana_principal_fondo_fondo{
+	width: 100%;
+	position: absolute;
+	top: 0;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	margin: 0 auto 0 auto;
+	padding: 0;
+	background: url("contenido/fondo_hd.jpg") 0 0 #000;
+	overflow: hidden;
+	z-index: 1;
+}
+
+.ventana_principal_titulo{
+	margin: 128px 50px 5px 50px;
+    height: 40px;
+    width: auto;
+    text-align: center;
+	font-size: 28px;
+    white-space: nowrap;
+}
+
+.ventana_principal_cerrar{
+    cursor: pointer;
+    height: 32px;
+    position: absolute;
+    right: 34px;
+    text-align: center;
+    top: 127px;
+    width: 32px;
+}
+
+.ventana_principal_contenedor{
+	margin: 0;
+    padding: 0 17px 3px 17px;
+    margin-bottom: 31px;
+    top: 165px;
+    width: auto;
+    background: url("contenido/fondo_menu_principal_02.png") repeat-y;
+}
+
+/*Selector único css*/
+
+.selector_opcion_tactil_central, .selector_opcion_tactil_final, .selector_opcion_tactil_inicio{
+	height: 40px;
+	cursor: pointer;
+	float: left;
+	padding: 0 10px;
+}
+
+.selector_opcion_tactil_central p, .selector_opcion_tactil_final p, .selector_opcion_tactil_inicio p{
+	color: #222;
+	line-height: 37px;
+	font-size: 16px;
+}
+
+.selector_opcion_tactil_active p, .selector_opcion_tactil_final_active p, .selector_opcion_tactil_inicio_active p{
+	color: inherit;
+}
+
+.selector_opcion_tactil_central{
+	background: url("contenido/selector_unico.png") 0 0;
+}
+.selector_opcion_tactil_central:hover{
+	background-position: 0 -40px;
+}
+
+.selector_opcion_tactil_central_active{
+	background-position: 0 -80px !important;
+}
+
+
+.selector_opcion_tactil_inicio{
+	background: url("contenido/selector_unico.png") 0 -120px;
+}
+.selector_opcion_tactil_inicio:hover{
+	background-position: 0 -160px;
+}
+
+.selector_opcion_tactil_inicio_active{
+	background-position: 0 -200px !important;
+}
+
+
+.selector_opcion_tactil_final{
+	background: url("contenido/selector_unico.png") 100% -240px;
+}
+.selector_opcion_tactil_final:hover{
+	background-position: 100% -280px;
+}
+
+.selector_opcion_tactil_final_active{
+	background-position: 100% -320px !important;
+}
+
+/*FIN selector unico*/
+
+/*Escribir mensaje*/
+.escribir_mensaje{
+	background: url("contenido/fondo_enviar_mensaje.png") -1px 0;
+	width: 1014px;
+	height: 508px;
+}
+
+.escribir_mensaje_controles{
+	padding: 5px 20px;
+	height: 80px;
+	position: relative;
+}
+
+.escribir_mensaje > textarea {
+    background:transparent;
+    border: none;
+    display: block;
+    font-size: 14px;
+    height: 395px;
+    margin: 0 auto;
+    padding: 0 0 10px;
+    width: 980px;
+}
+
+.enviar_mensaje_destinatario{
+    height: 31px;
+    left: 15px;
+    position: absolute;
+    top: 10px;
+    width: 400px;
+}
+
+.enviar_mensaje_selector_unico_ali_usu{
+	float: right;
+	position: relative;
+	top: -7px;
+	margin: 0 0 0 15px;
+}
+
+.enviar_mensaje_destinatario > p{
+	float: left;
+	line-height: 25px;
+}
+
+.enviar_mensaje_input_nombre{
+    height: 31px;
+    left: 15px;
+    position: absolute;
+    top: 48px;
+    width: 400px;
+}
+
+.enviar_mensaje_input_nombre > p{
+	float: left;
+	line-height: 25px;
+}
+
+.enviar_mensaje_input_nombre > input{
+    background: #001926;
+    border: 1px solid #999999;
+    border-radius: 2px;
+    float: right;
+    font-size: 16px;
+    margin: 0 5px 0 15px;
+    padding: 2px;
+    width: 250px;
+}
+
+.escribir_mensaje_radix{
+    height: 66px;
+    left: 500px;
+    position: absolute;
+    top: 9px;
+    width: 165px;
+}
+
+/*Selector radio opcion*/
+.selector_check_opcion{
+	width: 100%;
+	display: block;
+}
+
+.selector_check_opcion input{
+	float:right;
+}
+
+/*FIN*/
+
+.boton_enviar_mensaje_g{
+    height: 66px;
+    position: absolute;
+    right: 9px;
+    top: 9px;
+    width: 165px;
+}
+
+.cuadro_un_tercio_menu, .cuadro_un_tercio_menu_d{
+    background: none repeat scroll 0 0 #020E14;
+    border-radius: 3px 3px 3px 3px;
+    box-shadow: 0 0 10px #000000, 0 0 2px #51A8EF inset;
+    float: left;
+    margin: 1%;
+    width: 29.3%;
+    padding: 1%;
+}
+
+.cuadro_dos_tercio_menu, .cuadro_dos_tercio_menu_d{
+    background: none repeat scroll 0 0 #020E14;
+    border-radius: 3px 3px 3px 3px;
+    box-shadow: 0 0 10px #000000, 0 0 2px #51A8EF inset;
+    float: left;
+    margin: 1%;
+    width: 62.6%;
+    padding: 1%;
+}
+
+.cuadro_mitad_menu, .cuadro_mitad_menu_d{
+    background: none repeat scroll 0 0 #020E14;
+    border-radius: 3px 3px 3px 3px;
+    box-shadow: 0 0 10px #000000, 0 0 2px #51A8EF inset;
+    float: left;
+    margin: 1%;
+    width: 46%;
+    padding: 1%;
+}
+
+.cuadro_completo_menu, .cuadro_completo_menu_d{
+    background: none repeat scroll 0 0 #020E14;
+    border-radius: 3px 3px 3px 3px;
+    box-shadow: 0 0 10px #000000, 0 0 2px #51A8EF inset;
+    float: left;
+    margin: 1%;
+    width: 96%;
+    padding: 1%;
+}
+
+.cuadro_un_tercio_menu_d{
+    float: right;
+}
+
+.cuadro_mitad_menu_d{
+    float: right;
+}
+
+.cuadro_dos_tercio_menu_d{
+    float: right;
+}
+
+.cuadro_completo_menu_d{
+    float: right;
+}
+
+.enviar_tropas_info{
+	height: 119px;
+}
+
+.enviar_tropas_info p{
+	float: left;
+	width: 100%;
+	margin: 2px 0;
+}
+
+.enviar_tropas_info p span{
+	float: right;
+}
+
+.estrategia_tropas_info{
+	display: none;
+}
+
+.boton_editar_estrategia{
+    border: 1px solid #3871AA;
+    border-radius: 3px 3px 3px 3px;
+    cursor: pointer;
+    height: 49px;
+    margin: 11px 0 0;
+    padding: 3px;
+background: #0a4759; /* Old browsers */
+background: -moz-linear-gradient(top, #0a4759 0%, #042431 50%, #021823 51%, #010609 100%); /* FF3.6+ */
+background: -webkit-gradient(linear, left top, left bottom, color-stop(0%,#0a4759), color-stop(50%,#042431), color-stop(51%,#021823), color-stop(100%,#010609)); /* Chrome,Safari4+ */
+background: -webkit-linear-gradient(top, #0a4759 0%,#042431 50%,#021823 51%,#010609 100%); /* Chrome10+,Safari5.1+ */
+background: -o-linear-gradient(top, #0a4759 0%,#042431 50%,#021823 51%,#010609 100%); /* Opera 11.10+ */
+background: -ms-linear-gradient(top, #0a4759 0%,#042431 50%,#021823 51%,#010609 100%); /* IE10+ */
+background: linear-gradient(to bottom, #0a4759 0%,#042431 50%,#021823 51%,#010609 100%); /* W3C */
+filter: progid:DXImageTransform.Microsoft.gradient( startColorstr='#0a4759', endColorstr='#010609',GradientType=0 ); /* IE6-9 */
+}
+
+.boton_editar_estrategia p{
+    height: 100%;
+    width: 100%;
+    text-align: center;
+    line-height: 47px;
+}
+
+/*Objeto selects*/
+
+.selector_select_contenedor{
+	position: relative;
+	z-index: 2;
+}
+
+.selector_select_select{
+    background: none repeat scroll 0 0 #001926;
+    border: 1px solid #3871AA;
+    border-radius: 3px 3px 0 0;
+    line-height: 24px;
+    padding: 0 2%;
+    width: 95%;
+	cursor: pointer;
+	box-shadow: 0 0 5px #000000;
+	height: 49px;
+background: #0a4759; /* Old browsers */
+background: -moz-linear-gradient(top, #0a4759 0%, #042431 50%, #021823 51%, #010609 100%); /* FF3.6+ */
+background: -webkit-gradient(linear, left top, left bottom, color-stop(0%,#0a4759), color-stop(50%,#042431), color-stop(51%,#021823), color-stop(100%,#010609)); /* Chrome,Safari4+ */
+background: -webkit-linear-gradient(top, #0a4759 0%,#042431 50%,#021823 51%,#010609 100%); /* Chrome10+,Safari5.1+ */
+background: -o-linear-gradient(top, #0a4759 0%,#042431 50%,#021823 51%,#010609 100%); /* Opera 11.10+ */
+background: -ms-linear-gradient(top, #0a4759 0%,#042431 50%,#021823 51%,#010609 100%); /* IE10+ */
+background: linear-gradient(to bottom, #0a4759 0%,#042431 50%,#021823 51%,#010609 100%); /* W3C */
+filter: progid:DXImageTransform.Microsoft.gradient( startColorstr='#0a4759', endColorstr='#010609',GradientType=0 ); /* IE6-9 */
+}
+
+.selector_select_select p{
+	cursor: pointer;
+	height: 100%;
+	width: 100%;
+	text-align: center;
+	line-height: 47px;
+}
+
+p.selector_select_select_icono{
+    font-size: 24px;
+    height: 24px;
+    line-height: 12px;
+    position: absolute;
+    right: 9px;
+    top: 20px;
+    width: 24px;
+    cursor: pointer;
+}
+
+.selector_select_options{
+    background: none repeat scroll 0 0 #001926;
+    border: 1px solid #3871AA;
+    border-radius: 0 0 3px 3px;
+    display: none;
+    height: 0;
+    position: absolute;
+    top: 51px;
+    width: 99%;
+    box-shadow: 0 0 5px #000000;
+}
+
+.selector_select_options p{
+    border: 1px solid #3871AA;
+    border-radius: 3px 3px 3px 3px;
+    cursor: pointer;
+    height: 35px;
+    line-height: 35px;
+    margin: 3px;
+    padding: 3px;
+background: #0a4759; /* Old browsers */
+background: -moz-linear-gradient(top, #0a4759 0%, #042431 50%, #021823 51%, #010609 100%); /* FF3.6+ */
+background: -webkit-gradient(linear, left top, left bottom, color-stop(0%,#0a4759), color-stop(50%,#042431), color-stop(51%,#021823), color-stop(100%,#010609)); /* Chrome,Safari4+ */
+background: -webkit-linear-gradient(top, #0a4759 0%,#042431 50%,#021823 51%,#010609 100%); /* Chrome10+,Safari5.1+ */
+background: -o-linear-gradient(top, #0a4759 0%,#042431 50%,#021823 51%,#010609 100%); /* Opera 11.10+ */
+background: -ms-linear-gradient(top, #0a4759 0%,#042431 50%,#021823 51%,#010609 100%); /* IE10+ */
+background: linear-gradient(to bottom, #0a4759 0%,#042431 50%,#021823 51%,#010609 100%); /* W3C */
+filter: progid:DXImageTransform.Microsoft.gradient( startColorstr='#0a4759', endColorstr='#010609',GradientType=0 ); /* IE6-9 */
+}
+
+/*FIN objeto selects*/
+
+/*Objeto slide numerico*/
+
+.slide_numerico_contenedor{
+	position: relative;
+	margin: 0 15px;
+	height: 50px;
+}
+
+.slide_numerico_barra{
+	width: auto;
+	height: 30px;
+	margin: 0 98px 0 0;
+	top: 7px;
+	background: url("contenido/slide_numero.png") 0 -5px repeat-x;
+}
+
+.slide_numerico_input_div{
+	width: 107px;
+	height: 38px;
+	float:right;
+	background: url("contenido/slide_numero.png") -27px -41px repeat-x;
+}
+
+.slide_numerico_input_input{
+    background: none;
+    border: none;
+    display: block;
+    font-size: 16px;
+    height: 20px;
+    line-height: 20px;
+    margin: 0 0 0 22px;
+    padding: 10px 4px 4px 5px;
+    width: 72px;
+}
+
+.slide_numerico_borde_inicio{
+	position: absolute;
+	top: 0;
+	left: -15px;
+	background: url("contenido/slide_numero.png") -1px -41px no-repeat;
+	height: 30px;
+	width: 15px;
+}
+
+.slide_numerico_arrastre{
+    background: url("contenido/slide_numero.png") no-repeat -149px -41px;
+    height: 30px;
+    left: -8px;
+    position: absolute;
+    top: 0;
+    width: 40px;
+    z-index: 1;
+    cursor: pointer;
+}
+
+/*Fin onjeto slide numerico*/
+
+.slide_cantidad_naves_enviar{
+    float: right;
+    margin: 4px -4px 0 0;
+    width: 330px;
+}
+
+.contenedor_cantidad_naves_enviar{
+    border-color: #0D2333;
+    border-style: solid;
+    border-width: 0 0 1px;
+    float: left;
+    height: 100px;
+    margin: 0 1% 5px;
+    width: 48%;
+}
+
+.imagen_cantidad_naves_enviar{
+    border: 1px solid #1D4460;
+    height: 93px;
+	width: 120px;
+	border-radius: 3px;
+}
+
+.titulo_cantidad_naves_enviar{
+    border: 1px solid #1D4460;
+    border-radius: 3px 3px 3px 3px;
+    float: right;
+    height: 25px;
+    line-height: 27px;
+    padding: 0 0 0 5px;
+    width: 331px;
+}
+
+/*Imagenes naves*/
+.icono_grande_0{/*Transporte ligero*/
+background: url("contenido/naves_grande.png") -634px -510px;
+}
+
+.icono_grande_1{/*Transporte pesado*/
+background: url("contenido/naves_grande.png") -455px -500px ;
+}
+
+.icono_grande_2{/*Cala ligero*/
+background: url("contenido/naves_grande.png") -55px -318px;
+}
+
+.icono_grande_3{/*Caza pesado*/
+background: url("contenido/naves_grande.png") -253px -315px;
+}
+
+.icono_grande_4{/*Destructor*/
+background: url("contenido/naves_grande.png") -451px -313px;
+}
+
+.icono_grande_5{/*Crucero Aurora*/
+background: url("contenido/naves_grande.png") -451px -313px;
+}
+
+.icono_grande_6{/*Fragata*/
+background: url("contenido/naves_grande.png") -451px -313px;
+}
+
+.icono_grande_7{/*Acorazado*/
+background: url("contenido/naves_grande.png") -255px -143px;
+}
+
+.icono_grande_8{/*Estación*/
+background: url("contenido/naves_grande.png") -630px -315px;
+}
+
+.icono_grande_9{/*Bigthorpedo*/
+background: url("contenido/naves_grande.png") repeat scroll -467px -677px transparent;
+}
+
+.icono_grande_10{/*Bigbomber*/
+background: url("contenido/naves_grande.png") repeat scroll -630px -131px transparent;
+}
+
+.icono_grande_11{/*Colonizador*/
+background: url("contenido/naves_grande.png") repeat scroll -62px -681px transparent;
+}
+/*FIN imagenes naves*/
+
+/*Inicio Campo batalla*/
+
+.campo_batalla_contenedor{
+	position: relative;
+	width: 606px;
+	float: right;
+}
+
+.campo_batalla_defensor .cuadro_campo{
+	height: 49px;
+	width: 49px;
+	float: left;
+	background: url("contenido/cuadro_campo_batalla.png") 0 0;
+}
+
+.campo_batalla_defensor .cuadro_campo p{
+	height: 100%;
+	width: 100%;
+	text-align: center;
+	line-height: 49px;
+}
+
+.campo_batalla_defensor .campo_batalla_izquierda, .campo_batalla_defensor .campo_batalla_derecha{
+	float: right;
+	width: 147px;
+	height: 147px;
+	position: relative;
+	margin: 98px 0 0;
+    z-index: 1;
+}
+
+.campo_batalla_defensor .campo_batalla_centro{
+	float: right;
+	width: 196px;
+	height: 196px;
+	position: relative;
+	margin: 49px 58px 0;
+    z-index: 1;
+}
+
+.campo_batalla_defensor .campo_batalla_trasero{
+	position: absolute;
+	height: 49px;
+	width: 98px;
+	top: 0;
+	right: 254px;
+    z-index: 1;
+}
+
+.campo_batalla_defensor .centro_unico_primera_fila_derecha{
+	bottom: 0;
+	position: absolute;
+	left: -49px;
+}
+
+.campo_batalla_defensor .centro_unico_primera_fila_izquierda{
+	bottom: 0;
+	position: absolute;
+	right: -49px;
+}
+
+/*Cambio a atacante*/
+
+.campo_batalla_atacante .cuadro_campo{
+	height: 49px;
+	width: 49px;
+	float: left;
+	background: url("contenido/cuadro_campo_batalla.png") 0 0;
+}
+
+.campo_batalla_atacante .cuadro_campo p{
+	height: 100%;
+	width: 100%;
+	text-align: center;
+	line-height: 49px;
+}
+
+.campo_batalla_atacante .campo_batalla_izquierda, .campo_batalla_atacante .campo_batalla_derecha{
+	float: left;
+	width: 147px;
+	height: 147px;
+	position: relative;
+    z-index: 1;
+}
+
+.campo_batalla_atacante .campo_batalla_centro{
+	float: left;
+	width: 196px;
+	height: 196px;
+	position: relative;
+	margin: 0 58px 49px;
+    z-index: 1;
+}
+
+.campo_batalla_atacante .campo_batalla_trasero{
+	position: absolute;
+	height: 49px;
+	width: 98px;
+	bottom: 0;
+	left: 254px;
+    z-index: 1;
+}
+
+.campo_batalla_atacante .centro_unico_primera_fila_derecha{
+	top: 0;
+	position: absolute;
+	left: -49px;
+}
+
+.campo_batalla_atacante .centro_unico_primera_fila_izquierda{
+	top: 0;
+	position: absolute;
+	right: -49px;
+}
+
+/*Css cuadro naves*/
+.cuadro_marcador_cuadro_seleccionado{
+    border: 3px solid #FFA800;
+    border-radius: 16px;
+    height: 45px;
+    position: absolute;
+    width: 45px;
+    z-index: 0;
+}
+
+
+.nave_cuadro_campo_0{ /*Caza ligero*/
+	background: url("contenido/cuadro_campo_batalla.png") 0 -49px !important;
+}
+
+.nave_cuadro_campo_1{ /*Caza ligero*/
+	background: url("contenido/cuadro_campo_batalla.png") -49px -49px !important;
+}
+
+.nave_cuadro_campo_2{ /*Caza ligero*/
+	background: url("contenido/cuadro_campo_batalla.png") -98px -49px !important;
+}
+
+.nave_cuadro_campo_3{ /*Caza ligero*/
+	background: url("contenido/cuadro_campo_batalla.png") -147px -49px !important;
+}
+
+
+.nave_cuadro_campo_4{ /*Caza ligero*/
+	background: url("contenido/cuadro_campo_batalla.png") 0 -98px !important;
+}
+
+.nave_cuadro_campo_5{ /*Caza ligero*/
+	background: url("contenido/cuadro_campo_batalla.png") -49px -98px !important;
+}
+
+.nave_cuadro_campo_6{ /*Caza ligero*/
+	background: url("contenido/cuadro_campo_batalla.png") -98px -98px !important;
+}
+
+.nave_cuadro_campo_7{ /*Caza ligero*/
+	background: url("contenido/cuadro_campo_batalla.png") -147px -98px !important;
+}
+
+
+.nave_cuadro_campo_8{ /*Caza ligero*/
+	background: url("contenido/cuadro_campo_batalla.png") 0 -147px !important;
+}
+
+.nave_cuadro_campo_9{ /*Caza ligero*/
+	background: url("contenido/cuadro_campo_batalla.png") -49px -147px !important;
+}
+
+.nave_cuadro_campo_10{ /*Caza ligero*/
+	background: url("contenido/cuadro_campo_batalla.png") -98px -147px !important;
+}
+
+.nave_cuadro_campo_11{ /*Caza ligero*/
+	background: url("contenido/cuadro_campo_batalla.png") -147px -147px !important;
+}
+
+/*Fin campo batalla*/
+
+
+/*Campo con selección de naves*/
+
+.campo_batalla_estrategia_cuadro_naves{
+    float: left;
+    height: 160px;
+    width: 325px;
+    border: 1px solid #1E4562;
+    border-radius: 3px;
+}
+
+.cuadro_campo{
+	height: 49px;
+	width: 49px;
+	margin: 0 auto;
+	background: url("contenido/cuadro_campo_batalla.png") 0 0;
+}
+
+.cuadro_campo_a_poner{
+	height: 49px;
+	width: 60px;
+	float: left;
+	margin: 2px;
+	cursor: pointer;
+}
+
+.planeta_menu_principal_planeta{
+	height: 854px;
+	width: 316px;
+	float:left;
+	position: relative;
+	left: -8px;
+}
+
+.planeta_menu_principal_planeta0{
+	background: url("contenido/planetas/caliente1.jpg");
+}
+
+.planeta_menu_principal_planeta1{
+	background: url("contenido/planetas/caliente2.jpg");
+}
+
+.planeta_menu_principal_planeta2{
+	background: url("contenido/planetas/caliente3.jpg");
+}
+
+.planeta_menu_principal_planeta3{
+	background: url("contenido/planetas/caliente4.jpg");
+}
+
+.planeta_menu_principal_planeta4{
+	background: url("contenido/planetas/caliente5.jpg");
+}
+
+
+.planeta_menu_principal_planeta5{
+	background: url("contenido/planetas/templado1.jpg");
+}
+
+.planeta_menu_principal_planeta6{
+	background: url("contenido/planetas/templado2.jpg");
+}
+
+.planeta_menu_principal_planeta7{
+	background: url("contenido/planetas/templado3.jpg");
+}
+
+.planeta_menu_principal_planeta8{
+	background: url("contenido/planetas/templado4.jpg");
+}
+
+.planeta_menu_principal_planeta9{
+	background: url("contenido/planetas/templado5.jpg");
+}
+
+
+.planeta_menu_principal_planeta10{
+	background: url("contenido/planetas/frio1.jpg");
+}
+
+.planeta_menu_principal_planeta11{
+	background: url("contenido/planetas/frio2.jpg");
+}
+
+.planeta_menu_principal_planeta12{
+	background: url("contenido/planetas/frio3.jpg");
+}
+
+.planeta_menu_principal_planeta13{
+	background: url("contenido/planetas/frio4.jpg");
+}
+
+.planeta_menu_principal_planeta14{
+	background: url("contenido/planetas/frio5.jpg");
+}
+
+
+.edificios_menu_principal_planeta{
+	width: 682px;
+	height: 854px;
+	background: url("contenido/edificios.jpg");
+	float: left;
+	position: relative;
+	left: -8px;
+}
+
+.click_edificio_menu_planeta{
+    height: 182px;
+    position: absolute;
+    width: 207px;
+    cursor: pointer;
+}
+
+.click_edificio_menu_planeta p{
+    background: rgba(0, 0, 0, 0.8);
+    border-radius: 11px 11px 0 0;
+    margin: 1px 1px 0;
+    padding: 5px 0;
+    text-align: center;
+    width: 205px;
+}
+
+.click_edificio_menu_planeta_centro{
+    left: 15px;
+    top: 334px;
+}
+
+.click_edificio_menu_planeta_almacen{
+    left: 15px;
+    top: 126px;
+}
+
+.click_edificio_menu_planeta_extractor{
+    left: 15px;
+    top: 542px;
+}
+
+.click_edificio_menu_planeta_sintetizador{
+    left: 240px;
+    top: 20px;
+}
+
+.click_edificio_menu_planeta_astillero{
+    left: 240px;
+    top: 228px;
+}
+
+.click_edificio_menu_planeta_puerto{
+    left: 240px;
+    top: 436px;
+}
+
+.click_edificio_menu_planeta_electrica{
+    left: 240px;
+    top: 644px;
+}
+
+.click_edificio_menu_planeta_espionaje{
+    left: 465px;
+    top: 74px;
+}
+
+.click_edificio_menu_planeta_investigacion{
+    left: 465px;
+    top: 595px;
+}
+
+
+
+.zona_datos_edificio_actualizar_titulo{
+    display: block;
+    font-size: 24px;
+    width: 100%;
+}
+
+.boton_volver_planeta_desde_edificio{
+	float: right;
+    border: 1px solid #3871AA;
+    border-radius: 3px 3px 3px 3px;
+    cursor: pointer;
+    padding: 3px 7px;
+background: #0a4759; /* Old browsers */
+background: -moz-linear-gradient(top, #0a4759 0%, #042431 50%, #021823 51%, #010609 100%); /* FF3.6+ */
+background: -webkit-gradient(linear, left top, left bottom, color-stop(0%,#0a4759), color-stop(50%,#042431), color-stop(51%,#021823), color-stop(100%,#010609)); /* Chrome,Safari4+ */
+background: -webkit-linear-gradient(top, #0a4759 0%,#042431 50%,#021823 51%,#010609 100%); /* Chrome10+,Safari5.1+ */
+background: -o-linear-gradient(top, #0a4759 0%,#042431 50%,#021823 51%,#010609 100%); /* Opera 11.10+ */
+background: -ms-linear-gradient(top, #0a4759 0%,#042431 50%,#021823 51%,#010609 100%); /* IE10+ */
+background: linear-gradient(to bottom, #0a4759 0%,#042431 50%,#021823 51%,#010609 100%); /* W3C */
+filter: progid:DXImageTransform.Microsoft.gradient( startColorstr='#0a4759', endColorstr='#010609',GradientType=0 ); /* IE6-9 */
+}
+
+.boton_volver_minimizar{
+    border: 1px solid #3871AA;
+    border-radius: 3px;
+    cursor: pointer;
+    float: right;
+    height: 16px;
+    margin: 0 0 0 8px;
+    padding: 3px;
+    width: 16px;
+    text-align: center;
+background: #0a4759; /* Old browsers */
+background: -moz-linear-gradient(top, #0a4759 0%, #042431 50%, #021823 51%, #010609 100%); /* FF3.6+ */
+background: -webkit-gradient(linear, left top, left bottom, color-stop(0%,#0a4759), color-stop(50%,#042431), color-stop(51%,#021823), color-stop(100%,#010609)); /* Chrome,Safari4+ */
+background: -webkit-linear-gradient(top, #0a4759 0%,#042431 50%,#021823 51%,#010609 100%); /* Chrome10+,Safari5.1+ */
+background: -o-linear-gradient(top, #0a4759 0%,#042431 50%,#021823 51%,#010609 100%); /* Opera 11.10+ */
+background: -ms-linear-gradient(top, #0a4759 0%,#042431 50%,#021823 51%,#010609 100%); /* IE10+ */
+background: linear-gradient(to bottom, #0a4759 0%,#042431 50%,#021823 51%,#010609 100%); /* W3C */
+filter: progid:DXImageTransform.Microsoft.gradient( startColorstr='#0a4759', endColorstr='#010609',GradientType=0 ); /* IE6-9 */
+}
+
+.columna_50_i{
+	float:left;
+	width: 50%;
+}
+
+.columna_50_d{
+	float: right;
+	width: 50%;
+}
+
+.imagen_edificio_electrica{
+	width: 150px;
+	height: 150px;
+	float: left;
+	border: 1px solid #1D4460;
+	border-radius: 3px;
+}
+
+.titulo_edificio_electrica{
+	float: right;
+	width: 463px;
+	font-size: 21px;
+	line-height: 40px;
+	padding-top: 15px;
+}
+
+.slide_edificio_electrica{
+	float: right;
+	width: 438px;
+	margin-top: 25px;
+}

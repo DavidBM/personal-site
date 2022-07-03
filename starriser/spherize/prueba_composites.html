@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title>Spherize</title>
+	<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+	<script type="text/javascript" src="js.js"></script>
+</head>
+<body style="background: #fff;" id="body">
+<canvas id="micanvas" unselectable="on" class="unselectable" style="width: 400px; height: 400px;"></canvas>
+<img id="miimagen1" src="1plantilla31x31.png" style="display:none"/>
+<img id="miimagen3" src="alpha.jpg" style="display:none"/>
+<script type="text/javascript">
+	document.getElementById("micanvas").width = parseInt(document.getElementById("micanvas").style.width);
+	document.getElementById("micanvas").height = parseInt(document.getElementById("micanvas").style.height);
+
+
+	var contexto = document.getElementById("micanvas").getContext("2d");
+	var imagen1 = document.getElementById("miimagen1");
+	var imagen2 = document.getElementById("miimagen3");
+
+	contexto.drawImage(imagen1,0,0, 800, 400);
+	contexto.globalCompositeOperation = 'lighter';
+	contexto.drawImage(imagen2,0,0, 800, 400);
+
+
+	//alert((time2.getTime() - time1.getTime())/10);
+
+</script>
+</body>
+</html>

@@ -1,0 +1,540 @@
+/* http://meyerweb.com/eric/tools/css/reset/ 
+   v2.0 | 20110126
+   License: none (public domain)
+*/
+html, body, div, span, applet, object, iframe,
+h1, h2, h3, h4, h5, h6, p, blockquote, pre,
+a, abbr, acronym, address, big, cite, code,
+del, dfn, em, img, ins, kbd, q, s, samp,
+small, strike, strong, sub, sup, tt, var,
+b, u, i, center,
+dl, dt, dd, ol, ul, li,
+fieldset, form, label, legend,
+table, caption, tbody, tfoot, thead, tr, th, td,
+article, aside, canvas, details, embed,
+figure, figcaption, footer, header, hgroup,
+menu, nav, output, ruby, section, summary,
+time, mark, audio, video {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  font-size: 100%;
+  font: inherit;
+  vertical-align: baseline; }
+
+/* HTML5 display-role reset for older browsers */
+article, aside, details, figcaption, figure,
+footer, header, hgroup, menu, nav, section {
+  display: block; }
+
+body {
+  line-height: 1; }
+
+ol, ul {
+  list-style: none; }
+
+blockquote, q {
+  quotes: none; }
+
+blockquote:before, blockquote:after,
+q:before, q:after {
+  content: '';
+  content: none; }
+
+table {
+  border-collapse: collapse;
+  border-spacing: 0; }
+
+/*--------------------------*/
+/*Variables*/
+/**/
+/**FONTS*/
+@font-face {
+  font-family: 'sansationbold';
+  src: url("content/fonts/sansation_bold-webfont.eot");
+  src: url("content/fonts/sansation_bold-webfont.eot?#iefix") format("embedded-opentype"), url("content/fonts/sansation_bold-webfont.woff") format("woff"), url("content/fonts/sansation_bold-webfont.ttf") format("truetype"), url("content/fonts/sansation_bold-webfont.svg#sansationbold") format("svg");
+  font-weight: normal;
+  font-style: normal; }
+
+@font-face {
+  font-family: 'sansationlight';
+  src: url("content/fonts/sansation_light-webfont.eot");
+  src: url("content/fonts/sansation_light-webfont.eot?#iefix") format("embedded-opentype"), url("content/fonts/sansation_light-webfont.woff") format("woff"), url("content/fonts/sansation_light-webfont.ttf") format("truetype"), url("content/fonts/sansation_light-webfont.svg#sansationlight") format("svg");
+  font-weight: normal;
+  font-style: normal; }
+
+@font-face {
+  font-family: 'sansationregular';
+  src: url("content/fonts/sansation_regular-webfont.eot");
+  src: url("content/fonts/sansation_regular-webfont.eot?#iefix") format("embedded-opentype"), url("content/fonts/sansation_regular-webfont.woff") format("woff"), url("content/fonts/sansation_regular-webfont.ttf") format("truetype"), url("content/fonts/sansation_regular-webfont.svg#sansationregular") format("svg");
+  font-weight: normal;
+  font-style: normal; }
+
+/**/
+html, body {
+  height: 100%;
+  background: #000; }
+
+#body {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  right: 0;
+  overflow: hidden;
+  min-width: 1080px;
+  min-height: 640px; }
+
+.sCanvas, .dCanvas, .canvasBackground {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2; }
+
+.dCanvas {
+  z-index: 3; }
+
+.canvasBackground {
+  background-image: url("content/img/fondo_galaxia.jpg");
+  z-index: 1; }
+
+.nodeview.container {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  z-index: 10;
+  width: 0;
+  height: 0; }
+
+.nodeview.planetBackground {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  z-index: 10;
+  width: 53px;
+  height: 106px;
+  background: url("content/img/CTSprite.png") 0 -92px; }
+
+.nodeview.buttonsContainer {
+  height: 32px;
+  padding: 2px 0;
+  width: 462px;
+  position: absolute;
+  bottom: 52px;
+  left: 53px;
+  background: url("content/img/CTSprite.png");
+  z-index: 10; }
+
+.nodeview.buttonsContainerEnd {
+  position: absolute;
+  bottom: 0;
+  right: -16px;
+  background: url("content/img/CTSprite.png") -127px -110px;
+  width: 17px;
+  height: 36px; }
+
+.interfaceButton_Colonizar, .interfaceButton_Mensaje, .interfaceButton_Desplegar, .interfaceButton_Enviar_recursos, .interfaceButton_Atacar, .interfaceButton_Bloquear, .interfaceButton_Espiar, .interfaceButton_Informacion {
+  background-image: url("content/img/CTSprite.png");
+  width: 72px;
+  height: 32px;
+  cursor: pointer;
+  float: left;
+  margin: 0 -6px 0 -7px;
+  position: relative;
+  left: -4px; }
+
+.interfaceButton_Atacar {
+  background-position: -20px -202px; }
+  .interfaceButton_Atacar:hover {
+    background-position: -100px -202px; }
+
+.interfaceButton_Desplegar {
+  background-position: -20px -236px; }
+  .interfaceButton_Desplegar:hover {
+    background-position: -100px -236px; }
+
+.interfaceButton_Enviar_recursos {
+  background-position: -20px -270px; }
+  .interfaceButton_Enviar_recursos:hover {
+    background-position: -100px -270px; }
+
+.interfaceButton_Bloquear {
+  background-position: -20px -304px; }
+  .interfaceButton_Bloquear:hover {
+    background-position: -100px -304px; }
+
+.interfaceButton_Espiar {
+  background-position: -20px -338px; }
+  .interfaceButton_Espiar:hover {
+    background-position: -100px -338px; }
+
+.interfaceButton_Colonizar {
+  background-position: -20px -372px; }
+  .interfaceButton_Colonizar:hover {
+    background-position: -100px -372px; }
+
+.interfaceButton_Mensaje {
+  background-position: -20px -406px; }
+  .interfaceButton_Mensaje:hover {
+    background-position: -100px -406px; }
+
+.interfaceButton_Informacion {
+  background-position: -20px -440px; }
+  .interfaceButton_Informacion:hover {
+    background-position: -100px -440px; }
+
+.interfaceButton_Colonizar {
+  background-position: -20px -372px;
+  display: block;
+  left: auto;
+  position: absolute;
+  right: -6px; }
+
+.nodeview.infoBox {
+  width: 500px;
+  height: 50px;
+  position: absolute;
+  bottom: 0;
+  left: 53px;
+  background: url("content/img/CTSprite.png") 0 -38px; }
+
+.nodeview.infoBoxEnd {
+  position: absolute;
+  left: 100%;
+  bottom: 0;
+  height: 50px;
+  width: 18px;
+  background: url("content/img/CTSprite.png") -85px -148px; }
+
+.interfaceContainerScrollable {
+  position: absolute;
+  height: 0;
+  top: 0;
+  width: 100%;
+  overflow: visible;
+  overflow-x: visible;
+  overflow-y: visible;
+  z-index: 11; }
+
+.assistPanel.container {
+  width: 1005px;
+  height: 0;
+  margin: 0 auto;
+  position: relative;
+  z-index: 10;
+  left: -45px; }
+
+.assistPanel.background {
+  width: 800px;
+  height: 100px;
+  position: absolute;
+  top: 0;
+  left: 0;
+  background: url("content/img/CTSprite.png") -7px -626px;
+  z-index: 1; }
+
+.assistPanel.backgroundName {
+  height: 39px;
+  position: absolute;
+  right: 188px;
+  top: 83px;
+  width: 250px;
+  background: url("content/img/CTSprite.png") -535px -760px; }
+
+.assistPanel.planet {
+  width: 205px;
+  height: 210px;
+  position: absolute;
+  top: -46px;
+  right: 0;
+  background: url("content/img/CTSprite.png") -807px -580px; }
+
+.assistPanelButtonZoomGalaxy {
+  position: absolute;
+  width: 74px;
+  height: 38px;
+  top: 41px;
+  left: 565px;
+  background: url("content/img/CTSprite.png") -808px -293px;
+  z-index: 10;
+  cursor: pointer; }
+  .assistPanelButtonZoomGalaxy:hover, .assistPanelButtonZoomGalaxy.active {
+    background: url("content/img/CTSprite.png") -905px -293px; }
+
+.assistPanelButtonZoomCumulus {
+  position: absolute;
+  width: 74px;
+  height: 38px;
+  top: 41px;
+  left: 639px;
+  background: url("content/img/CTSprite.png") -808px -341px;
+  z-index: 10;
+  cursor: pointer; }
+  .assistPanelButtonZoomCumulus:hover, .assistPanelButtonZoomCumulus.active {
+    background: url("content/img/CTSprite.png") -905px -341px; }
+
+.assistPanelButtonZoomSystem {
+  position: absolute;
+  width: 74px;
+  height: 38px;
+  top: 41px;
+  left: 713px;
+  background: url("content/img/CTSprite.png") -808px -389px;
+  z-index: 10;
+  cursor: pointer; }
+  .assistPanelButtonZoomSystem:hover, .assistPanelButtonZoomSystem.active {
+    background: url("content/img/CTSprite.png") -905px -389px; }
+
+.assistPanelButtonPlanets {
+  position: absolute;
+  width: 121px;
+  height: 37px;
+  top: 1px;
+  left: 568px;
+  background: url("content/img/CTSprite.png") -709px -463px;
+  z-index: 10;
+  cursor: pointer; }
+  .assistPanelButtonPlanets:hover, .assistPanelButtonPlanets.active {
+    background: url("content/img/CTSprite.png") -857px -463px; }
+
+.assistPanelButtonHome {
+  position: absolute;
+  width: 121px;
+  height: 37px;
+  top: 1px;
+  left: 679px;
+  background: url("content/img/CTSprite.png") -709px -511px;
+  z-index: 10;
+  cursor: pointer; }
+  .assistPanelButtonHome:hover, .assistPanelButtonHome.active {
+    background: url("content/img/CTSprite.png") -857px -511px; }
+
+.planetView.container {
+  width: 1000px;
+  margin: 0 auto;
+  position: relative;
+  z-index: 10;
+  display: none;
+  left: -45px; }
+
+.planetView.buttonLab {
+  width: 392px;
+  height: 120px;
+  position: absolute;
+  left: 0;
+  top: 145px;
+  background: url("content/img/CTSpriteBP.png") 0 0px;
+  display: none;
+  z-index: 15; }
+
+.planetView.buttonMineB {
+  width: 392px;
+  height: 120px;
+  position: absolute;
+  right: 0;
+  top: 145px;
+  background: url("content/img/CTSpriteBP.png") -608px 0px;
+  display: none;
+  z-index: 15; }
+
+.planetView.buttonShield {
+  width: 340px;
+  height: 120px;
+  position: absolute;
+  left: 0;
+  top: 265px;
+  background: url("content/img/CTSpriteBP.png") 0 -120px;
+  display: none;
+  z-index: 15; }
+
+.planetView.buttonMineA {
+  width: 340px;
+  height: 120px;
+  position: absolute;
+  right: 0;
+  top: 265px;
+  background: url("content/img/CTSpriteBP.png") -660px -120px;
+  display: none;
+  z-index: 15; }
+
+.planetView.buttonDefense {
+  width: 380px;
+  height: 120px;
+  position: absolute;
+  left: 0;
+  top: 385px;
+  background: url("content/img/CTSpriteBP.png") 0 -240px;
+  display: none;
+  z-index: 15; }
+
+.planetView.buttonMineN {
+  width: 380px;
+  height: 120px;
+  position: absolute;
+  right: 0;
+  top: 385px;
+  background: url("content/img/CTSpriteBP.png") -620px -240px;
+  display: none;
+  z-index: 15; }
+
+.planetView.buttonShipyard {
+  width: 500px;
+  height: 120px;
+  position: absolute;
+  left: 0;
+  top: 505px;
+  background: url("content/img/CTSpriteBP.png") 0 -450px;
+  display: none;
+  z-index: 15; }
+
+.planetView.buttonCommerce {
+  width: 500px;
+  height: 120px;
+  position: absolute;
+  right: 0;
+  top: 505px;
+  background: url("content/img/CTSpriteBP.png") -500px -450px;
+  display: none;
+  z-index: 15; }
+
+.planetView.buttonCommerce .button_extension {
+  position: absolute;
+  bottom: 100%;
+  height: 62px;
+  width: 167px;
+  left: 0;
+  background: url("content/img/CTSpriteBP.png") -500px -388px; }
+
+.planetView.buttonShipyard .button_extension {
+  position: absolute;
+  bottom: 100%;
+  height: 62px;
+  width: 167px;
+  right: 0;
+  background: url("content/img/CTSpriteBP.png") -333px -388px; }
+
+.planetView.buttonShipyard, .planetView.buttonCommerce {
+  z-index: 14; }
+
+.planetChange.container {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 80px;
+  z-index: 11;
+  cursor: pointer; }
+
+.planetChange.subContainer {
+  position: relative;
+  top: 35px; }
+
+.planetChange.planetContainer {
+  background-color: transparent;
+  position: relative;
+  right: 0;
+  width: 80px;
+  height: 80px;
+  margin: 4px 0;
+  padding: 1px 0;
+  border-radius: 40px 2px 2px 40px;
+  transition: background-color 0.2s, width 0.3s, right 0.3s; }
+
+.planetChange.planetContainer:hover {
+  background: rgba(51, 51, 51, 0.7);
+  border: 1px solid #555;
+  padding: 0;
+  width: 280px;
+  right: 200px; }
+
+.planetChange.arrow {
+  border-color: transparent;
+  border-right-color: #358CA4;
+  border-style: solid;
+  border-width: 3px;
+  position: absolute;
+  right: 0;
+  top: 37px;
+  z-index: 1;
+  transition: border-width 0.1s, top 0.1s; }
+
+.planetChange.planetContainer:hover .planetChange.arrow {
+  border-width: 7px;
+  top: 33px; }
+
+.planetChange canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 0; }
+
+.planetChange.name {
+  color: #fff;
+  font-family: "sansationregular";
+  font-size: 14px;
+  position: absolute;
+  left: 0;
+  top: 5px;
+  background: rgba(51, 51, 51, 0.7);
+  border: 1px solid #333;
+  border-radius: 2px;
+  padding: 1px 2px;
+  transition: left 0.3s, top 0.3s, background 0.3s, border 0.3s, border-radius 0.3s;
+  max-width: 72px;
+  max-height: 34px;
+  word-wrap: break-word;
+  overflow: hidden;
+  line-height: 17px; }
+
+.planetChange.planetContainer:hover .planetChange.name {
+  left: 85px;
+  top: 5px;
+  background: transparent;
+  border: none;
+  border-color: #333; }
+
+.planetChange.scroll {
+  width: 42px;
+  left: -30px;
+  height: 54px;
+  background: url("content/img/CTSprite.png") -6px -747px;
+  z-index: -1; }
+
+.planetChange.pageBakground {
+  position: absolute;
+  top: 0;
+  right: 0;
+  height: 27px;
+  width: 80px;
+  background: url("content/img/CTSprite.png") -3px -800px; }
+
+.planetChange.pageBack {
+  width: 40px;
+  height: 27px;
+  background: url("content/img/CTSprite.png") -3px -830px;
+  left: 0px;
+  position: absolute; }
+  .planetChange.pageBack:hover {
+    background: url("content/img/CTSprite.png") -3px -857px; }
+
+.planetChange.pageNext {
+  width: 40px;
+  height: 27px;
+  background: url("content/img/CTSprite.png") -43px -830px;
+  left: 40px;
+  position: absolute; }
+  .planetChange.pageNext:hover {
+    background: url("content/img/CTSprite.png") -43px -857px; }
+
+.planetChange.pageNumber {
+  position: absolute;
+  display: block;
+  left: 0;
+  right: 0;
+  top: 10px;
+  text-align: center;
+  color: #ccc;
+  font-family: "sansationbold";
+  z-index: -1; }

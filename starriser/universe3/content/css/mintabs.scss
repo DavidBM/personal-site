@@ -1,0 +1,72 @@
+.minTabs .tabs{
+	height: 45px;
+	padding: 0;
+	position: relative;
+	z-index: 1;
+}
+
+.minTabs .tab {
+	float: left;
+	height: 45px;
+	margin: 0 -15px 0 0;
+	overflow: hidden;
+	padding: 0 2px;
+	position: relative;
+	width: 200px;
+	cursor: pointer;
+}
+
+.minTabs .tab .text{
+	color: #888;
+	display: block;
+	font-family: "sansationbold";
+	position: absolute;
+	text-align: center;
+	top: 15px;
+	width: 100%;
+}
+
+
+.minTabs .tab.active .text{
+	color: #CCCCCC;
+}
+
+.minTabs .frame {
+	background: #323439;
+	border: 1px solid #264555;
+	border-radius: 4px 4px 0 0;
+	box-shadow: 0 0 2px #003A63;
+	height: 45px;
+	margin: 0 10px;
+	@include transform(perspective(100px) rotateX(30deg));
+}
+
+.minTabs .tab.active {
+	height: 45px;
+	padding-bottom: 1px;
+	z-index: 1;
+}
+
+.minTabs .tab.active .frame{
+	height: 46px;
+	/*background: #3F4147;*/
+	@include linear-gradient(to bottom, #53626F 0%, #4C5966 50%, #44515E 51%, #3C434E 100%);
+	border: 1px solid #386780;
+	border-width: 1px 1px 0 1px;
+	border-top-color: #C0C9CD;
+}
+
+.minTabs .contents{
+	/*background: #3F4147;*/
+	background: #3C434E;
+	border: 1px solid #386780;
+	border-radius: 2px 4px 4px;
+	box-shadow: 0 0 2px #003A63;
+	min-height: 100px;
+	padding: 5px;
+	position: relative;
+}
+
+.minTabs .content{
+	display: none;
+}

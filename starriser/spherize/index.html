@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title>Spherize</title>
+	<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+	<script type="text/javascript" src="js.js"></script>
+</head>
+<body style="background: #fff;" id="body">
+<canvas id="micanvas" unselectable="on" class="unselectable" style="width: 400px; height: 400px;"></canvas>
+<img id="miimagen1" src="1plantilla31x31.png" style="display:none"/>
+<img id="miimagen2" src="red.png" style="display:none"/>
+<img id="miimagen3" src="3g0g0m97.png" style="display:none"/>
+<canvas id="lala" unselectable="on" class="unselectable" style="width: 400px; height: 400px;"></canvas>
+<p id="FPS"></p>
+<script type="text/javascript">
+	"use strict";
+	var NtimeEvent = function(n, handler, context, handlerData) {
+		return this.init(n, handler, context, handlerData);
+	};
+
+	NtimeEvent.prototype.init = function(n, handler, context, handlerData) {
+		this.times = 0;
+		this.ntimes = n;
+
+		this.handler = (typeof handler !== "undefined" ) ? handler : false;
+		this.context = (typeof context !== "undefined" ) ? context : false;
+		this.handlerData = (typeof handlerData !== "undefined" ) ? handlerData : false;
+
+
+		return {
+			handler: this.preHandler,
+			context: this
+		};
+	};
+
+	NtimeEvent.prototype.preHandler = function() {
+		this.times++;
+		if(this.times >= this.ntimes){
+			if(this.handler){
+				if(this.context && this.handlerData) this.handler.call(this.context, this.handlerData);
+				else if(this.context) this.handler.call(this.context);
+				else if(this.handlerData) this.handler.call(window, this.handlerData);
+				else this.handler.call();
+			}
+		}
+	};
+
+
+
+	var width = parseInt(document.getElementById("micanvas").style.width);
+	var height = parseInt(document.getElementById("micanvas").style.height);
+
+	document.getElementById("micanvas").width = parseInt(document.getElementById("micanvas").style.width);
+	document.getElementById("micanvas").height = parseInt(document.getElementById("micanvas").style.height);
+
+	document.getElementById("lala").height = width;
+	document.getElementById("lala").width = height;
+
+	var contexto = document.getElementById("micanvas").getContext("2d");
+	var finalctx = document.getElementById("lala").getContext("2d");
+	var imagen = document.getElementById("miimagen1");
+	var fps = document.getElementById("FPS");
+
+	contexto.drawImage(imagen,0,0, 800, 400);
+
+	var bucle = 10;
+	var contador = 0;
+	window.time = 0;
+	var worker = true;
+	var workersCuantity = 4;
+	var interpolate = true;
+
+	function draw () {
+		var _this = this;
+
+		contexto.drawImage(imagen,contador-=1,0, 800, 400);
+		if(contador < -200) contador = 0;
+
+		if(worker){
+
+			var workers = new Array(workersCuantity);
+			var imagesDatas = new Array(workersCuantity);
+
+			var ntimes = new NtimeEvent(workersCuantity, function () {
+				finalctx.clearRect(0, 0, width, height);
+				for (var i = 0; i < workersCuantity; i++) { 
+					y = Math.floor( i / 2 );
+					x = i - y * 2;
+
+					finalctx.putImageData(imagesDatas[i], x*(width/2), y*(width/2));
+					
+				}
+
+				window.time = new Date().getTime() - window.time;
+				window.fps.innerHTML = "FPS: " + (1000 / window.time).toFixed(2) + ", TIME: " + window.time + "ms";
+				window.time = new Date().getTime();
+
+				//setTimeout(draw, 0);
+				window.requestAnimationFrame(draw);
+			});
+
+			for (var i = 0; i < workers.length; i++) {
+				var x, y;
+				var dataTemp, dataTemp2;
+
+				y = Math.floor( i / 2 );
+				x = i - y * 2;
+
+				workers[i] = new Worker('js.js');
+
+				workers[i].addEventListener('message',(function(i){
+					return function (e) {
+						imagesDatas[i] = e.data;
+						workers[i].terminate();
+						ntimes.handler.call(ntimes.context);
+					};
+				}(i)));
+
+				dataTemp = contexto.getImageData(0, 0, width, height);
+
+				dataTemp2 = contexto.createImageData(width/2, width/2);
+
+				workers[i].postMessage({
+					initialImage: dataTemp,
+					finalImage: dataTemp2,
+					centerX: width/2 - x*(width/2),
+					centerY: height/2 - y*(width/2),
+					radius: width/2,
+					interpolate: interpolate,
+
+				});
+				/*imagesDatas[i] = new Spherize(dataTemp, width/2 - x*(width/2) , height/2 - y*(width/2), width/2, false, dataTemp2);
+				//imageData, x, y, radius, interpolate, fpixels, finalWidth, fromWidth,
+				//workers[i].terminate();
+				ntimes.handler.call(ntimes.context);*/
+			}
+		}else{
+			dataTemp = contexto.getImageData(0, 0, width, height);
+
+			dataTemp2 = contexto.createImageData(width, width);
+
+			finalctx.putImageData(new Spherize(dataTemp, width/2 , height/2 , width/2, interpolate, dataTemp2), 0, 0);
+			window.requestAnimationFrame(draw);
+			//setTimeout(draw, 0);
+		}
+	}
+
+	draw();
+
+
+
+	//var time2 = new Date();
+
+	//alert((time2.getTime() - time1.getTime())/15);
+
+</script>
+</body>
+</html>

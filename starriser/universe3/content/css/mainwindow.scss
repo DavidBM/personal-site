@@ -1,0 +1,43 @@
+.mainWindow.container{
+	left: -$centerDisplacementByPlanetChanger;
+	@include background(url($CTSprite) -7px -902px no-repeat, linear-gradient(to bottom, transparent 0, transparent 51px, #1a202a 51px));
+	border-radius: 3px;
+	margin: 142px auto 200px;
+	position: relative;
+	width: 995px;
+	z-index: 10;
+	padding: 3px;
+	display: none;
+}
+
+.mainWindow.subContainer{
+	/*background-color: #282A2F;*/
+	background-color: #0F1014;
+	border: 1px solid #444242;
+	border-radius: 3px;
+	box-shadow: 0 0 5px #1D2F37 inset;
+	margin: 46px auto 0;
+	position: relative;
+	width: 983px;
+	z-index: 10;
+	padding: 5px;
+}
+
+.mainWindow.closeButton{
+	width: 248px;
+	height: 42px;
+	background: url($CTSprite) -588px -849px;
+	&:hover{
+		background-position: -588px + 248px -849px;
+	}
+	position: absolute;
+	left: 581px;
+	cursor: pointer;
+	display: block;
+	text-align: center;
+	font-size: 19px;
+	text-shadow: 0 0 3px #333;
+	color: #ddd;
+	font-family: "sansationbold";
+	line-height: 41px;
+}

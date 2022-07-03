@@ -1,0 +1,186 @@
+.assistant.assistantContainer {
+	background: #373B44;
+	border: 1px solid transparentize(#4987A7, 1amount);
+	border-radius: 5px;
+	box-shadow: 0 0 5px #000 inset;
+	min-height: 200px;
+}
+.assistant .loading{
+	margin-top: 50px;
+}
+
+.assistant.shipTravelCard, .assistant.shipStationedCard, .assistant.card{
+	@include linear-gradient(#696868 0%, #363C40 100%);
+	border-radius: 3px;
+	box-shadow: 0 0 5px #111111, 0 0 10px #535D69 inset;
+	margin: 5px;
+	padding: 5px 230px 5px 5px;
+	overflow: hidden;
+	position: relative;
+	left: 0;
+	transition: left 0.3s;
+	/*&:hover, &.active{
+		@include linear-gradient(lighten(#64707E, 10) 0%, lighten(#16222F, 10) 100%);
+		//left: 10px;
+		border-color: #66CAFF;
+	}*/
+}
+
+.assistant.shipTravelCard .text, .assistant.shipTravelCard .arrivalTime {
+	margin: 0 0 5px 0;
+}
+
+.assistant.shipTravelCard .arrivalTime{
+	position: absolute;
+	top: 5px;
+	right: 5px;
+}
+
+.assistant.shipTravelCard .animatedGifContainer{
+	border: 1px solid #000000;
+	border-radius: 5px;
+	box-shadow: 0 0 2px #000000 inset, 0 0 1px #999999;
+	height: 3px;
+	overflow: hidden;
+}
+
+.assistant.shipTravelCard.reinforcementOfAllie .animatedGif, 
+.assistant.shipTravelCard.reinforcementInAllie .animatedGif, 
+.assistant.shipTravelCard.supportIn .animatedGif, 
+.assistant.shipTravelCard.supportOut .animatedGif, 
+.assistant.shipTravelCard.atackOut .animatedGif, 
+.assistant.shipTravelCard.atackIn .animatedGif, 
+.assistant.shipTravelCard.battleIn .animatedGif,
+.assistant.shipTravelCard.battleOut .animatedGif{
+	height: 100%;
+	border-radius: 5px;
+	width: 100%;
+}
+
+.assistant.shipTravelCard.reinforcementOfAllie .animatedGif{
+	background: $ColorGreenAlert;
+}
+
+.assistant.shipTravelCard.reinforcementInAllie .animatedGif{
+	background: $ColorBlueAlert;
+}
+
+.assistant.shipTravelCard.supportIn .animatedGif{
+	background: $ColorGreenAlert url($animatedMiniArrows) 0 -6px;
+}
+
+.assistant.shipTravelCard.supportOut .animatedGif{
+	background: $ColorBlueAlert url($animatedMiniArrows) 0 -1px;
+}
+
+.assistant.shipTravelCard.atackOut .animatedGif{
+	background: $ColorYellowAlert url($animatedMiniArrows) 0 -1px;
+}
+
+.assistant.shipTravelCard.atackIn .animatedGif{
+	background: $ColorRedAlert url($animatedMiniArrows) 0 -6px;
+}
+
+.assistant.shipTravelCard.battleOut .animatedGif{
+	background: $ColorRedAlert;
+}
+
+.assistant.shipTravelCard.battleIn .animatedGif{
+	background: $ColorRedAlert;
+}
+
+.assistant.shipTravelCard.reinforcementOfAllie .animatedGifContainer{
+	background: darken($ColorGreenAlert, 15%);
+}
+
+.assistant.shipTravelCard.reinforcementInAllie .animatedGifContainer{
+	background: darken($ColorBlueAlert, 15%);
+}
+
+.assistant.shipTravelCard.supportIn .animatedGifContainer{
+	background: darken($ColorGreenAlert, 15%) url($animatedMiniArrows) 0 -6px;
+}
+
+.assistant.shipTravelCard.supportOut .animatedGifContainer{
+	background: darken($ColorBlueAlert, 15%) url($animatedMiniArrows) 0 -1px;
+}
+
+.assistant.shipTravelCard.atackOut .animatedGifContainer{
+	background: darken($ColorYellowAlert, 15%) url($animatedMiniArrows) 0 -1px;
+}
+
+.assistant.shipTravelCard.atackIn .animatedGifContainer{
+	background: darken($ColorRedAlert, 15%) url($animatedMiniArrows) 0 -6px;
+}
+
+.assistant.shipTravelCard.battleOut .animatedGifContainer{
+	background: darken($ColorRedAlert, 30%);
+}
+
+.assistant.shipTravelCard.battleIn .animatedGifContainer{
+	background: darken($ColorRedAlert, 30%);
+}
+
+.assistant .shipsContainer{
+	margin-top: 5px;
+	border-radius: 3px;
+	box-shadow: 0 0 3px #000 inset;
+}
+
+
+.assistant .shipsContainer .ship{
+	height: 24px;
+	border: 1px solid #999;
+	margin: 5px;
+	float: left;
+	width: 84px;
+	font-size: 11px;
+	line-height: 24px;
+	border-radius: 2px;
+}
+.assistant .shipsContainer .noInfo{
+	padding: 5px;
+	text-align: center;
+}
+
+.assistant .shipsContainer .ship .shipImage{
+	height: 24px;
+	width: 24px;
+	background: #111;
+	float: left;
+}
+
+.assistant .shipsContainer .ship .shipCuantity{
+	float: right;
+	width: 60px;
+	text-align: center;
+}
+
+.assistant .shipsContainer .userName{
+	border-color: #999999;
+	border-style: solid;
+	border-width: 0 0 1px 1px;
+	float: right;
+	height: 30px;
+	line-height: 30px;
+	margin-bottom: 5px;
+	padding-right: 5px;
+	text-align: right;
+	width: 232px;
+}
+
+.assistant .populationLineChart{
+	float: right;
+}
+
+.assistant .populationCardData{
+	position: absolute;
+	top: 50px;
+	right: 10px;
+	width: 190px;
+}
+
+/*.timelineDataCanvas{
+	position: relative;
+	z-index: 2;
+}*/

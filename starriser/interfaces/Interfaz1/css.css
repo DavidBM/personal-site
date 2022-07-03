@@ -1,0 +1,255 @@
+@font-face {
+font-family: "Sansation_l";
+src: url("contenido/SANSATION_LIGHT.TTF");
+}
+@font-face {
+font-family: "Sansation_n";
+src: url("contenido/SANSATION_REGULAR.TTF");
+}
+@font-face {
+font-family: "Sansation_b";
+src: url("contenido/SANSATION_BOLD.TTF");
+}
+
+* {
+margin:0;
+padding:0;
+font-family: "Sansation_b", Arial, Verdana;
+font-size:12px;
+}
+
+body{
+
+background: #070119 url("contenido/orion-nebula-hd-wallpaper-estrecho.jpg") 50% 0 no-repeat;
+}
+
+#menu_superior{
+width:100%;
+height:29px;
+background: url("contenido/fondo_menu_superior_mini.png") repeat-x;
+}
+
+#menu_recursos{
+width:950px;
+height: 80px;
+margin:0 auto;
+padding: 0 0 0 50px;
+position:relative;
+}
+
+#cuerpo{
+width:1000px;
+margin:0 auto;
+position:relative;
+}
+
+#menu_general{
+width:210px;
+float:left;
+min-height:535px;
+background: url("contenido/menu_izquierda.png") no-repeat;
+position:relative;
+top:6px;
+}
+
+#menu_general_zona_superior{
+height:83px;
+}
+
+.menu_general_zona_superior_boton_iz{
+width:73px;
+height:35px;
+background: url("contenido/menu_izquierda_sobre.png") no-repeat;
+position:relative;
+top:16px;
+left:16px;
+cursor:pointer;
+}
+
+div.menu_general_zona_superior_boton_iz:active{
+background: url("contenido/menu_izquierda_sobre_active.png") no-repeat;
+}
+
+.menu_general_zona_superior_boton_iz_active{
+width:73px;
+height:35px;
+background: url("contenido/menu_izquierda_sobre_activo.png") no-repeat;
+position:relative;
+top:16px;
+left:16px;
+cursor:pointer;
+}
+
+div.menu_general_zona_superior_boton_iz_active:active{
+background: url("contenido/menu_izquierda_sobre_activo_active.png") no-repeat;
+}
+
+.menu_general_zona_inferior_boton, .menu_general_zona_inferior_boton_active{
+height: 42px;
+width:150px;
+position:relative;
+left: 15px;
+cursor:pointer;
+position:relative;
+}
+
+.menu_general_zona_inferior_separador{
+height: 21px;
+width:152px;
+background: url("contenido/separador.png") no-repeat;
+position:relative;
+left: 15px;
+}
+
+.menu_general_zona_inferior_boton{
+background: url("contenido/boton.png") no-repeat;
+}
+
+.menu_general_zona_inferior_boton_active , div.menu_general_zona_inferior_boton:active{
+background: url("contenido/boton_active.png") no-repeat;
+}
+
+.menu_general_zona_inferior_boton p, .menu_general_zona_inferior_boton_active p{
+width:100%;
+line-height: 42px;
+text-align:center;
+text-shadow: 0 0 2px #000;
+color: #fff;
+font-size: 14px;
+}
+
+.menu_general_zona_inferior_boton a, .menu_general_zona_inferior_boton_active a{
+position:absolute;
+top:0;
+left:0;
+width:100%;
+height:100%;
+display:block;
+}
+
+#menu_planetas{
+width:179px;
+float:right;
+min-height:200px;
+position:relative;
+top:9px;
+}
+
+.menu_planetas_titulo{
+height:32px;
+background: url("contenido/menu_derecha_planetas.png") no-repeat;
+}
+
+.menu_planetas_botones{
+background:url("contenido/menu_izquierda_brillo.png") no-repeat;
+min-height:50px;
+padding: 15px 0 0 0;
+}
+
+.menu_planetas_boton_p{
+height:27px;
+background: url("contenido/menu_derecha_boton1.png") no-repeat;
+margin: 0 0 10px 0;
+}
+
+.menu_planetas_boton_g{
+height:68px;
+background: url("contenido/menu_derecha_planeta_fondo.png") no-repeat;
+margin: 0 0 10px 0;
+}
+
+.menu_planetas_tope_abajo{
+height:23px;
+background: url("contenido/menu_derecha_tope_abajo.png") no-repeat;
+position:relative;
+top:-22px;
+}
+
+#cuerpo_centro{
+width:642px;
+min-height:200px;
+position:relative;
+left:182px;
+background: url("contenido/centro_sup.png") no-repeat;
+margin-bottom:100px;
+}
+
+#interior_centro_titulo{
+height: 60px;
+}
+
+.cuerpo_centro_fondo_oscuro{
+background: url("contenido/centro_fondo_oscuro.png") no-repeat;
+height: 658px;
+width: 642px;
+margin:45px  auto 0 auto;
+}
+
+#decorado_centro_final{
+background: url("contenido/centro_inf.png") no-repeat;
+position:absolute;
+top:100%;
+left:0;
+width:642px;
+height:24px;
+}
+
+.contenedor-recursos, .separador-contenedor-recursos{
+height:50px;
+margin:15px 0 0 0;
+float:left;
+}
+
+.contenedor-recursos{
+width:128px;
+background: url("contenido/Contenedor-recursos.png") 0 0 no-repeat;
+position:relative;
+}
+
+.contenedor-recursos img{
+position:relative;
+top:3px;
+left:15px;
+}
+
+.contenedor-recursos p{
+float:right;
+color: #a4d4ff;
+font-size:12px;
+clear:both;
+position:relative;
+top:10px;
+right:16px;
+margin-bottom:3px;
+text-align:right;
+text-shadow: 0 0 1px #000;
+}
+
+.contenedor-recursos a{
+position:absolute;
+top:0;
+left:0;
+width:100%;
+height:100%;
+display:block;
+}
+
+.separador-contenedor-recursos{
+width:15px;
+background: url("contenido/separador-contenedor-recursos.png") 0 0 no-repeat;
+}
+
+.clear{
+clear:both;
+}
+
+/*%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%*/
+/*Mensaje*/
+/*%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%*/
+
+.mensaje_fondo{
+height:612px;
+width:600px;
+margin: 0 auto;
+background: url("contenido/mensaje_fondo.png") no-repeat;
+}

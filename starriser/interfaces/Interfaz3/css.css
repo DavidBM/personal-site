@@ -1,0 +1,2848 @@
+/*Si estas leyendo este css:
+Primero: felicidades, eres curioso, eso es bueno. 
+Segundo: Si ves cosas raras en el css es por el Explorer 6… Si, aún hay gente que lo usa, y no es poca.
+*/
+
+@font-face {
+font-family: "Sansation_l";
+src: url("contenido/SANSATION_LIGHT.TTF");
+}
+@font-face {
+font-family: "Sansation_n";
+src: url("contenido/SANSATION_REGULAR.TTF");
+}
+@font-face {
+font-family: "Sansation_b";
+src: url("contenido/SANSATION_BOLD.TTF");
+}
+
+* {
+margin:0;
+padding:0;
+font-family: "Sansation_n", Arial, Verdana;
+font-size:12px;
+}
+
+textarea {
+resize: none;
+}
+
+a{
+outline: none;
+}
+ 
+ :focus{
+ outline: 0
+ }
+ 
+ .clear{
+ clear:both;
+ height:1px;
+ }
+ 
+body{
+background: #070119 url("contenido/orion-nebula-hd-wallpaper-estrecho.jpg") 50% 0 repeat-y;
+}
+/*%% MENU SISTEMA / SUPERIOR %%*/
+
+#menu_superior{
+height:29px;
+width:100%;
+background: url("contenido/fondo_menu_superior_mini.png") repeat-x;
+}
+
+/*%%%%%%%CUERPO%%%%%%%*/
+
+#cuerpo {
+width:1000px;
+margin:0 auto 50px auto;
+position:relative;
+}
+
+/*%% MENU RECURSOS / ASISTENTE %%*/
+	
+		/*RECURSOS*/
+
+		#menu_recursos{
+		float:left;
+		height:76px;
+		width: 470px;
+		background: url("contenido/fondo_menus_superiores.png") no-repeat !important;
+		background: url("contenido/fondo_menus_superioresie6.png") no-repeat;
+		position:relative;
+		}
+		
+		.recurso_cristal,.recurso_metal,.recurso_tritio,.recurso_energia,.medallas_honor{
+		position: absolute;
+		color: #cfe4ff;
+		font-size: 14px;
+		top:48px;
+		text-align:center;
+		width:80px;
+		line-height:16px;
+		}
+		
+		.recurso_metal{
+		left:20px;
+		}
+		
+		.recurso_cristal{
+		left:108px;
+		}
+		
+		.recurso_tritio{
+		left:194px;
+		}
+		
+		.recurso_energia{
+		left:282px;
+		}
+		
+		.medallas_honor{
+		left:366px;
+		color: #ffc600;
+		}
+		
+		.mostrar_recursos_emergente, .mostrar_recursos_emergente_energia{
+		height:62px;
+		width:88px;
+		float:left;
+		position:relative;
+		left:14px;	
+		}
+		
+		.recurso_emergente, .recurso_emergente_energia{
+		height:38px;
+		width:150px;
+		margin: 0 auto;
+		background: url("contenido/emergente.png") no-repeat;
+		position:relative;
+		top: 54px;
+		left: -34px;
+		display:none;
+		font-family: "Sansation_n", Arial, Verdana;
+		color: #fff;
+		line-height:47px;
+		text-align: center;
+		text-decoration: none;
+		z-index:6;
+		}
+		
+		.recurso_emergente_energia{
+		width:200px;
+		background: url("contenido/emergente.png") 0 -76px no-repeat;
+		top: 55px;
+		left: -55px;
+		display:none;
+		line-height:45px;
+		}
+		
+		.recurso_emergente span, .recurso_emergente_energia span{
+		color: #eee;
+		font-family: "Sansation_n", Arial, Verdana;
+		font-size: 14px;
+		}
+		
+		div.mostrar_recursos_emergente:hover > a.recurso_emergente, 
+		div.mostrar_recursos_emergente_energia:hover > a.recurso_emergente_energia{
+		display:block;
+		}
+		
+		/*ASISTENTE*/
+		
+		#menu_asistentes{
+		float:right;
+		height:74px;
+		width: 474px;
+		background: url("contenido/fondo_menus_superiores.png") 0 -76px no-repeat !important;
+		background: url("contenido/fondo_menus_superioresie6.png") 0 -76px no-repeat;
+		z-index:1;
+		}
+
+/*%%MENU GENERAL ó IZQUIERDA%%*/
+		
+#menu_general {
+width: 252px;
+background: url("contenido/menu-izquierda-fondo.png") repeat-y !important;
+background: url("contenido/menu-izquierda-fondoie6.png") repeat-y;
+float:left;
+position: relative;
+left: 0;
+top: 9px;
+margin-bottom: 60px;
+margin-bottom: 60px;
+clear: both;
+}
+
+#menu_general_fin{
+position:absolute;
+top:100%;
+left:0;
+width:252px;
+height: 59px;
+background: url("contenido/menu-izquierda-fondo_fin.png") no-repeat !important;
+background: url("contenido/menu-izquierda-fondo_finie6.png") no-repeat;
+}
+
+		/*BOTONES*/
+		
+		#menu_general_zona_superior{
+		height:45px;
+		width:252px;
+		position:absolute;
+		top:0;
+		left:0;
+		z-index:5;
+		}
+		
+		#boton_izquierda_galaxia, #boton_izquierda_sector, #boton_izquierda_sistema, #boton_izquierda_planeta, #boton_izquierda_galaxia_active, #boton_izquierda_sector_active, #boton_izquierda_sistema_active, #boton_izquierda_planeta_active{
+		display:block;
+		height:50px;
+		background-image: url("contenido/botones_superior_menu-izquierda.png") !important;
+		background-image: url("contenido/botones_superior_menu-izquierdaie6.png");
+		position: absolute;
+		top:0;
+		}
+			/*botones sin hover ni active*/
+		#boton_izquierda_galaxia{
+		background-position: 0 0;
+		width: 77px;
+		left:0;
+		}
+		
+		#boton_izquierda_sector{
+		background-position: -77px 0;
+		width: 64px;
+		left:77px;
+		}
+		
+		#boton_izquierda_sistema{
+		background-position: -141px 0;
+		width: 64px;
+		left:141px;
+		}
+		
+		#boton_izquierda_planeta{
+		background-position: -205px 0;
+		width:80px;
+		left:205px;
+		}
+		
+			/*botones con hover*/
+			
+		#boton_izquierda_galaxia:hover{
+		background-position: 0 -100px;
+		left:0;
+		}
+		
+		#boton_izquierda_sector:hover{
+		background-position: -77px -100px;
+		left:77px;
+		}
+		
+		#boton_izquierda_sistema:hover{
+		background-position: -141px -100px;
+		left:141px;
+		}
+		
+		#boton_izquierda_planeta:hover{
+		background-position: -205px -100px;
+		left:205px;
+		}
+		
+			/*botones con ative*/
+		#boton_izquierda_galaxia:active{
+		background-position: 0 -150px;
+		left:0;
+		}
+		
+		#boton_izquierda_sector:active{
+		background-position: -77px -150px;
+		left:77px;
+		}
+		
+		#boton_izquierda_sistema:active{
+		background-position: -141px -150px;
+		left:141px;
+		}
+		
+		#boton_izquierda_planeta:active{
+		background-position: -205px -150px;
+		left:205px;
+		}
+		
+			/*botones en la seccion actual*/
+		
+		#boton_izquierda_galaxia_active{
+		background-position: 0 -50px;
+		width: 77px;
+		left:0;
+		}
+		
+		#boton_izquierda_sector_active{
+		background-position: -77px -50px;
+		width: 64px;
+		left:77px;
+		}
+		
+		#boton_izquierda_sistema_active{
+		background-position: -141px -50px;
+		width: 64px;
+		left:141px;
+		}
+		
+		#boton_izquierda_planeta_active{
+		background-position: -177px -50px;
+		width: 80px;
+		left:205px;
+		}
+		
+		/*EMERJENTE BOTON IZQUERDA*/
+		
+		.boton_izquierda_emergente{
+		height:38px;
+		width:92px;
+		margin: 0 auto;
+		background: url("contenido/emergente.png") 0 -38px no-repeat;
+		position:absolute;
+		top: -21px;
+		z-index:5;
+		display:none;
+		}
+		
+		.boton_izquierda_emergente a{
+		display:block;
+		height:100%;
+		width:100%;
+		line-height: 24px;
+		color: #fff;
+		text-align:center;
+		font-family: "Sansation_n", Arial, Verdana;
+		text-decoration:none;
+		}
+		
+		a#boton_izquierda_galaxia:hover + p.boton_izquierda_emergente, 
+		a#boton_izquierda_galaxia_active:hover + p.boton_izquierda_emergente, 
+		a#boton_izquierda_galaxia + p.boton_izquierda_emergente:hover, 
+		a#boton_izquierda_galaxia_active + p.boton_izquierda_emergente:hover{
+		display:block;
+		left: -3px;
+		}
+		
+		a#boton_izquierda_sector:hover + p.boton_izquierda_emergente, 
+		a#boton_izquierda_sector_active:hover + p.boton_izquierda_emergente, 
+		a#boton_izquierda_sector + p.boton_izquierda_emergente:hover, 
+		a#boton_izquierda_sector_active + p.boton_izquierda_emergente:hover{
+		display:block;
+		left: 63px;
+		}
+		
+		a#boton_izquierda_sistema:hover + p.boton_izquierda_emergente, 
+		a#boton_izquierda_sistema_active:hover + p.boton_izquierda_emergente, 
+		a#boton_izquierda_sistema + p.boton_izquierda_emergente:hover, 
+		a#boton_izquierda_sistema_active + p.boton_izquierda_emergente:hover{
+		display:block;
+		left: 125px;
+		}
+		
+		a#boton_izquierda_planeta:hover + p.boton_izquierda_emergente, 
+		a#boton_izquierda_planeta_active:hover + p.boton_izquierda_emergente, 
+		a#boton_izquierda_planeta + p.boton_izquierda_emergente:hover, 
+		a#boton_izquierda_planeta_active + p.boton_izquierda_emergente:hover{
+		display:block;
+		left: 186px;
+		}
+		
+		/*ZONA INFERIOR MENU IZQUIERDA*/
+		
+		#menu_general_zona_inferior{
+		margin: 0 auto;
+		width: 240px;
+		height: 100px; /*es un min-height, pero explorer 6 no lo entiende*/
+		position:relative;
+		top: 47px;
+		}
+		
+		/*NOTIFICACION GENERAL*/
+		
+		#notificacion_general, #notificacion_general_informes, #notificacion_general_combates{
+		 display: block;
+		 height: 45px;
+		 left: 266px;
+		 position: absolute;
+		 top: 64px;
+		 width: 50px;
+		 z-index: 5;
+		 cursor:pointer;
+		}
+		
+		#notificacion_general{
+		background: url("contenido/Boton_de_estado_general.png") 0 0 !important;
+		background: url("contenido/Boton_de_estado_generalie6.png") 0 0 ;
+		}
+		
+		#notificacion_general_informes{
+		background: url("contenido/Boton_de_estado_general.png") 0 -116px !important;
+		background: url("contenido/Boton_de_estado_generalie6.png") 0 -116px ;
+		}
+		
+		#notificacion_general_combates{
+		background: url("contenido/Boton_de_estado_general.png") 0 -228px !important;
+		background: url("contenido/Boton_de_estado_generalie6.png") 0 -228px ;
+		}
+		
+		#notificacion_general:active{
+		background-position: 0 -60px !important; 
+		}
+		
+		#notificacion_general_informes:active{
+		background-position: 0 -172px !important; 
+		}
+		
+		#notificacion_general_combates:active{
+		background-position: 0 -284px !important; 
+		}
+
+/*%% CUERPO CENTRO %%*/
+
+#cuerpo_centro {
+width: 100%;
+position: relative;
+float:left;
+top:-25px;
+padding: 0;
+margin-bottom:100px;
+background: url("contenido/centro_fondo.png") 0 80px no-repeat !important;
+background: url("contenido/centro_fondoie6.png") 0 80px no-repeat;
+z-index: 0;
+}
+
+
+		/*TITULO*/
+		
+		#titulo_centro{
+		height: 45px;
+		width:100%;
+		position:absolute;
+		top:35px;
+		left:0;
+		background: url("contenido/titulo_centro_fondo.png") no-repeat !important;
+		background: url("contenido/titulo_centro_fondoie6.png") no-repeat;
+		z-index:50;
+		}
+		
+		#titulo_centro_img{
+		width:400px;
+		height:41px;
+		position:absolute;
+		left:340px;
+		top:4px;
+		background: url("contenido/Titulo_ventana.png") no-repeat !important;
+		background: url("contenido/Titulo_ventanaie6.png") no-repeat;
+		}
+		
+		/*MENU PLANETAS FLECHA*/
+		
+		.punto_borde_absolute_100_0{
+		position:absolute;
+		top:0;
+		left:100%;
+		height:0;
+		width:0;
+		}
+		
+		#flecha_menu_planetas, #flecha_menu_planetas_active{
+		height:43px;
+		width:216px;
+		position:absolute;
+		z-index:5;
+		top: 3px;
+		right: 4px;
+		background: transparent;
+		cursor:pointer;
+		}
+		
+		div#flecha_menu_planetas:hover, #flecha_menu_planetas_active{
+		background: url("contenido/flecha_menu_planetas.png") 100% 0 no-repeat !important;
+		background: url("contenido/flecha_menu_planetasie6.png") 100% 0 no-repeat;
+		}
+		
+		div#flecha_menu_planetas:active, #flecha_menu_planetas_active:active{
+		background: url("contenido/flecha_menu_planetas.png") 100% -43px no-repeat !important;
+		background: url("contenido/flecha_menu_planetasie6.png") 100% 0 no-repeat;
+		}
+		
+		/*LISTA PLANETAS*/
+		
+		#lista_planetas{
+		height:47px;
+		width: 216px;
+		float:right;
+		position:relative;
+		left: -18px;
+		top: -2px;
+		z-index:5;
+		}
+		
+		#lista_planetas_lista{
+		background: url("contenido/lista_desplegable_planetas_fondo.png") no-repeat !important;
+		width:100%;
+		position:absolute;
+		top:42px;
+		left:0;
+		display:none;
+		z-index:10;
+		}
+		
+		#lista_planetas_lista_fin{
+		background: url("contenido/lista_desplegable_planetas_fondo_fin.png") no-repeat;
+		position:absolute;
+		top:100%;
+		left:1px;
+		width: 210px;
+		height: 21px;
+		z-index:5;
+		}
+		
+		.planeta_de_la_lista{
+		height:47px;
+		width:100%;
+		position:relative;
+		}
+		
+		.planeta_de_la_lista img{
+		position:absolute;
+		top:9px;
+		left:10px;
+		}
+		
+		.planeta_de_la_lista p{
+		width:150px;
+		float:left;
+		padding: 0 0 0 70px;
+		text-align:left;
+		position:relative;
+		top:11px;
+		right: 20px;
+		color: #fff;
+		font-size:16px;
+		font-family: "Sansation_b", Arial, Verdana;
+		line-height:14px;
+		}
+		
+		.planeta_de_la_lista span{
+		color: #00d2ff;
+		}
+		
+		.iehackablock{
+		display:block;
+		text-decoration: none !important;
+		text-decoration: underline;
+		color: #fff;
+		}
+		 
+		 /*---*/
+		
+		.planeta_de_la_lista_active{
+		position:absolute;
+		top:0;
+		left:0;
+		}
+		
+		.planeta_de_la_lista_active img{
+		position:absolute;
+		top:8px;
+		left:4px;
+		}
+		
+		.planeta_de_la_lista_active p{
+		width:150px;
+		float:left;
+		text-align:left;
+		position:relative;
+		top:11px;
+		left:39px;
+		color: #fff;
+		font-size:16px;
+		font-family: "Sansation_b", Arial, Verdana;
+		line-height:14px;
+		}
+		
+		.planeta_de_la_lista span{
+		color: #00d2ff;
+		}
+		
+		/*---*/
+		
+		span.texto_verde_lista_planetas{
+		color: #12ff00;
+		}
+		
+		span.texto_amarillo_lista_planetas{
+		color: #ffde00;
+		}
+		
+		span.texto_rojo_lista_planetas{
+		color: #ff1e00;
+		}
+		
+		.planeta_lista_hover{
+		display:block;
+		position:absolute;
+		top:0;
+		left:0;
+		height:100%;
+		width:100%;
+		}
+		
+		div.planeta_de_la_lista:hover{
+			background: url("contenido/fondo_planetas_lista_planetas.png") 5px 8px no-repeat;
+		}
+		
+	/*CONTENIDO CENTRO*/
+	
+		#contenido_centro{
+		padding: 0 6px;
+		width:972px;
+		top: 80px;
+		left: 0;
+		position:relative;
+		}
+		
+		#cuerpo_centro_fin{
+		position:absolute;
+		top:100%;
+		left:0;
+		background: url("contenido/centro_fondo_fin.png") no-repeat !important;
+		background: url("contenido/centro_fondo_finie6.png") no-repeat;
+		height: 100px;
+		width: 982px;
+		z-index: -1;
+		}
+		
+		
+/*SELECTOR DESLIZANTE*/
+
+.selector_deslizante{
+width:776px;
+height:62px;
+position:relative;
+background:url("contenido/selector_deslizante_fondo.png") no-repeat !important;
+background:url("contenido/selector_deslizante_fondoie6.png") no-repeat;
+}
+
+.selector_contenedor_barra_boton{
+width:680px;
+height:4px;
+left:16px;
+top:32px;
+position:absolute;
+cursor:pointer;
+}
+
+.selector_barra_azul, .selector_barra_roja{
+width:680px;
+height:4px;
+background: url("contenido/selector_barras_rojo_azul.png") no-repeat;
+position:absolute;
+top:0;
+left:0;
+}
+
+.selector_barra_azul{
+background-position: 0 -4px;
+z-index:10;
+}
+
+.selector_barra_roja{
+z-index:11;
+width:340px;
+}
+
+.selector_boton{
+width:41px;
+height:24px;
+background: url("contenido/selector_boton.png") no-repeat;
+z-index: 12;
+position:absolute;
+top:-10px;
+left:320px;
+cursor:pointer;
+}
+
+.selector_armas,.selector_escudos{
+font-family: "Sansation_b", Arial, Verdana;
+position:absolute;
+top:8px;
+}
+
+.selector_armas{
+color:#ff8f8f;
+left:20px;
+}
+
+.selector_escudos{
+color:#8fe1ff;
+right:84px;
+}
+
+.selctor_cuadro_flotante{
+background: #000;
+border: 1px solid #666;
+width:300px;
+height:300px;
+position:absolute;
+right:70px;
+top: 10px;
+z-index:114;
+display:none;
+}
+
+.selctor_cuadro_flotante_flechita{
+background: url("contenido/cuadro_flotante_flechita.png") 0 30px no-repeat;
+width:70px;
+height:60px;
+position:absolute;
+left:100%;
+top:-10px;
+cursor:pointer;
+}
+
+.selctor_boton_cuadro_flotante{
+width:55px;
+height:53px;
+position:absolute;
+top:5px;
+right:5px;
+cursor:pointer;
+}
+
+
+/*%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%*/
+/*BOTONES SELECCION SOLO UNA %%%%%%%%%%%%%%%*/
+/*%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%*/
+
+#bones_seleccion_solo_una1 {
+height:40px;
+width:500px;
+float:left;
+}
+
+#bones_seleccion_solo_una1 .bones_seleccion_solo_una_opcion1{
+width:179px;
+float:left;
+height:40px;
+background: url("contenido/botondes_seleccion_solo_una.png") no-repeat !important;
+background: url("contenido/botondes_seleccion_solo_unaie6.png") no-repeat;
+cursor:pointer;
+}
+
+#bones_seleccion_solo_una1 .bones_seleccion_solo_una_opcion1:hover{
+background: url("contenido/botondes_seleccion_solo_una.png") 0 -40px no-repeat !important;
+background: url("contenido/botondes_seleccion_solo_unaie6.png") 0 -40px no-repeat;
+}
+
+#bones_seleccion_solo_una1 .bones_seleccion_solo_una_opcion1_active, #bones_seleccion_solo_una1 .bones_seleccion_solo_una_opcion1:active{
+width:179px;
+float:left;
+height:40px;
+background: url("contenido/botondes_seleccion_solo_una.png") 0 -80px no-repeat !important;
+background: url("contenido/botondes_seleccion_solo_unaie6.png") 0 -80px no-repeat;
+cursor:pointer;
+}
+
+#bones_seleccion_solo_una1 .bones_seleccion_solo_una_opcion2{
+width:174px;
+float:left;
+height:40px;
+background: url("contenido/botondes_seleccion_solo_una.png") -179px 0 no-repeat !important;
+background: url("contenido/botondes_seleccion_solo_unaie6.png") -179px 0  no-repeat;
+cursor:pointer;
+}
+
+#bones_seleccion_solo_una1 .bones_seleccion_solo_una_opcion2:hover{
+background: url("contenido/botondes_seleccion_solo_una.png") -179px -40px no-repeat !important;
+background: url("contenido/botondes_seleccion_solo_unaie6.png") -179px -40px no-repeat;
+}
+
+#bones_seleccion_solo_una1 .bones_seleccion_solo_una_opcion2_active, #bones_seleccion_solo_una1 .bones_seleccion_solo_una_opcion2:active{
+width:174px;
+float:left;
+height:40px;
+background: url("contenido/botondes_seleccion_solo_una.png") -179px -80px no-repeat !important;
+background: url("contenido/botondes_seleccion_solo_unaie6.png") -179px -80px no-repeat;
+cursor:pointer;
+}
+
+#bones_seleccion_solo_una1 .bones_seleccion_solo_una_opcion3{
+width:112px;
+float:left;
+height:40px;
+background: url("contenido/botondes_seleccion_solo_una.png") -353px 0 no-repeat !important;
+background: url("contenido/botondes_seleccion_solo_unaie6.png") -353px 0  no-repeat;
+cursor:pointer;
+}
+
+#bones_seleccion_solo_una1 .bones_seleccion_solo_una_opcion3:hover{
+background: url("contenido/botondes_seleccion_solo_una.png") -353px -40px no-repeat !important;
+background: url("contenido/botondes_seleccion_solo_unaie6.png") -353px -40px no-repeat;
+}
+
+#bones_seleccion_solo_una1 .bones_seleccion_solo_una_opcion3_active, #bones_seleccion_solo_una1 .bones_seleccion_solo_una_opcion3:active{
+width:112px;
+float:left;
+height:40px;
+background: url("contenido/botondes_seleccion_solo_una.png") -353px -80px no-repeat !important;
+background: url("contenido/botondes_seleccion_solo_unaie6.png") -353px -80px no-repeat;
+cursor:pointer;
+}
+
+/*ENVIAR MENSAJE*/
+
+#nuevo_mensaje:hover{
+background: url("contenido//bandeja_entrada_botones.png") -160px -40px no-repeat !important;
+background: url("contenido/bandeja_entrada_botonesie6.png") -160px -40px no-repeat;
+}
+
+#nuevo_mensaje:active{
+background: url("contenido//bandeja_entrada_botones.png") -160px -80px no-repeat !important;
+background: url("contenido/bandeja_entrada_botonesie6.png") -160px -80px no-repeat;
+}
+#nuevo_mensaje{
+height:40px;
+width:160px;
+float:right;
+background: url("contenido/bandeja_entrada_botones.png") -160px 0 no-repeat !important;
+background: url("contenido/bandeja_entrada_botonesie6.png") -160px 0 no-repeat;
+cursor:pointer;
+position:relative;
+right: 8px;
+}
+
+/*MENSAJES*/
+
+#mensajes_global{
+width:961px;
+position:relative;
+}
+
+.mensaje_ {
+width:961px;
+}
+
+.mensaje_titulo{
+width:961px;
+background: url("contenido/bandeja_entrada_titulo.png") no-repeat !important;
+background: url("contenido/bandeja_entrada_tituloie6.png") no-repeat;
+height: 40px;
+position:relative;
+z-index: 21;
+cursor:pointer;
+}
+
+.mensaje_titulo_nuevo{
+width:961px;
+background: url("contenido/bandeja_entrada_titulo.png") 0 -40px no-repeat !important;
+background: url("contenido/bandeja_entrada_tituloie6.png") 0 -40px no-repeat;
+height: 40px;
+position:relative;
+z-index: 21;
+cursor:pointer;
+}
+
+.mensaje_cuerpo{
+width:auto;
+background: url("contenido/bandeja_entrada_cuerpo.png") repeat-y;
+padding: 10px 10px 20px 10px;
+position:relative;
+top:-20px;
+z-index: 20;
+display:none;
+}
+
+.mensaje_cuerpo_fin{
+position:absolute;
+top:100%;
+left:0;
+background: url("contenido/bandeja_entrada_cuerpo_fin.png") no-repeat;
+height:10px;
+width:961px;
+}
+
+.mensaje_ p, .mensaje_ span{
+margin: 10px;
+color: #fff;
+font-family: "Sansation_n", Arial, Verdana;
+font-size: 14px;
+}
+
+.mensaje_responder a, #bones_seleccion_solo_una1 a, #nuevo_mensaje a{
+height:100%;
+width:100%;
+display:block;
+}
+
+.mensaje_responder{
+height:40px;
+width:160px;
+position:absolute;
+right:13px;
+bottom: -8px;
+background: url("contenido/bandeja_entrada_botones.png") no-repeat !important;
+background: url("contenido/bandeja_entrada_botonesie6.png") no-repeat;
+cursor:pointer;
+}
+
+.mensaje_responder:hover{
+background: url("contenido/bandeja_entrada_botones.png") 0 -40px no-repeat !important;
+background: url("contenido/bandeja_entrada_botonesie6.png") 0 -40px no-repeat;
+}
+
+.mensaje_responder:active{
+background: url("contenido/bandeja_entrada_botones.png") 0 -80px no-repeat !important;
+background: url("contenido/bandeja_entrada_botonesie6.png") 0 -80px no-repeat;
+}
+
+/*NUEVO MENSAJE*/
+
+#escribir_mensaje{
+width:957px;
+min-height: 300px;
+background: url("contenido/nuevo_mensaje_fondo.png") no-repeat !important;
+background: url("contenido/nuevo_mensaje_fondoie6.png") no-repeat;
+margin: 0 0 15px 0;
+position:relative;
+}
+
+#escribir_mensaje_fin{
+width:957px;
+height:15px;
+background: url("contenido/nuevo_mensaje_fondo_fin.png") no-repeat !important;
+background: url("contenido/nuevo_mensaje_fondo_finie6.png") no-repeat;
+position:absolute;
+top:100%;
+}
+
+#escribir_mensaje_controles{
+width:957px;
+height:90px;
+padding-top: 5px;
+}
+
+.boton_enviar_mensaje_nuevo{
+width:151px;
+height:58px;
+float:right;
+margin: 11px 16px 16px 16px;
+cursor:pointer;
+background: url("contenido/bandeja_entrada_botones.png") -320px 0 no-repeat !important;
+background: url("contenido/bandeja_entrada_botonesie6.png") -320px 0 no-repeat;
+}
+
+.boton_enviar_mensaje_nuevo:active{
+background: url("contenido/bandeja_entrada_botones.png") -320px -62px no-repeat !important;
+background: url("contenido/bandeja_entrada_botonesie6.png") -320px -62px no-repeat;
+}
+
+.escribir_mensaje_radix p, .escribir_mensaje_radix input{
+float:right;
+color: #d2d3d3;
+font-family: "Sansation_n", Arial, Verdana;
+font-size:14px;
+cursor:pointer;
+}
+
+.escribir_mensaje_radix input{
+clear:both;
+position:relative;
+top:2px;
+*top: -10px;
+}
+
+.escribir_mensaje_radix p{
+padding-right: 20px;
+}
+
+.escribir_mensaje_radix{
+float:right;
+width:170px;
+position:relative;
+top: 7px;
+margin-right:20px;
+}
+
+#escribir_mensaje_selector_usuario_alianza, #escribir_mensaje_selector_destino{
+float:right;
+width: 580px;
+height: 40px;
+}
+
+#escribir_mensaje_selector_usuario_alianza p, #escribir_mensaje_selector_destino p{
+color: #00d6ff;
+font-size: 20px;
+float:left;
+font-family: "Sansation_b", Arial, Verdana;
+position:relative;
+top:5px;
+left:20px;
+width:150px;
+}
+
+#escribir_mensaje_selector_alianza{
+width:98px;
+height:40px;
+float:right;
+cursor:pointer;
+background: url("contenido/bandeja_entrada_botones.png") -570px 0 no-repeat !important;
+background: url("contenido/bandeja_entrada_botonesie6.png") -570px 0 no-repeat;
+}
+
+#escribir_mensaje_selector_alianza:hover{
+background: url("contenido/bandeja_entrada_botones.png") -570px -40px no-repeat !important;
+background: url("contenido/bandeja_entrada_botonesie6.png") -570px -40px no-repeat;
+}
+
+#escribir_mensaje_selector_alianza_active, #escribir_mensaje_selector_alianza:active{
+width:98px;
+height:40px;
+float:right;
+cursor:pointer;
+background: url("contenido/bandeja_entrada_botones.png") -570px -80px no-repeat !important;
+background: url("contenido/bandeja_entrada_botonesie6.png") -570px -80px no-repeat;
+}
+
+#escribir_mensaje_selector_usuario{
+width:98px;
+height:40px;
+float:right;
+cursor:pointer;
+background: url("contenido/bandeja_entrada_botones.png") -472px 0 no-repeat !important;
+background: url("contenido/bandeja_entrada_botonesie6.png") -472px 0 no-repeat;
+}
+
+#escribir_mensaje_selector_usuario:hover{
+background: url("contenido/bandeja_entrada_botones.png") -472px -40px no-repeat !important;
+background: url("contenido/bandeja_entrada_botonesie6.png") -472px -40px no-repeat;
+}
+
+#escribir_mensaje_selector_usuario_active, #escribir_mensaje_selector_usuario:active{
+width:98px;
+height:40px;
+float:right;
+cursor:pointer;
+background: url("contenido/bandeja_entrada_botones.png") -472px -80px no-repeat !important;
+background: url("contenido/bandeja_entrada_botonesie6.png") -472px -80px no-repeat;
+}
+
+#dirigido_a_inpu{
+border:none;
+border-width: 0;
+width:364px;
+height:40px;
+padding-left:20px;
+background: url("contenido/bandeja_entrada_botones.png") 0 -120px no-repeat !important;
+background: url("contenido/bandeja_entrada_botonesie6.png") 0 -120px no-repeat;
+float:right;
+margin:0;
+font-family: "Sansation_n", Arial, Verdana;
+color: #eee;
+font-size: 16px;
+}
+
+#dirigido_a_inpu{
+height /*\**/:30px\9;
+padding-top /*\**/:10px\9;
+} 
+
+#escribir_mensaje_selector_destino p{
+width: 100px;
+}
+
+#escribir_mensaje_buscar_usuario{
+width:66px;
+height:40px;
+background: url("contenido/bandeja_entrada_botones.png") -387px -120px no-repeat !important;
+background: url("contenido/bandeja_entrada_botonesie6.png") -387px -120px no-repeat;
+float:right;
+margin-left:5px;
+cursor: pointer;
+}
+
+#escribir_mensaje_buscar_usuario:hover{
+background: url("contenido/bandeja_entrada_botones.png") -591px -120px no-repeat !important;
+background: url("contenido/bandeja_entrada_botonesie6.png") -591px -120px no-repeat;
+}
+
+#escribir_mensaje_buscar_usuario:active, #escribir_mensaje_buscar_usuario_active{
+background: url("contenido/bandeja_entrada_botones.png") -523px -120px no-repeat !important;
+background: url("contenido/bandeja_entrada_botonesie6.png") -523px -120px no-repeat;
+}
+
+#escribir_mensaje_buscar_usuario .selctor_cuadro_flotante{
+position: relative;
+right:315px;
+top: -1px;
+}
+
+#escribir_mensaje_buscar_usuario .selctor_cuadro_flotante .selctor_cuadro_flotante_flechita{
+width: 80px;
+}
+
+#mensaje_texto_input{
+border:none;
+border-width: 0;
+width:902px;
+height:400px;
+padding: 20px 0 0 25px;
+margin:0;
+font-family: "Sansation_n", Arial, Verdana;
+color: #fff;
+font-size: 16px;
+background:none;
+}
+
+/*%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%% SISTEMA    SISTEMA    SISTEMA    SISTEMA %%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%*/
+
+#sistema_vista{
+height: 530px;
+width:970px;
+position:relative;
+}
+
+#sistema_vista_menu{
+float:left;
+background: url("contenido/menus_izquierdos.png") 0 -622px no-repeat !important;
+background: url("contenido/menus_izquierdosie6.png") 0 -622px no-repeat;
+width: 264px;
+height:514px;
+position:relative;
+}
+
+#sistema_vista_menu_usuario, #sistema_vista_menu_usuario span{
+font-family: "Sansation_l", Arial, Verdana;
+font-size: 18px;
+color: #fff;
+}
+
+#sistema_vista_menu_usuario{
+padding: 20px 0 0 20px;
+}
+
+.sistema_vista_menu_texto, .sistema_vista_menu_texto span{
+font-family: "Sansation_l", Arial, Verdana;
+font-size: 14px;
+color: #fff;
+}
+
+.sistema_vista_menu_texto{
+padding: 5px 0 0 50px;
+}
+
+#sistema_vista_menu_planeta1,#sistema_vista_menu_planeta2,#sistema_vista_menu_planeta3,#sistema_vista_menu_planeta4,#sistema_vista_menu_planeta5,#sistema_vista_menu_planeta6,#sistema_vista_menu_planeta7,#sistema_vista_menu_planeta8,#sistema_vista_menu_planeta9,#sistema_vista_menu_planeta10,#sistema_vista_menu_planeta11,#sistema_vista_menu_planeta12,#sistema_vista_menu_planeta13,#sistema_vista_menu_planeta14,#sistema_vista_menu_planeta15{
+height:200px;
+width:200px;
+top:88px;
+left:24px;
+position:absolute;
+}
+
+#sistema_vista_menu_planeta1{
+background: url("contenido/maxiplanetas.png") 0 0 no-repeat;
+}
+
+#sistema_vista_menu_planeta2{
+background: url("contenido/maxiplanetas.png") -200px 0 no-repeat;
+}
+
+#sistema_vista_menu_planeta3{
+background: url("contenido/maxiplanetas.png") -400px 0 no-repeat;
+}
+
+#sistema_vista_menu_planeta4{
+background: url("contenido/maxiplanetas.png") -600px 0 no-repeat;
+}
+
+#sistema_vista_menu_planeta5{
+background: url("contenido/maxiplanetas.png") -800px 0 no-repeat;
+}
+
+#sistema_vista_menu_planeta6{
+background: url("contenido/maxiplanetas.png") 0 -200px no-repeat;
+}
+
+#sistema_vista_menu_planeta7{
+background: url("contenido/maxiplanetas.png") -200px -200px no-repeat;
+}
+
+#sistema_vista_menu_planeta8{
+background: url("contenido/maxiplanetas.png") -400px -200px no-repeat;
+}
+
+#sistema_vista_menu_planeta9{
+background: url("contenido/maxiplanetas.png") -600px -200px no-repeat;
+}
+
+#sistema_vista_menu_planeta10{
+background: url("contenido/maxiplanetas.png") -800px -200px no-repeat;
+}
+
+#sistema_vista_menu_planeta11{
+background: url("contenido/maxiplanetas.png") 0 -400px no-repeat;
+}
+
+#sistema_vista_menu_planeta12{
+background: url("contenido/maxiplanetas.png") -200px -400px no-repeat;
+}
+
+#sistema_vista_menu_planeta13{
+background: url("contenido/maxiplanetas.png") -400px -400px no-repeat;
+}
+
+#sistema_vista_menu_planeta14{
+background: url("contenido/maxiplanetas.png") -600px -400px no-repeat;
+}
+
+#sistema_vista_menu_planeta15{
+background: url("contenido/maxiplanetas.png") -800px -400px no-repeat;
+}
+
+#sistema_vista_menu_ver_planeta, #sistema_vista_menu_espiar_planeta, #sistema_vista_menu_atacar, #sistema_vista_menu_apollar, #sistema_vista_menu_comerciar, #sistema_vista_menu_enviar_mensaje{
+height: 34px;
+width: 234px;
+position:relative;
+top: 214px;
+left:12px;
+cursor:pointer;
+}
+
+#sistema_vista_menu_ver_planeta{
+background: url("contenido/menu_sistema.png") -468px 0 no-repeat;
+}
+
+#sistema_vista_menu_espiar_planeta{
+background: url("contenido/menu_sistema.png") -468px -34px no-repeat;
+}
+
+#sistema_vista_menu_atacar{
+background: url("contenido/menu_sistema.png") -468px -69px no-repeat;
+}
+
+#sistema_vista_menu_apollar{
+background: url("contenido/menu_sistema.png") -468px -103px no-repeat;
+}
+
+#sistema_vista_menu_comerciar{
+background: url("contenido/menu_sistema.png") -468px -138px no-repeat;
+}
+
+#sistema_vista_menu_enviar_mensaje{
+background: url("contenido/menu_sistema.png") -468px -172px no-repeat;
+}
+
+#sistema_vista_menu_ver_planeta:hover{
+background: url("contenido/menu_sistema.png") 0 0 no-repeat;
+}
+
+#sistema_vista_menu_espiar_planeta:hover{
+background: url("contenido/menu_sistema.png") 0 -34px no-repeat;
+}
+
+#sistema_vista_menu_atacar:hover{
+background: url("contenido/menu_sistema.png") 0 -69px no-repeat;
+}
+
+#sistema_vista_menu_apollar:hover{
+background: url("contenido/menu_sistema.png") 0 -103px no-repeat;
+}
+
+#sistema_vista_menu_comerciar:hover{
+background: url("contenido/menu_sistema.png") 0 -138px no-repeat;
+}
+
+#sistema_vista_menu_enviar_mensaje:hover{
+background: url("contenido/menu_sistema.png") 0 -172px no-repeat;
+}
+
+#sistema_vista_menu_ver_planeta:active,#sistema_vista_menu_ver_planeta_active{
+background: url("contenido/menu_sistema.png") -234px 0 no-repeat;
+}
+
+#sistema_vista_menu_espiar_planeta:active,#sistema_vista_menu_espiar_planeta_active{
+background: url("contenido/menu_sistema.png") -234px -34px no-repeat;
+}
+
+#sistema_vista_menu_atacar:active,#sistema_vista_menu_atacar_active{
+background: url("contenido/menu_sistema.png") -234px -69px no-repeat;
+}
+
+#sistema_vista_menu_apollar:active,#sistema_vista_menu_apollar_active{
+background: url("contenido/menu_sistema.png") -234px -103px no-repeat;
+}
+
+#sistema_vista_menu_comerciar:active,#sistema_vista_menu_comerciar_active{
+background: url("contenido/menu_sistema.png") -234px -138px no-repeat;
+}
+
+#sistema_vista_menu_enviar_mensaje:active,#sistema_vista_menu_enviar_mensaje_active{
+background: url("contenido/menu_sistema.png") -234px -172px no-repeat;
+}
+
+#sistema_vista_orbit{
+width:725px;
+height: 529px;
+position:absolute;
+right:0;
+top:0;
+background: url("contenido/orbitas.png") no-repeat !important;
+background: url("contenido/orbitasie6.png") no-repeat;
+}
+
+.planeta_pequeno{
+width: 52px;
+height: 52px;
+position:absolute;
+cursor:pointer;
+}
+
+.planeta_pequeno p{
+padding: 0 0 0 20px;
+font-family: "Sansation_n", Arial, Verdana;
+font-size: 16px;
+top: -20px;
+position:relative;
+height: 20px;
+text-shadow:  0 0 2px #000;
+color: #fff;
+width: 100px;
+}
+
+.planeta_pequeno_rojo p{
+background: url("contenido/miniescudos_02.png") no-repeat;
+}
+
+.planeta_pequeno_azul p{
+background: url("contenido/miniescudos_01.png") no-repeat;
+}
+
+#planeta1{
+background: url(contenido/miniplanetas.png) 0 0 no-repeat;
+top:98px;
+left:545px;
+}
+
+#planeta2{
+background: url(contenido/miniplanetas.png) -52px 0 no-repeat;
+top:239px;
+left:463px;
+}
+
+#planeta3{
+background: url(contenido/miniplanetas.png) -104px 0 no-repeat;
+top:160px;
+left:436px;
+}
+
+#planeta4{
+background: url(contenido/miniplanetas.png) -156px 0 no-repeat;
+top:374px;
+left:433px;
+}
+
+#planeta5{
+background: url(contenido/miniplanetas.png) -208px 0 no-repeat;
+top:282px;
+left:365px;
+}
+
+#planeta6{
+background: url(contenido/miniplanetas.png) -260px 0 no-repeat;
+top:96px;
+left:352px;
+}
+
+#planeta7{
+background: url(contenido/miniplanetas.png) -312px 0 no-repeat;
+top:377px;
+left:323px;
+}
+
+#planeta8{
+background: url(contenido/miniplanetas.png) -364px 0 no-repeat;
+top:205px;
+left:261px;
+}
+
+#planeta9{
+background: url(contenido/miniplanetas.png) -416px 0 no-repeat;
+top:287px;
+left:229px;
+}
+
+#planeta10{
+background: url(contenido/miniplanetas.png) -468px 0 no-repeat;
+top:113px;
+left:205px;
+}
+
+#planeta11{
+background: url(contenido/miniplanetas.png) -520px 0 no-repeat;
+top:373px;
+left:178px;
+}
+
+#planeta12{
+background: url(contenido/miniplanetas.png) -572px 0 no-repeat;
+top:243px;
+left:124px;
+}
+
+#planeta13{
+background: url(contenido/miniplanetas.png) -624px 0 no-repeat;
+top:156px;
+left:95px;
+}
+
+#planeta14{
+background: url(contenido/miniplanetas.png) -676px 0 no-repeat;
+top:335px;
+left:65px;
+}
+
+#planeta15{
+background: url(contenido/miniplanetas.png) -728px 0 no-repeat;
+top:76px;
+left:39px;
+}
+
+#planeta1_active{
+background: url(contenido/miniplanetas.png) 0 -52px no-repeat;
+top:98px;
+left:545px;
+}
+
+#planeta2_active{
+background: url(contenido/miniplanetas.png) -52px -52px no-repeat;
+top:239px;
+left:463px;
+}
+
+#planeta3_active{
+background: url(contenido/miniplanetas.png) -104px -52px no-repeat;
+top:160px;
+left:436px;
+}
+
+#planeta4_active{
+background: url(contenido/miniplanetas.png) -156px -52px no-repeat;
+top:374px;
+left:433px;
+}
+
+#planeta5_active{
+background: url(contenido/miniplanetas.png) -208px -52px no-repeat;
+top:282px;
+left:365px;
+}
+
+#planeta6_active{
+background: url(contenido/miniplanetas.png) -260px -52px no-repeat;
+top:96px;
+left:352px;
+}
+
+#planeta7_active{
+background: url(contenido/miniplanetas.png) -312px -52px no-repeat;
+top:377px;
+left:323px;
+}
+
+#planeta8_active{
+background: url(contenido/miniplanetas.png) -364px -52px no-repeat;
+top:205px;
+left:261px;
+}
+
+#planeta9_active{
+background: url(contenido/miniplanetas.png) -416px -52px no-repeat;
+top:287px;
+left:229px;
+}
+
+#planeta10_active{
+background: url(contenido/miniplanetas.png) -468px -52px no-repeat;
+top:113px;
+left:205px;
+}
+
+#planeta11_active{
+background: url(contenido/miniplanetas.png) -520px -52px no-repeat;
+top:373px;
+left:178px;
+}
+
+#planeta12_active{
+background: url(contenido/miniplanetas.png) -572px -52px no-repeat;
+top:243px;
+left:124px;
+}
+
+#planeta13_active{
+background: url(contenido/miniplanetas.png) -624px -52px no-repeat;
+top:156px;
+left:95px;
+}
+
+#planeta14_active{
+background: url(contenido/miniplanetas.png) -676px -52px no-repeat;
+top:335px;
+left:65px;
+}
+
+#planeta15_active{
+background: url(contenido/miniplanetas.png) -728px -52px no-repeat;
+top:76px;
+left:39px;
+}
+
+.aliado{
+color: #00bbff;
+}
+
+
+.enemigo{
+color: #ff4b4b;
+}
+
+
+.propio{
+color: #5dff47;
+}
+
+/*%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%% SECTOR SECTOR SECTOR  SECTOR %%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%*/
+
+#sector_vista{
+height: 730px;
+width:970px;
+position:relative;
+}
+
+#sector_vista_menu{
+margin-top:15px;
+float:left;
+background: url("contenido/menus_izquierdos.png") 0 0 no-repeat !important;
+background: url("contenido/menus_izquierdosie6.png") 0 0 no-repeat;
+width: 227px;
+height:312px;
+position:relative;
+}
+
+#sector_vista_sistemas{
+width:715px;
+height: 715px;
+margin: 15px 15px 0 0;
+position:relative;
+float:right;
+}
+
+.fondo_sector_1{
+background: url("contenido/fondo_sector1.png") no-repeat;
+}
+
+.fondo_sector_2{
+background: url("contenido/fondo_sector2.png") no-repeat;
+}
+
+.fondo_sector_3{
+background: url("contenido/fondo_sector3.png") no-repeat;
+}
+
+.fondo_sector_4{
+background: url("contenido/fondo_sector4.png") no-repeat;
+}
+
+.fondo_sector_5{
+background: url("contenido/fondo_sector5.png") no-repeat;
+}
+
+.fondo_sector_6{
+background: url("contenido/fondo_sector6.png") no-repeat;
+}
+
+.fondo_sector_7{
+background: url("contenido/fondo_sector7.png") no-repeat;
+}
+
+.fondo_sector_8{
+background: url("contenido/fondo_sector8.png") no-repeat;
+}
+
+.sol_sector {
+height: 51px;
+width: 51px;
+position: absolute;
+background: url("contenido/soles_sistema.png") no-repeat;
+cursor:pointer;
+}
+
+.sol_sector1{
+background-position: 0 0;
+}
+
+.sol_sector2{
+background-position: -51px 0;
+}
+
+.sol_sector3{
+background-position: -102px 0;
+}
+
+.sol_sector4{
+background-position: -153px 0;
+}
+
+.sol_sector5{
+background-position: -204px 0;
+}
+
+.sol_sector6{
+background-position: -255px 0;
+}
+
+.sol_sector7{
+background-position: -306px 0;
+}
+
+.sol_sector8{
+background-position: -307px 0;
+}
+
+.sol_sector1_active{
+background-position: 0 -51px;
+}
+
+.sol_sector2_active{
+background-position: -51px -51px;
+}
+
+.sol_sector3_active{
+background-position: -102px -51px;
+}
+
+.sol_sector4_active{
+background-position: -153px -51px;
+}
+
+.sol_sector5_active{
+background-position: -204px -51px;
+}
+
+.sol_sector6_active{
+background-position: -255px -51px;
+}
+
+.sol_sector7_active{
+background-position: -306px -51px;
+}
+
+.sol_sector8_active{
+background-position: -307px -51px;
+}
+
+
+/*%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%% GALAXIA GALAXIA GALAXIA GALAXIA %%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%*/
+
+
+#galaxia_vista{
+height: 570px;
+width:970px;
+position:relative;
+background: url("contenido/galaxia.png") 0 0 no-repeat 
+}
+
+#galaxia_vista_menu{
+margin-top:15px;
+float:left;
+background: url("contenido/menus_izquierdos.png") 0 -310px no-repeat !important;
+background: url("contenido/menus_izquierdosie6.png") 0 -310px no-repeat;
+width: 252px;
+height:312px;
+position:relative;
+}
+
+#galaxia_titulo{
+color: #FFFFFF;
+font-family: "Sansation_n",Arial,Verdana;
+font-size: 18px;
+margin: 20px 0 0 10px !important;
+}
+
+#galaxia_vista_sistemas {
+float: right;
+height: 461px;
+margin: 41px 95px 0 0;
+position: relative;
+width: 562px;
+}
+
+.cuadro_galaxia{
+height:51px;
+width:51px;
+float:left;
+cursor:pointer;
+}
+
+#barra_conquista_sector_azul{
+width:225px;
+height:10px;
+background: #0088ff;
+margin: 3px 0 90px 10px;
+border: 1px solid #aaa;
+}
+
+#galaxia_vista_menu p{
+margin: 0 0 5px 10px;
+color: #FFFFFF;
+font-family: "Sansation_l",Arial,Verdana;
+font-size: 16px;
+}
+
+#barra_conquista_sector_rojo{
+height:100%;
+background: #f13838;
+}
+
+#selector_sector{
+background: url("contenido/selector_sector.png") no-repeat;
+width:65px;
+height:65px;
+position:relative;
+top:-7px;
+left: -7px;
+}
+
+
+/*%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%% PLANETA PLANETA PLANETA PLANETA  %%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%*/
+
+#planeta_vista{
+width: 970px;
+height: 716px;
+position:relative;
+}
+
+#planeta_vista_planeta{
+width: 970px;
+height: 716px;
+background: url("contenido/orbital.png") no-repeat;
+position:relative;
+}
+
+.maxiplaneta11{
+background: url("contenido/maxiplaneta11.png") no-repeat;
+}
+
+.maxiplaneta12{
+background: url("contenido/maxiplaneta12.png") no-repeat;
+}
+
+.maxiplaneta13{
+background: url("contenido/maxiplaneta13.png") no-repeat;
+}
+
+.maxiplaneta14{
+background: url("contenido/maxiplaneta14.png") no-repeat;
+}
+
+.maxiplaneta15{
+background: url("contenido/maxiplaneta15.png") no-repeat;
+}
+
+.maxiplaneta21{
+background: url("contenido/maxiplaneta21.png") no-repeat;
+}
+
+.maxiplaneta22{
+background: url("contenido/maxiplaneta22.png") no-repeat;
+}
+
+.maxiplaneta23{
+background: url("contenido/maxiplaneta23.png") no-repeat;
+}
+
+.maxiplaneta24{
+background: url("contenido/maxiplaneta24.png") no-repeat;
+}
+
+.maxiplaneta25{
+background: url("contenido/maxiplaneta25.png") no-repeat;
+}
+
+.maxiplaneta31{
+background: url("contenido/maxiplaneta31.png") no-repeat;
+}
+
+.maxiplaneta32{
+background: url("contenido/maxiplaneta32.png") no-repeat;
+}
+
+.maxiplaneta33{
+background: url("contenido/maxiplaneta33.png") no-repeat;
+}
+
+.maxiplaneta34{
+background: url("contenido/maxiplaneta34.png") no-repeat;
+}
+
+.maxiplaneta35{
+background: url("contenido/maxiplaneta35.png") no-repeat;
+}
+
+#planeta_vista_puerto_espacial{
+height: 204px;
+left: 706px;
+position: absolute;
+top: 120px;
+width: 134px;
+cursor: pointer;
+}
+
+#planeta_vista_puerto_espacial:hover{
+background: url("contenido/orbital_active.png") -706px -120px no-repeat;
+}
+
+#planeta_vista_astillero{
+height: 204px;
+cursor: pointer;
+height: 120px;
+left: 590px;
+position: absolute;
+top: 0;
+width: 237px;
+}
+
+#planeta_vista_astillero:hover{
+background: url("contenido/orbital_active.png") -590px 0 no-repeat;
+}
+
+#planeta_vista_laboratorio{
+cursor: pointer;
+height: 169px;
+left: 550px;
+position: absolute;
+top: 328px;
+width: 197px;
+}
+
+#planeta_vista_laboratorio:hover{
+background: url("contenido/orbital_active.png") -550px -328px no-repeat;
+}
+
+#planeta_vista_tritio{
+cursor: pointer;
+height: 124px;
+left: 0;
+position: absolute;
+top: 0;
+width: 196px;
+}
+
+#planeta_vista_tritio:hover{
+background: url("contenido/orbital_active.png") 0 0 no-repeat;
+}
+
+#planeta_vista_metal{
+cursor: pointer;
+height: 124px;
+left: 71px;
+position: absolute;
+top: 126px;
+width: 196px;
+}
+
+#planeta_vista_metal:hover{
+background: url("contenido/orbital_active.png") -71px -126px no-repeat;
+}
+
+#planeta_vista_cristal{
+cursor: pointer;
+height: 124px;
+left: 8px;
+position: absolute;
+top: 254px;
+width: 196px;
+}
+
+#planeta_vista_cristal:hover{
+background: url("contenido/orbital_active.png") -8px -254px no-repeat;
+}
+
+#planeta_vista_electrica{
+cursor: pointer;
+height: 124px;
+left: 70px;
+position: absolute;
+top: 378px;
+width: 196px;
+}
+
+#planeta_vista_electrica:hover{
+background: url("contenido/orbital_active.png") -70px -378px no-repeat;
+}
+
+#planeta_vista_almacenes{
+cursor: pointer;
+height: 124px;
+left: 299px;
+position: absolute;
+top: 83px;
+width: 196px;
+}
+
+#planeta_vista_almacenes:hover{
+background: url("contenido/orbital_active.png") -299px -83px no-repeat;
+}
+
+#planeta_vista_mando{
+cursor: pointer;
+height: 124px;
+left: 292px;
+position: absolute;
+top: 260px;
+width: 196px;
+}
+
+#planeta_vista_mando:hover{
+background: url("contenido/orbital_active.png") -292px -260px no-repeat;
+}
+
+#planeta_vista_escudo_ex{
+cursor: pointer;
+height: 132px;
+left: 524px;
+position: absolute;
+top: 174px;
+width: 99px;
+}
+
+#planeta_vista_escudo_ex:hover{
+background: url("contenido/orbital_active.png") -524px -174px no-repeat;
+}
+
+#planeta_vista_escudo_in{
+cursor: pointer;
+height: 132px;
+left: 872px;
+position: absolute;
+top: 154px;
+width: 98px;
+}
+
+#planeta_vista_escudo_in:hover{
+background: url("contenido/orbital_active.png") -872px -154px no-repeat;
+}
+
+#planeta_vista * a{
+display:block;
+height:100%;
+width:100%;
+}
+
+
+/*%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%  CAMPO BATALLA  CAMPO BATALLA  %%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%*/
+
+
+
+#conf_batalla_vista{
+width:970px;
+height: 600px;
+}
+
+#conf_batalla_vista_menu {
+background: url("contenido/menus_izquierdos.png") no-repeat 0 -1136px;
+height: 510px;
+width: 264px;
+float:left;
+}
+
+.conf_batalla_vista_menu_user{
+float: left;
+height: 117px;
+margin: 20px 0 0 10px;
+width: 111px;
+}
+
+.conf_batalla_vista_menu_user p{
+color: #fff;
+font-family: "Sansation_n", Arial, Verdana;
+font-size: 14px;
+margin-left: 10px;
+}
+
+.conf_batalla_vista_menu_user p.conf_batalla_vista_menu_user_prin{
+font-size: 16px;
+margin: 0;
+}
+
+.conf_batalla_vista_menu_separador{
+height: 100px;
+width:3px;
+background: url("contenido/bandeja_entrada_botones.png") -668px 0 no-repeat;
+float: left;
+margin-top: 11px;
+}
+
+#conf_batalla_vista_menu_naves{
+width: 235px;
+height: 400px;
+background: url("contenido/campo_batalla_anadir.png") no-repeat;
+float:left;
+margin:  0 0 0 9px;
+overflow: hidden;
+z-index:1;
+position:relative;
+}
+
+#conf_batalla_vista_menu_naves_mas{
+float: right;
+height: 36px;
+width: 28px;
+background: url("contenido/bandeja_entrada_botones.png") -672px 0 no-repeat;
+margin: 3px 10px 0 0;
+cursor: pointer;
+}
+
+#conf_batalla_vista_menu_naves_titulo{
+color: #FFFFFF;
+float: left;
+font-family: "Sansation_n",Arial,Verdana;
+font-size: 14px;
+height: 31px;
+line-height: 14px;
+margin: 8px 0 0 19px;
+width: 175px;
+}
+
+#conf_batalla_vista_menu_naves_mas_active{
+background: url("contenido/bandeja_entrada_botones.png") -672px -40px no-repeat;
+float: right;
+height: 36px;
+width: 28px;
+margin: 3px 10px 0 0;
+cursor: pointer;
+}
+
+#conf_batalla_vista_menu_naves_nuevas{
+height: 350px;
+left: 248px;
+overflow: auto;
+position: absolute;
+top: 39px;
+width: 198px;
+}
+
+#conf_batalla_vista_menu_naves_actuales{
+float: left;
+height: 315px;
+margin: 0 0 45px 18px;
+overflow: auto;
+width: 200px;
+clear: left;
+}
+
+.widget_cinema{
+height: 37px;
+width: 22px;
+background: url("contenido/bandeja_entrada_botones.png") -700px -3px no-repeat;
+cursor:pointer;
+}
+
+.widget_cinema:hover{
+background: url("contenido/bandeja_entrada_botones.png") -700px -43px no-repeat;
+}
+
+#conf_batalla_vista_menu_naves_nuevas > div{
+position:relative;
+height: 37px;
+width:100%;
+border: 1px solid #666;
+border-width: 0 0 1px 0;
+}
+
+#conf_batalla_vista_menu_naves_nuevas p{
+display:block;
+height: 30px;
+width: 110px; 
+position: absolute;
+top:0;
+left: 0;
+margin: 5px 0 0 3px;
+color: #fff;
+font-family: "Sansation_n", Arial, Verdana;
+font-size: 12px;
+}
+
+#conf_batalla_vista_menu_naves_nuevas input{
+width: 40px;
+height: 24px;
+position: absolute;
+top:0;
+left: 105px;
+margin-top: 2px;
+background: #444;
+border-radius: 5px;
+border: 1px solid #aaa;
+color: #fff;
+}
+
+#conf_batalla_vista_menu_naves_nuevas .widget_cinema{
+float:right;
+margin: 0 5px 0 0;
+}
+
+#conf_batalla_vista_menu_naves_actuales > div{
+float:left;
+height: 30px;
+border: 1px solid #666;
+border-width: 0 0 1px 0;
+width: 100%;
+}
+
+#conf_batalla_vista_menu_naves_actuales p{
+float:left;
+margin: 10px;
+color: #fff;
+font-size: 14px;
+font-family: "Sansation_n", Arial, Verdana;
+}
+
+#conf_batalla_vista_campo{
+float: right;
+height: 600px;
+width: 705px;
+z-index: 0;
+position:relative;
+}
+
+.conf_batalla_vista_campo_cuadro_vacio{
+width: 49px;
+height: 49px;
+float:left;
+}
+
+.conf_batalla_vista_campo_cuadro_selec_1{
+width: 24px;
+height: 49px;
+float:left;
+margin: 0 25px 0 0;
+background: url("contenido/cuadro_campo_batalla.png") -98px 0 no-repeat;
+cursor:pointer;
+}
+
+.conf_batalla_vista_campo_cuadro_selec_2{
+width: 24px;
+height: 49px;
+float:left;
+margin: 0 0 0 25px;
+background: url("contenido/cuadro_campo_batalla.png") -123px 0 no-repeat;
+cursor:pointer;
+}
+
+.conf_batalla_vista_campo_cuadro_selec_2:hover{
+background: url("contenido/cuadro_campo_batalla.png") -172px 0 no-repeat;
+}
+
+.conf_batalla_vista_campo_cuadro_selec_1:hover{
+background: url("contenido/cuadro_campo_batalla.png") -147px 0 no-repeat;
+}
+
+.conf_batalla_vista_campo_cuadro_selec_3 {
+width: 24px;
+height: 49px;
+float:left;
+margin: 0 25px 0 0;
+background: url("contenido/cuadro_campo_batalla.png") -147px 0 no-repeat;
+cursor:pointer;
+}
+
+.conf_batalla_vista_campo_cuadro_selec_4{
+width: 24px;
+height: 49px;
+float:left;
+margin: 0 0 0 25px;
+background: url("contenido/cuadro_campo_batalla.png") -172px 0 no-repeat;
+cursor:pointer;
+}
+
+.conf_batalla_vista_campo_cuadro{
+width: 49px;
+height: 49px;
+float:left;
+background: url("contenido/cuadro_campo_batalla.png") no-repeat;
+cursor:pointer;
+}
+
+.conf_batalla_vista_campo_cuadro:hover{
+background: url("contenido/cuadro_campo_batalla.png") -49px 0 no-repeat;
+}
+
+.conf_batalla_vista_campo_cuadro_nave1{
+width: 49px;
+height: 49px;
+float:left;
+background: url("contenido/cuadro_campo_batalla.png") 0  -49px no-repeat;
+cursor:pointer;
+}
+
+.conf_batalla_vista_campo_cuadro_nave2{
+width: 49px;
+height: 49px;
+float:left;
+background: url("contenido/cuadro_campo_batalla.png") -49px -49px no-repeat;
+cursor:pointer;
+}
+
+.conf_batalla_vista_campo_cuadro_nave3{
+width: 49px;
+height: 49px;
+float:left;
+background: url("contenido/cuadro_campo_batalla.png") -98px -49px no-repeat;
+cursor:pointer;
+}
+
+.conf_batalla_vista_campo_cuadro_nave4{
+width: 49px;
+height: 49px;
+float:left;
+background: url("contenido/cuadro_campo_batalla.png") -147px -49px no-repeat;
+cursor:pointer;
+}
+
+.conf_batalla_vista_campo_cuadro_nave5{
+width: 49px;
+height: 49px;
+float:left;
+background: url("contenido/cuadro_campo_batalla.png") 0 -98px no-repeat;
+cursor:pointer;
+}
+
+.conf_batalla_vista_campo_cuadro_nave6{
+width: 49px;
+height: 49px;
+float:left;
+background: url("contenido/cuadro_campo_batalla.png") -49px -98px no-repeat;
+cursor:pointer;
+}
+
+.conf_batalla_vista_campo_cuadro_nave7{
+width: 49px;
+height: 49px;
+float:left;
+background: url("contenido/cuadro_campo_batalla.png") -98px -98px no-repeat;
+cursor:pointer;
+}
+
+.conf_batalla_vista_campo_cuadro_nave8{
+width: 49px;
+height: 49px;
+float:left;
+background: url("contenido/cuadro_campo_batalla.png") -147px -98px no-repeat;
+cursor:pointer;
+}
+
+.conf_batalla_vista_campo_cuadro_nave9{
+width: 49px;
+height: 49px;
+float:left;
+background: url("contenido/cuadro_campo_batalla.png") 0 -147px no-repeat;
+cursor:pointer;
+}
+
+.conf_batalla_vista_campo_cuadro_nave10{
+width: 49px;
+height: 49px;
+float:left;
+background: url("contenido/cuadro_campo_batalla.png") -49px -147px no-repeat;
+cursor:pointer;
+}
+
+.conf_batalla_vista_campo_cuadro_nave11{
+width: 49px;
+height: 49px;
+float:left;
+background: url("contenido/cuadro_campo_batalla.png") -98px -147px no-repeat;
+cursor:pointer;
+}
+
+.conf_batalla_vista_campo_cuadro_nave12{
+width: 49px;
+height: 49px;
+float:left;
+background: url("contenido/cuadro_campo_batalla.png") -147px -147px no-repeat;
+cursor:pointer;
+}
+
+.conf_batalla_vista_campo_cuadro_nave13{
+width: 49px;
+height: 49px;
+float:left;
+background: url("contenido/cuadro_campo_batalla.png") 0 -196px no-repeat;
+cursor:pointer;
+}
+
+.conf_batalla_vista_campo_cuadro_nave14{
+width: 49px;
+height: 49px;
+float:left;
+background: url("contenido/cuadro_campo_batalla.png") -49px -196px no-repeat;
+cursor:pointer;
+}
+
+.conf_batalla_vista_campo_cuadro_nave15{
+width: 49px;
+height: 49px;
+float:left;
+background: url("contenido/cuadro_campo_batalla.png") -98px -196px no-repeat;
+cursor:pointer;
+}
+
+.conf_batalla_vista_campo_cuadro_active{
+width: 49px;
+height: 49px;
+float:left;
+background: url("contenido/cuadro_campo_batalla.png") -49px 0 no-repeat;
+cursor:pointer;
+}
+
+#conf_batalla_vista_campo_def, #conf_batalla_vista_campo_atc{
+width:100%;
+height: 290px;
+position:relative;
+}
+
+#conf_batalla_vista_campo_def_fl_iz_a, #conf_batalla_vista_campo_def_fl_iz_b{
+height: 147px;
+left: 27px;
+position: absolute;
+bottom: 10px;
+width: 147px;
+}
+
+#conf_batalla_vista_campo_def_fl_de_a, #conf_batalla_vista_campo_def_fl_de_b{
+height: 147px;
+right: 10px;
+position: absolute;
+bottom: 10px;
+width: 147px;
+}
+
+#conf_batalla_vista_campo_atc #conf_batalla_vista_campo_def_fl_iz_b, #conf_batalla_vista_campo_atc #conf_batalla_vista_campo_def_fl_de_b, #conf_batalla_vista_campo_atc #conf_batalla_vista_campo_def_centro_b{
+top: 10px;
+}
+
+#conf_batalla_vista_campo_def_centro_a, #conf_batalla_vista_campo_def_centro_b{
+width: 294px;
+height: 245px;
+position: absolute;
+bottom: 10px;
+left: 213px;
+}
+
+#conf_batalla_vista_campo_separador{
+width: 100%;
+height: 2px;
+bottom: -1px;
+background: #ffa800;
+position: absolute;
+}
+
+#conf_batalla_vista_menu_naves_anadir_naves{
+background: url("contenido/bandeja_entrada_botones.png") no-repeat scroll -720px 0 transparent;
+height: 0;
+left: 73px;
+position: absolute;
+top: 153px;
+width: 113px;
+cursor:pointer;
+}
+
+#conf_batalla_vista_menu_naves_anadir_naves:hover{
+background: url("contenido/bandeja_entrada_botones.png") no-repeat scroll -720px -80px transparent;
+}
+
+#conf_batalla_vista_menu_naves_anadir_naves:active{
+background: url("contenido/bandeja_entrada_botones.png") no-repeat scroll -720px -40px transparent;
+}
+
+#cuadro_de_seleccion_de_cuadros{
+width:49px;
+height:49px;
+background: url("contenido/cuadro_seleccion_naves.png") -245px -98px no-repeat;
+position:absolute;
+}
+
+#seleccion_sistema_repartir_naves{
+height: 28px;
+position: absolute;
+right: 40px;
+top: 8px;
+width: 159px;
+}
+
+#seleccion_sistema_repartir_naves p{
+color: #fff;
+margin-right: 10px;
+cursor:pointer;
+}
+
+#seleccion_sistema_repartir_naves *{
+color: #fff;
+float:left;
+margin:8px 0 0 0;
+}
+
+/*%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%% INFORME INFORME INFORME INFORME %%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%*/
+#informe_vista_campo_separador{
+width: 100%;
+height: 2px;
+bottom: -1px;
+background: #ffa800;
+position: absolute;
+}
+
+#informe_vista_campo_def, #informe_vista_campo_atc{
+width:100%;
+height: 290px;
+position:relative;
+}
+
+#informe_vista_campo_def_fl_iz_a, #informe_vista_campo_def_fl_iz_b{
+height: 147px;
+left: 27px;
+position: absolute;
+bottom: 10px;
+width: 147px;
+}
+
+#informe_vista_campo_def_fl_de_a, #informe_vista_campo_def_fl_de_b{
+height: 147px;
+right: 10px;
+position: absolute;
+bottom: 10px;
+width: 147px;
+}
+
+#informe_vista_campo_atc #informe_vista_campo_def_fl_iz_b, #informe_vista_campo_atc #informe_vista_campo_def_fl_de_b, #informe_vista_campo_atc #informe_vista_campo_def_centro_b{
+top: 10px;
+}
+
+#informe_vista_campo_def_centro_a, #informe_vista_campo_def_centro_b{
+width: 294px;
+height: 245px;
+position: absolute;
+bottom: 10px;
+left: 213px;
+}
+
+#informe_vista_campo{
+float: right;
+height: 600px;
+width: 705px;
+z-index: 0;
+position:relative;
+}
+
+#informe_vista_menu{
+background: url("contenido/menus_izquierdos.png") no-repeat scroll 0 -1650px transparent;
+float: left;
+height: 517px;
+position: relative;
+width: 222px;
+z-index: 0;
+margin-top: 15px;
+padding: 23px 0 0 8px;
+}
+
+#informe_vista_menu p{
+float:left;
+width: 88px;
+height: 38px;
+text-align: right;
+color: #fff;
+padding: 9px 18px 0 0;
+}
+
+#informe_vista_menu div{
+float:left;
+width: 100%;
+height: 35px;
+}
+
+.informe_vista_campo_cuadro{
+width: 43px;
+height: 43px;
+float:left;
+padding:3px 4px 3px 2px;
+background: url("contenido/cuadro_campo_batalla.png") no-repeat;
+cursor:pointer;
+}
+
+.informe_vista_campo_cuadro:hover{
+background: url("contenido/cuadro_campo_batalla.png") -49px 0 no-repeat;
+}
+
+.informe_vista_campo_cuadro_vacio{
+width: 49px;
+height: 49px;
+float:left;
+}
+
+.letritas_informe_cuadro{
+color: #FFFFFF;
+font-size: 7px;
+height: 18px;
+line-height: 7px;
+margin-top: 0;
+text-align: center;
+background: rgba(0,0,0,0.7);
+width:25px;
+margin: 0 0 0 2px;
+border-radius: 3px;
+}
+
+.informe_vista_campo_cuadro_anterior{
+background: #21782d;
+height: 4px;
+margin-top: 20px;
+border: 1px solid #00aeff;
+border-radius: 0 0 2px 2px;
+}
+
+.informe_vista_campo_cuadro_actual{
+background: #00ff24;
+height: 100%;
+}
+
+.informe_vista_campo_cuadro_nave1{
+width: 43px;
+height: 43px;
+float:left;
+padding:3px 4px 3px 2px;
+background: url("contenido/cuadro_campo_batalla.png") 0 -49px no-repeat;
+cursor:pointer;
+}
+
+.informe_vista_campo_cuadro_nave2{
+width: 43px;
+height: 43px;
+float:left;
+padding:3px 4px 3px 2px;
+background: url("contenido/cuadro_campo_batalla.png") -49px -49px no-repeat;
+cursor:pointer;
+}
+
+.informe_vista_campo_cuadro_nave3{
+width: 43px;
+height: 43px;
+float:left;
+padding:3px 4px 3px 2px;
+background: url("contenido/cuadro_campo_batalla.png") -98px -49px no-repeat;
+cursor:pointer;
+}
+
+.informe_vista_campo_cuadro_nave4{
+width: 43px;
+height: 43px;
+float:left;
+padding:3px 4px 3px 2px;
+background: url("contenido/cuadro_campo_batalla.png") -147px -49px no-repeat;
+cursor:pointer;
+}
+
+.informe_vista_campo_cuadro_nave5{
+width: 43px;
+height: 43px;
+float:left;
+padding:3px 4px 3px 2px;
+background: url("contenido/cuadro_campo_batalla.png") 0 -98px no-repeat;
+cursor:pointer;
+}
+
+.informe_vista_campo_cuadro_nave6{
+width: 43px;
+height: 43px;
+float:left;
+padding:3px 4px 3px 2px;
+background: url("contenido/cuadro_campo_batalla.png") -49px -98px no-repeat;
+cursor:pointer;
+}
+
+.informe_vista_campo_cuadro_nave7{
+width: 43px;
+height: 43px;
+float:left;
+padding:3px 4px 3px 2px;
+background: url("contenido/cuadro_campo_batalla.png") -98px -98px no-repeat;
+cursor:pointer;
+}
+
+.informe_vista_campo_cuadro_nave8{
+width: 43px;
+height: 43px;
+float:left;
+padding:3px 4px 3px 2px;
+background: url("contenido/cuadro_campo_batalla.png") -147px -98px no-repeat;
+cursor:pointer;
+}
+
+.informe_vista_campo_cuadro_nave9{
+width: 43px;
+height: 43px;
+float:left;
+padding:3px 4px 3px 2px;
+background: url("contenido/cuadro_campo_batalla.png") 0 -147px no-repeat;
+cursor:pointer;
+}
+
+.informe_vista_campo_cuadro_nave10{
+width: 43px;
+height: 43px;
+float:left;
+padding:3px 4px 3px 2px;
+background: url("contenido/cuadro_campo_batalla.png") -49px -147px no-repeat;
+cursor:pointer;
+}
+
+.informe_vista_campo_cuadro_nave11{
+width: 49px;
+height: 49px;
+float:left;
+background: url("contenido/cuadro_campo_batalla.png") -98px -147px no-repeat;
+cursor:pointer;
+}
+
+.informe_vista_campo_cuadro_nave12{
+width: 43px;
+height: 43px;
+float:left;
+padding:3px 4px 3px 2px;
+background: url("contenido/cuadro_campo_batalla.png") -147px -147px no-repeat;
+cursor:pointer;
+}
+
+.informe_vista_campo_cuadro_nave13{
+width: 43px;
+height: 43px;
+float:left;
+padding:3px 4px 3px 2px;
+background: url("contenido/cuadro_campo_batalla.png") 0 -196px no-repeat;
+cursor:pointer;
+}
+
+.informe_vista_campo_cuadro_nave14{
+width: 43px;
+height: 43px;
+float:left;
+padding:3px 4px 3px 2px;
+background: url("contenido/cuadro_campo_batalla.png") -49px -196px no-repeat;
+cursor:pointer;
+}
+
+.informe_vista_campo_cuadro_nave15{
+width: 43px;
+height: 43px;
+float:left;
+padding:3px 4px 3px 2px;
+background: url("contenido/cuadro_campo_batalla.png") -98px -196px no-repeat;
+cursor:pointer;
+}
+
+
+/*%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%% MENUS EDIFICIOS MENUS EDIFICIOS %%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%*/
+
+#menus_edificios {
+height: 400px;
+background: url("contenido/menu_edificios_abajo.png") 12px 62px no-repeat;
+}
+
+#menus_edificios_botones{
+height: 62px;
+width: 759px;
+float:right;
+margin-right: 15px;
+}
+
+
+#menus_edificios_botones_centro{
+height: 62px;
+background: url("contenido/menu_edificios_arriba.png") 0px 0 no-repeat;
+float:left;
+width: 123px;
+cursor:pointer;
+}
+
+#menus_edificios_botones_almacenes{
+height: 62px;
+background: url("contenido/menu_edificios_arriba.png") -123px 0 no-repeat;
+float:left;
+width: 106px;
+cursor:pointer;
+}
+
+#menus_edificios_botones_minas{
+height: 62px;
+background: url("contenido/menu_edificios_arriba.png") -229px 0 no-repeat;
+float:left;
+width: 76px;
+cursor:pointer;
+}
+
+#menus_edificios_botones_escudos{
+height: 62px;
+background: url("contenido/menu_edificios_arriba.png") -305px 0 no-repeat;
+float:left;
+width: 86px;
+cursor:pointer;
+}
+
+#menus_edificios_botones_astillero{
+height: 62px;
+background: url("contenido/menu_edificios_arriba.png") -391px 0 no-repeat;
+float:left;
+width: 88px;
+cursor:pointer;
+}
+
+#menus_edificios_botones_puerto{
+height: 62px;
+background: url("contenido/menu_edificios_arriba.png") -479px 0 no-repeat;
+float:left;
+width: 79px;
+cursor:pointer;
+}
+
+#menus_edificios_botones_laboratorios{
+height: 62px;
+background: url("contenido/menu_edificios_arriba.png") -558px 0 no-repeat;
+float:left;
+width: 100px;
+cursor:pointer;
+}
+
+#menus_edificios_botones_fabrica{
+height: 62px;
+background: url("contenido/menu_edificios_arriba.png") -658px 0 no-repeat;
+float:left;
+width: 101px;
+cursor:pointer;
+}
+
+#menus_edificios_botones_centro:hover, #menus_edificios_botones_centro_active {
+background: url("contenido/menu_edificios_arriba.png") 0px -62px no-repeat;
+}
+
+#menus_edificios_botones_almacenes:hover,#menus_edificios_botones_almacenes_active {
+background: url("contenido/menu_edificios_arriba.png") -123px -62px no-repeat;
+}
+
+#menus_edificios_botones_minas:hover,#menus_edificios_botones_minas_active {
+background: url("contenido/menu_edificios_arriba.png") -229px -62px no-repeat;
+}
+
+#menus_edificios_botones_escudos:hover,#menus_edificios_botones_escudos_active {
+background: url("contenido/menu_edificios_arriba.png") -305px -62px no-repeat;
+}
+
+#menus_edificios_botones_astillero:hover,#menus_edificios_botones_astillero_active {
+background: url("contenido/menu_edificios_arriba.png") -391px -62px no-repeat;
+}
+
+#menus_edificios_botones_puerto:hover, #menus_edificios_botones_puerto_active {
+background: url("contenido/menu_edificios_arriba.png") -479px -62px no-repeat;
+}
+
+#menus_edificios_botones_laboratorios:hover,#menus_edificios_botones_laboratorios_active {
+background: url("contenido/menu_edificios_arriba.png") -558px -62px no-repeat;
+}
+
+#menus_edificios_botones_fabrica:hover, #menus_edificios_botones_fabrica_active {
+background: url("contenido/menu_edificios_arriba.png") -658px -62px no-repeat;
+}
+
+/*%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%% MENU TIPO ATAQUE MENU TIPO ATAQUE %%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%*/
+
+#menu_tipo_ataque{
+min-height: 407px;
+width:100%;
+padding: 7px;
+}
+
+#menu_tipo_ataque_menu{
+height: 349px;
+width:100%;
+float:left;
+width: 157px;
+}
+
+#menu_tipo_ataque_cuerpo{
+min-height: 354px;
+width:955px;
+background: url("contenido/atacar_menu_fondo.png");
+margin-bottom: 40px;
+position:relative;
+}
+
+#menu_tipo_ataque_cuerpo_fin{
+height: 28px;
+width:956px;
+background: url("contenido/atacar_menu_fondo_fin.png") no-repeat;
+top:100%;
+position:absolute;
+}
+
+.menu_tipo_ataque_boton_p{
+height: 40px;
+background: url("contenido/atacar_menu_menu.png");
+}
+
+.menu_tipo_ataque_boton{
+cursor:pointer;
+height: 75px;
+background: url("contenido/atacar_menu_menu.png") 0 -40px;
+}
+
+.menu_tipo_ataque_boton p, .menu_tipo_ataque_boton_active p{
+font-size: 16px;
+color:#fff;
+padding: 25px 0 0 17px;
+width: 120px;
+text-align:center;
+}
+
+.menu_tipo_ataque_boton_active, .menu_tipo_ataque_boton:hover{
+height: 75px;
+cursor:pointer;
+background: url("contenido/atacar_menu_menu.png") -157px -39px;
+}
+
+.menu_tipo_ataque_boton_fin{
+height: 10px;
+background: url("contenido/atacar_menu_menu.png") 0 -340px;
+}
+
+
+

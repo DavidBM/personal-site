@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title>Ahhhhh ahhhh ah hhhahhahahahahahhahahahhhhhsfghfghjgkhjrkhs hjdl´jsi</title>
+	<script type="text/javascript" src="./pixi.js"></script>
+	<script type="text/javascript" src="./pixi.nativeLineGL.js"></script>
+	<script type="text/javascript" src="./jquery.js"></script>
+	<script type="text/javascript" src="./jquery.mouseweel.js"></script>
+	<script type="text/javascript" src="./eventHandler.js"></script>
+
+	<script type="text/javascript" src="./galaxy.3500"></script>
+	<style type="text/css">
+		* {
+			margin: 0 auto;
+			padding: 0 auto;
+		}
+
+		html, body{
+			height: 100%;
+			position: relative;
+			overflow: hidden;
+		}
+	</style>
+</head>
+<body style="background: black;">
+	<!--<canvas id="canvas"></canvas>-->
+	<script type="text/javascript">
+
+
+var flipflop = (function () {
+
+	var bool = true;
+
+	return function () {
+		bool = !bool;
+		return bool;
+	}
+})();
+
+	var renderer = PIXI.autoDetectRenderer(window.innerWidth, window.innerHeight, {antialias: true, transparent: true});
+
+	document.body.appendChild(renderer.view);
+
+	function line (color, stage, cumulusLines) {
+
+		this.graphics = new PIXI.Graphics();
+
+		this.graphics.lineStyle(1, 0xFFFFFF );
+
+		var desX = 0;
+		var desY = 0;
+
+		var len = cumulusLines.length;
+		for (var i = 0; i < len - 1; i += 2) {
+
+			this.graphics.moveTo(
+				cumulusLines[i].x + desX,
+				cumulusLines[i].y + desY
+			);
+
+			this.graphics.lineTo(
+				cumulusLines[i + 1].x + desX,
+				cumulusLines[i + 1].y + desY
+			);
+		}
+
+		this.vector = {
+			x: Math.random() - 2,
+			y: Math.random() - 2
+		};
+
+		this.graphics.position.x = 0;
+		this.graphics.position.y = 0;
+
+		this.scale = this.graphics.scale;
+
+		stage.addChild(this.graphics);
+	}
+
+	line.prototype.move = function() {
+		this.graphics.position.x += this.vector.x;
+		this.graphics.position.y += this.vector.y;
+	};
+
+	var lines = [];
+	var cumulusLines = [];
+	var systemLines = [];
+	var galaxyJson = JSON.parse(galaxyText);
+
+
+	function getXYCumulusID (id, galaxyJson) {
+		for (var i = galaxyJson.cumulus.length - 1; i >= 0; i--) {
+			if(galaxyJson.cumulus[i].cumulusId === id){
+				return {
+					x: galaxyJson.cumulus[i].x,
+					y: galaxyJson.cumulus[i].y
+				};
+			}
+		}
+	}
+
+	function getXYSystemID (id, cumulus) {
+		for (var i = cumulus.systems.length - 1; i >= 0; i--) {
+			if(cumulus.systems[i].systemId === id){
+				return {
+					x: cumulus.systems[i].x + cumulus.x,
+					y: cumulus.systems[i].y + cumulus.y,
+				};
+			}
+		}
+	}
+
+	var t = window.performance.now();
+	for (var i = galaxyJson.connections.length - 1; i >= 0; i--) {
+		var conn = galaxyJson.connections[i];
+		var p1 = getXYCumulusID(galaxyJson.connections[i].cumulusIdStart, galaxyJson);
+		var p2 = getXYCumulusID(galaxyJson.connections[i].cumulusIdEnd, galaxyJson);
+		cumulusLines.push(p1, p2);
+	}
+	console.log(window.performance.now() - t);
+
+	for (var i = galaxyJson.cumulus.length - 1; i >= 0; i--) {
+		for (var j = galaxyJson.cumulus[i].connections.length - 1; j >= 0; j--) {
+			var p1 = getXYSystemID(galaxyJson.cumulus[i].connections[j].systemIdStart, galaxyJson.cumulus[i]);
+			var p2 = getXYSystemID(galaxyJson.cumulus[i].connections[j].systemIdEnd, galaxyJson.cumulus[i]);
+			systemLines.push(p1, p2);
+		}
+	}
+
+	var stage = new PIXI.Stage;
+
+	for (var i = 0; i < 1; i++) {
+		var lineObj = new line(0xFFFFFF, stage, cumulusLines);
+		lineObj.scale.x *= 0.01;
+		lineObj.scale.y *= 0.01;
+		lineObj.graphics.position.x += 25 * i;
+		lineObj.graphics.position.y += 25 * i;
+		lines.push(lineObj);
+	}
+
+	for (var i = 0; i < 1; i++) {
+		var lineObj = new line(0xFFFFFF, stage, systemLines);
+		lineObj.scale.x *= 0.01;
+		lineObj.scale.y *= 0.01;
+		lineObj.graphics.position.x += 25 * i;
+		lineObj.graphics.position.y += 25 * i;
+		lines.push(lineObj);
+	}
+
+	function draw() {
+		requestAnimationFrame(draw);
+		var t = window.performance.now();
+		renderer.render(stage);
+		document.title = window.performance.now() - t;
+	}
+
+	CrossPlatformEvent.bind('drag', document.body, function (data) {
+		for (var i = lines.length - 1; i >= 0; i--) {
+			lines[i].graphics.position.y += data.pageY;
+			lines[i].graphics.position.x += data.pageX;
+		}
+	});
+
+	CrossPlatformEvent.bind('resize', document.body, function (data) {
+		for (var i = lines.length - 1; i >= 0; i--) {
+			lines[i].graphics.scale.y *= data.factor;
+			lines[i].graphics.scale.x *= data.factor;
+		}
+	});
+
+	draw();
+
+	</script>
+</body>
+</html>

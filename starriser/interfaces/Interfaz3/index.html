@@ -1,0 +1,1000 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="es" lang="es" dir="ltr">
+<head>
+<meta name="tipo_contenido"  content="text/html; http-equiv=content-type charset=utf-8"/>
+<title>Naves, version 2.0</title>
+<link rel="stylesheet" type="text/css" href="css.css"/>
+<script type="text/javascript" src="funciones.js"></script>
+<script type="text/javascript" src="jquery.js"></script>
+<script type="text/javascript">
+
+if(jQuery.support.opacity == false){
+	es_IE = 1; 
+	version_IE = jQuery.browser.version;
+	if(version_IE =="6.0" || version_IE =="7.0"){ IE_tonto = 1;}
+}
+
+VOLUMEN_MAX_CUADRO = 5000;
+
+volumen_naves = new Array();
+volumen_naves[0] = 2; 
+volumen_naves[1] = 3; 
+volumen_naves[2] = 1; 
+volumen_naves[3] = 3; 
+volumen_naves[4] = 30; 
+volumen_naves[5] = 75; 
+volumen_naves[6] = 75; 
+volumen_naves[7] = 75; 
+volumen_naves[8] = 60; 
+volumen_naves[9] = 0; 
+volumen_naves[10] = 0; 
+volumen_naves[11] = 0; 
+volumen_naves[12] = 0; 
+volumen_naves[13] = 0; 
+volumen_naves[14] = 0; 
+
+cantidad_naves = new Array();
+cantidad_naves[0] = 2200; 
+cantidad_naves[1] = 200; 
+cantidad_naves[2] = 500; 
+cantidad_naves[3] = 500; 
+cantidad_naves[4] = 2500; 
+cantidad_naves[5] = 300; 
+cantidad_naves[6] = 800; 
+cantidad_naves[7] = 780; 
+cantidad_naves[8] = 20; 
+cantidad_naves[9] = 0; 
+cantidad_naves[10] = 0; 
+cantidad_naves[11] = 0; 
+cantidad_naves[12] = 0; 
+cantidad_naves[13] = 0; 
+cantidad_naves[14] = 0; 
+
+nombres_naves = new Array();
+nombres_naves[0] = "Carguero pequeño"; 
+nombres_naves[1] = "Carguero grande";
+nombres_naves[2] = "Caza ligero"; 
+nombres_naves[3] = "Caza pesado"; 
+nombres_naves[4] = "Crucero"; 
+nombres_naves[5] = "Lanzatorpedos"; 
+nombres_naves[6] = "Bombardero";  
+nombres_naves[7] = "Destructor"; 
+nombres_naves[8] = "Acorazado"; 
+nombres_naves[9] = "Nave tipo 10"; 
+nombres_naves[10] = "Nave tipo 11"; 
+nombres_naves[11] = "Nave tipo 12"; 
+nombres_naves[12] = "Nave tipo 13"; 
+nombres_naves[13] = "Nave tipo 14"; 
+nombres_naves[14] = "Nave tipo 15";
+
+
+</script>
+</head>
+<body>
+	<div id="menu_superior"></div>	
+	<div id="cuerpo">	
+		<div id="notificacion_general_informes"></div>
+		<div id="menu_recursos">
+			<p class="recurso_cristal">857.857.475</p>
+			<p class="recurso_metal">857.857.475</p>
+			<p class="recurso_tritio">857.857.471</p>
+			<p class="recurso_energia">857.857.471</p>
+			<p class="medallas_honor">751</p>
+			<div class="mostrar_recursos_emergente">
+				<a class="recurso_emergente" href=""><span>Metal:</span>  +587 / h</a>
+			</div>
+			<div class="mostrar_recursos_emergente">
+				<a class="recurso_emergente" href=""><span>Cristal:</span>  +54 / h</a>
+			</div>
+			<div class="mostrar_recursos_emergente">
+				<a class="recurso_emergente" href=""><span>Tritio:</span>  +5.854 / h</a>
+			</div>
+			<div class="mostrar_recursos_emergente_energia">
+				<a class="recurso_emergente_energia" href=""><span>Energia:</span> 87.412 / 123.587</a>
+			</div>
+			<div class="mostrar_recursos_emergente">
+				<a class="recurso_emergente" href=""><span>Medallas de honor</span></a>
+			</div>
+		</div>
+		<div id="menu_asistentes"></div>		
+		<div id="cuerpo_centro">
+			<div id="titulo_centro">
+				<div id="menu_general_zona_superior">
+					<a id="boton_izquierda_galaxia" href=""></a><p class="boton_izquierda_emergente"><a href="">Ir a Galaxia</a></p>
+					<a id="boton_izquierda_sector_active" href=""></a><p class="boton_izquierda_emergente"><a href="">Ir a Sector</a></p>
+					<a id="boton_izquierda_sistema" href=""></a><p class="boton_izquierda_emergente"><a href="">Ir a Sistema</a></p>
+					<a id="boton_izquierda_planeta" href=""></a><p class="boton_izquierda_emergente"><a href="">Ir a Planeta</a></p>
+				</div>
+				<div id="titulo_centro_img"></div>
+				<div id="lista_planetas">
+					<div id="flecha_menu_planetas"></div>
+					<div class="planeta_de_la_lista_active">
+						<img src="contenido/miniplaneta_05.png" alt="nombre planeta"></img>
+						<p>Nombre planeta</p>
+						<p><span>Estado:</span><span class="texto_amarillo_lista_planetas"> Hay informes</span></p>
+					</div>
+					<div id="lista_planetas_lista">
+						<div class="planeta_de_la_lista">
+							<img src="contenido/miniplaneta_01.png" alt="nombre planeta"></img>
+							<p><a class="iehackablock" href="">Nombre planeta</a></p>
+							<p><span>Estado:</span><span class="texto_amarillo_lista_planetas"> Hay informes</span></p>
+							<a  class="planeta_lista_hover" href=""></a>
+						</div>
+						<div class="planeta_de_la_lista">
+							<img src="contenido/miniplaneta_08.png" alt="nombre planeta"></img>
+							<p><a class="iehackablock" href="">Nombre planeta</a></p>
+							<p><span>Estado:</span><span class="texto_amarillo_lista_planetas"> Hay informes</span></p>
+							<a  class="planeta_lista_hover" href=""></a>
+						</div>
+						<div class="planeta_de_la_lista">
+							<img src="contenido/miniplaneta_15.png" alt="nombre planeta"></img>
+							<p><a class="iehackablock" href="">Nombre planeta</a></p>
+							<p><span>Estado:</span><span class="texto_amarillo_lista_planetas"> Hay informes</span></p>
+							<a  class="planeta_lista_hover" href=""></a>
+						</div>
+						<div class="planeta_de_la_lista">
+							<img src="contenido/miniplaneta_03.png" alt="nombre planeta"></img>
+							<p><a class="iehackablock" href="">Nombre planeta</a></p>
+							<p><span>Estado:</span><span class="texto_verde_lista_planetas"> Bueno</span></p>
+							<a  class="planeta_lista_hover" href=""></a>
+						</div>
+						<div class="planeta_de_la_lista">
+							<img src="contenido/miniplaneta_06.png" alt="nombre planeta"></img>
+							<p><a class="iehackablock" href="">Nombre planeta</a></p>
+							<p><span>Estado:</span><span class="texto_rojo_lista_planetas"> Hay combates</span></p>
+							<a  class="planeta_lista_hover" href=""></a>
+						</div>
+						<div class="planeta_de_la_lista">
+							<img src="contenido/miniplaneta_07.png" alt="nombre planeta"></img>
+							<p><a class="iehackablock" href="">Nombre planeta</a></p>
+							<p><span>Estado:</span><span class="texto_rojo_lista_planetas"> Hay combates</span></p>
+							<a  class="planeta_lista_hover" href=""></a>
+						</div>
+						<div class="planeta_de_la_lista">
+							<img src="contenido/miniplaneta_11.png" alt="nombre planeta"></img>
+							<p><a class="iehackablock" href="">Nombre planeta</a></p>
+							<p><span>Estado:</span><span class="texto_rojo_lista_planetas"> Hay combates</span></p>
+							<a  class="planeta_lista_hover" href=""></a>
+						</div>
+						<div id="lista_planetas_lista_fin"></div>
+					</div>
+				</div>
+			</div>
+			<div id="contenido_centro">
+				<div style="width:10px;height:10px;background: #723256;" onclick="$('.contraer11').slideToggle(200);"></div>
+				<div class="contraer11" style="padding:0px">
+					<div id="menu_tipo_ataque">
+						<div id="menu_tipo_ataque_cuerpo">
+							<div id="menu_tipo_ataque_menu">
+								<div class="menu_tipo_ataque_boton_p"></div>
+								<div class="menu_tipo_ataque_boton"><p>Ataque / Asalto</p></div>
+								<div class="menu_tipo_ataque_boton_active"><p>Espionaje</p></div>
+								<div class="menu_tipo_ataque_boton"><p>Desplegue</p></div>
+								<div class="menu_tipo_ataque_boton"><p>Comercio</p></div>						
+								<div class="menu_tipo_ataque_boton_fin"></div>						
+							</div>
+
+							<div id="menu_tipo_ataque_cuerpo_fin"></div>
+						</div>
+					</div>
+					<div class="clear"></div>
+				</div>
+				<div style="width:10px;height:10px;background: #723256;" onclick="$('.contraer10').slideToggle(200);"></div>
+				<div class="contraer10" style="padding:0px">
+					<div id="menus_edificios">
+						<div id="menus_edificios_botones">
+							<div id="menus_edificios_botones_centro"></div>
+							<div id="menus_edificios_botones_almacenes"></div>
+							<div id="menus_edificios_botones_minas"></div>
+							<div id="menus_edificios_botones_escudos"></div>
+							<div id="menus_edificios_botones_astillero"></div>
+							<div id="menus_edificios_botones_puerto"></div>
+							<div id="menus_edificios_botones_laboratorios"></div>
+							<div id="menus_edificios_botones_fabrica"></div>
+						</div>							
+					</div>
+					<div class="clear"></div>
+				</div>
+				<div style="width:10px;height:10px;background: #723256;" onclick="$('.contraer9').slideToggle(200);"></div>
+				<div class="contraer9" style="padding:0px">
+					<div id="informe_vista_menu">
+						<p> 5000<br/> <span style="color: #69e93c">+200</span></p>
+						<p> 5000<br/> <span style="color: #e93c3c">-200</span></p>
+						<p> 5000<br/> 0</p>
+						<p> 5000<br/> 0</p>
+						<p> 5000<br/> 0</p>
+						<p> 5000<br/> 0</p>
+						<p> 5000<br/> <span style="color: #e93c3c">-500</span></p>
+						<p> 5000<br/> <span style="color: #69e93c">+100</span></p>
+						<p> 5000<br/> 0</p>
+						<div></div>
+						<p> 5000<br/> 0</p>
+						<p> 5000<br/> 0</p>
+						<p> 5000<br/> 0</p>
+						<p> 5000<br/> 0</p>
+						<p> 5000<br/> 0</p>
+						<p> 5000<br/> 0</p>
+						<p> 5000<br/> 0</p>
+						<p> 5000<br/> 0</p>
+						<p> 5000<br/> 0</p>					
+					</div>
+					<div id="informe_vista_campo">
+						<div id="informe_vista_campo_def">
+							<div id="informe_vista_campo_def_fl_iz_a">
+								<div class="informe_vista_campo_cuadro_nave2" onmouseover="informe_poner_datos_cuadro(this)" onmouseout="informe_quitar_datos_cuadro(this)"><p style="display:none;">45 33 0 63 20 0 28 0 3 0 0 0 0 0 0</p><p class="letritas_informe_cuadro">5000</br>(-213)</p><div class="informe_vista_campo_cuadro_anterior" style="width: 100%;"><div class="informe_vista_campo_cuadro_actual" style="width: 75%;"></div></div></div>
+								<div class="informe_vista_campo_cuadro_nave5" onmouseover="informe_poner_datos_cuadro(this)" onmouseout="informe_quitar_datos_cuadro(this)"><p style="display:none;">45 33 0 63 20 0 28 0 3 0 0 0 0 0 0</p><p class="letritas_informe_cuadro">5000</br>(-213)</p><div class="informe_vista_campo_cuadro_anterior" style="width: 100%;"><div class="informe_vista_campo_cuadro_actual" style="width: 75%;"></div></div></div>
+								<div class="informe_vista_campo_cuadro"></div>
+								<div class="informe_vista_campo_cuadro"></div>
+								<div class="informe_vista_campo_cuadro"></div>
+								<div class="informe_vista_campo_cuadro"></div>
+								<div class="informe_vista_campo_cuadro"></div>
+								<div class="informe_vista_campo_cuadro"></div>
+								<div class="informe_vista_campo_cuadro"></div>
+							</div>
+							
+							<div id="informe_vista_campo_def_centro_a">
+								<div class="informe_vista_campo_cuadro_vacio"></div>
+								<div class="informe_vista_campo_cuadro_vacio"></div>
+								<div class="informe_vista_campo_cuadro"></div>
+								<div class="informe_vista_campo_cuadro"></div>
+								<div class="informe_vista_campo_cuadro_vacio"></div>
+								<div class="informe_vista_campo_cuadro_vacio"></div>
+								<div class="informe_vista_campo_cuadro_vacio"></div>
+								<div class="informe_vista_campo_cuadro"></div>
+								<div class="informe_vista_campo_cuadro"></div>
+								<div class="informe_vista_campo_cuadro"></div>
+								<div class="informe_vista_campo_cuadro"></div>
+								<div class="informe_vista_campo_cuadro_vacio"></div>
+								<div class="informe_vista_campo_cuadro_vacio"></div>
+								<div class="informe_vista_campo_cuadro"></div>
+								<div class="informe_vista_campo_cuadro"></div>
+								<div class="informe_vista_campo_cuadro"></div>
+								<div class="informe_vista_campo_cuadro"></div>
+								<div class="informe_vista_campo_cuadro_vacio"></div>
+								<div class="informe_vista_campo_cuadro_vacio"></div>
+								<div class="informe_vista_campo_cuadro"></div>
+								<div class="informe_vista_campo_cuadro"></div>
+								<div class="informe_vista_campo_cuadro"></div>
+								<div class="informe_vista_campo_cuadro"></div>
+								<div class="informe_vista_campo_cuadro_vacio"></div>
+								<div class="informe_vista_campo_cuadro_nave4" onmouseover="informe_poner_datos_cuadro(this)" onmouseout="informe_quitar_datos_cuadro(this)"><p style="display:none;">45 33 0 63 20 0 28 0 3 0 0 0 0 0 0</p><p class="letritas_informe_cuadro">5000</br>(-213)</p><div class="informe_vista_campo_cuadro_anterior" style="width: 100%;"><div class="informe_vista_campo_cuadro_actual" style="width: 75%;"></div></div></div>
+								<div class="informe_vista_campo_cuadro"></div>
+								<div class="informe_vista_campo_cuadro_nave8" onmouseover="informe_poner_datos_cuadro(this)" onmouseout="informe_quitar_datos_cuadro(this)"><p style="display:none;">45 33 0 63 20 0 28 0 3 0 0 0 0 0 0</p><p class="letritas_informe_cuadro">5000</br>(-213)</p><div class="informe_vista_campo_cuadro_anterior" style="width: 100%;"><div class="informe_vista_campo_cuadro_actual" style="width: 75%;"></div></div></div>
+								<div class="informe_vista_campo_cuadro_nave9" onmouseover="informe_poner_datos_cuadro(this)" onmouseout="informe_quitar_datos_cuadro(this)"><p style="display:none;">45 33 0 63 20 0 28 0 3 0 0 0 0 0 0</p><p class="letritas_informe_cuadro">5000</br>(-213)</p><div class="informe_vista_campo_cuadro_anterior" style="width: 100%;"><div class="informe_vista_campo_cuadro_actual" style="width: 75%;"></div></div></div>
+								<div class="informe_vista_campo_cuadro_nave6" onmouseover="informe_poner_datos_cuadro(this)" onmouseout="informe_quitar_datos_cuadro(this)"><p style="display:none;">45 33 0 63 20 0 28 0 3 0 0 0 0 0 0</p><p class="letritas_informe_cuadro">5000</br>(-213)</p><div class="informe_vista_campo_cuadro_anterior" style="width: 100%;"><div class="informe_vista_campo_cuadro_actual" style="width: 75%;"></div></div></div>
+								<div class="informe_vista_campo_cuadro_nave7" onmouseover="informe_poner_datos_cuadro(this)" onmouseout="informe_quitar_datos_cuadro(this)"><p style="display:none;">45 33 0 63 20 0 28 0 3 0 0 0 0 0 0</p><p class="letritas_informe_cuadro">5000</br>(-213)</p><div class="informe_vista_campo_cuadro_anterior" style="width: 100%;"><div class="informe_vista_campo_cuadro_actual" style="width: 75%;"></div></div></div>
+							</div>
+							
+							<div id="informe_vista_campo_def_fl_de_a">
+								<div class="informe_vista_campo_cuadro"></div>
+								<div class="informe_vista_campo_cuadro"></div>
+								<div class="informe_vista_campo_cuadro_nave1" onmouseover="informe_poner_datos_cuadro(this)" onmouseout="informe_quitar_datos_cuadro(this)"><p style="display:none;">45 33 0 63 20 0 28 0 3 0 0 0 0 0 0</p><p class="letritas_informe_cuadro">5000</br>(-213)</p><div class="informe_vista_campo_cuadro_anterior" style="width: 100%;"><div class="informe_vista_campo_cuadro_actual" style="width: 75%;"></div></div></div>
+								<div class="informe_vista_campo_cuadro"></div>
+								<div class="informe_vista_campo_cuadro_nave6" onmouseover="informe_poner_datos_cuadro(this)" onmouseout="informe_quitar_datos_cuadro(this)"><p style="display:none;">45 33 0 63 20 0 28 0 3 0 0 0 0 0 0</p><p class="letritas_informe_cuadro">5000</br>(-213)</p><div class="informe_vista_campo_cuadro_anterior" style="width: 100%;"><div class="informe_vista_campo_cuadro_actual" style="width: 75%;"></div></div></div>
+								<div class="informe_vista_campo_cuadro"></div>
+								<div class="informe_vista_campo_cuadro"></div>
+								<div class="informe_vista_campo_cuadro"></div>
+								<div class="informe_vista_campo_cuadro_nave3" onmouseover="informe_poner_datos_cuadro(this)" onmouseout="informe_quitar_datos_cuadro(this)"><p style="display:none;">45 33 0 63 20 0 28 0 3 0 0 0 0 0 0</p><p class="letritas_informe_cuadro">5000</br>(-213)</p><div class="informe_vista_campo_cuadro_anterior" style="width: 100%;"><div class="informe_vista_campo_cuadro_actual" style="width: 75%;"></div></div></div>
+							</div>
+							<div id="informe_vista_campo_separador"></div>
+						</div>
+						<div id="informe_vista_campo_atc">
+							<div id="informe_vista_campo_def_fl_iz_b">
+								<div class="informe_vista_campo_cuadro"></div>
+								<div class="informe_vista_campo_cuadro"></div>
+								<div class="informe_vista_campo_cuadro"></div>
+								<div class="informe_vista_campo_cuadro"></div>
+								<div class="informe_vista_campo_cuadro"></div>
+								<div class="informe_vista_campo_cuadro"></div>
+								<div class="informe_vista_campo_cuadro"></div>
+								<div class="informe_vista_campo_cuadro"></div>
+								<div class="informe_vista_campo_cuadro"></div>
+							</div>
+							
+							<div id="informe_vista_campo_def_centro_b">
+								<div class="informe_vista_campo_cuadro"></div>
+								<div class="informe_vista_campo_cuadro"></div>
+								<div class="informe_vista_campo_cuadro"></div>
+								<div class="informe_vista_campo_cuadro"></div>
+								<div class="informe_vista_campo_cuadro"></div>
+								<div class="informe_vista_campo_cuadro"></div>
+								<div class="informe_vista_campo_cuadro_vacio"></div>
+								<div class="informe_vista_campo_cuadro"></div>
+								<div class="informe_vista_campo_cuadro"></div>
+								<div class="informe_vista_campo_cuadro"></div>
+								<div class="informe_vista_campo_cuadro"></div>
+								<div class="informe_vista_campo_cuadro_vacio"></div>
+								<div class="informe_vista_campo_cuadro_vacio"></div>
+								<div class="informe_vista_campo_cuadro"></div>
+								<div class="informe_vista_campo_cuadro"></div>
+								<div class="informe_vista_campo_cuadro"></div>
+								<div class="informe_vista_campo_cuadro"></div>
+								<div class="informe_vista_campo_cuadro_vacio"></div>
+								<div class="informe_vista_campo_cuadro_vacio"></div>
+								<div class="informe_vista_campo_cuadro"></div>
+								<div class="informe_vista_campo_cuadro"></div>
+								<div class="informe_vista_campo_cuadro"></div>
+								<div class="informe_vista_campo_cuadro"></div>
+								<div class="informe_vista_campo_cuadro_vacio"></div>
+								<div class="informe_vista_campo_cuadro_vacio"></div>
+								<div class="informe_vista_campo_cuadro_vacio"></div>
+								<div class="informe_vista_campo_cuadro"></div>
+								<div class="informe_vista_campo_cuadro"></div>
+								<div class="informe_vista_campo_cuadro_vacio"></div>
+								<div class="informe_vista_campo_cuadro_vacio"></div>
+							</div>
+							
+							<div id="informe_vista_campo_def_fl_de_b">
+								<div class="informe_vista_campo_cuadro"></div>
+								<div class="informe_vista_campo_cuadro"></div>
+								<div class="informe_vista_campo_cuadro"></div>
+								<div class="informe_vista_campo_cuadro"></div>
+								<div class="informe_vista_campo_cuadro"></div>
+								<div class="informe_vista_campo_cuadro"></div>
+								<div class="informe_vista_campo_cuadro"></div>
+								<div class="informe_vista_campo_cuadro"></div>
+								<div class="informe_vista_campo_cuadro"></div>
+							</div>
+						</div>
+					</div>
+					<div class="clear"></div>
+				</div>
+				<div style="width:10px;height:10px;background: #723256;" onclick="$('.contraer8').slideToggle(200);"></div>
+				<div class="contraer8" style="padding:0px">
+					<div id="conf_batalla_vista">
+						<div id="conf_batalla_vista_menu">
+							<div class="conf_batalla_vista_menu_user">
+								<p class="conf_batalla_vista_menu_user_prin">Atacantes:</p>
+								<p>- Jugador 1</p>
+								<p>- Jugador 1</p>
+								<p>- Jugador 1</p>
+							</div>
+							<div class="conf_batalla_vista_menu_separador"></div>
+							<div class="conf_batalla_vista_menu_user">
+								<p class="conf_batalla_vista_menu_user_prin">Defensores:</p>
+								<p>- Jugador 1</p>
+								<p>- Jugador 1</p>
+								<p>- Jugador 1</p>
+							</div>
+							<div id="conf_batalla_vista_menu_naves">
+								<p id="conf_batalla_vista_menu_naves_titulo"> Selecciona un cuadro del campo de batalla</p>
+								<div id="conf_batalla_vista_menu_naves_mas" onclick="confi_naves_batalla($(this)); guardar_info_naves();"></div>
+								<div id="conf_batalla_vista_menu_naves_actuales"></div>
+								<div id="conf_batalla_vista_menu_naves_nuevas"></div>
+							</div>
+							<!--<div id="conf_batalla_vista_menu_naves_anadir_naves" onclick="guardar_info_naves(); borrar_naves_nuevas_no_confirmadas(); $('#conf_batalla_vista_menu_naves_anadir_naves').animate({top: '153', height: '0'}); actualizar_conf_batalla_vista_menu_naves_actuales()"></div>-->
+						</div>
+						<div id="conf_batalla_vista_campo">
+							<div id="cuadro_de_seleccion_de_cuadros" style="width:0;height:0;"></div>
+							<div id="conf_batalla_vista_campo_def">
+								<div id="conf_batalla_vista_campo_def_fl_iz_a">
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro_selec_2" style="margin:0; position:absolute; bottom: 98px; left: -24px;" onclick="seleccionar_fila_config_batalla($(this),1);"></div>
+									<div class="conf_batalla_vista_campo_cuadro_selec_2" style="margin:0; position:absolute; bottom: 49px; left: -24px;" onclick="seleccionar_fila_config_batalla($(this),2);"></div>
+									<div class="conf_batalla_vista_campo_cuadro_selec_2" style="margin:0; position:absolute; bottom: 0; left: -24px;" onclick="seleccionar_fila_config_batalla($(this),3);"></div>
+								</div>
+								
+								<div id="conf_batalla_vista_campo_def_centro_a">
+									<div class="conf_batalla_vista_campo_cuadro_vacio"></div>
+									<div class="conf_batalla_vista_campo_cuadro_selec_2" onclick="seleccionar_fila_config_batalla($(this),1);"></div>
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro_vacio"></div>
+									<div class="conf_batalla_vista_campo_cuadro_vacio"></div>
+									<div class="conf_batalla_vista_campo_cuadro_selec_2" onclick="seleccionar_fila_config_batalla($(this),2);"></div>
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro_vacio"></div>
+									<div class="conf_batalla_vista_campo_cuadro_selec_2" onclick="seleccionar_fila_config_batalla($(this),3);"></div>
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro_vacio"></div>
+									<div class="conf_batalla_vista_campo_cuadro_selec_2" onclick="seleccionar_fila_config_batalla($(this),4);"></div>
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro_vacio"></div>
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro_selec_2" style="margin:0; position:absolute; bottom: 0; left: -24px;" onclick="seleccionar_fila_config_batalla($(this),5);"></div>
+								</div>
+								
+								<div id="conf_batalla_vista_campo_def_fl_de_a">
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro_selec_2" style="margin:0; position:absolute; bottom: 98px; left: -24px;" onclick="seleccionar_fila_config_batalla($(this),1);"></div>
+									<div class="conf_batalla_vista_campo_cuadro_selec_2" style="margin:0; position:absolute; bottom: 49px; left: -24px;" onclick="seleccionar_fila_config_batalla($(this),2);"></div>
+									<div class="conf_batalla_vista_campo_cuadro_selec_2" style="margin:0; position:absolute; bottom: 0; left: -24px;" onclick="seleccionar_fila_config_batalla($(this),3);"></div>
+								</div>
+								<div id="conf_batalla_vista_campo_separador"></div>
+							</div>
+							<div id="conf_batalla_vista_campo_atc">
+								<div id="conf_batalla_vista_campo_def_fl_iz_b">
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro_selec_2" style="margin:0; position:absolute; bottom: 98px; left: -24px;" onclick="seleccionar_fila_config_batalla($(this),1);"></div>
+									<div class="conf_batalla_vista_campo_cuadro_selec_2" style="margin:0; position:absolute; bottom: 49px; left: -24px;" onclick="seleccionar_fila_config_batalla($(this),2);"></div>
+									<div class="conf_batalla_vista_campo_cuadro_selec_2" style="margin:0; position:absolute; bottom: 0; left: -24px;" onclick="seleccionar_fila_config_batalla($(this),3);"></div>
+								</div>
+								
+								<div id="conf_batalla_vista_campo_def_centro_b">
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro_selec_2" onclick="seleccionar_fila_config_batalla($(this),2);"></div>
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro_vacio"></div>
+									<div class="conf_batalla_vista_campo_cuadro_selec_2" onclick="seleccionar_fila_config_batalla($(this),3);"></div>
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro_vacio"></div>
+									<div class="conf_batalla_vista_campo_cuadro_selec_2" onclick="seleccionar_fila_config_batalla($(this),4);"></div>
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro_vacio"></div>
+									<div class="conf_batalla_vista_campo_cuadro_vacio"></div>									
+									<div class="conf_batalla_vista_campo_cuadro_selec_2" onclick="seleccionar_fila_config_batalla($(this),5);"></div>
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro_vacio"></div>
+									<div class="conf_batalla_vista_campo_cuadro_vacio"></div>
+									<div class="conf_batalla_vista_campo_cuadro_selec_2" style="margin:0; position:absolute; top: 0; left: -24px;" onclick="seleccionar_fila_config_batalla($(this),1);"></div>
+								</div>
+								
+								<div id="conf_batalla_vista_campo_def_fl_de_b">
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro"></div>
+									<div class="conf_batalla_vista_campo_cuadro_selec_2" style="margin:0; position:absolute; bottom: 98px; left: -24px;" onclick="seleccionar_fila_config_batalla($(this),1);"></div>
+									<div class="conf_batalla_vista_campo_cuadro_selec_2" style="margin:0; position:absolute; bottom: 49px; left: -24px;" onclick="seleccionar_fila_config_batalla($(this),2);"></div>
+									<div class="conf_batalla_vista_campo_cuadro_selec_2" style="margin:0; position:absolute; bottom: 0; left: -24px;" onclick="seleccionar_fila_config_batalla($(this),3);"></div>
+								</div>
+							</div>
+						</div>
+					</div>
+				</div>
+				<div style="width:10px;height:10px;background: #723256;" onclick="$('.contraer7').slideToggle(200);"></div>
+				<div class="contraer7" style="padding:0px">
+					<div id="planeta_vista" class="maxiplaneta11"> <!-- para cambiar de planeta, tienes que cambiar la class, estan maxiplaneta11, 12, 13, 14, 15, 21, 22, 23, 24, 25, 31, 32, 33, 34, 35, siendo el primer nuemro si es caliente (1), templado (2), frio (3). Estan ordenados de mas cercano a sol a mas lejano-->
+						<div id="planeta_vista_planeta"></div>
+						<div id="planeta_vista_puerto_espacial"><a href=""></a></div>
+						<div id="planeta_vista_astillero"><a href=""></a></div>
+						<div id="planeta_vista_laboratorio"><a href=""></a></div>
+						<div id="planeta_vista_tritio"><a href=""></a></div>
+						<div id="planeta_vista_metal"><a href=""></a></div>
+						<div id="planeta_vista_cristal"><a href=""></a></div>
+						<div id="planeta_vista_electrica"><a href=""></a></div>
+						<div id="planeta_vista_almacenes"><a href=""></a></div>
+						<div id="planeta_vista_mando"><a href=""></a></div>
+						<div id="planeta_vista_escudo_ex"><a href=""></a></div>
+						<div id="planeta_vista_escudo_in"><a href=""></a></div>
+					</div>
+				</div>
+				<div style="width:10px;height:10px;background: #723256;" onclick="$('.contraer6').slideToggle(200);"></div>
+				<div class="contraer6" style="padding:0px">
+					<div id="galaxia_vista">
+						<div id="galaxia_vista_menu">
+							<p id="galaxia_titulo"> Dominio del sector X-Y</p>
+							<div id="barra_conquista_sector_azul"><div id="barra_conquista_sector_rojo" style="width:50%;"><!-- con color plano a lo mejor no te gusta, eso es css, ya lo cambiare si quieres--></div></div>
+							<p>- 4 planetas propios</p>
+							<p>- 7 planetas enemigos</p>
+							<p>- Las 3 alianzas mas poderosas:</p>
+							<p style="margin: 0 0 0 30px; font-size:14px; color: #f00;">· Alianza1</p>
+							<p style="margin: 0 0 0 30px; font-size:14px; color: #fff;">· Alianza2</p>
+							<p style="margin: 0 0 0 30px; font-size:14px; color: #09f;">· Alianza3</p>
+						</div>
+						<div id="galaxia_vista_sistemas">  <!-- Hay 99 cuadros, tienes que ponerlos en orden, estan con float left, por lo que van de izquierda a derecha y de arriba a abajo, ademas hay 8 cuadros que no tiene que tener el "sector_X_Y" eston son el cuadro, 1, 2, 11, 12, 50, 88, 89, 98, 99 (Como esta en el codgo de abajo). -->  <!-- cambiar X e Y por cordenadas, el link se sacara de ese class, supongo que sera algo www.starriser.com/sector-X-Y --> <!-- si ves algo que no te gusta, en el archivo trunk/diseño/interfaz/lista de cosas por añadir.txt dejalo escrito, yo lo mirare de ahi. Esque en skype se pierden las cosas y despues nos olvidamos-->
+							<div class="cuadro_galaxia"></div>
+							<div class="cuadro_galaxia"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia"></div> 
+							<div class="cuadro_galaxia"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div> 
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div> 
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div> 
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div> 
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div> 
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div> 
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia"></div> 
+							<div class="cuadro_galaxia"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia sector_X_Y"></div>
+							<div class="cuadro_galaxia"></div>
+							<div class="cuadro_galaxia"></div> 
+							
+						</div>
+					</div>
+				</div>
+				<div style="width:10px;height:10px;background: #723256;" onclick="$('.contraer5').slideToggle(200);"></div>
+				<div class="contraer5" style="padding:0px">
+					<div id="sector_vista">
+						<div id="sector_vista_menu">
+						
+						</div>
+						<div id="sector_vista_sistemas" class="fondo_sector_1">
+							<div style="top: 0; left 0;"></div> <!-- Para sacar la formula de top y left es 51*fila en top y 51*columna en left, todo en px. -->
+							<div class="sol_sector sol_sector1" style="top: 408px; left: 408px;"></div>
+							<div class="sol_sector sol_sector2" style="top: 153px; left: 408px;"></div>
+							<div class="sol_sector sol_sector3_active" style="top: 306px; left: 153px;"></div>
+							<div class="sol_sector sol_sector4" style="top: 510px; left: 357px;"></div>
+							<div class="sol_sector sol_sector5" style="top: 204px; left: 357px;"></div>
+							<div class="sol_sector sol_sector6" style="top: 459px; left: 153px;"></div>
+							<div class="sol_sector sol_sector7" style="top: 51px; left: 510px;"></div>
+							<div class="sol_sector sol_sector8" style="top: 510px; left: 51px;"></div>
+							<div class="sol_sector sol_sector5" style="top: 510px; left: 0;"></div>
+						</div>
+					</div>
+				</div>
+				<div style="width:10px;height:10px;background: #723256;" onclick="$('.contraer4').slideToggle(200);"></div>
+				<div class="contraer4" style="padding:0px">
+					<div id="sistema_vista">
+						<div id="sistema_vista_menu">
+							<p id="sistema_vista_menu_usuario">Planeta de: <span style="font-family: 'Sansation_n';">Usuario1</span></p>
+							<p class="sistema_vista_menu_texto">Facción: <span style="color:#ff4b4b; font-family: 'Sansation_n';">Enemigo</span></p>
+							<p class="sistema_vista_menu_texto">Temperatura: <span style="color:#ff4b4b; font-family: 'Sansation_n';">Caliente</span></p>
+							<div id="sistema_vista_menu_planeta1" class="sistema_vista_menu_planeta"></div>
+							<div id="sistema_vista_menu_ver_planeta"></div>
+							<div id="sistema_vista_menu_espiar_planeta"></div>
+							<div id="sistema_vista_menu_atacar"></div>
+							<div id="sistema_vista_menu_apollar"></div>
+							<div id="sistema_vista_menu_comerciar"></div>	
+							<div id="sistema_vista_menu_enviar_mensaje"></div>							
+						</div>
+						<div id="sistema_vista_orbit">
+							<div class="planeta_pequeño planeta_pequeño_rojo" id="planeta1"><p class="enemigo" style='color:#ff4b4b'>Usuario1</p></div>
+							<div class="planeta_pequeño planeta_pequeño_azul" id="planeta2"><p>Usuariosda</p></div>
+							<div class="planeta_pequeño planeta_pequeño_azul" id="planeta3"><p class="enemigo" style='color:#ff4b4b'>Usuario asd</p></div>
+							<div class="planeta_pequeño planeta_pequeño_rojo" id="planeta4"></div>
+							<div class="planeta_pequeño planeta_pequeño_rojo" id="planeta5"></div>
+							<div class="planeta_pequeño planeta_pequeño_azul" id="planeta6"><p>Usxcvbario</p></div>
+							<div class="planeta_pequeño planeta_pequeño_rojo" id="planeta7"><p>Usuario</p></div>
+							<div class="planeta_pequeño planeta_pequeño_azul" id="planeta8"><p class="propio" style='color:#5dff47'>Usuvxcario</p></div>
+							<div class="planeta_pequeño planeta_pequeño_rojo" id="planeta9"></div>
+							<div class="planeta_pequeño planeta_pequeño_azul" id="planeta10"><p class="aliado" style='color:#00bbff'>Usuario</p></div>
+							<div class="planeta_pequeño planeta_pequeño_rojo" id="planeta11"></div>
+							<div class="planeta_pequeño planeta_pequeño_azul" id="planeta12"><p class="propio" style='color:#5dff47'>Usvbn  nb uario</p></div>
+							<div class="planeta_pequeño planeta_pequeño_rojo" id="planeta13"><p class="aliado" style='color:#00bbff'>Usuario</p></div>
+							<div class="planeta_pequeño planeta_pequeño_rojo" id="planeta14"></div>
+							<div class="planeta_pequeño planeta_pequeño_azul" id="planeta15"><p class="aliado" style='color:#00bbff'>Usuario</p></div>
+						</div>
+					</div>
+				</div>
+				<div style="width:10px;height:10px;background: #723256;" onclick="$('.contraer3').slideToggle(200);"></div>
+				<div class="contraer3" style="padding: 0 0 0 5px">
+					<div id="escribir_mensaje">
+						<form id="escribir_mensaje_form" action="">
+							<div id="escribir_mensaje_controles">
+								<div class="boton_enviar_mensaje_nuevo" onclick="/*enviar formulario*/"></div>
+								<div class="escribir_mensaje_radix">
+									<input id="radio_mensaje_normal" type="radio" value="normal" name="accion" checked="true"></input>
+									<p onclick="$('#radio_mensaje_normal').attr('checked', true);">Mensaje normal:</p>
+									<input id="radio_mensaje_comercial" type="radio" value="comercial" name="accion"></input>
+									<p onclick="$('#radio_mensaje_comercial').attr('checked', true);">Acuerdo comercial:</p>
+									<input id="radio_mensaje_militar" type="radio" value="militar" name="accion"></input>
+									<p onclick="$('#radio_mensaje_militar').attr('checked', true);">Acuerdo Militar:</p>
+									<input id="radio_mensaje_otro" type="radio" value="otro" name="accion"></input>
+									<p onclick="$('#radio_mensaje_otro').attr('checked', true);">Otro:</p>
+								</div>
+								<div id="escribir_mensaje_selector_usuario_alianza">
+									<p>Destinatario:</p>
+									<div id="escribir_mensaje_selector_alianza" onclick="usuario_alianza('alianza');"></div>
+									<div id="escribir_mensaje_selector_usuario_active" onclick="usuario_alianza('usuario');"></div>
+									<input type="hidden" value="usuario" name="usu-alianza" id="usu-alianza-form"/>
+								</div>
+								<div id="escribir_mensaje_selector_destino">
+									<p>Dirigido a: </p>
+									<div id="escribir_mensaje_buscar_usuario">
+										<div class="selctor_cuadro_flotante">
+											<div class="selctor_cuadro_flotante_flechita"></div>
+										</div>
+									</div>
+									<input type="text" value="Escribe aquí a quién va dirigido" name="dirigido_a_input" id="dirigido_a_inpu" onfocus="if(this.value=='Escribe aquí a quién va dirigido') this.value='';" onblur="if(this.value=='') this.value='Escribe aquí a quién va dirigido';"/>
+								</div>
+							</div>
+							<!--<textarea name="mensaje_texto_input" id="mensaje_texto_input" onfocus="if($(this).html()=='Escribe aquí el mensaje') this.value='';" name="comments" id="comments">Escribe aquí el mensaje</textarea>-->
+							<textarea name="mensaje_texto_input" id="mensaje_texto_input" onfocus="if($(this).html()=='Escribe aquí el mensaje') this.value='';" name="comments" id="comments">Lorem ipsum dolor sit amet, consectetur adipiscing elit. Cras semper dapibus urna, ac rutrum ante venenatis et. Sed dolor felis, auctor eget dapibus et, pellentesque eget orci. Mauris laoreet lectus ac nisl tincidunt ut mattis nunc iaculis. Curabitur ultrices vulputate risus, a cursus erat sodales a. Vivamus tristique venenatis congue. Vestibulum a magna tortor, eu placerat lectus. Pellentesque nec augue tortor, aliquam hendrerit ipsum. Nam in commodo augue. Suspendisse a nisi et eros suscipit ultrices eu a orci. Vivamus id neque libero. Sed eleifend faucibus lorem, sed interdum quam pellentesque nec. In posuere auctor enim a porttitor. Donec fringilla placerat lorem, vitae imperdiet urna pharetra eu. Phasellus ac ligula eu orci adipiscing lacinia eu ut tellus. Curabitur a dolor ac orci imperdiet porttitor in a eros. Nam quis elit ligula, in commodo massa.
+
+Vestibulum ante ipsum primis in faucibus orci luctus et ultrices posuere cubilia Curae; Phasellus vitae odio eget elit condimentum dictum. Pellentesque dictum mattis congue. Fusce sodales facilisis lorem et sollicitudin. Cum sociis natoque penatibus et magnis dis parturient montes, nascetur ridiculus mus. Aliquam eu nisl sapien, vitae tristique mauris. Morbi cursus leo id mauris tristique vitae convallis sem molestie. Ut ac convallis orci. Maecenas at consequat sapien. Nullam vitae mauris non turpis viverra adipiscing. Aenean nisl augue, vehicula in fringilla nec, convallis non leo. Suspendisse odio turpis, cursus sed ullamcorper at, ultrices sit amet neque. Duis gravida vestibulum ante id tincidunt. Quisque sagittis metus eu sem pulvinar mattis. Aenean mauris felis, iaculis ut tincidunt ut, interdum sed neque. Nam fermentum aliquam porttitor. Maecenas ac purus eget enim faucibus pharetra. Duis mattis scelerisque leo, vitae auctor orci dapibus vitae. Praesent nec nisi nulla. Ut luctus eros congue libero mollis fermentum.
+
+Sed et aliquam turpis. In sit amet rutrum diam. Donec varius tellus nec risus vehicula in imperdiet velit bibendum. Vestibulum lobortis pharetra dolor, ut aliquet lectus placerat nec. Quisque faucibus nulla non orci gravida a condimentum ligula dictum. Maecenas vitae velit eu lacus sollicitudin auctor. Maecenas euismod, purus non ultricies tincidunt, elit ante vestibulum purus, quis hendrerit ante metus condimentum urna. Fusce lobortis ullamcorper sapien ac tempor. In accumsan diam magna. Duis pretium, ipsum eu pulvinar tincidunt, diam augue feugiat elit, tempus euismod nunc neque in diam. Etiam ac elit vel nisi blandit porttitor. Mauris venenatis congue purus, sed molestie mauris vulputate eu. Phasellus in accumsan odio. Aliquam erat volutpat. Aenean est odio, aliquam at consectetur in, porta sed odio. Vestibulum sed lectus vitae lorem tincidunt accumsan.
+
+Nam nec vehicula mauris. In volutpat, augue vel accumsan rutrum, massa metus fringilla lorem, sed suscipit felis quam congue eros. Maecenas dictum venenatis nisi sit amet pellentesque. Suspendisse et elit ac felis vestibulum semper non eget sapien. Integer eget nulla ut justo tempor varius. Nunc justo est, malesuada nec porttitor non, mattis ac ligula. Curabitur id quam eros. Phasellus quam quam, sodales ut sollicitudin a, egestas et libero. Morbi nec velit non dui faucibus porttitor vitae et sapien. Vivamus rhoncus ante quis mi imperdiet cursus. Cras ac risus vitae leo malesuada mattis non a felis. Proin tempus magna ut sapien fermentum eget tristique dui dictum. Ut condimentum, purus sodales blandit fermentum, arcu elit mollis diam, scelerisque cursus ipsum nibh et massa. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Nunc elementum, ligula vitae sodales tristique, elit est pharetra tellus, id porttitor tortor lectus a quam. Donec vitae metus in libero luctus consectetur. Nullam leo elit, vehicula et lacinia nec, congue a odio.
+
+Nulla sed velit et neque adipiscing placerat eget sit amet sem. Praesent dolor lectus, pellentesque volutpat hendrerit vel, consequat sed nisi. In hac habitasse platea dictumst. Phasellus a felis mi. Sed odio enim, venenatis nec commodo quis, bibendum vestibulum sapien. Suspendisse potenti. Praesent diam sapien, auctor id imperdiet sit amet, sollicitudin posuere diam. Sed venenatis purus quis purus ultrices placerat. Phasellus vel velit accumsan quam auctor sollicitudin. Class aptent taciti sociosqu ad litora torquent per conubia nostra, per inc.</textarea>
+						</form>
+						<div id="escribir_mensaje_fin"></div>
+					</div>
+				</div>
+				<div style="width:10px;height:10px;background: #723256;" onclick="$('.contraer1').slideToggle(200);"></div>
+				<div class="contraer1" style="padding: 0 0 0 5px">
+					<div id="armas_escudo1" class="selector_deslizante">
+						<p class="selector_armas">Armas: 50%</p>
+						<p class="selector_escudos">Escudo: 50%</p>
+						<div class="selector_contenedor_barra_boton">
+							<div class="selector_barra_azul"></div>
+							<div class="selector_barra_roja"></div>
+							<div class="selector_boton"></div>
+						</div>
+						<div class="selctor_cuadro_flotante">
+							<div class="selctor_cuadro_flotante_flechita"></div>
+						</div>
+						<div class="selctor_boton_cuadro_flotante"></div>
+					</div>	
+					<div id="armas_escudo2" class="selector_deslizante">
+						<p class="selector_armas">Armas: 50%</p>
+						<p class="selector_escudos">Escudo: 50%</p>
+						<div class="selector_contenedor_barra_boton">
+							<div class="selector_barra_azul"></div>
+							<div class="selector_barra_roja"></div>
+							<div class="selector_boton"></div>
+						</div>
+						<div class="selctor_cuadro_flotante">
+							<div class="selctor_cuadro_flotante_flechita"></div>
+						</div>
+						<div class="selctor_boton_cuadro_flotante"></div>
+					</div>	
+					<div id="armas_escudo3" class="selector_deslizante">
+						<p class="selector_armas">Armas: 50%</p>
+						<p class="selector_escudos">Escudo: 50%</p>
+						<div class="selector_contenedor_barra_boton">
+							<div class="selector_barra_azul"></div>
+							<div class="selector_barra_roja"></div>
+							<div class="selector_boton"></div>
+						</div>
+						<div class="selctor_cuadro_flotante">
+							<div class="selctor_cuadro_flotante_flechita"></div>
+						</div>
+						<div class="selctor_boton_cuadro_flotante"></div>
+					</div>	
+					<div id="armas_escudo4" class="selector_deslizante">
+						<p class="selector_armas">Armas: 50%</p>
+						<p class="selector_escudos">Escudo: 50%</p>
+						<div class="selector_contenedor_barra_boton">
+							<div class="selector_barra_azul"></div>
+							<div class="selector_barra_roja"></div>
+							<div class="selector_boton"></div>
+						</div>
+						<div class="selctor_cuadro_flotante">
+							<div class="selctor_cuadro_flotante_flechita"></div>
+						</div>
+						<div class="selctor_boton_cuadro_flotante"></div>
+					</div>
+				</div>
+				<div style="width:10px;height:10px;background: #723256;" onclick="$('.contraer2').slideToggle(200);"></div>
+				<div class="contraer2" style="padding: 0 0 0 5px">
+					<div id="bones_seleccion_solo_una1">
+						<div class="bones_seleccion_solo_una_opcion1_active"></div>
+						<div class="bones_seleccion_solo_una_opcion2"><a href=""></a></div>
+						<div class="bones_seleccion_solo_una_opcion3"><a href=""></a></div>
+					</div>
+					<div id="nuevo_mensaje"><a href=""></a></div>
+					<div class="clear"></div>
+					<div id="mensajes_global">
+						<div class="mensaje_">
+							<div class="mensaje_titulo_nuevo" onclick="abrir_mensaje($(this));">
+								<p style="float:left;">
+								<span style="color:#28b1ff">Mensaje: </span>  Hola, bienvenido a [%Introducir... </p>
+								<p style="float:right;">
+								<span style="color:#28b1ff">Enviado a ti</span>
+								</p>
+							</div>
+							<div class="mensaje_cuerpo">
+								<p>Hola, bienvenido a [%Introducir nombre de juego%].</p>
+
+								<p>Hoy sera tu primer dia como comandante general de nuestro imperio, dirijiras nuestras tropas, nuestra economia y nos llebaras hacia la 
+								dominacion absoluta de nuestros enemigos.</p> 
+
+								<p>Sabemos que eres un gran tactico en todas las artes, podras destruir a nustros  enemigos militarmente, 
+								tecnologicamente o economicamente.</p>
+								<div class="mensaje_cuerpo_fin"></div>
+								<div class="mensaje_responder"><a href=""></a></div>
+							</div>
+						</div>
+						<div class="mensaje_">
+							<div class="mensaje_titulo_nuevo" onclick="abrir_mensaje($(this));">
+								<p style="float:left;">
+								<span style="color:#28b1ff">Mensaje: </span>  Hola, bienvenido a [%Introducir... </p>
+								<p style="float:right;">
+								<span style="color:#28b1ff">Enviado a tu alianza</span>
+								</p>
+							</div>
+							<div class="mensaje_cuerpo">
+								<p>Hola, bienvenido a [%Introducir nombre de juego%].</p>
+
+								<p>Hoy sera tu primer dia como comandante general de nuestro imperio, dirijiras nuestras tropas, nuestra economia y nos llebaras hacia la 
+								dominacion absoluta de nuestros enemigos.</p> 
+
+								<p>Sabemos que eres un gran tactico en todas las artes, podras destruir a nustros  enemigos militarmente, 
+								tecnologicamente o economicamente.</p>
+								<p>Hola, bienvenido a [%Introducir nombre de juego%].</p>
+
+								<p>Hoy sera tu primer dia como comandante general de nuestro imperio, dirijiras nuestras tropas, nuestra economia y nos llebaras hacia la 
+								dominacion absoluta de nuestros enemigos.</p> 
+
+								<p>Sabemos que eres un gran tactico en todas las artes, podras destruir a nustros  enemigos militarmente, 
+								tecnologicamente o economicamente.</p>
+								<p>Hola, bienvenido a [%Introducir nombre de juego%].</p>
+								<div class="mensaje_cuerpo_fin"></div>
+								<div class="mensaje_responder"><a href=""></a></div>
+							</div>
+						</div>
+						<div class="mensaje_">
+							<div class="mensaje_titulo_nuevo" onclick="abrir_mensaje($(this));">
+								<p style="float:left;">
+								<span style="color:#28b1ff">Mensaje: </span>  Hola, bienvenido a [%Introducir... </p>
+								<p style="float:right;">
+								<span style="color:#28b1ff">Enviado a tu alianza</span>
+								</p>
+							</div>
+							<div class="mensaje_cuerpo">
+								<p>Hola, bienvenido a [%Introducir nombre de juego%].</p>
+
+								<p>Hoy sera tu primer dia como comandante general de nuestro imperio, dirijiras nuestras tropas, nuestra economia y nos llebaras hacia la 
+								dominacion absoluta de nuestros enemigos.</p> 
+
+								<p>Sabemos que eres un gran tactico en todas las artes, podras destruir a nustros  enemigos militarmente, 
+								tecnologicamente o economicamente.</p>
+								<p>Hola, bienvenido a [%Introducir nombre de juego%].</p>
+
+								<p>Hoy sera tu primer dia como comandante general de nuestro imperio, dirijiras nuestras tropas, nuestra economia y nos llebaras hacia la 
+								dominacion absoluta de nuestros enemigos.</p> 
+
+								<p>Sabemos que eres un gran tactico en todas las artes, podras destruir a nustros  enemigos militarmente, 
+								tecnologicamente o economicamente.</p>
+								<p>Hola, bienvenido a [%Introducir nombre de juego%].</p>
+								<div class="mensaje_cuerpo_fin"></div>
+								<div class="mensaje_responder"><a href=""></a></div>
+							</div>
+						</div>
+						<div class="mensaje_">
+							<div class="mensaje_titulo_nuevo" onclick="abrir_mensaje($(this));">
+								<p style="float:left;">
+								<span style="color:#28b1ff">Mensaje: </span>  Hola, bienvenido a [%Introducir... </p>
+								<p style="float:right;">
+								<span style="color:#28b1ff">Enviado a tu alianza</span>
+								</p>
+							</div>
+							<div class="mensaje_cuerpo">
+								<p>Hola, bienvenido a [%Introducir nombre de juego%].</p>
+
+								<p>Hoy sera tu primer dia como comandante general de nuestro imperio, dirijiras nuestras tropas, nuestra economia y nos llebaras hacia la 
+								dominacion absoluta de nuestros enemigos.</p> 
+
+								<p>Sabemos que eres un gran tactico en todas las artes, podras destruir a nustros  enemigos militarmente, 
+								tecnologicamente o economicamente.</p>
+								<p>Hola, bienvenido a [%Introducir nombre de juego%].</p>
+
+								<p>Hoy sera tu primer dia como comandante general de nuestro imperio, dirijiras nuestras tropas, nuestra economia y nos llebaras hacia la 
+								dominacion absoluta de nuestros enemigos.</p> 
+
+								<p>Sabemos que eres un gran tactico en todas las artes, podras destruir a nustros  enemigos militarmente, 
+								tecnologicamente o economicamente.</p>
+								<p>Hola, bienvenido a [%Introducir nombre de juego%].</p>
+								<div class="mensaje_cuerpo_fin"></div>
+								<div class="mensaje_responder"><a href=""></a></div>
+							</div>
+						</div>
+						<div class="mensaje_">
+							<div class="mensaje_titulo_nuevo" onclick="abrir_mensaje($(this));">
+								<p style="float:left;">
+								<span style="color:#28b1ff">Mensaje: </span>  Hola, bienvenido a [%Introducir... </p>
+								<p style="float:right;">
+								<span style="color:#28b1ff">Enviado a tu alianza</span>
+								</p>
+							</div>
+							<div class="mensaje_cuerpo">
+								<p>Hola, bienvenido a [%Introducir nombre de juego%].</p>
+
+								<p>Hoy sera tu primer dia como comandante general de nuestro imperio, dirijiras nuestras tropas, nuestra economia y nos llebaras hacia la 
+								dominacion absoluta de nuestros enemigos.</p> 
+
+								<p>Sabemos que eres un gran tactico en todas las artes, podras destruir a nustros  enemigos militarmente, 
+								tecnologicamente o economicamente.</p>
+								<p>Hola, bienvenido a [%Introducir nombre de juego%].</p>
+
+								<p>Hoy sera tu primer dia como comandante general de nuestro imperio, dirijiras nuestras tropas, nuestra economia y nos llebaras hacia la 
+								dominacion absoluta de nuestros enemigos.</p> 
+
+								<p>Sabemos que eres un gran tactico en todas las artes, podras destruir a nustros  enemigos militarmente, 
+								tecnologicamente o economicamente.</p>
+								<p>Hola, bienvenido a [%Introducir nombre de juego%].</p>
+								<div class="mensaje_cuerpo_fin"></div>
+								<div class="mensaje_responder"><a href=""></a></div>
+							</div>
+						</div>
+						<div class="mensaje_">
+							<div class="mensaje_titulo_nuevo" onclick="abrir_mensaje($(this));">
+								<p style="float:left;">
+								<span style="color:#28b1ff">Mensaje: </span>  Hola, bienvenido a [%Introducir... </p>
+								<p style="float:right;">
+								<span style="color:#28b1ff">Enviado a tu alianza</span>
+								</p>
+							</div>
+							<div class="mensaje_cuerpo">
+								<p>Hola, bienvenido a [%Introducir nombre de juego%].</p>
+
+								<p>Hoy sera tu primer dia como comandante general de nuestro imperio, dirijiras nuestras tropas, nuestra economia y nos llebaras hacia la 
+								dominacion absoluta de nuestros enemigos.</p> 
+
+								<p>Sabemos que eres un gran tactico en todas las artes, podras destruir a nustros  enemigos militarmente, 
+								tecnologicamente o economicamente.</p>
+								<p>Hola, bienvenido a [%Introducir nombre de juego%].</p>
+
+								<p>Hoy sera tu primer dia como comandante general de nuestro imperio, dirijiras nuestras tropas, nuestra economia y nos llebaras hacia la 
+								dominacion absoluta de nuestros enemigos.</p> 
+
+								<p>Sabemos que eres un gran tactico en todas las artes, podras destruir a nustros  enemigos militarmente, 
+								tecnologicamente o economicamente.</p>
+								<p>Hola, bienvenido a [%Introducir nombre de juego%].</p>
+								<div class="mensaje_cuerpo_fin"></div>
+								<div class="mensaje_responder"><a href=""></a></div>
+							</div>
+						</div>
+						<div class="mensaje_">
+							<div class="mensaje_titulo_nuevo" onclick="abrir_mensaje($(this));">
+								<p style="float:left;">
+								<span style="color:#28b1ff">Mensaje: </span>  Hola, bienvenido a [%Introducir... </p>
+								<p style="float:right;">
+								<span style="color:#28b1ff">Enviado a tu alianza</span>
+								</p>
+							</div>
+							<div class="mensaje_cuerpo">
+								<p>Hola, bienvenido a [%Introducir nombre de juego%].</p>
+
+								<p>Hoy sera tu primer dia como comandante general de nuestro imperio, dirijiras nuestras tropas, nuestra economia y nos llebaras hacia la 
+								dominacion absoluta de nuestros enemigos.</p> 
+
+								<p>Sabemos que eres un gran tactico en todas las artes, podras destruir a nustros  enemigos militarmente, 
+								tecnologicamente o economicamente.</p>
+								<p>Hola, bienvenido a [%Introducir nombre de juego%].</p>
+
+								<p>Hoy sera tu primer dia como comandante general de nuestro imperio, dirijiras nuestras tropas, nuestra economia y nos llebaras hacia la 
+								dominacion absoluta de nuestros enemigos.</p> 
+
+								<p>Sabemos que eres un gran tactico en todas las artes, podras destruir a nustros  enemigos militarmente, 
+								tecnologicamente o economicamente.</p>
+								<p>Hola, bienvenido a [%Introducir nombre de juego%].</p>
+								<div class="mensaje_cuerpo_fin"></div>
+								<div class="mensaje_responder"><a href=""></a></div>
+							</div>
+						</div>
+						<div class="clear"></div>
+					</div>								
+				</div>
+			</div>
+			<div id="cuerpo_centro_fin"></div>	
+		</div>
+		<div class="clear"></div>
+	</div>
+	<div id="footer"></div>
+</body>
+</html>

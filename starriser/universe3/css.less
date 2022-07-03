@@ -1,0 +1,191 @@
+/* http://meyerweb.com/eric/tools/css/reset/ 
+   v2.0 | 20110126
+   License: none (public domain)
+*/
+
+html, body, div, span, applet, object, iframe,
+h1, h2, h3, h4, h5, h6, p, blockquote, pre,
+a, abbr, acronym, address, big, cite, code,
+del, dfn, em, img, ins, kbd, q, s, samp,
+small, strike, strong, sub, sup, tt, var,
+b, u, i, center,
+dl, dt, dd, ol, ul, li,
+fieldset, form, label, legend,
+table, caption, tbody, tfoot, thead, tr, th, td,
+article, aside, canvas, details, embed, 
+figure, figcaption, footer, header, hgroup, 
+menu, nav, output, ruby, section, summary,
+time, mark, audio, video {
+	margin: 0;
+	padding: 0;
+	border: 0;
+	font-size: 100%;
+	font: inherit;
+	vertical-align: baseline;
+}
+/* HTML5 display-role reset for older browsers */
+article, aside, details, figcaption, figure, 
+footer, header, hgroup, menu, nav, section {
+	display: block;
+}
+body {
+	line-height: 1;
+}
+ol, ul {
+	list-style: none;
+}
+blockquote, q {
+	quotes: none;
+}
+blockquote:before, blockquote:after,
+q:before, q:after {
+	content: '';
+	content: none;
+}
+table {
+	border-collapse: collapse;
+	border-spacing: 0;
+}
+
+/*--------------------------*/
+
+/*Variables*/
+@CTSprite: "content/img/CTSprite.png";
+@galaxyBackground: "content/img/fondo_galaxia.jpg";
+
+/**/
+
+html, body{
+	height: 100%;
+	background: #000;
+}
+
+#body{
+	min-height: 100%;
+	position: relative;
+}
+
+.sCanvas, .dCanvas, .canvasBackground{
+	position: absolute;
+	top: 0;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	z-index: 2;
+}
+
+.dCanvas{
+	z-index: 3;
+}
+
+.canvasBackground{
+	background-image: url(@galaxyBackground);
+	z-index: 1;
+}
+
+/*Zoom level panel*/
+
+.zoomLevel{
+	background: url(@CTSprite);
+	width: 90px;
+	height: 222px;
+	position: absolute;
+	top: 0;
+	right: 15px;
+	z-index: 10;
+}
+
+.zoomLevel .button{
+	background: url(@CTSprite) -90px 0;
+	width: 82px;
+	height: 68px;
+	float: left;
+	margin: -19px 0 0 4px;
+	cursor: pointer;
+}
+
+.zoomLevel .button0{
+	margin: 0 0 0 4px;
+	height: 57px;
+}
+
+.zoomLevel .button1{
+	background-position: -172px 0;
+}
+
+.zoomLevel .button2{
+	background-position: -254px 0;
+}
+
+.zoomLevel .button3{
+	background-position: -336px 0;
+	height: 70px;
+}
+
+.zoomLevel .button0:hover{
+	background-position: -90px -71px;
+}
+
+.zoomLevel .button1:hover{
+	background-position: -172px -71px;
+}
+
+.zoomLevel .button2:hover{
+	background-position: -254px -71px;
+}
+
+.zoomLevel .button3:hover{
+	background-position: -336px -71px;
+	height: 70px;
+}
+
+.nodeview.container{
+	position: absolute;
+	bottom: 0;
+	left: 0;
+	z-index: 10;
+	width: 0;
+	height: 0;
+}
+
+.nodeview.planetBackground{
+	position: absolute;
+	bottom: 0;
+	left: 0;
+	z-index: 10;
+	width: 0;
+	height: 0;
+}
+
+
+.nodeview.buttonsContainer{
+	height: 32px;
+	padding: 2px 0;
+	width: 500px;
+	position: absolute;
+	bottom: 50px;
+	left: 100px;
+}
+
+.interfaceButton_Colonizar, .interfaceButton_Mensaje, .interfaceButton_Desplegar, .interfaceButton_Enviar_recursos, .interfaceButton_Atacar, .interfaceButton_Bloquear, .interfaceButton_Espiar, .interfaceButton_Informacion{
+	background-image: url(@CTSprite);
+	width: 72px;
+	height: 32px;
+	cursor: pointer;
+	float: left;
+	margin: 0 -6px 0 -7px;
+}
+
+
+$i: 0;
+@each $rule in interfaceButton_Atacar, interfaceButton_Desplegar, interfaceButton_Enviar_recursos, interfaceButton_Bloquear, interfaceButton_Espiar, interfaceButton_Colonizar, interfaceButton_Mensaje, interfaceButton_Informacion{
+	.#{$rule} {
+		background-position: -20px -202px - 34px * $i;
+		&:hover{
+			background-position: -100px -202px - 34px * $i;
+		}
+	}
+	$i: $i + 1;
+}
+
+

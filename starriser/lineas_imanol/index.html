@@ -1,0 +1,279 @@
+<html>
+
+<head>
+
+<script type="text/javascript" src="matrix.min.js"></script>
+
+<script id="shader-fs" type="x-shader/x-fragment">
+    precision mediump float;
+    varying vec2 vNormal;
+    uniform float uLineAlphaRatio;
+
+    void main(void) {
+        float alpha = 1.0;
+        float d = length(vNormal);
+        if (d >= uLineAlphaRatio) {
+            alpha = 1.0 - (d - uLineAlphaRatio)/ (1.0 - uLineAlphaRatio);
+        }
+        gl_FragColor = vec4(1.0, 1.0, 1.0, alpha);
+
+    }
+</script>
+
+<script id="shader-vs" type="x-shader/x-vertex">
+    attribute vec2 aPosition;
+    attribute vec2 aNormal;
+
+    uniform float uLineWidth;
+    uniform mat4 uMVMatrix;
+    uniform mat4 uPMatrix;
+
+    varying vec2 vNormal;
+
+    void main(void) {
+
+        vec4 lineDelta = vec4(aNormal * uLineWidth * 0.5, 0.0, 0.0);
+        vNormal = aNormal;
+        gl_Position = uPMatrix * (uMVMatrix * vec4(aPosition, 0.0, 1.0) + lineDelta);
+    }
+</script>
+
+
+<script type="text/javascript">
+
+    var gl;
+    var raf = window.requestAnimationFrame;
+    function initGL(canvas) {
+        try {
+            gl = canvas.getContext("webgl");
+            gl.viewportWidth = canvas.width;
+            gl.viewportHeight = canvas.height;
+        } catch (e) {
+        }
+        if (!gl) {
+            alert("Could not initialise WebGL, sorry :-(");
+        }
+    }
+
+
+    function getShader(gl, id) {
+        var shaderScript = document.getElementById(id);
+        if (!shaderScript) {
+            return null;
+        }
+
+        var str = "";
+        var k = shaderScript.firstChild;
+        while (k) {
+            if (k.nodeType == 3) {
+                str += k.textContent;
+            }
+            k = k.nextSibling;
+        }
+
+        var shader;
+        if (shaderScript.type == "x-shader/x-fragment") {
+            shader = gl.createShader(gl.FRAGMENT_SHADER);
+        } else if (shaderScript.type == "x-shader/x-vertex") {
+            shader = gl.createShader(gl.VERTEX_SHADER);
+        } else {
+            return null;
+        }
+
+        gl.shaderSource(shader, str);
+        gl.compileShader(shader);
+
+        if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+            alert(gl.getShaderInfoLog(shader));
+            return null;
+        }
+
+        return shader;
+    }
+
+
+    var shaderProgram;
+
+    function initShaders() {
+        var fragmentShader = getShader(gl, "shader-fs");
+        var vertexShader = getShader(gl, "shader-vs");
+
+        shaderProgram = gl.createProgram();
+        gl.attachShader(shaderProgram, vertexShader);
+        gl.attachShader(shaderProgram, fragmentShader);
+        gl.linkProgram(shaderProgram);
+
+        if (!gl.getProgramParameter(shaderProgram, gl.LINK_STATUS)) {
+            alert("Error initializing shaders");
+        }
+
+        gl.useProgram(shaderProgram);
+
+        shaderProgram.positionAttribute = gl.getAttribLocation(shaderProgram, "aPosition");
+        gl.enableVertexAttribArray(shaderProgram.positionAttribute);
+        shaderProgram.normalAttribute = gl.getAttribLocation(shaderProgram, "aNormal");
+        gl.enableVertexAttribArray(shaderProgram.normalAttribute);
+
+        shaderProgram.pMatrixUniform = gl.getUniformLocation(shaderProgram, "uPMatrix");
+        shaderProgram.mvMatrixUniform = gl.getUniformLocation(shaderProgram, "uMVMatrix");
+        shaderProgram.lineWidthUniform = gl.getUniformLocation(shaderProgram, "uLineWidth");
+        shaderProgram.lineAlphaRatioUniform = gl.getUniformLocation(shaderProgram, "uLineAlphaRatio");
+    }
+
+
+    var mvMatrix = mat4.create();
+    var pMatrix = mat4.create();
+    var positionBuffer;
+    var normalBuffer;
+
+    function initBuffers() {
+
+        var lines = [];
+        lines.push(10, 10, 100, 100);
+        lines.push(200, 200, 200, 300);
+        lines.push(400, 100, 450, 200);
+
+
+        var vertices = [];
+        var normals = [];
+
+        for (var i = 0; i < lines.length;) {
+
+            var x1 = lines[i++];
+            var y1 = lines[i++];
+            var x2 = lines[i++];
+            var y2 = lines[i++];
+
+            //repeat vertices
+            vertices.push(x1, y1, //bottom left
+                    x2, y2, //top left
+                    x1, y1, //bottom right
+                    x1, y1, //bottom right
+                    x2, y2, //top left
+                    x2, y2);//top right
+            //calculate normals for each vertex
+            var dx = x2 - x1;
+            var dy = y2 - y1;
+            var r = Math.sqrt(dx * dx + dy * dy);
+            normals.push(-dy/r, dx/r,
+                    -dy/r, dx/r,
+                    dy/r, -dx/r,
+                    dy/r, -dx/r,
+                    -dy/r, dx/r,
+                    dy/r, -dx/r);
+        }
+
+        positionBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+
+
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.STATIC_DRAW);
+        positionBuffer.num = vertices.length/2;
+
+        normalBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, normalBuffer);
+
+
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(normals), gl.STATIC_DRAW);
+    }
+
+
+    var scale = 1.0;
+    var scaleDelta = 0.01;
+    var lineWidth = 5.0;
+
+
+    function render() {
+        gl.viewport(0, 0, gl.viewportWidth, gl.viewportHeight);
+        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+        //projection matrix
+        mat4.identity(pMatrix);
+        mat4.ortho(0, gl.viewportWidth, 0, gl.viewportHeight, 0.1, 100.0, pMatrix);
+
+        //model matrix
+        mat4.identity(mvMatrix);
+        mat4.translate(mvMatrix, [0.0, 0.0, -10.0]);
+        scale+=scaleDelta;
+
+        if (scale > 2) {
+            scaleDelta = -0.005;
+        }
+        else if (scale < 0.2) {
+            scaleDelta = 0.005;
+        }
+        mat4.scale(mvMatrix, [scale, scale, 1.0]);
+
+        //buffers
+        gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+        gl.vertexAttribPointer(shaderProgram.positionAttribute, 2,  gl.FLOAT, false, 0, 0);
+        gl.bindBuffer(gl.ARRAY_BUFFER, normalBuffer);
+        gl.vertexAttribPointer(shaderProgram.normalAttribute, 2, gl.FLOAT, false, 0, 0);
+
+
+        //uniforms
+        gl.uniformMatrix4fv(shaderProgram.pMatrixUniform, false, pMatrix);
+        gl.uniformMatrix4fv(shaderProgram.mvMatrixUniform, false, mvMatrix);
+
+
+        var extraPixels = 2;
+        var alphaRatio = 1.0 - extraPixels/(lineWidth + extraPixels);
+
+        gl.uniform1f(shaderProgram.lineWidthUniform, lineWidth + extraPixels);
+        gl.uniform1f(shaderProgram.lineAlphaRatioUniform, alphaRatio);
+
+
+        //draw lines
+        gl.drawArrays(gl.TRIANGLES, 0, positionBuffer.num);
+
+        raf(render);
+    }
+
+
+
+    function init() {
+        var canvas = document.createElement("canvas");
+        canvas.width = 500;
+        canvas.height = 500;
+        document.body.appendChild(canvas);
+        initGL(canvas);
+        initShaders();
+        initBuffers();
+
+        gl.clearColor(0.0, 0.0, 0.0, 1.0);
+        gl.enable(gl.BLEND);
+        gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+
+        raf(render);
+
+        var select = document.createElement("select");
+        for (var i = 0; i < 40; ++i) {
+            var option = document.createElement("option");
+            option.textContent = '' + (0.5 + 0.5 * (i + 1));
+            select.appendChild(option);
+        }
+        select.onchange = function() {
+            lineWidth = 0.5 + (this.selectedIndex + 1) * 0.5;
+        };
+        select.selectedIndex = 8;
+        document.body.appendChild(document.createElement("br"));
+        var span = document.createElement("span");
+        span.textContent = "Line Width: ";
+        document.body.appendChild(span);
+        document.body.appendChild(select);
+    }
+
+    window.onload = init;
+
+
+</script>
+
+
+</head>
+
+
+<body>
+
+</body>
+
+</html>

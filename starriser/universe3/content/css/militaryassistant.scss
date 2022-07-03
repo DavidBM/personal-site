@@ -1,0 +1,175 @@
+.militaryAssistant.historyContainer, .militaryAssistant.stationedContainer {
+	background: #373B44;
+	border: 1px solid transparentize(#4987A7, 1amount);
+	border-radius: 3px;
+	box-shadow: 0 0 5px #000 inset;
+	min-height: 200px;
+}
+.militaryAssistant .loading{
+	margin-top: 50px;
+}
+
+.militaryAssistant.shipTravelCard, .militaryAssistant.shipStationedCard{
+	@include linear-gradient(#696868 0%, #363C40 100%);
+	border-radius: 3px;
+	box-shadow: 0 0 5px #111111, 0 0 10px #535D69 inset;
+	margin: 5px;
+	padding: 5px 230px 5px 5px;
+	overflow: hidden;
+	position: relative;
+	left: 0;
+	transition: left 0.3s;
+	/*&:hover, &.active{
+		@include linear-gradient(lighten(#64707E, 10) 0%, lighten(#16222F, 10) 100%);
+		//left: 10px;
+		border-color: #66CAFF;
+	}*/
+}
+
+.militaryAssistant.shipTravelCard .text, .militaryAssistant.shipTravelCard .arrivalTime {
+	margin: 0 0 5px 0;
+}
+
+.militaryAssistant.shipTravelCard .arrivalTime{
+	position: absolute;
+	top: 5px;
+	right: 5px;
+}
+
+.militaryAssistant.shipTravelCard .animatedGifContainer{
+	border: 1px solid #000000;
+	border-radius: 5px;
+	box-shadow: 0 0 2px #000000 inset, 0 0 1px #999999;
+	height: 3px;
+	overflow: hidden;
+}
+
+.militaryAssistant.shipTravelCard.reinforcementOfAllie .animatedGif, 
+.militaryAssistant.shipTravelCard.reinforcementInAllie .animatedGif, 
+.militaryAssistant.shipTravelCard.supportIn .animatedGif, 
+.militaryAssistant.shipTravelCard.supportOut .animatedGif, 
+.militaryAssistant.shipTravelCard.atackOut .animatedGif, 
+.militaryAssistant.shipTravelCard.atackIn .animatedGif, 
+.militaryAssistant.shipTravelCard.battleIn .animatedGif,
+.militaryAssistant.shipTravelCard.battleOut .animatedGif{
+	height: 100%;
+	border-radius: 5px;
+	width: 100%;
+}
+
+.militaryAssistant.shipTravelCard.reinforcementOfAllie .animatedGif{
+	background: $ColorGreenAlert;
+}
+
+.militaryAssistant.shipTravelCard.reinforcementInAllie .animatedGif{
+	background: $ColorBlueAlert;
+}
+
+.militaryAssistant.shipTravelCard.supportIn .animatedGif{
+	background: $ColorGreenAlert url($animatedMiniArrows) 0 -6px;
+}
+
+.militaryAssistant.shipTravelCard.supportOut .animatedGif{
+	background: $ColorBlueAlert url($animatedMiniArrows) 0 -1px;
+}
+
+.militaryAssistant.shipTravelCard.atackOut .animatedGif{
+	background: $ColorYellowAlert url($animatedMiniArrows) 0 -1px;
+}
+
+.militaryAssistant.shipTravelCard.atackIn .animatedGif{
+	background: $ColorRedAlert url($animatedMiniArrows) 0 -6px;
+}
+
+.militaryAssistant.shipTravelCard.battleOut .animatedGif{
+	background: $ColorRedAlert;
+}
+
+.militaryAssistant.shipTravelCard.battleIn .animatedGif{
+	background: $ColorRedAlert;
+}
+
+.militaryAssistant.shipTravelCard.reinforcementOfAllie .animatedGifContainer{
+	background: darken($ColorGreenAlert, 15%);
+}
+
+.militaryAssistant.shipTravelCard.reinforcementInAllie .animatedGifContainer{
+	background: darken($ColorBlueAlert, 15%);
+}
+
+.militaryAssistant.shipTravelCard.supportIn .animatedGifContainer{
+	background: darken($ColorGreenAlert, 15%) url($animatedMiniArrows) 0 -6px;
+}
+
+.militaryAssistant.shipTravelCard.supportOut .animatedGifContainer{
+	background: darken($ColorBlueAlert, 15%) url($animatedMiniArrows) 0 -1px;
+}
+
+.militaryAssistant.shipTravelCard.atackOut .animatedGifContainer{
+	background: darken($ColorYellowAlert, 15%) url($animatedMiniArrows) 0 -1px;
+}
+
+.militaryAssistant.shipTravelCard.atackIn .animatedGifContainer{
+	background: darken($ColorRedAlert, 15%) url($animatedMiniArrows) 0 -6px;
+}
+
+.militaryAssistant.shipTravelCard.battleOut .animatedGifContainer{
+	background: darken($ColorRedAlert, 30%);
+}
+
+.militaryAssistant.shipTravelCard.battleIn .animatedGifContainer{
+	background: darken($ColorRedAlert, 30%);
+}
+
+.militaryAssistant .shipsContainer{
+	margin-top: 5px;
+	border-radius: 3px;
+	box-shadow: 0 0 3px #000 inset;
+}
+
+
+.militaryAssistant .shipsContainer .ship{
+	height: 24px;
+	border: 1px solid #999;
+	margin: 5px;
+	float: left;
+	width: 84px;
+	font-size: 11px;
+	line-height: 24px;
+	border-radius: 2px;
+}
+.militaryAssistant .shipsContainer .noInfo{
+	padding: 5px;
+	text-align: center;
+}
+
+.militaryAssistant .shipsContainer .ship .shipImage{
+	height: 24px;
+	width: 24px;
+	background: #111;
+	float: left;
+}
+
+.militaryAssistant .shipsContainer .ship .shipCuantity{
+	float: right;
+	width: 60px;
+	text-align: center;
+}
+
+.militaryAssistant .shipsContainer .userName{
+	border-color: #999999;
+	border-style: solid;
+	border-width: 0 0 1px 1px;
+	float: right;
+	height: 30px;
+	line-height: 30px;
+	margin-bottom: 5px;
+	padding-right: 5px;
+	text-align: right;
+	width: 232px;
+}
+
+.timelineDataCanvas{
+	position: relative;
+	z-index: 2;
+}

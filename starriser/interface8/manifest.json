@@ -1,0 +1,14 @@
+{
+  "name": "Starriser",
+  "icons": [
+    {
+      "src": "/assets/img/faviconG.png",
+      "sizes": "196x196",
+      "type": "image/png",
+      "density": 1.0
+    }
+  ],
+  "start_url": "index.html",
+  "display": "standalone",
+  "orientation": "landscape"
+}

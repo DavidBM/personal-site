@@ -1,0 +1,15 @@
+.militaryAssistant.historyContainer {
+  background: #373B44;
+  border: 1px solid #4987A7;
+  border-radius: 3px;
+  box-shadow: 0 0 3px #1C1919 inset;
+  padding: 5px;
+  width: 550px; }
+
+.militaryAssistant.shipTravelCardincoming {
+  border: 1px solid #425862;
+  border-radius: 3px;
+  box-shadow: 0 0 5px #111111;
+  height: 80px;
+  margin: 0 0 5px;
+  padding: 5px; }

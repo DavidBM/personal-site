@@ -1,0 +1,832 @@
+/* http://meyerweb.com/eric/tools/css/reset/ 
+   v2.0 | 20110126
+   License: none (public domain)
+*/
+html, body, div, span, applet, object, iframe,
+h1, h2, h3, h4, h5, h6, p, blockquote, pre,
+a, abbr, acronym, address, big, cite, code,
+del, dfn, em, img, ins, kbd, q, s, samp,
+small, strike, strong, sub, sup, tt, var,
+b, u, i, center,
+dl, dt, dd, ol, ul, li,
+fieldset, form, label, legend,
+table, caption, tbody, tfoot, thead, tr, th, td,
+article, aside, canvas, details, embed,
+figure, figcaption, footer, header, hgroup,
+menu, nav, output, ruby, section, summary,
+time, mark, audio, video {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  font-size: 100%;
+  font: inherit;
+  vertical-align: baseline; }
+
+/* HTML5 display-role reset for older browsers */
+article, aside, details, figcaption, figure,
+footer, header, hgroup, menu, nav, section {
+  display: block; }
+
+body {
+  line-height: 1; }
+
+ol, ul {
+  list-style: none; }
+
+blockquote, q {
+  quotes: none; }
+
+blockquote:before, blockquote:after,
+q:before, q:after {
+  content: '';
+  content: none; }
+
+table {
+  border-collapse: collapse;
+  border-spacing: 0; }
+
+@font-face {
+  font-family: 'sansationbold';
+  src: url("../../content/fonts/sansation_bold-webfont.eot");
+  src: url("../../content/fonts/sansation_bold-webfont.eot?#iefix") format("embedded-opentype"), url("../../content/fonts/sansation_bold-webfont.woff") format("woff"), url("../../content/fonts/sansation_bold-webfont.ttf") format("truetype"), url("../../content/fonts/sansation_bold-webfont.svg#sansationbold") format("svg");
+  font-weight: normal;
+  font-style: normal; }
+
+@font-face {
+  font-family: 'sansationlight';
+  src: url("../../content/fonts/sansation_light-webfont.eot");
+  src: url("../../content/fonts/sansation_light-webfont.eot?#iefix") format("embedded-opentype"), url("../../content/fonts/sansation_light-webfont.woff") format("woff"), url("../../content/fonts/sansation_light-webfont.ttf") format("truetype"), url("../../content/fonts/sansation_light-webfont.svg#sansationlight") format("svg");
+  font-weight: normal;
+  font-style: normal; }
+
+@font-face {
+  font-family: 'sansationregular';
+  src: url("../../content/fonts/sansation_regular-webfont.eot");
+  src: url("../../content/fonts/sansation_regular-webfont.eot?#iefix") format("embedded-opentype"), url("../../content/fonts/sansation_regular-webfont.woff") format("woff"), url("../../content/fonts/sansation_regular-webfont.ttf") format("truetype"), url("../../content/fonts/sansation_regular-webfont.svg#sansationregular") format("svg");
+  font-weight: normal;
+  font-style: normal; }
+
+html, body {
+  height: 100%;
+  background: #000; }
+
+#body {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  right: 0;
+  overflow: hidden;
+  min-width: 1080px;
+  min-height: 640px;
+  font-family: "sansationregular";
+  color: #ccc; }
+
+.sCanvas, .dCanvas, .canvasBackground {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2; }
+
+.dCanvas {
+  z-index: 3; }
+
+.canvasBackground {
+  background-image: url("../../content/img/fondo_galaxia.jpg");
+  z-index: 1; }
+
+.clear {
+  clear: both; }
+
+span {
+  font-family: "sansationbold";
+  color: #dfdfdf; }
+
+.loading {
+  background: url("../../content/img/loading.gif");
+  width: 120px;
+  height: 90px;
+  margin: 0 auto; }
+
+.RGraph_tooltip {
+  z-index: 11 !important; }
+
+.minTabs .tabs {
+  height: 45px;
+  padding: 0;
+  position: relative;
+  z-index: 1; }
+
+.minTabs .tab {
+  float: left;
+  height: 45px;
+  margin: 0 -15px 0 0;
+  overflow: hidden;
+  padding: 0 2px;
+  position: relative;
+  width: 200px;
+  cursor: pointer; }
+
+.minTabs .tab .text {
+  color: #888;
+  display: block;
+  font-family: "sansationbold";
+  position: absolute;
+  text-align: center;
+  top: 15px;
+  width: 100%; }
+
+.minTabs .tab.active .text {
+  color: #CCCCCC; }
+
+.minTabs .frame {
+  background: #323439;
+  border: 1px solid #264555;
+  border-radius: 4px 4px 0 0;
+  box-shadow: 0 0 2px #003A63;
+  height: 45px;
+  margin: 0 10px;
+  -webkit-transform: perspective(100px) rotateX(30deg);
+  -moz-transform: perspective(100px) rotateX(30deg);
+  -ms-transform: perspective(100px) rotateX(30deg);
+  -o-transform: perspective(100px) rotateX(30deg);
+  transform: perspective(100px) rotateX(30deg); }
+
+.minTabs .tab.active {
+  height: 45px;
+  padding-bottom: 1px;
+  z-index: 1; }
+
+.minTabs .tab.active .frame {
+  height: 46px;
+  /*background: #3F4147;*/
+  background-color: #53626f;
+  background-image: -webkit-gradient(linear, left top, left bottom, color-stop(0%, #53626f), color-stop(50%, #4c5966), color-stop(51%, #44515e), color-stop(100%, #3c434e));
+  background-image: -webkit-linear-gradient(top, #53626f 0%, #4c5966 50%, #44515e 51%, #3c434e 100%);
+  background-image: linear-gradient(to bottom,#53626f 0%, #4c5966 50%, #44515e 51%, #3c434e 100%);
+  border: 1px solid #386780;
+  border-width: 1px 0 0 0;
+  border-top-color: #C0C9CD; }
+
+.minTabs .contents {
+  /*background: #3F4147;*/
+  background: #3C434E;
+  /*border: 1px solid #386780;*/
+  border-radius: 2px 4px 4px;
+  /*box-shadow: 0 0 2px #003A63;*/
+  min-height: 100px;
+  padding: 3px;
+  position: relative; }
+
+.minTabs .content {
+  display: none; }
+
+.interfaceContainerScrollable {
+  position: absolute;
+  height: 0;
+  top: 0;
+  width: 100%;
+  overflow: visible;
+  overflow-x: visible;
+  overflow-y: visible;
+  z-index: 11; }
+
+.nodeview.container {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  z-index: 10;
+  width: 0;
+  height: 0; }
+
+.nodeview.planetBackground {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  z-index: 10;
+  width: 53px;
+  height: 106px;
+  background: url("../../content/img/CTSprite.png") 0 -92px; }
+
+.nodeview.buttonsContainer {
+  height: 32px;
+  padding: 2px 0;
+  width: 462px;
+  position: absolute;
+  bottom: 52px;
+  left: 53px;
+  background: url("../../content/img/CTSprite.png");
+  z-index: 10; }
+
+.nodeview.buttonsContainerEnd {
+  position: absolute;
+  bottom: 0;
+  right: -16px;
+  background: url("../../content/img/CTSprite.png") -127px -110px;
+  width: 17px;
+  height: 36px; }
+
+.interfaceButton_Colonizar, .interfaceButton_Mensaje, .interfaceButton_Desplegar, .interfaceButton_Enviar_recursos, .interfaceButton_Atacar, .interfaceButton_Bloquear, .interfaceButton_Espiar, .interfaceButton_Informacion {
+  background-image: url("../../content/img/CTSprite.png");
+  width: 72px;
+  height: 32px;
+  cursor: pointer;
+  float: left;
+  margin: 0 -6px 0 -7px;
+  position: relative;
+  left: -4px; }
+
+.interfaceButton_Atacar {
+  background-position: -20px -202px; }
+  .interfaceButton_Atacar:hover {
+    background-position: -100px -202px; }
+
+.interfaceButton_Desplegar {
+  background-position: -20px -236px; }
+  .interfaceButton_Desplegar:hover {
+    background-position: -100px -236px; }
+
+.interfaceButton_Enviar_recursos {
+  background-position: -20px -270px; }
+  .interfaceButton_Enviar_recursos:hover {
+    background-position: -100px -270px; }
+
+.interfaceButton_Bloquear {
+  background-position: -20px -304px; }
+  .interfaceButton_Bloquear:hover {
+    background-position: -100px -304px; }
+
+.interfaceButton_Espiar {
+  background-position: -20px -338px; }
+  .interfaceButton_Espiar:hover {
+    background-position: -100px -338px; }
+
+.interfaceButton_Colonizar {
+  background-position: -20px -372px; }
+  .interfaceButton_Colonizar:hover {
+    background-position: -100px -372px; }
+
+.interfaceButton_Mensaje {
+  background-position: -20px -406px; }
+  .interfaceButton_Mensaje:hover {
+    background-position: -100px -406px; }
+
+.interfaceButton_Informacion {
+  background-position: -20px -440px; }
+  .interfaceButton_Informacion:hover {
+    background-position: -100px -440px; }
+
+.interfaceButton_Colonizar {
+  background-position: -20px -372px;
+  display: block;
+  left: auto;
+  position: absolute;
+  right: -6px; }
+
+.nodeview.infoBox {
+  width: 500px;
+  height: 50px;
+  position: absolute;
+  bottom: 0;
+  left: 53px;
+  background: url("../../content/img/CTSprite.png") 0 -38px; }
+
+.nodeview.infoBoxEnd {
+  position: absolute;
+  left: 100%;
+  bottom: 0;
+  height: 50px;
+  width: 18px;
+  background: url("../../content/img/CTSprite.png") -85px -148px; }
+
+.assistPanel.container {
+  width: 1005px;
+  height: 0;
+  margin: 0 auto;
+  position: relative;
+  z-index: 10;
+  left: -45px; }
+
+.assistPanel.background {
+  width: 800px;
+  height: 100px;
+  position: absolute;
+  top: 0;
+  left: 0;
+  background: url("../../content/img/CTSprite.png") -7px -626px;
+  z-index: 1; }
+
+.assistPanel.backgroundName {
+  height: 39px;
+  position: absolute;
+  right: 188px;
+  top: 83px;
+  width: 250px;
+  background: url("../../content/img/CTSprite.png") -535px -760px; }
+
+.assistPanel.planet {
+  width: 205px;
+  height: 210px;
+  position: absolute;
+  top: -46px;
+  right: 0;
+  background: url("../../content/img/CTSprite.png") -807px -580px; }
+
+.assistPanelButtonZoomGalaxy {
+  position: absolute;
+  width: 74px;
+  height: 38px;
+  top: 41px;
+  left: 565px;
+  background: url("../../content/img/CTSprite.png") -808px -293px;
+  z-index: 10;
+  cursor: pointer; }
+  .assistPanelButtonZoomGalaxy:hover, .assistPanelButtonZoomGalaxy.active {
+    background: url("../../content/img/CTSprite.png") -905px -293px; }
+
+.assistPanelButtonZoomCumulus {
+  position: absolute;
+  width: 74px;
+  height: 38px;
+  top: 41px;
+  left: 639px;
+  background: url("../../content/img/CTSprite.png") -808px -341px;
+  z-index: 10;
+  cursor: pointer; }
+  .assistPanelButtonZoomCumulus:hover, .assistPanelButtonZoomCumulus.active {
+    background: url("../../content/img/CTSprite.png") -905px -341px; }
+
+.assistPanelButtonZoomSystem {
+  position: absolute;
+  width: 74px;
+  height: 38px;
+  top: 41px;
+  left: 713px;
+  background: url("../../content/img/CTSprite.png") -808px -389px;
+  z-index: 10;
+  cursor: pointer; }
+  .assistPanelButtonZoomSystem:hover, .assistPanelButtonZoomSystem.active {
+    background: url("../../content/img/CTSprite.png") -905px -389px; }
+
+.assistPanelButtonPlanets {
+  position: absolute;
+  width: 121px;
+  height: 37px;
+  top: 1px;
+  left: 568px;
+  background: url("../../content/img/CTSprite.png") -709px -463px;
+  z-index: 10;
+  cursor: pointer; }
+  .assistPanelButtonPlanets:hover, .assistPanelButtonPlanets.active {
+    background: url("../../content/img/CTSprite.png") -857px -463px; }
+
+.assistPanelButtonHome {
+  position: absolute;
+  width: 121px;
+  height: 37px;
+  top: 1px;
+  left: 679px;
+  background: url("../../content/img/CTSprite.png") -709px -511px;
+  z-index: 10;
+  cursor: pointer; }
+  .assistPanelButtonHome:hover, .assistPanelButtonHome.active {
+    background: url("../../content/img/CTSprite.png") -857px -511px; }
+
+.assistPanel.assistant {
+  width: 98px;
+  height: 80px;
+  float: left;
+  position: relative;
+  left: 4px;
+  cursor: pointer; }
+
+.planetView.container {
+  width: 1000px;
+  margin: 0 auto;
+  position: relative;
+  z-index: 10;
+  display: none;
+  left: -45px; }
+
+.planetView.buttonLab {
+  width: 392px;
+  height: 120px;
+  position: absolute;
+  left: 0;
+  top: 145px;
+  background: url("../../content/img/CTSpriteBP.png") 0 0px;
+  display: none;
+  z-index: 15; }
+
+.planetView.buttonMineB {
+  width: 392px;
+  height: 120px;
+  position: absolute;
+  right: 0;
+  top: 145px;
+  background: url("../../content/img/CTSpriteBP.png") -608px 0px;
+  display: none;
+  z-index: 15; }
+
+.planetView.buttonShield {
+  width: 340px;
+  height: 120px;
+  position: absolute;
+  left: 0;
+  top: 265px;
+  background: url("../../content/img/CTSpriteBP.png") 0 -120px;
+  display: none;
+  z-index: 15; }
+
+.planetView.buttonMineA {
+  width: 340px;
+  height: 120px;
+  position: absolute;
+  right: 0;
+  top: 265px;
+  background: url("../../content/img/CTSpriteBP.png") -660px -120px;
+  display: none;
+  z-index: 15; }
+
+.planetView.buttonDefense {
+  width: 380px;
+  height: 120px;
+  position: absolute;
+  left: 0;
+  top: 385px;
+  background: url("../../content/img/CTSpriteBP.png") 0 -240px;
+  display: none;
+  z-index: 15; }
+
+.planetView.buttonMineN {
+  width: 380px;
+  height: 120px;
+  position: absolute;
+  right: 0;
+  top: 385px;
+  background: url("../../content/img/CTSpriteBP.png") -620px -240px;
+  display: none;
+  z-index: 15; }
+
+.planetView.buttonShipyard {
+  width: 500px;
+  height: 120px;
+  position: absolute;
+  left: 0;
+  top: 505px;
+  background: url("../../content/img/CTSpriteBP.png") 0 -450px;
+  display: none;
+  z-index: 15; }
+
+.planetView.buttonCommerce {
+  width: 500px;
+  height: 120px;
+  position: absolute;
+  right: 0;
+  top: 505px;
+  background: url("../../content/img/CTSpriteBP.png") -500px -450px;
+  display: none;
+  z-index: 15; }
+
+.planetView.buttonCommerce .button_extension {
+  position: absolute;
+  bottom: 100%;
+  height: 62px;
+  width: 167px;
+  left: 0;
+  background: url("../../content/img/CTSpriteBP.png") -500px -388px; }
+
+.planetView.buttonShipyard .button_extension {
+  position: absolute;
+  bottom: 100%;
+  height: 62px;
+  width: 167px;
+  right: 0;
+  background: url("../../content/img/CTSpriteBP.png") -333px -388px; }
+
+.planetView.buttonShipyard, .planetView.buttonCommerce {
+  z-index: 14; }
+
+.planetChange.container {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 0;
+  z-index: 11;
+  cursor: pointer; }
+
+.planetChange.subContainer {
+  position: relative;
+  top: 35px; }
+
+.planetChange.planetContainer {
+  background-color: transparent;
+  position: relative;
+  right: 0;
+  width: 80px;
+  height: 80px;
+  margin: 4px 0;
+  padding: 1px 0;
+  border-radius: 40px 2px 2px 40px;
+  transition: background-color 0.2s, width 0.3s, right 0.3s; }
+
+.planetChange.planetContainer:hover {
+  background: rgba(51, 51, 51, 0.7);
+  border: 1px solid #555;
+  padding: 0;
+  width: 280px;
+  right: 200px; }
+
+.planetChange.arrow {
+  border-color: transparent;
+  border-right-color: #358CA4;
+  border-style: solid;
+  border-width: 3px;
+  position: absolute;
+  right: 0;
+  top: 37px;
+  z-index: 1;
+  transition: border-width 0.1s, top 0.1s; }
+
+.planetChange.planetContainer:hover .planetChange.arrow {
+  border-width: 7px;
+  top: 33px; }
+
+.planetChange canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 0; }
+
+.planetChange.name {
+  color: #fff;
+  font-family: "sansationregular";
+  font-size: 14px;
+  position: absolute;
+  left: 0;
+  top: 5px;
+  background: rgba(51, 51, 51, 0.7);
+  border: 1px solid #333;
+  border-radius: 2px;
+  padding: 1px 2px;
+  transition: left 0.3s, top 0.3s, background 0.3s, border 0.3s, border-radius 0.3s;
+  max-width: 72px;
+  max-height: 34px;
+  word-wrap: break-word;
+  overflow: hidden;
+  line-height: 17px; }
+
+.planetChange.planetContainer:hover .planetChange.name {
+  left: 85px;
+  top: 5px;
+  background: transparent;
+  border: none;
+  border-color: #333; }
+
+.planetChange.scroll {
+  width: 42px;
+  left: -30px;
+  height: 54px;
+  background: url("../../content/img/CTSprite.png") -6px -747px;
+  z-index: -1; }
+
+.planetChange.pageBakground {
+  position: absolute;
+  top: 0;
+  right: 0;
+  height: 27px;
+  width: 80px;
+  background: url("../../content/img/CTSprite.png") -3px -800px; }
+
+.planetChange.pageBack {
+  width: 40px;
+  height: 27px;
+  background: url("../../content/img/CTSprite.png") -3px -830px;
+  left: 0px;
+  position: absolute; }
+  .planetChange.pageBack:hover {
+    background: url("../../content/img/CTSprite.png") -3px -857px; }
+
+.planetChange.pageNext {
+  width: 40px;
+  height: 27px;
+  background: url("../../content/img/CTSprite.png") -43px -830px;
+  left: 40px;
+  position: absolute; }
+  .planetChange.pageNext:hover {
+    background: url("../../content/img/CTSprite.png") -43px -857px; }
+
+.planetChange.pageNumber {
+  position: absolute;
+  display: block;
+  left: 0;
+  right: 0;
+  top: 10px;
+  text-align: center;
+  color: #ccc;
+  font-family: "sansationbold";
+  z-index: -1; }
+
+.mainWindow.container {
+  left: -45px;
+  background: url("../../content/img/CTSprite.png") -7px -902px no-repeat, -webkit-linear-gradient(top, transparent 0, transparent 51px, #1a202a 51px);
+  background: url("../../content/img/CTSprite.png") -7px -902px no-repeat, linear-gradient(to bottom, transparent 0, transparent 51px, #1a202a 51px);
+  border-radius: 3px;
+  margin: 142px auto 200px;
+  position: relative;
+  width: 995px;
+  z-index: 10;
+  padding: 3px;
+  display: none; }
+
+.mainWindow.subContainer {
+  /*background-color: #282A2F;*/
+  background-color: #0F1014;
+  /*border: 1px solid #444242;*/
+  border-radius: 3px;
+  /*box-shadow: 0 0 5px #1D2F37 inset;*/
+  margin: 46px auto 0;
+  position: relative;
+  width: 985px;
+  z-index: 10;
+  padding: 5px; }
+
+.mainWindow.closeButton {
+  width: 248px;
+  height: 42px;
+  background: url("../../content/img/CTSprite.png") -588px -849px;
+  position: absolute;
+  left: 581px;
+  cursor: pointer;
+  display: block;
+  text-align: center;
+  font-size: 19px;
+  text-shadow: 0 0 3px #333;
+  color: #ddd;
+  font-family: "sansationbold";
+  line-height: 41px; }
+  .mainWindow.closeButton:hover {
+    background-position: -340px -849px; }
+
+.assistant.assistantContainer {
+  background: #373B44;
+  border: 1px solid rgba(73, 135, 167, 0);
+  border-radius: 5px;
+  box-shadow: 0 0 5px #000 inset;
+  min-height: 200px; }
+
+.assistant .loading {
+  margin-top: 50px; }
+
+.assistant.shipTravelCard, .assistant.shipStationedCard, .assistant.card {
+  background-color: #696868;
+  background-image: -webkit-gradient(linear, left top, left bottom, color-stop(0%, #696868), color-stop(100%, #363c40));
+  background-image: -webkit-linear-gradient(#696868 0%, #363c40 100%);
+  background-image: linear-gradient(#696868 0%, #363c40 100%);
+  border-radius: 3px;
+  box-shadow: 0 0 5px #111111, 0 0 10px #535D69 inset;
+  margin: 5px;
+  padding: 5px 230px 5px 5px;
+  overflow: hidden;
+  position: relative;
+  left: 0;
+  transition: left 0.3s;
+  /*&:hover, &.active{
+  	@include linear-gradient(lighten(#64707E, 10) 0%, lighten(#16222F, 10) 100%);
+  	//left: 10px;
+  	border-color: #66CAFF;
+  }*/ }
+
+.assistant.shipTravelCard .text, .assistant.shipTravelCard .arrivalTime {
+  margin: 0 0 5px 0; }
+
+.assistant.shipTravelCard .arrivalTime {
+  position: absolute;
+  top: 5px;
+  right: 5px; }
+
+.assistant.shipTravelCard .animatedGifContainer {
+  border: 1px solid #000000;
+  border-radius: 5px;
+  box-shadow: 0 0 2px #000000 inset, 0 0 1px #999999;
+  height: 3px;
+  overflow: hidden; }
+
+.assistant.shipTravelCard.reinforcementOfAllie .animatedGif,
+.assistant.shipTravelCard.reinforcementInAllie .animatedGif,
+.assistant.shipTravelCard.supportIn .animatedGif,
+.assistant.shipTravelCard.supportOut .animatedGif,
+.assistant.shipTravelCard.atackOut .animatedGif,
+.assistant.shipTravelCard.atackIn .animatedGif,
+.assistant.shipTravelCard.battleIn .animatedGif,
+.assistant.shipTravelCard.battleOut .animatedGif {
+  height: 100%;
+  border-radius: 5px;
+  width: 100%; }
+
+.assistant.shipTravelCard.reinforcementOfAllie .animatedGif {
+  background: #85ea2b; }
+
+.assistant.shipTravelCard.reinforcementInAllie .animatedGif {
+  background: #4bb8e5; }
+
+.assistant.shipTravelCard.supportIn .animatedGif {
+  background: #85ea2b url("../../content/img/animatedMiniArrows.gif") 0 -6px; }
+
+.assistant.shipTravelCard.supportOut .animatedGif {
+  background: #4bb8e5 url("../../content/img/animatedMiniArrows.gif") 0 -1px; }
+
+.assistant.shipTravelCard.atackOut .animatedGif {
+  background: #dbbe48 url("../../content/img/animatedMiniArrows.gif") 0 -1px; }
+
+.assistant.shipTravelCard.atackIn .animatedGif {
+  background: #ea3d2b url("../../content/img/animatedMiniArrows.gif") 0 -6px; }
+
+.assistant.shipTravelCard.battleOut .animatedGif {
+  background: #ea3d2b; }
+
+.assistant.shipTravelCard.battleIn .animatedGif {
+  background: #ea3d2b; }
+
+.assistant.shipTravelCard.reinforcementOfAllie .animatedGifContainer {
+  background: #60b612; }
+
+.assistant.shipTravelCard.reinforcementInAllie .animatedGifContainer {
+  background: #1d95c7; }
+
+.assistant.shipTravelCard.supportIn .animatedGifContainer {
+  background: #60b612 url("../../content/img/animatedMiniArrows.gif") 0 -6px; }
+
+.assistant.shipTravelCard.supportOut .animatedGifContainer {
+  background: #1d95c7 url("../../content/img/animatedMiniArrows.gif") 0 -1px; }
+
+.assistant.shipTravelCard.atackOut .animatedGifContainer {
+  background: #b39723 url("../../content/img/animatedMiniArrows.gif") 0 -1px; }
+
+.assistant.shipTravelCard.atackIn .animatedGifContainer {
+  background: #b62212 url("../../content/img/animatedMiniArrows.gif") 0 -6px; }
+
+.assistant.shipTravelCard.battleOut .animatedGifContainer {
+  background: #71150b; }
+
+.assistant.shipTravelCard.battleIn .animatedGifContainer {
+  background: #71150b; }
+
+.assistant .shipsContainer {
+  margin-top: 5px;
+  border-radius: 3px;
+  box-shadow: 0 0 3px #000 inset; }
+
+.assistant .shipsContainer .ship {
+  height: 24px;
+  border: 1px solid #999;
+  margin: 5px;
+  float: left;
+  width: 84px;
+  font-size: 11px;
+  line-height: 24px;
+  border-radius: 2px; }
+
+.assistant .shipsContainer .noInfo {
+  padding: 5px;
+  text-align: center; }
+
+.assistant .shipsContainer .ship .shipImage {
+  height: 24px;
+  width: 24px;
+  background: #111;
+  float: left; }
+
+.assistant .shipsContainer .ship .shipCuantity {
+  float: right;
+  width: 60px;
+  text-align: center; }
+
+.assistant .shipsContainer .userName {
+  border-color: #999999;
+  border-style: solid;
+  border-width: 0 0 1px 1px;
+  float: right;
+  height: 30px;
+  line-height: 30px;
+  margin-bottom: 5px;
+  padding-right: 5px;
+  text-align: right;
+  width: 232px; }
+
+.assistant .populationLineChart {
+  float: right; }
+
+.assistant .populationCardData {
+  position: absolute;
+  top: 50px;
+  right: 10px;
+  width: 190px; }
+
+/*.timelineDataCanvas{
+	position: relative;
+	z-index: 2;
+}*/

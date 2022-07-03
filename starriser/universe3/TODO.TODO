@@ -1,0 +1,54 @@
+Asistentes:
+	Militar: Tropas y batallas
+	Civil: Población y edificios
+	Diplomatico: Mensajes y alianzas
+	Tecnológico: Tecnologías
+	Comercial: Comercios
+	☐ Ventana Militar
+		☐ Movimientos de tropas propios y que involucren al jugador.
+            Ataques entrantes, Ataques salientes;
+            Apoyos entrantes, apoyos salientes;
+            Batallas (resaltadas en primer plano)
+			✔ Tropas que se llevan (dependiendo de la información que se tenga) @done (13-12-12 18:04)
+			✔ Información de de origen/destino @done (13-12-12 18:04)
+			✔ Tiempo restante @done (13-12-12 18:04)
+			✔ Nombre del jugador @done (13-12-12 18:05)
+			☐ Imagen de donde están
+		☐ Lista de todas las tropas estacionadas del jugador
+			Tropas estacionadas del jugador en sus planetas
+			Apoyos que ya han llegado, tanto entrantes como salientes
+			☐ Nombre de donde estén posicionadas las tropas (sea planeta, puerta, etc)
+			☐ Imagen de donde están
+			☐ Lista de tropas en los mismos nodos donde estan las tropas listadas del jugador
+		☐ naves
+	☐ Ventana Civil
+		☐ Lista de los últimos edificios actualizados en todos los planetas
+			☐ Barra de progreso para los que no están actualizados aún
+		☐ Lista de los planetas con una gráfica simple de su población
+			☐ Dibujo del planeta
+			☐ Nombre
+			☐ Gráfica de población de los 3 sectores
+	☐ Ventana Diplomatico
+		☐ Mensajes con usuarios normales (tipo conversación persistente)
+			☐ Lista de conversaciones
+			☐ Buscador de usuarios
+			☐ Zona de texto de la conversación
+		☐ Mensajes de alianza (tipo conversación persistente)
+			☐ Una conversación inicial llamada "Chat" a la que todos los usuarios de la alianza tendrán acceso
+			☐ Lista de conversaciones (mostrando el grado del usuario en la alianza)
+			☐ Lista desplegable de usuarios de la alianza
+			☐ Zona de texto de la conversación
+	☐ Ventana Comercial
+		☐ Comercios realizados en transito
+			☐ Mostrar origen y destino
+				Mostrar indicador de riesgo
+			☐ Mostrar mercancía vendidad/comprada y su precio
+		☐ Zona de gráficas
+			☐ Gráfica del precio del recurso seleccionado en todos los mercados accesibles
+			☐ Grafica de la evolución del precio y volumen de un recurso en un mercado concreto
+			☐ ¿Poner indicadores tipo bolsa?
+			☐ ¿Crear un voletín con las últimas noticias que afecten a los precios?
+	☐ Ventana Tecnológico
+		☐ Lista en forma de arbol de todas las tecnologías (muuuchas)
+			☐ Botón para acceder a su descripción junto con sus requisitos
+		☐ Línea temporal con X horas de cola de recursos que investigar

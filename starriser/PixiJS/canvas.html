@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title>Ahhhhh ahhhh ah hhhahhahahahahahhahahahhhhhsfghfghjgkhjrkhs hjdl´jsi</title>
+	<script type="text/javascript" src="pixi.js"></script>
+	<style type="text/css">
+		* {
+			margin: 0 auto;
+			padding: 0 auto;
+		}
+	</style>
+</head>
+<body style="background: black;">
+	<canvas id="canvas"></canvas>
+	<script type="text/javascript">
+
+PIXI.WebGLGraphics.buildLine = function(graphicsData, webGLData) {
+
+	var i = 0;
+	var points = graphicsData.points;
+
+	if (points.length === 0) return;
+
+	// if the line width is an odd number add 0.5 to align to a whole pixel
+	if (graphicsData.lineWidth % 2)
+	{
+		for (i = 0; i < points.length; i++) {
+			points[i] += 0.5;
+		}
+	}
+
+	var verts = webGLData.points;
+	var indices = webGLData.indices;
+	var length = points.length / 2;
+	var indexCount = points.length;
+	var indexStart = verts.length / 6;
+
+	// sort color
+	var color = PIXI.hex2rgb(graphicsData.lineColor);
+	var alpha = graphicsData.lineAlpha;
+	var r = color[0] * alpha;
+	var g = color[1] * alpha;
+	var b = color[2] * alpha;
+
+	var p1x, p1y, p2x, p2y;
+
+	for (i = 1; i < length - 1; i++) {
+		p1x = points[(i - 1) * 2];
+		p1y = points[(i - 1) * 2 + 1];
+
+		p2x = points[i * 2];
+		p2y = points[i * 2 + 1];
+
+		verts.push(p1x , p1y);
+		verts.push(r, g, b, alpha);
+
+		verts.push(p2x, p2y);
+		verts.push(r, g, b, alpha);
+	}
+
+	indices.push(indexStart);
+
+	for (i = 0; i < indexCount - 4; i++) {
+		indices.push(indexStart++);
+	}
+
+	indices.push(indexStart - 1);
+};
+
+PIXI.WebGLGraphics.renderGraphics = function(graphics, renderSession) {
+	var gl = renderSession.gl;
+	var projection = renderSession.projection,
+		offset = renderSession.offset,
+		shader = renderSession.shaderManager.primitiveShader,
+		webGLData;
+	if (graphics.dirty) {
+		PIXI.WebGLGraphics.updateGraphics(graphics, gl);
+	}
+	var webGL = graphics._webGL[gl.id];
+	// This could be speeded up for sure!
+	for (var i = 0; i < webGL.data.length; i++) {
+		webGLData = webGL.data[i];
+		renderSession.shaderManager.setShader( shader );//activatePrimitiveShader();
+		shader = renderSession.shaderManager.primitiveShader;
+		gl.uniformMatrix3fv(shader.translationMatrix, false, graphics.worldTransform.toArray(true));
+		gl.uniform2f(shader.projectionVector, projection.x, -projection.y);
+		gl.uniform2f(shader.offsetVector, -offset.x, -offset.y);
+		gl.uniform3fv(shader.tintColor, PIXI.hex2rgb(graphics.tint));
+		gl.uniform1f(shader.alpha, graphics.worldAlpha);
+		gl.bindBuffer(gl.ARRAY_BUFFER, webGLData.buffer);
+		gl.vertexAttribPointer(shader.aVertexPosition, 2, gl.FLOAT, false, 4 * 6, 0);
+		gl.vertexAttribPointer(shader.colorAttribute, 4, gl.FLOAT, false,4 * 6, 2 * 4);
+		// set the index buffer!
+		gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, webGLData.indexBuffer);
+		gl.drawElements(gl.LINE_STRIP, webGLData.indices.length, gl.UNSIGNED_SHORT, 0 );
+	}
+};
+
+
+var flipflop = (function () {
+
+	var bool = true;
+
+	return function () {
+		bool = !bool;
+		return bool;
+	}
+})();
+
+	var canvas = document.getElementById('canvas');
+	canvas.width = window.innerWidth;
+	canvas.height = window.innerHeight;
+	var ctx = canvas.getContext('2d');
+	canvas.style.width = '100%';
+	canvas.style.height = '100%';
+
+	function line (color, stage) {
+
+		this.points = [];
+
+		this.points.push( Math.round(Math.random()*1000) );
+		this.points.push( Math.round(Math.random()*1000) );
+
+		for (var i = 2000 - 1; i >= 0; i--) {
+			this.points.push( Math.round(Math.random()*1000) );
+			this.points.push( Math.round(Math.random()*1000) );
+		}
+
+		this.vector = {
+			x: Math.random() - 2,
+			y: Math.random() - 2
+		};
+
+		this.position = {
+			x: 0,
+			y: 0
+		};
+
+	}
+
+	line.prototype.move = function() {
+		this.position.x += this.vector.x;
+		this.position.y += this.vector.y;
+	};
+
+	line.prototype.draw = function(ctx) {
+		var x = this.position.x;
+		var y = this.position.y;
+		ctx.moveTo(this.points[0], this.points[1]);
+		var len = this.points.length;
+		for (var i = 2; i < len -1; i += 2) {
+			ctx.lineTo(this.points[i], this.points[i+1]);
+		}
+	};
+
+	var lines = [];
+
+	for (var i = 0; i < 1; i++) {
+		lines.push(new line(0xFFFFFF));
+	}
+
+	function draw() {
+		ctx.strokeStyle = "#FFFFFF";
+		ctx.lineWidth = 1;
+		var t = window.performance.now();
+		var sin = Math.sin(t/500);
+		requestAnimationFrame(draw);
+		ctx.clearRect(0, 0, canvas.width, canvas.height);
+		ctx.beginPath();
+		for (var i = lines.length - 1; i >= 0; i--) {
+			ctx.scale(1.001, 1.001);
+			lines[i].move();
+			lines[i].draw(ctx);
+		}
+		ctx.stroke();
+		document.title = window.performance.now() - t;
+	}
+
+	draw();
+
+	</script>
+</body>
+</html>

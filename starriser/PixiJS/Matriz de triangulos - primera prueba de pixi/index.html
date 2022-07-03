@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title>Ahhhhh ahhhh ah hhhahhahahahahahhahahahhhhhsfghfghjgkhjrkhs hjdl´jsi</title>
+	<script type="text/javascript" src="pixi.js"></script>
+	<style type="text/css">
+		* {
+			margin: 0 auto;
+			padding: 0 auto;
+		}
+	</style>
+</head>
+<body style="background: black;">
+	<canvas id="canvas"></canvas>
+	<script type="text/javascript">
+
+var flipflop = (function () {
+
+	var bool = true;
+
+	return function () {
+		bool = !bool;
+		return bool;
+	}
+})();
+
+function triangleMatrix (lateralLength, x, y, rows, colums, stage) {
+	this.matrix = [];
+
+	this.rows = rows;
+	this.colums = colums;
+	var up = false;
+	this.trianglesAnimating = {};
+	var trianglesAnimating = this.trianglesAnimating;
+
+	for (var i = 0; i < rows; i++) {
+		for (var j = 0; j < colums; j++) {
+			var up = flipflop();
+			var triangle = new Triangle(
+				lateralLength,
+				Math.PI / 2,
+				1 * j + (x - lateralLength / 2) + (lateralLength/2 * j),
+				+1 * i + y + (Math.sin(Math.PI/3) * lateralLength * i) - ((up) ? (lateralLength / Math.sqrt(3)) : ((Math.sqrt(3) / 6 * lateralLength))),
+				0x226C7A,
+				up
+			);
+
+			triangle.scale.x = 0.01;
+			triangle.scale.y = 0.01;
+
+			stage.addChild( triangle.get() );
+
+			setTimeout((function (triangle) {
+				return function () {
+					var id = Math.random() + "";
+					triangle.scaleAnimation(0, 1, 400);
+					trianglesAnimating[id] = triangle;
+					triangle.onFinish(function () {
+						delete trianglesAnimating[id];
+					});
+				}
+			})(triangle),
+				Math.sqrt(Math.pow( i*lateralLength , 2) + Math.pow( j * lateralLength, 2))
+			);
+
+			this.matrix.push( triangle );
+		}
+		flipflop();
+	}
+}
+
+triangleMatrix.prototype.tick = function(now, ctx) {
+	for(var key in this.trianglesAnimating){
+		this.trianglesAnimating[key].tick(now, ctx);
+	}
+};
+
+function Triangle (lateralLength, rotation, x, y, color, up) {
+	var radius = lateralLength / Math.sqrt(3);
+
+	this.graphics = new PIXI.Graphics();
+
+	this.scaleAnimationData = {on: false};
+
+	this.graphics.beginFill(color);
+
+	var points = [];
+
+	var angle = (2 * Math.PI / 3);
+
+	if(!up)
+		rotation += Math.PI;
+
+	points.push(radius * Math.cos(rotation));
+	points.push(radius * Math.sin(rotation));
+
+	points.push(radius * Math.cos(rotation + angle));
+	points.push(radius * Math.sin(rotation + angle));
+
+	points.push(radius * Math.cos(rotation + 2 * angle));
+	points.push(radius * Math.sin(rotation + 2 * angle));
+
+	points.push(radius * Math.cos(rotation));
+	points.push(radius * Math.sin(rotation));
+
+	this.graphics.drawPolygon(points);
+
+	this.graphics.position.x = x;
+	this.graphics.position.y = y;
+
+	this.scale = this.graphics.scale;
+}
+
+Triangle.prototype.get = function() {
+	return this.graphics;
+};
+
+Triangle.prototype.scaleAnimation = function(from, to, time) {
+	var _this = this;
+	this.scaleAnimationData.initTime = window.performance.now();
+	this.scaleAnimationData.from = from;
+	this.scaleAnimationData.to = to;
+	this.scaleAnimationData.endTime = this.scaleAnimationData.initTime + time;
+	this.scaleAnimationData.duration = time;
+	this.scaleAnimationData.on = true;
+};
+
+Triangle.prototype.tick = function(now) {
+	if(this.scaleAnimationData.on){
+		if(now - this.scaleAnimationData.initTime > this.scaleAnimationData.duration){
+			this.scaleAnimationData.on = false;
+			this.graphics.scale.x = this.scaleAnimationData.to;
+			this.graphics.scale.y = this.scaleAnimationData.to;
+			if(typeof this.finishCallback === 'function')
+				this.finishCallback();
+		}else{
+			var scale = (now - this.scaleAnimationData.initTime) / this.scaleAnimationData.duration
+			this.graphics.scale.x = scale;
+			this.graphics.scale.y = scale;
+		}
+	}
+};
+
+Triangle.prototype.onFinish = function(callback) {
+	this.finishCallback = callback;
+};
+
+function triangleMatrix (lateralLength, x, y, rows, colums) {
+	this.matrix = [];
+
+	this.rows = rows;
+	this.colums = colums;
+	var up = false;
+
+	for (var i = 0; i < rows; i++) {
+		for (var j = 0; j < colums; j++) {
+			var up = flipflop();
+			var triangle = new Triangle(
+				lateralLength/* + ((Math.random() > 0.5) ? -1 : 1) * (Math.random() * 0.1 + 0.0) * lateralLength*/,
+				Math.PI / 2,
+				(2 * j) + (x - lateralLength / 2) + (lateralLength/2 * j),
+				(+2 * i) + y + (Math.sin(Math.PI/3) * lateralLength * i) - ((up) ? (lateralLength / Math.sqrt(3)) : ((Math.sqrt(3) / 6 * lateralLength))),
+				//Math.floor(Math.random() * (256*256*256)).toString(16),
+				0x03E4FF,
+				.8 + Math.random() * 0.2,
+				up
+			);
+
+			triangle.scale = 0;
+
+			setTimeout((function (triangle) {
+				return function () {
+					var id = Math.random() + "";
+					triangle.scaleAnimation(0, 1, 400);
+				}
+			})(triangle),
+				Math.sqrt(Math.pow( i*lateralLength , 2) + Math.pow( j * lateralLength, 2)) * .5
+			);
+
+			setTimeout((function (triangle) {
+				return function () {
+					var id = Math.random() + "";
+					triangle.scaleAnimation(1, .8, 600);
+				}
+			})(triangle),
+				Math.sqrt(Math.pow( i*lateralLength , 2) + Math.pow( j * lateralLength, 2)) * .5 + 1000
+			);
+
+			setTimeout((function (triangle) {
+				return function () {
+					var id = Math.random() + "";
+					triangle.scaleAnimation(0.8, 1, 600);
+				}
+			})(triangle),
+				Math.sqrt(Math.pow( i*lateralLength , 2) + Math.pow( j * lateralLength, 2)) * .5 + 1600
+			);
+
+			this.matrix.push( triangle );
+		}
+		if(colums % 2 === 0)
+			flipflop();
+	}
+}
+
+triangleMatrix.prototype.tick = function(now, ctx) {
+	for (var i = this.matrix.length - 1; i >= 0; i--) {
+		this.matrix[i].tick(now, ctx);
+	}
+};
+
+function Triangle (lateralLength, rotation, x, y, color, opacity, up) {
+
+	var _this = this;
+
+	this.scaleAnimationData = {on: false};
+
+	this.points = [];
+
+	this.color = color.toString(16);
+	for (var i = this.color.length; i < 6; i++) {
+		this.color = "0" + this.color;
+	}
+	this.color = "#" + this.color;
+	this.lateralLength = lateralLength;
+	this.rotation = rotation;
+	this.x = x;
+	this.y = y;
+	this.opacity = opacity;
+	this.up = up;
+	this._scale = 1;
+	if(!this.up)
+		this.rotation += Math.PI;
+
+	Object.defineProperty(this, 'scale', {
+		get: function() { return _this._scale; },
+		set: function(newValue) {
+			this._scale = newValue;
+			this._makeTriangle();
+		}
+	});
+
+	console.log(this.color);
+
+	this._makeTriangle();
+}
+
+
+
+Triangle.prototype._makeTriangle = function() {
+	var radius = this.lateralLength / Math.sqrt(3) * this._scale;
+	var angle = (2 * Math.PI / 3);
+
+	this.points[0] = this.x + radius * Math.cos(this.rotation);
+	this.points[1] = this.y + radius * Math.sin(this.rotation);
+
+	this.points[2] = this.x + radius * Math.cos(this.rotation + angle);
+	this.points[3] = this.y + radius * Math.sin(this.rotation + angle);
+
+	this.points[4] = this.x + radius * Math.cos(this.rotation + 2 * angle);
+	this.points[5] = this.y + radius * Math.sin(this.rotation + 2 * angle);
+};
+
+Triangle.prototype.get = function() {
+	return null;
+};
+
+Triangle.prototype.scaleAnimation = function(from, to, time) {
+	this.scaleAnimationData.initTime = window.performance.now();
+	this.scaleAnimationData.from = from;
+	this.scaleAnimationData.to = to;
+	this.scaleAnimationData.endTime = this.scaleAnimationData.initTime + time;
+	this.scaleAnimationData.duration = time;
+	this.scaleAnimationData.on = true;
+};
+
+Triangle.prototype._draw = function(ctx) {
+
+	ctx.beginPath();
+
+	ctx.moveTo(this.points[0], this.points[1]);
+	ctx.lineTo(this.points[2], this.points[3]);
+	ctx.lineTo(this.points[4], this.points[5]);
+	ctx.closePath();
+
+	ctx.fillStyle = "#03a4eF";
+	ctx.strokeStyle = this.color;
+	ctx.globalAlpha = this.opacity;
+
+	ctx.fill();
+	ctx.stroke();
+};
+
+Triangle.prototype.tick = function(now, ctx) {
+	if(this.scaleAnimationData.on){
+		if(now - this.scaleAnimationData.initTime > this.scaleAnimationData.duration){
+			this.scaleAnimationData.on = false;
+			this.scale = this.scaleAnimationData.to;
+			this._draw(ctx);
+			if(typeof this.finishCallback === 'function')
+				this.finishCallback();
+		}else{
+			var scale = (now - this.scaleAnimationData.initTime) / this.scaleAnimationData.duration;
+			scale = scale * ( this.scaleAnimationData.to - this.scaleAnimationData.from ) + this.scaleAnimationData.from;
+			this.scale = scale;
+			this._draw(ctx);
+		}
+	}else{
+		this._draw(ctx);
+	}
+};
+
+Triangle.prototype.onFinish = function(callback) {
+	this.finishCallback = callback;
+};
+
+
+
+		/*// create a renderer passing in the options
+		var renderer = PIXI.autoDetectRenderer(800, 600, {antialias: true, transparent: true});
+
+		document.body.appendChild(renderer.view);
+
+
+		var stage = new PIXI.Stage;
+
+		var matrixOfTriangles = new triangleMatrix(50, 50, 100, 50, 80, stage);
+
+		function draw() {
+		  var t = window.performance.now();
+		  matrixOfTriangles.tick(t);
+		  renderer.render(stage);
+		  requestAnimationFrame(draw);
+		  document.title = window.performance.now() - t;
+		}
+
+		draw();*/
+
+		var canvas = document.getElementById('canvas');
+		canvas.width = window.innerWidth;
+		canvas.height = window.innerHeight;
+		var ctx = canvas.getContext('2d');
+		canvas.style.width = '100%';
+		canvas.style.height = '100%';
+
+		var lateralLength = 50;
+
+		var matrixOfTriangles = new triangleMatrix(
+			lateralLength,
+			-lateralLength / 2,
+			0,
+			Math.ceil((window.innerHeight + (Math.sqrt(3)/2 * lateralLength)) / (Math.sqrt(3)/2 * lateralLength)),
+			Math.ceil((window.innerWidth + lateralLength * 2) / (lateralLength/2))
+		);
+
+		function draw() {
+			ctx.clearRect(0, 0, 2000, 2000);
+			var t = window.performance.now();
+			matrixOfTriangles.tick(t, ctx);
+			requestAnimationFrame(draw);
+			document.title = window.performance.now() - t;
+		}
+
+		draw();
+
+		/********************************/
+
+		/*var renderer = PIXI.autoDetectRenderer(1000, 1000, {antialias: true, transparent: true});
+
+		document.body.appendChild(renderer.view);
+
+		function line (color, stage) {
+
+			//this.graphics = new PIXI.Graphics();
+
+	   		this.graphics = new PIXI.Sprite(texture);
+
+			/*this.graphics.lineStyle(1, 0xFFFFFF);
+
+			this.graphics.moveTo(
+				Math.round(Math.random()*1000),
+				0
+			);
+
+			this.graphics.lineTo(
+				Math.round(Math.random()*1000),
+				0
+			);*/
+
+			/*this.vector = {
+				x: Math.random() - 0.5,
+				y: Math.random() - 0.5,
+			};
+
+			this.graphics.position.x = 500 +Math.round(Math.random()*200);
+			this.graphics.position.y = 100 +Math.round(Math.random()*600);
+
+			this.graphics.rotation = Math.random() * Math.PI * 2;
+
+			this.scale = this.graphics.scale;
+
+			this.scale.x = Math.random() * 1000;
+			this.scale.y = 1;
+			//this.scale.x = 5;
+
+			stage.addChild(this.graphics);
+		}
+
+		line.prototype.move = function() {
+			this.graphics.position.x += this.vector.x;
+			this.graphics.position.y += this.vector.y;
+		};
+
+		var canvas = document.createElement('Canvas');
+		var canvasCtx = canvas.getContext('2d');
+		canvas.width = 1;
+		canvas.height = 1;
+		canvasCtx.fillStyle ='#FFFFFF';
+		canvasCtx.fillRect(0,0,1,1);
+
+	    var texture = PIXI.Texture.fromCanvas(canvas);
+	    // create a new Sprite using the texture
+
+	    var spriteBatch = new PIXI.SpriteBatch();
+
+		var lines = [];
+
+		var stage = new PIXI.Stage;
+
+		stage.addChild(spriteBatch);
+
+		var t = window.performance.now();
+
+		for (var i = 0; i < 2000; i++) {
+			lines.push(new line(0xFFFFFF, spriteBatch));
+		}
+
+		function draw() {
+			var t = window.performance.now();
+			var sin = Math.sin(t/500);
+			renderer.render(stage);
+			requestAnimationFrame(draw);
+			for (var i = lines.length - 1; i >= 0; i--) {
+				lines[i].graphics.rotation += 0.01;
+				//[i].graphics.scale.y = Math.max(1, sin * 1.5);
+				lines[i].move();
+			}
+			document.title = window.performance.now() - t;
+		}
+
+		draw();*/
+
+	</script>
+</body>
+</html>

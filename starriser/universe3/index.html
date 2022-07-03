@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+	<meta name="author" content="" />
+	<meta name="mobile-web-app-capable" content="yes">
+	<link rel="shortcut icon" sizes="196x196" href="nice-highres.png">
+	<title>Interfaz 5</title>
+	<script type="text/javascript" src="jquery.js"></script>
+	<script type="text/javascript" src="eventHandler.js"></script>
+	<script type="text/javascript" src="utils.js"></script>
+	<script type="text/javascript" src="minTabs.js"></script>
+	<script type="text/javascript" src="resources.js"></script>
+	<script type="text/javascript" src="data.js"></script>
+	<script type="text/javascript" src="assistPanel.js"></script>
+	<!--<script type="text/javascript" src="fakeScroll.js"></script>-->
+	<script type="text/javascript" src="interface.js"></script>
+	<script type="text/javascript" src="mainWindow.js"></script>
+	<script type="text/javascript" src="militaryAssistant.js"></script>
+	<script type="text/javascript" src="socialAssistant.js"></script>
+	<script type="text/javascript" src="planetChange.js"></script>
+	<script type="text/javascript" src="nodeView.js"></script>
+	<script type="text/javascript" src="planetView.js"></script>
+	<script type="text/javascript" src="solarSystem.js"></script>
+	<script type="text/javascript" src="cumulus.js"></script>
+	<script type="text/javascript" src="galaxy.js"></script>
+	<script type="text/javascript" src="mousewheel.js"></script>
+	<script type="text/javascript" src="handler.js"></script>
+	<link rel="stylesheet" type="text/css" href="content/css/css.css">
+	<meta id="myViewport" name="viewport" content="width=device-width, user-scalable=no">
+	<script>
+	window.onload = function () {
+		if(Utils.getWindowSize().x < 1124){
+			var mvp = document.getElementById('myViewport');
+			mvp.setAttribute('content','width=1124');
+		}
+	}
+	</script> 
+</head>
+<body>
+<div id="body"></div>
+<script type="text/javascript">
+	var starriser = new Handler();
+</script>
+</body>
+</html>

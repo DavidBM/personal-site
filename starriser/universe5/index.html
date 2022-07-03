@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+	<meta name="author" content="" />
+	<meta name="mobile-web-app-capable" content="yes">
+	<link rel="shortcut icon" sizes="196x196" href="nice-highres.png">
+	<title>Interfaz 5</title>
+	<script type="text/javascript" src="content/js/jQuery/jquery.js"></script>
+	<script type="text/javascript" src="content/js/jQuery/jquery.mousewheel.js"></script>
+	<script type="text/javascript" src="content/js/chartjs/chart.js"></script>
+	<script type="text/javascript" src="content/js/fontDetect/fontdetect.2.1.min.js"></script>
+	<script type="text/javascript" src="content/js/game/eventHandler.js"></script>
+	<script type="text/javascript" src="content/js/game/utils.js"></script>
+	<script type="text/javascript" src="content/js/game/loadCache.js"></script>
+	<script type="text/javascript" src="content/js/game/userData.js"></script>
+	<script type="text/javascript" src="content/js/game/loadingAnimation.js"></script>
+	<script type="text/javascript" src="content/js/game/minTabs.js"></script>
+	<script type="text/javascript" src="content/js/game/resources.js"></script>
+	<script type="text/javascript" src="content/js/game/data.js"></script>
+	<script type="text/javascript" src="content/js/game/assistPanel.js"></script>
+	<script type="text/javascript" src="content/js/game/interface.js"></script>
+	<script type="text/javascript" src="content/js/game/mainWindow.js"></script>
+	<script type="text/javascript" src="content/js/game/militaryAssistant.js"></script>
+	<script type="text/javascript" src="content/js/game/socialAssistant.js"></script>
+	<script type="text/javascript" src="content/js/game/planetChange.js"></script>
+	<script type="text/javascript" src="content/js/game/nodeView.js"></script>
+	<script type="text/javascript" src="content/js/game/planetView.js"></script>
+	<script type="text/javascript" src="content/js/game/solarSystem.js"></script>
+	<script type="text/javascript" src="content/js/game/cumulus.js"></script>
+	<script type="text/javascript" src="content/js/game/galaxy.js"></script>
+	<script type="text/javascript" src="content/js/game/handler.js"></script>
+	<script type="text/javascript" src="content/js/game/handler.animations.js"></script>
+	<link rel="stylesheet" type="text/css" href="content/css/css.css">
+	<meta id="myViewport" name="viewport" content="width=device-width, user-scalable=no">
+	<script type="text/javascript" async>
+	//window.onload = function () {
+		if(Utils.getWindowSize().x < 1124){
+			var mvp = document.getElementById('myViewport');
+			mvp.setAttribute('content','width=1124');
+		}
+		if(Utils.getWindowSize().y < 640){
+			var mvp = document.getElementById('myViewport');
+			mvp.setAttribute('content','height=640');
+		}
+	//}
+	</script> 
+</head>
+<body>
+<div id="body"></div>
+<script type="text/javascript">
+	var starriser = new Handler();
+</script>
+</body>
+</html>

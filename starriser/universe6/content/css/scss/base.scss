@@ -1,0 +1,60 @@
+html, body{
+	height: 100%;
+	background: #000;
+}
+
+#body{
+	position: absolute;
+	top: 0;
+	left: 0;
+	bottom: 0;
+	right: 0;
+	overflow: hidden;
+	min-width: 1080px;
+	min-height: 640px;
+	font-family: "sansation";
+	color: #ccc;
+	font-size: 13px;
+}
+
+.sCanvas, .dCanvas, .canvasBackground{
+	position: absolute;
+	top: 0;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	z-index: 2;
+}
+
+.dCanvas{
+	z-index: 3;
+}
+
+.canvasBackground{
+	background-image: url($galaxyBackground);
+	z-index: 1;
+}
+
+.clear{
+	clear: both;
+}
+
+span{
+	font-weight: bold;
+	color: #dfdfdf;
+}
+
+.loading{
+	background: url($animatedLoading);
+	width: 120px;
+	height: 90px;
+	margin: 0 auto;
+}
+
+.RGraph_tooltip{
+	z-index: 11 !important;
+}
+
+b{
+	font-weight: bold;
+}

@@ -1,0 +1,129 @@
+.planetChange.container{
+	position: absolute;
+	top: 0;
+	right: 0;
+	bottom: 0;
+	width: 0;
+	z-index: 11;
+	cursor: pointer;
+}
+
+.planetChange.subContainer{
+	position: relative;
+	top: 35px;
+}
+
+.planetChange.planetContainer{
+	background-color: transparent;
+	position: relative;
+	right: 0;
+	width: 80px;
+	height: 80px;
+	margin: 4px 0;
+	padding: 1px 0;
+	border-radius: 40px 2px 2px 40px;
+	transition: background-color 0.2s, width 0.3s, right 0.3s;
+}
+
+.planetChange.planetContainer:hover{
+	background: transparentize(#333, 0.3);
+	border: 1px solid #555;
+	padding: 0;
+	width: 280px;
+	right: 200px;
+}
+
+.planetChange.arrow{
+	border-color: transparent;
+	border-right-color: #358CA4;
+	border-style: solid;
+	border-width: 3px;
+	position: absolute;
+	right: 0;
+	top: 37px;
+	z-index: 1;
+	transition: border-width 0.1s, top 0.1s;
+}
+
+.planetChange.planetContainer:hover .planetChange.arrow{
+	border-width: 7px;
+	top: 33px;
+}
+
+.planetChange canvas{
+	position: absolute;
+	top: 0;
+	left: 0;
+	z-index: 0;
+}
+
+.planetChange.name{
+	color: #fff;
+	font-family: "sansationregular";
+	font-size: 14px;
+	position: absolute;
+	left: 0;
+	top: 5px;
+	background: transparentize(#333, 0.3);
+	border: 1px solid #333;
+	border-radius: 2px;
+	padding: 1px 2px;
+	transition: left 0.3s, top 0.3s, background 0.3s, border 0.3s, border-radius 0.3s;
+	max-width: 72px;
+	max-height: 34px;
+	word-wrap: break-word;
+	overflow: hidden;
+	line-height: 17px;
+}
+
+.planetChange.planetContainer:hover .planetChange.name{
+	left: 85px;
+	top: 5px;
+	background: transparent;
+	border: none;
+	border-color: #333;
+}
+
+.planetChange.scroll{
+	width: 42px;
+	left: -30px;
+	height: 54px;
+	background: url($CTSprite) -6px -747px;
+	z-index: -1;
+}
+
+.planetChange.pageBakground{
+	position: absolute;
+	top: 0;
+	right: 0;
+	height: 27px;
+	width: 80px;
+	background: url($CTSprite) -3px -800px;
+}
+
+$i: 0;
+@each $rule in pageBack, pageNext {
+	.planetChange.#{$rule} {
+		width: 40px;
+		height: 27px;
+		background: url($CTSprite) -3px - $i * 40px -830px;
+		left: $i * 40px;
+		position: absolute;
+		&:hover{
+			background: url($CTSprite) -3px - $i * 40px -857px;
+		}
+	}
+	$i: $i +1;
+}
+
+.planetChange.pageNumber{
+	position: absolute;
+	display: block;
+	left: 0;
+	right: 0;
+	top: 10px;
+	text-align: center;
+	color: #ccc;
+	font-family: "sansationbold";
+	z-index: -1;
+}
