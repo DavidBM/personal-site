@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Galaxy Map Generator</title>
+        <script type="module">
+            // Initialize the application when DOM is ready
+            document.addEventListener("DOMContentLoaded", async () => {
+                const { App } = await import("./dist/app.js");
+                try {
+                    const app = new App();
+                    await app.initialize();
+                    console.log(
+                        "Galaxy Map Generator initialized successfully",
+                    );
+                    document.getElementById("app-loader").remove();
+                } catch (error) {
+                    console.error(
+                        "Failed to initialize Galaxy Map Generator:",
+                        error,
+                    );
+                    alert(
+                        "Failed to initialize the application. Please refresh the page.",
+                    );
+                }
+            });
+        </script>
+        <style>
+            body {
+                margin: 0;
+                overflow: hidden;
+                background-color: #000;
+                color: #fff;
+                font-family: Arial, sans-serif;
+            }
+
+            canvas {
+                display: block;
+            }
+
+            #controls {
+                position: absolute;
+                top: 10px;
+                left: 10px;
+                background: rgba(0, 0, 0, 0.7);
+                padding: 15px;
+                border-radius: 5px;
+                z-index: 100;
+            }
+
+            button {
+                background: #1a3d66;
+                color: white;
+                border: none;
+                padding: 8px 12px;
+                margin: 5px 0;
+                border-radius: 3px;
+                cursor: pointer;
+            }
+
+            button:hover {
+                background: #2a5d96;
+            }
+
+            button[title] {
+                position: relative;
+            }
+
+            button[title]:hover::after {
+                content: attr(title);
+                position: absolute;
+                bottom: 100%;
+                left: 50%;
+                transform: translateX(-50%);
+                background-color: rgba(0, 0, 0, 0.8);
+                color: white;
+                padding: 5px 10px;
+                border-radius: 4px;
+                white-space: nowrap;
+                font-size: 12px;
+                pointer-events: none;
+                z-index: 1000;
+                width: 300px;
+                white-space: normal;
+                text-align: center;
+                margin-bottom: 5px;
+            }
+
+            .editor-buttons button[title]:hover::after {
+                width: 300px;
+            }
+
+            input {
+                margin: 5px 0;
+                padding: 5px;
+                width: 100px;
+            }
+
+            label {
+                display: inline-block;
+                width: 220px;
+            }
+
+            #stats {
+                position: absolute;
+                top: 10px;
+                right: 10px;
+                background: rgba(0, 0, 0, 0.7);
+                padding: 15px;
+                border-radius: 5px;
+                z-index: 100;
+                font-family:
+                    "Fira Mono", "Menlo", "Monaco", "Consolas", monospace;
+                font-size: 12px;
+                line-height: 1.2;
+                letter-spacing: 0.01em;
+            }
+
+            .editor-buttons {
+                position: absolute;
+                bottom: 120px;
+                left: 20px;
+                z-index: 100;
+            }
+
+            .editor-buttons button {
+                margin-right: 10px;
+            }
+
+            #controls,
+            #stats,
+            .editor-buttons {
+                pointer-events: auto;
+                z-index: 1000;
+            }
+
+            #stats {
+                width: 300px;
+            }
+
+            canvas {
+                pointer-events: auto;
+                z-index: 1;
+            }
+
+            .control-wrapper {
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                pointer-events: none;
+                z-index: 100;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="control-wrapper">
+            <div id="controls">
+                <h2>Galaxy Map Generator</h2>
+
+                <div>
+                    <label for="numClusters">Number of Clusters:</label>
+                    <input
+                        type="number"
+                        id="numClusters"
+                        value="15000"
+                        min="1"
+                        max="50000"
+                    />
+                </div>
+
+                <div>
+                    <label for="numSolarSystems"
+                        >Solar Systems per Cluster:</label
+                    >
+                    <input
+                        type="number"
+                        id="numSolarSystems"
+                        value="80"
+                        min="1"
+                        max="200"
+                    />
+                </div>
+
+                <div>
+                    <label for="maxConnections"
+                        >Max Connections per Cluster:</label
+                    >
+                    <input
+                        type="number"
+                        id="maxConnections"
+                        value="3"
+                        min="1"
+                        max="10"
+                    />
+                </div>
+
+                <div>
+                    <label for="internalConnections"
+                        >Internal Connections:</label
+                    >
+                    <input
+                        type="number"
+                        id="internalConnections"
+                        value="3"
+                        min="1"
+                        max="10"
+                    />
+                </div>
+
+                <div>
+                    <label for="galaxySize">Galaxy Size:</label>
+                    <input
+                        type="number"
+                        id="galaxySize"
+                        value="300000"
+                        min="1"
+                        step="0.5"
+                    />
+                </div>
+                <div>
+                    <label for="centerBias"
+                        >Cluster Center Bias (positive: more central, negative:
+                        more at edges, 0=uniform):</label
+                    >
+                    <input
+                        type="number"
+                        id="centerBias"
+                        value="0.6"
+                        min="-2"
+                        max="4"
+                        step="0.01"
+                    />
+                </div>
+
+                <div>
+                    <label for="minDistance">Minimum Cluster Distance:</label>
+                    <input
+                        type="number"
+                        id="minDistance"
+                        value="1500"
+                        min="100"
+                        max="2000"
+                    />
+                </div>
+
+                <div>
+                    <label for="heightVariation">Height Variation (%):</label>
+                    <input
+                        type="number"
+                        id="heightVariation"
+                        value="0"
+                        min="0"
+                        max="20"
+                    />
+                </div>
+
+                <div>
+                    <label for="showLabels">Show Cluster Labels:</label>
+                    <input type="checkbox" id="showLabels" checked />
+                </div>
+
+                <button id="generateClusters">Generate Galaxy</button>
+                <button id="generateInternalConnections">
+                    Create Internal Connections
+                </button>
+                <button id="clearGalaxy">Clear Galaxy</button>
+                <button
+                    id="toggleDimensionality"
+                    title="Toggle between 2D (flat) and 3D (default) layout of the galaxy map."
+                >
+                    Flip 2D / 3D
+                </button>
+            </div>
+        </div>
+
+        <div id="stats">
+            <p>Clusters: <span id="totalClusters">0</span></p>
+            <p>Solar Systems: <span id="totalSystems">0</span></p>
+            <p>Jump Gates: <span id="totalGates">0</span></p>
+            <p>Internal Links: <span id="internalLinks">0</span></p>
+        </div>
+
+        <div
+            id="app-loader"
+            style="
+                position: fixed;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                text-align: center;
+                color: white;
+                font-size: 18px;
+                z-index: 1000;
+                background: rgba(0, 0, 0, 0.9);
+                padding: 30px;
+                border-radius: 10px;
+            "
+        >
+            <div style="font-size: 24px; margin-bottom: 15px">🌌</div>
+            <div>Loading Galaxy...</div>
+            <div
+                id="loading-status"
+                style="margin-top: 10px; font-size: 14px; opacity: 0.8"
+            >
+                Initializing systems...
+            </div>
+            <div
+                style="
+                    margin-top: 15px;
+                    width: 200px;
+                    height: 4px;
+                    background: #333;
+                    border-radius: 2px;
+                "
+            >
+                <div
+                    id="progress-bar"
+                    style="
+                        height: 100%;
+                        background: #1a3d66;
+                        width: 0%;
+                        border-radius: 2px;
+                        transition: width 0.3s ease;
+                    "
+                ></div>
+            </div>
+        </div>
+    </body>
+</html>
