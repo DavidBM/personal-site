@@ -8,6 +8,7 @@ export class Galaxy {
         this._lastEditHandleClusterId = null;
         this._lastSelectedId = null;
         this._editPointerDownHandle = null;
+        this._editPointerDownHandleKind = null;
         this.renderer = renderer;
         this.metrics = metrics ?? new GalaxyMetrics();
         this.clusters = [];
@@ -68,6 +69,28 @@ export class Galaxy {
         return solarSystem;
     }
     removeSolarSystem(cluster, solarSystem) {
+        if (solarSystem.isJumpGate) {
+            const toRemove = this.connections.filter((conn) => (conn.cluster1.id === cluster.id &&
+                conn.jumpGate1.id === solarSystem.id) ||
+                (conn.cluster2.id === cluster.id &&
+                    conn.jumpGate2.id === solarSystem.id) ||
+                (conn.cluster1.id === cluster.id &&
+                    conn.jumpGate2.id === solarSystem.id) ||
+                (conn.cluster2.id === cluster.id &&
+                    conn.jumpGate1.id === solarSystem.id));
+            for (const conn of toRemove) {
+                this.removeClusterConnection(conn.cluster1, conn.cluster2, conn.jumpGate1, conn.jumpGate2);
+            }
+        }
+        if (Array.isArray(solarSystem.connections)) {
+            const connections = solarSystem.connections.slice();
+            for (const connectedId of connections) {
+                const other = this.getSolarSystemById(cluster.id, connectedId);
+                if (other) {
+                    this.removeSolarSystemConnection(cluster, solarSystem, other);
+                }
+            }
+        }
         const idx = cluster.solarSystems.indexOf(solarSystem);
         if (idx !== -1) {
             cluster.solarSystems.splice(idx, 1);
@@ -218,6 +241,7 @@ export class Galaxy {
             return false;
         this._editPointerDownHandle =
             hit.handleId ?? `edit_cluster_${hit.clusterId ?? "unknown"}`;
+        this._editPointerDownHandleKind = hit.handleKind ?? null;
         this.onEditHandlePointerEvent({
             type: "down",
             handleId: hit.handleId ?? undefined,
@@ -241,6 +265,7 @@ export class Galaxy {
         this.onEditHandlePointerEvent({
             type: "move",
             handleId: this._editPointerDownHandle ?? undefined,
+            handleKind: this._editPointerDownHandleKind ?? undefined,
             screenX,
             screenY,
             ndcX,
@@ -256,6 +281,7 @@ export class Galaxy {
         this.onEditHandlePointerEvent({
             type: "up",
             handleId: this._editPointerDownHandle ?? undefined,
+            handleKind: this._editPointerDownHandleKind ?? undefined,
             screenX,
             screenY,
             ndcX,
@@ -263,6 +289,7 @@ export class Galaxy {
             originalEvent: event,
         });
         this._editPointerDownHandle = null;
+        this._editPointerDownHandleKind = null;
         return true;
     }
     /**

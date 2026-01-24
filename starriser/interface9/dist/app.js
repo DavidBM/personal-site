@@ -7,14 +7,30 @@ import { Cluster } from "./cluster.js";
 import { SolarSystem } from "./solar-system.js";
 import { ControlsManager } from "./controls-manager.js";
 import { IncrementalGalaxyBuilder } from "./incremental-galaxy-builder.js";
+import { buildClusterSolarSystemPlan } from "./cluster-solar-system-plan.js";
 import { Bus } from "./worker/bus/Bus.js";
 import { CursorStatsWidget } from "./ui/cursor-stats-widget.js";
+import { createUIContext, createUIRoot } from "./ui/ui-kit.js";
+import { buildEditorUI, buildPlayUI, resolveUIMode, } from "./ui/ui-modes.js";
 import Stats from "./vendor/stats.js";
+import { opAddSolarSystem, opConnectClusters, opConnectSolarSystems, opRemoveConnection, opRemoveSolarSystem, } from "./worker/galaxy/galaxy-ops.js";
+import { angleXZ, pointAtAngle } from "./worker/galaxy/galaxy-xz-math.js";
 export class App {
     constructor() {
         this.statsPanels = [];
-        const statsBar = document.getElementById("stats");
-        this.statsPanels.push(createAndInsertStatsPanels(statsBar));
+        this.uiRoot = createUIRoot();
+        this.uiContext = createUIContext(this.uiRoot);
+        this.uiMode = resolveUIMode();
+        this.uiBindings = this.buildUIBindings(this.uiMode);
+        this.contextMenu =
+            this.uiBindings.mode === "editor" ? this.uiBindings.contextMenu : null;
+        this.contextMenuClusterId = null;
+        const statsBar = this.uiBindings.mode === "editor"
+            ? (this.uiBindings.stats.container ?? null)
+            : null;
+        if (statsBar) {
+            this.statsPanels.push(createAndInsertStatsPanels(statsBar));
+        }
         this.stats = this.statsPanels[0] ?? null;
         this.renderer = new GalaxyRenderer(document.body);
         // Pass all stats panels; GalaxyRenderer will use statsPanels[0] (FPS) for timing, others are still updated for display.
@@ -24,7 +40,10 @@ export class App {
         this.galaxy = new Galaxy(this.renderer, this.metrics, (evt) => this.handleClusterEditPointer(evt));
         this.galaxyBuilder = new IncrementalGalaxyBuilder(this.galaxy);
         this.cameraController = new CameraController(this.renderer);
-        this.uiController = new UIController(this);
+        this.uiController =
+            this.uiBindings.mode === "editor"
+                ? new UIController(this, this.uiBindings.stats)
+                : new UIController(this);
         this.controlsManager = ControlsManager.getInstance();
         // Create main bus for worker management
         this.mainBus = new Bus(window, {
@@ -39,6 +58,51 @@ export class App {
         this.statsUpdatePending = false;
         this.lastUIState = { hoveredId: null, selectedId: null };
         this.clusterDragStarts = new Map();
+        this.maxSolarSystemId = 0;
+    }
+    buildUIBindings(mode) {
+        return mode === "play"
+            ? buildPlayUI(this.uiContext, this)
+            : buildEditorUI(this.uiContext, this);
+    }
+    setUIMode(mode) {
+        if (mode === this.uiMode)
+            return;
+        this.uiMode = mode;
+        this.uiRoot.clear();
+        this.uiBindings = this.buildUIBindings(this.uiMode);
+        this.contextMenu =
+            this.uiBindings.mode === "editor" ? this.uiBindings.contextMenu : null;
+        this.contextMenuClusterId = null;
+        const statsBar = this.uiBindings.mode === "editor"
+            ? (this.uiBindings.stats.container ?? null)
+            : null;
+        this.statsPanels = [];
+        if (statsBar) {
+            this.statsPanels.push(createAndInsertStatsPanels(statsBar));
+        }
+        this.stats = this.statsPanels[0] ?? null;
+        this.renderer.setStatsPanels(this.statsPanels);
+        this.renderer.setStats(this.stats);
+        if (this.uiBindings.mode === "editor") {
+            this.uiController.setStatsElements(this.uiBindings.stats);
+        }
+        else {
+            this.uiController.setStatsElements();
+        }
+        const statsContainer = this.uiBindings.mode === "editor"
+            ? (this.uiBindings.stats.container ?? null)
+            : null;
+        if (this.cursorStatsWidget) {
+            this.cursorStatsWidget.setContainer(statsContainer);
+        }
+        this.updateStats();
+        this.updateUIModeHistory();
+    }
+    updateUIModeHistory() {
+        const url = new URL(window.location.href);
+        url.searchParams.set("ui", this.uiMode);
+        window.history.replaceState({}, "", url.toString());
     }
     async initialize() {
         await this.initializeWorkers();
@@ -68,8 +132,10 @@ export class App {
                     this.processOps(ops);
                     this.updateStats();
                 });
-                this.mainBus.subscribe("complete", () => {
-                    this.renderer.finalizeBuffers(this.galaxy);
+                this.mainBus.subscribe("complete", (payload) => {
+                    if (!payload || payload.finalizeBuffers !== false) {
+                        this.renderer.finalizeBuffers(this.galaxy);
+                    }
                     this.updateStats();
                 });
                 this.mainBus.subscribe("error", ({ error }) => {
@@ -143,52 +209,30 @@ export class App {
         });
     }
     initEventListeners() {
-        // Flatten/flip 2D-3D button logic
-        // 2D/3D flatten button
-        const toggleDimensionality = document.getElementById("toggleDimensionality");
-        if (toggleDimensionality) {
-            toggleDimensionality.addEventListener("click", (event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                this.renderer.toggleDimensionality();
-            });
-        }
-        // Generation button
-        const generateClusters = document.getElementById("generateClusters");
-        if (generateClusters) {
-            generateClusters.addEventListener("click", (event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                this.generateGalaxy();
-            });
-        }
-        // Internal connections button
-        const generateInternalConnections = document.getElementById("generateInternalConnections");
-        if (generateInternalConnections) {
-            generateInternalConnections.addEventListener("click", (event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                this.generateInternalConnections();
-            });
-        }
-        // Clear button
-        const clearGalaxy = document.getElementById("clearGalaxy");
-        if (clearGalaxy) {
-            clearGalaxy.addEventListener("click", (event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                this.clearGalaxy();
-            });
-        }
-        // (Removed: Set up editor buttons and handlers for density cylinder editing)
-        // (Removed: Set up editor/density cylinder related buttons)
-        this.cursorStatsWidget = new CursorStatsWidget(this.mainBus);
+        const statsContainer = this.uiBindings.mode === "editor"
+            ? (this.uiBindings.stats.container ?? null)
+            : null;
+        this.cursorStatsWidget = new CursorStatsWidget(this.mainBus, "cursorStats", statsContainer);
         // Hook stats.js begin/end into renderer
         if (this.stats) {
             this.renderer.setStats(this.stats);
         }
         // Unified event handling for camera, selection, and edit handles
         this.setupUnifiedEventHandlers();
+    }
+    handleContextMenuAction(action) {
+        if (!this.contextMenu)
+            return;
+        const clusterId = this.contextMenuClusterId;
+        if (action === "regenerate" && typeof clusterId === "number") {
+            this.regenerateCluster(clusterId);
+        }
+        else if (action === "regenerate_extended" &&
+            typeof clusterId === "number") {
+            this.regenerateClusterExtended(clusterId);
+        }
+        this.contextMenu.select.value = "inspect";
+        this.hideClusterContextMenu();
     }
     /**
      * Setup unified event handlers for camera controls and selection
@@ -204,6 +248,9 @@ export class App {
         const TAP_TIME_MS = 200;
         const controlsManager = this.controlsManager;
         el.addEventListener("mousedown", (e) => {
+            if (e.button === 0) {
+                this.hideClusterContextMenu();
+            }
             // 1. Check edit handles first (highest priority)
             if (this.galaxy.handleEditPointerDown(e)) {
                 e.preventDefault();
@@ -273,7 +320,10 @@ export class App {
             const dur = upTime - pointerDownTime;
             const movedDist = controlsManager.pointerMovedDistanceSq();
             const isDragging = this.cameraController.isDragging;
-            if (movedDist < CLICK_DIST2 && dur < TAP_TIME_MS && !isDragging) {
+            if (e.button === 0 &&
+                movedDist < CLICK_DIST2 &&
+                dur < TAP_TIME_MS &&
+                !isDragging) {
                 this.publishPointerEvent({
                     type: "tap",
                     eventSource: "selection",
@@ -288,6 +338,7 @@ export class App {
         });
         // --- Touch Events (Mobile/Tablets) ---
         el.addEventListener("touchstart", (e) => {
+            this.hideClusterContextMenu();
             if (e.touches && e.touches.length > 0) {
                 const touch = e.touches[0];
                 controlsManager.pointerDown(touch.clientX, touch.clientY);
@@ -358,6 +409,73 @@ export class App {
         };
         el.addEventListener("touchend", handleTouchEndOrCancel);
         el.addEventListener("touchcancel", handleTouchEndOrCancel);
+        el.addEventListener("contextmenu", (e) => {
+            if (!this.contextMenu)
+                return;
+            e.preventDefault();
+            e.stopPropagation();
+            const pick = this.findClusterForContextMenu(e.clientX, e.clientY);
+            if (!pick) {
+                this.hideClusterContextMenu();
+                return;
+            }
+            this.showClusterContextMenu(pick.cluster.id, e.clientX, e.clientY);
+            const pointerRay = this.cameraController.getPointerRayFromScreenPosition(e.clientX, e.clientY);
+            this.publishPointerEvent({
+                type: "tap",
+                eventSource: "context",
+                screen_position: { x: e.clientX, y: e.clientY },
+                galaxy_position: { x: pick.ground.x, z: pick.ground.z },
+                key_state: controlsManager.getCurrentKeyState(),
+                ray: pointerRay,
+            });
+        });
+    }
+    findClusterForContextMenu(screenX, screenY) {
+        const ground = this.cameraController.getGroundPointFromScreenPosition(screenX, screenY);
+        if (!ground)
+            return null;
+        let closest = null;
+        let closestDist = Infinity;
+        const maxDist = 600;
+        for (const cluster of this.galaxy.clusters) {
+            const dx = cluster.position.x - ground.x;
+            const dz = cluster.position.z - ground.z;
+            const dist = Math.sqrt(dx * dx + dz * dz);
+            if (dist < closestDist) {
+                closestDist = dist;
+                closest = cluster;
+            }
+        }
+        if (!closest || closestDist > maxDist)
+            return null;
+        return {
+            cluster: closest,
+            ground: { x: ground.x, y: ground.y, z: ground.z },
+        };
+    }
+    showClusterContextMenu(clusterId, screenX, screenY) {
+        if (!this.contextMenu)
+            return;
+        const panel = this.contextMenu.panel.element;
+        this.contextMenu.select.value = "inspect";
+        panel.style.display = "block";
+        const rect = panel.getBoundingClientRect();
+        const width = rect.width || 180;
+        const height = rect.height || 80;
+        const maxX = window.innerWidth - width - 12;
+        const maxY = window.innerHeight - height - 12;
+        const x = Math.max(12, Math.min(screenX, maxX));
+        const y = Math.max(12, Math.min(screenY, maxY));
+        panel.style.left = `${x}px`;
+        panel.style.top = `${y}px`;
+        this.contextMenuClusterId = clusterId;
+    }
+    hideClusterContextMenu() {
+        if (!this.contextMenu)
+            return;
+        this.contextMenu.panel.element.style.display = "none";
+        this.contextMenuClusterId = null;
     }
     /**
      * No longer needed: use renderer.screenToWorld directly.
@@ -414,6 +532,185 @@ export class App {
             this.galaxy.setSelectedCluster(cluster);
         }
     }
+    publishLocalOps(ops) {
+        if (!this.mainBus._brokerReady)
+            return;
+        this.mainBus.publish("ops_local", ops, 0);
+    }
+    publishRegenerationLifecycle(phase, regenerationId, clusterIds) {
+        if (!this.mainBus._brokerReady)
+            return;
+        const payload = {
+            regenerationId,
+            clusterIds,
+            timestamp: Date.now(),
+        };
+        const eventName = phase === "started"
+            ? "galaxy_regeneration_started"
+            : "galaxy_regeneration_complete";
+        this.mainBus.publish(eventName, payload, 0);
+    }
+    publishOpsComplete(payload) {
+        if (!this.mainBus._brokerReady)
+            return;
+        this.mainBus.publish("complete", payload, 2);
+    }
+    applyLocalOps(ops) {
+        if (!ops.length)
+            return;
+        this.processOps(ops);
+        this.publishLocalOps(ops);
+    }
+    updateMaxSolarSystemId(id) {
+        if (id > this.maxSolarSystemId) {
+            this.maxSolarSystemId = id;
+        }
+    }
+    regenerateCluster(clusterId) {
+        this.regenerateClusters([clusterId]);
+    }
+    regenerateClusterExtended(clusterId) {
+        const cluster = this.galaxy.getClusterById(clusterId);
+        if (!cluster)
+            return;
+        const neighborIds = new Set();
+        for (const conn of this.galaxy.connections) {
+            if (conn.cluster1.id === clusterId) {
+                neighborIds.add(conn.cluster2.id);
+            }
+            else if (conn.cluster2.id === clusterId) {
+                neighborIds.add(conn.cluster1.id);
+            }
+        }
+        const orderedIds = [
+            clusterId,
+            ...Array.from(neighborIds).sort((a, b) => a - b),
+        ];
+        this.regenerateClusters(orderedIds);
+    }
+    regenerateClusters(clusterIds) {
+        if (!clusterIds.length)
+            return;
+        const uniqueIds = [];
+        const seen = new Set();
+        for (const id of clusterIds) {
+            if (seen.has(id))
+                continue;
+            if (!this.galaxy.getClusterById(id))
+                continue;
+            seen.add(id);
+            uniqueIds.push(id);
+        }
+        if (!uniqueIds.length)
+            return;
+        const regenerationId = Date.now();
+        this.publishRegenerationLifecycle("started", regenerationId, uniqueIds);
+        for (const id of uniqueIds) {
+            this.regenerateClusterInternal(id);
+        }
+        this.updateStats();
+        this.publishRegenerationLifecycle("complete", regenerationId, uniqueIds);
+        this.publishOpsComplete({
+            source: "regeneration",
+            regenerationId,
+            clusterIds: uniqueIds,
+            finalizeBuffers: false,
+        });
+    }
+    regenerateClusterInternal(clusterId) {
+        const cluster = this.galaxy.getClusterById(clusterId);
+        if (!cluster)
+            return;
+        const connections = this.galaxy.connections.filter((conn) => conn.cluster1.id === clusterId || conn.cluster2.id === clusterId);
+        const neighborInfo = connections.map((conn) => {
+            const isCluster1 = conn.cluster1.id === clusterId;
+            return {
+                neighbor: isCluster1 ? conn.cluster2 : conn.cluster1,
+                neighborGate: isCluster1 ? conn.jumpGate2 : conn.jumpGate1,
+            };
+        });
+        const ops = [];
+        for (const conn of connections) {
+            ops.push(opRemoveConnection(conn.cluster1.id, conn.cluster2.id, { id: conn.jumpGate1.id }, { id: conn.jumpGate2.id }));
+        }
+        for (const sys of cluster.solarSystems.slice()) {
+            ops.push(opRemoveSolarSystem(cluster.id, sys.id));
+        }
+        if (neighborInfo.length === 0) {
+            this.applyLocalOps(ops);
+            return;
+        }
+        let nextId = this.maxSolarSystemId + 1;
+        const newGateSeeds = [];
+        const newGateByNeighbor = new Map();
+        for (const info of neighborInfo) {
+            const angle = angleXZ(cluster.position, info.neighbor.position);
+            const pos = pointAtAngle(cluster.position, cluster.radius * 1.07, angle);
+            const gate = {
+                id: nextId++,
+                name: `JumpGate ${cluster.id}->${info.neighbor.id}`,
+                position: pos,
+                connections: [],
+                isJumpGate: true,
+                connectedToClusterId: info.neighbor.id,
+            };
+            newGateSeeds.push({ neighborId: info.neighbor.id, gate });
+            newGateByNeighbor.set(info.neighbor.id, { id: gate.id });
+        }
+        const params = this.getInputParameters();
+        const plan = buildClusterSolarSystemPlan({
+            clusterId: cluster.id,
+            clusterPosition: {
+                x: cluster.position.x,
+                y: cluster.position.y,
+                z: cluster.position.z,
+            },
+            clusterRadius: cluster.radius,
+            numSolarSystems: params.numSolarSystems,
+            jumpGates: newGateSeeds.map(({ gate }) => ({
+                id: gate.id,
+                name: gate.name,
+                position: gate.position,
+                connectedToClusterId: gate.connectedToClusterId,
+            })),
+            nextSystemId: nextId,
+        });
+        for (const { gate } of newGateSeeds) {
+            ops.push(opAddSolarSystem(cluster.id, gate));
+        }
+        for (const sys of plan.systems) {
+            ops.push(opAddSolarSystem(cluster.id, sys));
+        }
+        for (const [id1, id2] of plan.connections) {
+            ops.push(opConnectSolarSystems(cluster.id, id1, id2));
+        }
+        for (const info of neighborInfo) {
+            const gate = newGateByNeighbor.get(info.neighbor.id);
+            if (!gate)
+                continue;
+            ops.push(opConnectClusters(cluster.id, info.neighbor.id, { id: gate.id }, { id: info.neighborGate.id }));
+        }
+        this.applyLocalOps(ops);
+        cluster.maxSystemDistance = plan.maxSystemDistance;
+    }
+    removeInternalConnections(cluster) {
+        const idToSystem = new Map();
+        for (const sys of cluster.solarSystems) {
+            idToSystem.set(sys.id, sys);
+        }
+        for (const sys of cluster.solarSystems) {
+            if (!Array.isArray(sys.connections))
+                continue;
+            for (const connectedId of sys.connections) {
+                if (connectedId <= sys.id)
+                    continue;
+                const other = idToSystem.get(connectedId);
+                if (other) {
+                    this.galaxy.removeSolarSystemConnection(cluster, sys, other);
+                }
+            }
+        }
+    }
     /**
      * Handle OPs using id maps for clusters and solar systems when processing connection ops.
      * All connections use only IDs now (point 5).
@@ -433,6 +730,17 @@ export class App {
                 if (cluster) {
                     const s = new SolarSystem(op.payload);
                     this.galaxy.addSolarSystem(cluster, s);
+                    this.updateMaxSolarSystemId(s.id);
+                }
+            }
+            else if (op.type === "removeSolarSystem") {
+                const { clusterId, solarSystemId } = op.payload;
+                const cluster = this.galaxy.getClusterById(clusterId);
+                const sys = cluster
+                    ? this.galaxy.getSolarSystemById(clusterId, solarSystemId)
+                    : null;
+                if (cluster && sys) {
+                    this.galaxy.removeSolarSystem(cluster, sys);
                 }
             }
             else if (op.type === "connectSolarSystems") {
@@ -485,27 +793,10 @@ export class App {
         }
     }
     getInputParameters() {
-        const numClusters = getInputElement("numClusters");
-        const numSolarSystems = getInputElement("numSolarSystems");
-        const maxConnections = getInputElement("maxConnections");
-        const internalConnections = getInputElement("internalConnections");
-        const galaxySize = getInputElement("galaxySize");
-        const centerBias = getInputElement("centerBias");
-        const minDistance = getInputElement("minDistance");
-        const heightVariation = getInputElement("heightVariation");
-        const showLabels = getInputElement("showLabels");
-        return {
-            numClusters: Number.parseInt(numClusters.value, 10),
-            numSolarSystems: Number.parseInt(numSolarSystems.value, 10),
-            maxConnections: Number.parseInt(maxConnections.value, 10),
-            internalConnections: Number.parseInt(internalConnections.value, 10),
-            galaxySize: Number.parseFloat(galaxySize.value),
-            centerBias: Number.parseFloat(centerBias.value),
-            minDistance: Number.parseFloat(minDistance.value),
-            heightVariation: Number.parseFloat(heightVariation.value),
-            showLabels: showLabels.checked,
-            generateInternalConnections: false,
-        };
+        if (this.uiBindings.mode === "editor") {
+            return this.uiBindings.getGenerationParams();
+        }
+        return DEFAULT_GENERATION_PARAMS;
     }
     generateGalaxy() {
         console.log("Generating new galaxy...");
@@ -532,6 +823,7 @@ export class App {
         this.renderer.clear();
         // Clear galaxy
         this.galaxy.clear();
+        this.maxSolarSystemId = 0;
         // Notify workers to clear their state
         if (this.mainBus._brokerReady) {
             this.mainBus.publish("clearGalaxy", {});
@@ -595,6 +887,16 @@ export class App {
             this.mainBus.subscribe("galaxy_generation_complete", (data) => {
                 if (isRecord(data) && typeof data.generationId === "number") {
                     console.log("✅ Galaxy generation complete:", data.generationId);
+                }
+            });
+            this.mainBus.subscribe("galaxy_regeneration_started", (data) => {
+                if (isRecord(data) && typeof data.regenerationId === "number") {
+                    console.log("🔁 Galaxy regeneration started:", data.regenerationId);
+                }
+            });
+            this.mainBus.subscribe("galaxy_regeneration_complete", (data) => {
+                if (isRecord(data) && typeof data.regenerationId === "number") {
+                    console.log("✅ Galaxy regeneration complete:", data.regenerationId);
                 }
             });
             this.mainBus.subscribe("galaxy_generation_error", (data) => {
@@ -663,13 +965,18 @@ export class App {
         }
     }
 }
-function getInputElement(id) {
-    const el = document.getElementById(id);
-    if (!el || !(el instanceof HTMLInputElement)) {
-        throw new Error(`Missing or invalid input element: #${id}`);
-    }
-    return el;
-}
+const DEFAULT_GENERATION_PARAMS = {
+    numClusters: 15000,
+    numSolarSystems: 80,
+    maxConnections: 3,
+    internalConnections: 3,
+    galaxySize: 300000,
+    centerBias: 0.6,
+    minDistance: 1500,
+    heightVariation: 0,
+    showLabels: true,
+    generateInternalConnections: false,
+};
 function createAndInsertStatsPanels(statsBar) {
     const stats = new Stats();
     stats.dom.style.position = "static";

@@ -1,12 +1,31 @@
 export class UIController {
-    constructor(app) {
+    constructor(app, bindings) {
         this.app = app;
-        this.fpsElement = document.getElementById("fps");
+        this.fpsElement =
+            bindings?.fps ?? document.getElementById("fps");
         this.statsElements = {
-            clusters: document.getElementById("totalClusters"),
-            systems: document.getElementById("totalSystems"),
-            gates: document.getElementById("totalGates"),
-            internalLinks: document.getElementById("internalLinks"),
+            clusters: bindings?.clusters ??
+                document.getElementById("totalClusters"),
+            systems: bindings?.systems ??
+                document.getElementById("totalSystems"),
+            gates: bindings?.gates ??
+                document.getElementById("totalGates"),
+            internalLinks: bindings?.internalLinks ??
+                document.getElementById("internalLinks"),
+        };
+    }
+    setStatsElements(bindings) {
+        this.fpsElement =
+            bindings?.fps ?? document.getElementById("fps");
+        this.statsElements = {
+            clusters: bindings?.clusters ??
+                document.getElementById("totalClusters"),
+            systems: bindings?.systems ??
+                document.getElementById("totalSystems"),
+            gates: bindings?.gates ??
+                document.getElementById("totalGates"),
+            internalLinks: bindings?.internalLinks ??
+                document.getElementById("internalLinks"),
         };
     }
     updateFPS(fps) {

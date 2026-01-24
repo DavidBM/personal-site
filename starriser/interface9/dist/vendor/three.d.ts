@@ -24,12 +24,15 @@ export class Vector3 {
   sub(v: Vector3): this;
   subVectors(a: Vector3, b: Vector3): this;
   clone(): Vector3;
+  multiplyScalar(s: number): this;
+  distanceTo(v: Vector3): number;
   length(): number;
   lengthSq(): number;
   lerp(v: Vector3, alpha: number): this;
   equals(v: Vector3): boolean;
   getComponent(index: number): number;
   setComponent(index: number, value: number): this;
+  project(camera: Camera): this;
   unproject(camera: Camera): this;
 }
 
@@ -127,6 +130,7 @@ export class Material {
 
 export class LineBasicMaterial extends Material {
   constructor(params?: Record<string, unknown>);
+  color: Color;
 }
 
 export class LineMaterial extends Material {
@@ -154,6 +158,25 @@ export class Line2 extends Line {
 
 export class MeshBasicMaterial extends Material {
   constructor(params?: Record<string, unknown>);
+}
+
+export class SpriteMaterial extends Material {
+  constructor(params?: Record<string, unknown>);
+  map?: Texture;
+}
+
+export class Sprite extends Object3D {
+  constructor(material?: SpriteMaterial);
+  material: SpriteMaterial;
+}
+
+export class CylinderGeometry extends BufferGeometry {
+  constructor(
+    radiusTop?: number,
+    radiusBottom?: number,
+    height?: number,
+    radialSegments?: number,
+  );
 }
 
 export class PlaneGeometry extends BufferGeometry {

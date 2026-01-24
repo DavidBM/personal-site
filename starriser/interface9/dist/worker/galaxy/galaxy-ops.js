@@ -7,6 +7,9 @@ export function opRemoveCluster(clusterId) {
 export function opAddSolarSystem(clusterId, solarSystemData) {
     return { type: "addSolarSystem", payload: { clusterId, ...solarSystemData } };
 }
+export function opRemoveSolarSystem(clusterId, solarSystemId) {
+    return { type: "removeSolarSystem", payload: { clusterId, solarSystemId } };
+}
 export function opConnectClusters(clusterId1, clusterId2, jumpGate1, jumpGate2) {
     return {
         type: "connectClusters",

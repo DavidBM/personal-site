@@ -1,8 +1,8 @@
 import { opAddCluster, opAddSolarSystem, opConnectClusters, opConnectSolarSystems, opRemoveCluster, } from "./galaxy-ops.js";
-import { distZX, tooCloseZX, lineSegmentsCrossXZ, angleXZ, pointAtAngle, pointLineDistZX, lineIntersectsClusterZX, bellCurveRandomRadius, } from "./galaxy-xz-math.js";
+import { distZX, tooCloseZX, lineSegmentsCrossXZ, angleXZ, pointAtAngle, lineIntersectsClusterZX, bellCurveRandomRadius, } from "./galaxy-xz-math.js";
 import { randomPointInDisk_PositiveY, randomClusterColor, } from "./galaxy-utils.js";
 import { OperationBatcher } from "./flush/operation-batcher.js";
-const SOLAR_SYSTEM_MIN_DIST_FACTOR = 3; // Adjust: 1.0 = pure circumference-based, >1=spaced out
+import { buildClusterSolarSystemPlan } from "../../cluster-solar-system-plan.js";
 class GalaxyGenerator {
     constructor(params) {
         const { numClusters = 1000, numSolarSystems = 100, minDistance = 300, galaxySize = 25, heightVariation = 1.3, maxConnections = 3, batchSize = 100, onBatch, centerBias = 0.6, } = params;
@@ -61,132 +61,44 @@ class GalaxyGenerator {
         }
     }
     generateSolarSystemsForCluster(cluster) {
-        const numSolarSystems = this.params.numSolarSystems;
-        const MAX_RETRIES = 2000;
-        const N_NEIGHBORS = 3; // Maximum connections per system
         const jumpGates = cluster.solarSystems.filter((s) => s.isJumpGate);
         if (!jumpGates.length) {
             console.error("No jump gates found in cluster", cluster);
             return;
         }
-        let attempt = 0;
-        let success = false;
-        while (!success && attempt < MAX_RETRIES) {
-            cluster.solarSystems = cluster.solarSystems.filter((s) => s.isJumpGate);
-            const sysPositions = [];
-            const safeRadius = cluster.radius * 0.95;
-            const minInterSSDist = ((2 * Math.PI * safeRadius) / numSolarSystems) *
-                SOLAR_SYSTEM_MIN_DIST_FACTOR;
-            let ssAttempt = 0;
-            let s = 0;
-            const maxSSA = numSolarSystems * 10;
-            while (s < numSolarSystems && ssAttempt < maxSSA) {
-                const r = Math.sqrt(Math.random()) * safeRadius;
-                const theta = Math.random() * Math.PI * 2;
-                const spos = {
-                    x: cluster.position.x + r * Math.cos(theta),
-                    y: cluster.position.y + Math.random() * 15,
-                    z: cluster.position.z + r * Math.sin(theta),
-                };
-                if (tooCloseZX(spos, sysPositions, minInterSSDist)) {
-                    ssAttempt++;
-                    continue;
-                }
-                sysPositions.push(spos);
-                const sysId = this.globalSystemCounter++;
-                const sys = {
-                    id: sysId,
-                    name: `System ${cluster.id}-${sysPositions.length}`,
-                    position: spos,
-                    connections: [],
-                    isJumpGate: false,
-                    connectedToClusterId: null,
-                };
-                cluster.solarSystems.push(sys);
-                s++;
-                ssAttempt++;
-            }
-            for (const sys of cluster.solarSystems) {
-                sys.connections = [];
-            }
-            const allSystems = [...cluster.solarSystems];
-            const idToSys = new Map(allSystems.map((sys) => [sys.id, sys]));
-            const existingConnections = [];
-            const connectionExists = (sys1, sys2) => sys1.connections.includes(sys2.id);
-            const addConnection = (sys1, sys2) => {
-                if (!connectionExists(sys1, sys2) &&
-                    sys1.connections.length < N_NEIGHBORS &&
-                    sys2.connections.length < N_NEIGHBORS) {
-                    sys1.connections.push(sys2.id);
-                    sys2.connections.push(sys1.id);
-                    existingConnections.push({ from: sys1, to: sys2 });
-                    return true;
-                }
-                return false;
-            };
-            const connectionsWouldCross = (sys1, sys2) => {
-                for (const conn of existingConnections) {
-                    if (lineSegmentsCrossXZ(sys1.position, sys2.position, conn.from.position, conn.to.position)) {
-                        return true;
-                    }
-                }
-                const MIN_DISTANCE_TO_SYSTEM = 25;
-                for (const otherSys of allSystems) {
-                    if (otherSys.id === sys1.id || otherSys.id === sys2.id)
-                        continue;
-                    const distToConnection = pointLineDistZX(otherSys.position, sys1.position, sys2.position);
-                    if (distToConnection < MIN_DISTANCE_TO_SYSTEM) {
-                        return true;
-                    }
-                }
-                return false;
-            };
-            const systemsToProcess = [...allSystems].sort((a, b) => a.id - b.id);
-            for (const sys of systemsToProcess) {
-                const candidates = allSystems
-                    .filter((other) => other.id !== sys.id && !connectionExists(sys, other))
-                    .map((other) => ({
-                    sys: other,
-                    dist: distZX(sys.position, other.position),
-                }))
-                    .sort((a, b) => a.dist - b.dist);
-                for (const candidate of candidates) {
-                    if (sys.connections.length >= N_NEIGHBORS)
-                        break;
-                    if (candidate.sys.connections.length >= N_NEIGHBORS)
-                        continue;
-                    if (sys.isJumpGate && candidate.sys.isJumpGate)
-                        continue;
-                    if (!connectionsWouldCross(sys, candidate.sys)) {
-                        addConnection(sys, candidate.sys);
-                    }
-                }
-            }
-            const toRemove = [];
-            for (const sys of allSystems) {
-                if (!sys.isJumpGate && sys.connections.length === 0) {
-                    toRemove.push(sys);
-                }
-            }
-            for (const sys of toRemove) {
-                const index = cluster.solarSystems.findIndex((s) => s.id === sys.id);
-                if (index >= 0) {
-                    cluster.solarSystems.splice(index, 1);
-                }
-            }
-            if (this._checkFullConnectivity(cluster, jumpGates)) {
-                success = true;
-                break;
-            }
-            attempt++;
-        }
-        if (!success) {
+        const plan = buildClusterSolarSystemPlan({
+            clusterId: cluster.id,
+            clusterPosition: cluster.position,
+            clusterRadius: cluster.radius,
+            numSolarSystems: this.params.numSolarSystems,
+            jumpGates: jumpGates.map((gate) => ({
+                id: gate.id,
+                name: gate.name,
+                position: gate.position,
+                connectedToClusterId: gate.connectedToClusterId ?? null,
+            })),
+            nextSystemId: this.globalSystemCounter,
+        });
+        this.globalSystemCounter = plan.nextSystemId;
+        if (!plan.success) {
             console.warn("Failed to generate valid solar system connectivity in cluster", cluster.id);
-            cluster.solarSystems = cluster.solarSystems.filter((s) => s.isJumpGate);
+            cluster.solarSystems = jumpGates;
             cluster.maxSystemDistance = 0;
             return;
         }
+        const newSystems = plan.systems.map((sys) => ({
+            id: sys.id,
+            name: sys.name,
+            position: sys.position,
+            connections: [],
+            isJumpGate: false,
+            connectedToClusterId: null,
+        }));
+        cluster.solarSystems = [...jumpGates, ...newSystems];
         for (const sys of cluster.solarSystems) {
+            sys.connections = [];
+        }
+        for (const sys of newSystems) {
             this.opBatcher.add(opAddSolarSystem(cluster.id, {
                 id: sys.id,
                 name: sys.name,
@@ -196,106 +108,31 @@ class GalaxyGenerator {
                 connectedToClusterId: sys.connectedToClusterId ?? null,
             }));
         }
+        const idToSys = new Map(cluster.solarSystems.map((sys) => [sys.id, sys]));
         const processedConnections = new Set();
-        for (const sys of cluster.solarSystems) {
-            for (const connectedId of sys.connections) {
-                const connectionKey = sys.id < connectedId
-                    ? `${sys.id}-${connectedId}`
-                    : `${connectedId}-${sys.id}`;
-                if (!processedConnections.has(connectionKey)) {
-                    processedConnections.add(connectionKey);
-                    this.opBatcher.add(opConnectSolarSystems(cluster.id, sys.id, connectedId));
-                }
+        for (const [id1, id2] of plan.connections) {
+            const sys1 = idToSys.get(id1);
+            const sys2 = idToSys.get(id2);
+            if (!sys1 || !sys2)
+                continue;
+            if (!sys1.connections.includes(sys2.id)) {
+                sys1.connections.push(sys2.id);
+            }
+            if (!sys2.connections.includes(sys1.id)) {
+                sys2.connections.push(sys1.id);
+            }
+            const connectionKey = sys1.id < sys2.id ? `${sys1.id}-${sys2.id}` : `${sys2.id}-${sys1.id}`;
+            if (!processedConnections.has(connectionKey)) {
+                processedConnections.add(connectionKey);
+                this.opBatcher.add(opConnectSolarSystems(cluster.id, sys1.id, sys2.id));
             }
         }
-        const regularPositions = cluster.solarSystems
-            .filter((s) => !s.isJumpGate)
-            .map((s) => s.position);
-        cluster.maxSystemDistance =
-            regularPositions.length > 0
-                ? regularPositions.reduce((mx, p) => Math.max(mx, distZX(p, cluster.position)), 0)
-                : 0;
+        cluster.maxSystemDistance = plan.maxSystemDistance;
     }
     generateAllSolarSystems() {
         for (let cIdx = 0; cIdx < this.clusters.length; ++cIdx) {
             this.generateSolarSystemsForCluster(this.clusters[cIdx]);
         }
-    }
-    _checkClusterConnectivity(cluster) {
-        const sysList = cluster.solarSystems;
-        const idToSys = new Map(sysList.map((s) => [s.id, s]));
-        const getNeighbors = (s) => s.connections
-            .map((id) => idToSys.get(id))
-            .filter((sys) => !!sys);
-        const jumpGates = sysList.filter((s) => s.isJumpGate);
-        if (jumpGates.length === 0)
-            return false;
-        const visitedJG = new Set();
-        const dfsJumpGate = (node) => {
-            visitedJG.add(node.id);
-            for (const n of getNeighbors(node)) {
-                if (n.isJumpGate && !visitedJG.has(n.id))
-                    dfsJumpGate(n);
-            }
-        };
-        dfsJumpGate(jumpGates[0]);
-        if (visitedJG.size < jumpGates.length)
-            return false;
-        for (const sys of sysList) {
-            if (sys.isJumpGate)
-                continue;
-            const queue = [sys];
-            const seen = new Set([sys.id]);
-            let found = false;
-            while (queue.length) {
-                const curr = queue.shift();
-                if (!curr)
-                    break;
-                if (curr.isJumpGate) {
-                    found = true;
-                    break;
-                }
-                for (const n of getNeighbors(curr)) {
-                    if (!seen.has(n.id)) {
-                        seen.add(n.id);
-                        queue.push(n);
-                    }
-                }
-            }
-            if (!found)
-                return false;
-        }
-        return true;
-    }
-    _checkFullConnectivity(cluster, jumpGates) {
-        const sysList = cluster.solarSystems;
-        const idToSys = new Map(sysList.map((s) => [s.id, s]));
-        if (jumpGates.length === 0)
-            return false;
-        for (const sys of sysList) {
-            const reachableJumpGates = new Set();
-            const queue = [sys];
-            const visited = new Set([sys.id]);
-            while (queue.length > 0) {
-                const current = queue.shift();
-                if (!current)
-                    break;
-                if (current.isJumpGate) {
-                    reachableJumpGates.add(current.id);
-                }
-                for (const connId of current.connections) {
-                    const connSys = idToSys.get(connId);
-                    if (connSys && !visited.has(connSys.id)) {
-                        visited.add(connSys.id);
-                        queue.push(connSys);
-                    }
-                }
-            }
-            if (reachableJumpGates.size < jumpGates.length) {
-                return false;
-            }
-        }
-        return true;
     }
     connectClusters() {
         const { maxConnections } = this.params;

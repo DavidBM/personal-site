@@ -27,6 +27,8 @@ export function busConstructor(bus) {
     let currentlyEditingClusterId = null;
     let editDragClusterId = null;
     let editDragOffset = null;
+    let editDragAxis = null;
+    let editDragStart = null;
     // Flag to prevent recursive tap event processing
     let isProcessingTap = false;
     let pubSubReady = false;
@@ -59,13 +61,16 @@ export function busConstructor(bus) {
         if (!clusters.length)
             return;
         const isEditMode = currentlyEditingClusterId !== null;
-        // Edit mode cluster dragging (XZ only)
+        // Edit mode cluster dragging (axis-aware)
         if (isEditMode && typeof data.clusterId === "number") {
             const cluster = clusters.find((c) => c.id === data.clusterId);
             const pointerPos = data.galaxy_position;
+            const screenPos = data.screen_position;
             if (!cluster) {
                 editDragClusterId = null;
                 editDragOffset = null;
+                editDragAxis = null;
+                editDragStart = null;
             }
             else {
                 if (data.type === "down" && pointerPos) {
@@ -75,14 +80,45 @@ export function busConstructor(bus) {
                         dy: 0,
                         dz: cluster.position.z - pointerPos.z,
                     };
+                    editDragAxis =
+                        data.handleKind === "axisX"
+                            ? "x"
+                            : data.handleKind === "axisY"
+                                ? "y"
+                                : data.handleKind === "axisZ"
+                                    ? "z"
+                                    : data.handleKind === "planeXZ"
+                                        ? "xz"
+                                        : data.editDragMode === "y"
+                                            ? "y"
+                                            : "xz";
+                    editDragStart = {
+                        screenX: screenPos.x,
+                        screenY: screenPos.y,
+                        position: {
+                            x: cluster.position.x,
+                            y: cluster.position.y,
+                            z: cluster.position.z,
+                        },
+                    };
                 }
-                if (data.type === "move" &&
-                    editDragClusterId === cluster.id &&
-                    pointerPos) {
-                    cluster.position.x =
-                        pointerPos.x + (editDragOffset ? editDragOffset.dx : 0);
-                    cluster.position.z =
-                        pointerPos.z + (editDragOffset ? editDragOffset.dz : 0);
+                if (data.type === "move" && editDragClusterId === cluster.id) {
+                    const axis = editDragAxis ?? "xz";
+                    if ((axis === "xz" || axis === "x" || axis === "z") && pointerPos) {
+                        if (axis === "xz" || axis === "x") {
+                            cluster.position.x =
+                                pointerPos.x + (editDragOffset ? editDragOffset.dx : 0);
+                        }
+                        if (axis === "xz" || axis === "z") {
+                            cluster.position.z =
+                                pointerPos.z + (editDragOffset ? editDragOffset.dz : 0);
+                        }
+                    }
+                    if (axis === "y" && editDragStart && screenPos) {
+                        const dy = screenPos.y - editDragStart.screenY;
+                        const scale = 2;
+                        cluster.position.y = editDragStart.position.y - dy * scale;
+                    }
                     clusterIndex.remove(cluster.id);
                     clusterIndex.insert(cluster);
                     bus.publish("update_cluster", {
@@ -93,6 +129,8 @@ export function busConstructor(bus) {
                 if (data.type === "up" && editDragClusterId === cluster.id) {
                     editDragClusterId = null;
                     editDragOffset = null;
+                    editDragAxis = null;
+                    editDragStart = null;
                     bus.publish("commit_cluster_move", {
                         clusterId: cluster.id,
                         position: cluster.position,
@@ -207,16 +245,33 @@ export function busConstructor(bus) {
     function attachUIObjectsForCluster(cluster) {
         // Remove existing handles
         clearUIObjects();
-        // Add example UI objects: one arrow on +Y (up), and one plane at current Y
-        // ID for UI handles is based on cluster for easy cleanup
+        const axisLength = (cluster.radius || 400) * 1.5;
         uiObjects = [
             {
-                id: `arrow_up_${cluster.id}`,
+                id: `axis_x_${cluster.id}`,
                 x: cluster.position.x,
                 z: cluster.position.z,
-                yMin: cluster.position.y + (cluster.radius || 400),
-                yMax: cluster.position.y + (cluster.radius || 400) + 200,
-                kind: "arrowY",
+                yMin: cluster.position.y - 40,
+                yMax: cluster.position.y + 40,
+                kind: "axisX",
+                clusterId: cluster.id,
+            },
+            {
+                id: `axis_y_${cluster.id}`,
+                x: cluster.position.x,
+                z: cluster.position.z,
+                yMin: cluster.position.y,
+                yMax: cluster.position.y + axisLength,
+                kind: "axisY",
+                clusterId: cluster.id,
+            },
+            {
+                id: `axis_z_${cluster.id}`,
+                x: cluster.position.x,
+                z: cluster.position.z,
+                yMin: cluster.position.y - 40,
+                yMax: cluster.position.y + 40,
+                kind: "axisZ",
                 clusterId: cluster.id,
             },
             {
@@ -308,9 +363,12 @@ export function busConstructor(bus) {
     const handleOps = (ops) => {
         if (!Array.isArray(ops))
             return;
+        let connectionsChanged = false;
+        let clustersChanged = false;
         for (const op of ops) {
             if (op.type === "addCluster") {
                 addCluster(op.payload);
+                clustersChanged = true;
             }
             else if (op.type === "connectClusters") {
                 const { clusterId1, clusterId2, jumpGate1, jumpGate2 } = op.payload;
@@ -321,6 +379,7 @@ export function busConstructor(bus) {
                     jumpGate2: { id: jumpGate2.id },
                 };
                 lastConnections.push(connection);
+                connectionsChanged = true;
             }
             else if (op.type === "removeConnection") {
                 const { clusterId1, clusterId2, jumpGate1, jumpGate2 } = op.payload;
@@ -337,11 +396,34 @@ export function busConstructor(bus) {
                                 conn.jumpGate2.id === jumpGate1.id);
                     return !(matchesCluster1 && matchesGates);
                 });
+                connectionsChanged = true;
             }
             else if (op.type === "removeCluster") {
                 const { clusterId } = op.payload;
                 removeCluster(clusterId);
                 lastConnections = lastConnections.filter((conn) => conn.cluster1.id !== clusterId && conn.cluster2.id !== clusterId);
+                clustersChanged = true;
+                connectionsChanged = true;
+            }
+        }
+        if (clustersChanged) {
+            const state = SelectionService.getState();
+            const selectedMissing = state.selectedId != null &&
+                !clusters.find((cluster) => cluster.id === state.selectedId);
+            const hoveredMissing = state.hoveredId != null &&
+                !clusters.find((cluster) => cluster.id === state.hoveredId);
+            if (selectedMissing) {
+                SelectionService.setSelected(null);
+            }
+            if (hoveredMissing) {
+                SelectionService.setHovered(null);
+            }
+        }
+        if (connectionsChanged && currentlyEditingClusterId === null) {
+            const { selectedId } = SelectionService.getState();
+            if (selectedId != null) {
+                const coloring = computeConnectionGradient(selectedId, clusters, 10, lastConnections);
+                bus.publish("setConnectionColors", coloring);
             }
         }
     };
@@ -353,6 +435,8 @@ export function busConstructor(bus) {
         currentlyEditingClusterId = null;
         editDragClusterId = null;
         editDragOffset = null;
+        editDragAxis = null;
+        editDragStart = null;
         SelectionService.clear();
     };
     const setupPubSubSubscriptions = () => {
@@ -366,10 +450,16 @@ export function busConstructor(bus) {
         SelectionService.subscribe(handleSelectionChange);
         bus.subscribe("pointer_event", handlePointerEvent);
         bus.subscribe("ops", handleOps);
+        bus.subscribe("ops_local", handleOps);
         bus.subscribe("clearGalaxy", handleClearGalaxy);
         bus.subscribe("galaxy_generation_complete", () => {
             if (debugLevel >= 1) {
                 console.log("🌌 Business worker received galaxy generation complete");
+            }
+        });
+        bus.subscribe("galaxy_regeneration_complete", (data) => {
+            if (debugLevel >= 1) {
+                console.log("🔁 Business worker received galaxy regeneration complete", data);
             }
         });
         bus.subscribe("cluster_updated", (data) => {

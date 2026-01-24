@@ -2,6 +2,7 @@ import * as THREE from "./vendor/three.js";
 import { CSS2DRenderer } from "./vendor/CSS2DRenderer.js";
 import { StarField } from "./star-field.js";
 import GalaxyConnectionLines from "./gfx-utils/galaxy-connection-lines.js";
+import { AxisGizmo, GraphPathOverlay, ScreenOverlayRegistry, SelectionOverlay, TextBillboardManager, } from "./gfx-utils/ui-overlays.js";
 /**
  * Centralized renderer and scene orchestrator for the galaxy and live ops.
  */
@@ -27,6 +28,20 @@ export class GalaxyRenderer {
         this.labelRenderer.domElement.style.top = "0";
         this.labelRenderer.domElement.style.pointerEvents = "none";
         this.container.appendChild(this.labelRenderer.domElement);
+        this.uiOverlayLayer = document.createElement("div");
+        this.uiOverlayLayer.className = "webgl-ui-overlay";
+        this.uiOverlayLayer.style.position = "absolute";
+        this.uiOverlayLayer.style.top = "0";
+        this.uiOverlayLayer.style.left = "0";
+        this.uiOverlayLayer.style.width = "100%";
+        this.uiOverlayLayer.style.height = "100%";
+        this.uiOverlayLayer.style.pointerEvents = "none";
+        this.uiOverlayLayer.style.zIndex = "900";
+        this.container.appendChild(this.uiOverlayLayer);
+        this.screenOverlayRegistry = new ScreenOverlayRegistry(this.uiOverlayLayer);
+        this.selectionOverlay = new SelectionOverlay(this.scene, this.screenOverlayRegistry);
+        this.pathOverlay = new GraphPathOverlay(this.scene);
+        this.textOverlay = new TextBillboardManager(this.scene);
         // Reference
         this.starField = new StarField(this.scene, this.camera, 3000);
         // Root groups for visual organization and LOD
@@ -56,6 +71,7 @@ export class GalaxyRenderer {
         this.scene.add(this.editHandleOverlayGroup);
         this.editHandlesByCluster = new Map();
         this._editHandleCircle = null;
+        this.axisGizmo = new AxisGizmo(this.editHandleOverlayGroup);
         this.fpsCallback = null;
         this.frameCount = 0;
         this.lastTime = performance.now();
@@ -191,6 +207,7 @@ export class GalaxyRenderer {
         pickPlane.userData.__editClusterId = clusterId;
         this.editHandleOverlayGroup.add(pickPlane);
         this._handlesActiveCluster = clusterId;
+        this.axisGizmo.show(clusterId, { x, y, z }, this._editOverlayRadius * 1.4);
     }
     /**
      * Remove edit controls/handles from overlay group.
@@ -210,6 +227,7 @@ export class GalaxyRenderer {
         this._handlesActiveCluster = null;
         this._handleBeingDragged = null;
         this._editHandleCircle = null;
+        this.axisGizmo.hide();
     }
     /**
      * Overlay rendering for a thick circle (edit or select/hover).
@@ -300,6 +318,52 @@ export class GalaxyRenderer {
      */
     setSelectedCluster(cluster) {
         this._renderOverlayCircle(cluster, "select");
+        if (!cluster) {
+            this.selectionOverlay.setSelections([]);
+            return;
+        }
+        const selectionPanel = this.createSelectionPanel(cluster);
+        const size = {
+            x: cluster.radius * 2,
+            y: Math.max(120, cluster.radius * 0.5),
+            z: cluster.radius * 2,
+        };
+        const selection = {
+            id: `cluster_${cluster.id}`,
+            getPosition: () => cluster.position,
+            size,
+            html: selectionPanel,
+            htmlOffset: { x: 16, y: -16 },
+            htmlDraggable: true,
+        };
+        this.selectionOverlay.setSelections([selection]);
+    }
+    setSelectionBoxes(selections) {
+        this.selectionOverlay.setSelections(selections);
+    }
+    setPathOverlay(points, color) {
+        this.pathOverlay.setPath(points, color);
+    }
+    clearPathOverlay() {
+        this.pathOverlay.clear();
+    }
+    setTextLabels(labels) {
+        this.textOverlay.setLabels(labels);
+    }
+    createSelectionPanel(cluster) {
+        const panel = document.createElement("div");
+        panel.className = "ui-panel webgl-selection-panel";
+        panel.style.padding = "8px 10px";
+        panel.style.pointerEvents = "auto";
+        const title = document.createElement("div");
+        title.className = "ui-panel-title";
+        title.textContent = `Cluster ${cluster.id}`;
+        panel.appendChild(title);
+        const radius = document.createElement("div");
+        radius.className = "ui-muted";
+        radius.textContent = `Radius: ${Math.round(cluster.radius)}`;
+        panel.appendChild(radius);
+        return panel;
     }
     /**
      * Provide a mapping from connection key (as used by this._makeConnectionKey)
@@ -348,8 +412,7 @@ export class GalaxyRenderer {
             this._selectedConnectionKeys.length === 0) {
             return;
         }
-        if (!this.connectionsPositions)
-            return;
+        const connectionPositions = this.galaxyConnectionLines.positions;
         // Overlay color map
         const overlayColors = this._overlayConnectionColors || {};
         if (typeof THREE.Line2 === "undefined" ||
@@ -358,13 +421,12 @@ export class GalaxyRenderer {
             throw new Error("THREE.Line2/LineMaterial/LineGeometry are required for overlays but not found. Please ensure three/examples/jsm/lines/ modules are loaded.");
         }
         for (const key of this._selectedConnectionKeys) {
-            const slot = this.connectionIdToBufferIndex.get(key);
-            if (typeof slot !== "number") {
+            const slot = this.galaxyConnectionLines.keyToIndex.get(key);
+            if (typeof slot !== "number")
                 continue;
-            }
             const i = slot * 2 * 3;
-            const p1 = new THREE.Vector3(this.connectionsPositions[i + 0], this.connectionsPositions[i + 1], this.connectionsPositions[i + 2]);
-            const p2 = new THREE.Vector3(this.connectionsPositions[i + 3], this.connectionsPositions[i + 4], this.connectionsPositions[i + 5]);
+            const p1 = new THREE.Vector3(connectionPositions[i + 0], connectionPositions[i + 1], connectionPositions[i + 2]);
+            const p2 = new THREE.Vector3(connectionPositions[i + 3], connectionPositions[i + 4], connectionPositions[i + 5]);
             if (p1.equals(p2) ||
                 isNaN(p1.x) ||
                 isNaN(p2.x) ||
@@ -819,6 +881,7 @@ export class GalaxyRenderer {
         if (!this._editHandleCircle)
             return;
         this._editHandleCircle.position.set(position.x, position.y, position.z);
+        this.axisGizmo.updatePosition(position);
     }
     /**
      * Toggles between 3D and flattened (XZ plane) rendering for solar systems/connections.
@@ -900,20 +963,6 @@ export class GalaxyRenderer {
                 continue;
             const key = this._makeConnectionKey(conn.cluster1, conn.cluster2, conn.jumpGate1, conn.jumpGate2);
             this.galaxyConnectionLines.updateConnection(key, conn.jumpGate1.position, conn.jumpGate2.position);
-            const slot = this.connectionIdToBufferIndex.get(key);
-            if (this.connectionsPositions && typeof slot === "number") {
-                const i = slot * 2 * 3;
-                this.connectionsPositions[i + 0] = conn.jumpGate1.position.x;
-                this.connectionsPositions[i + 1] = conn.jumpGate1.position.y;
-                this.connectionsPositions[i + 2] = conn.jumpGate1.position.z;
-                this.connectionsPositions[i + 3] = conn.jumpGate2.position.x;
-                this.connectionsPositions[i + 4] = conn.jumpGate2.position.y;
-                this.connectionsPositions[i + 5] = conn.jumpGate2.position.z;
-            }
-        }
-        if (this.connectionsGeometry.attributes &&
-            this.connectionsGeometry.attributes.position) {
-            this.connectionsGeometry.attributes.position.needsUpdate = true;
         }
     }
     refreshConnectionOverlays() {
@@ -1050,6 +1099,9 @@ export class GalaxyRenderer {
             this.cameraController.update();
         if (this.starField)
             this.starField.update(16);
+        this.selectionOverlay.update();
+        this.textOverlay.update(this.camera, this.renderer.domElement);
+        this.screenOverlayRegistry.update(this.camera, this.renderer.domElement);
         this.renderer.render(this.scene, this.camera);
         for (const panel of this.statsPanels) {
             panel.end();
@@ -1073,6 +1125,8 @@ export class GalaxyRenderer {
         this.camera.updateProjectionMatrix();
         this.renderer.setSize(window.innerWidth, window.innerHeight);
         this.labelRenderer.setSize(window.innerWidth, window.innerHeight);
+        this.uiOverlayLayer.style.width = `${window.innerWidth}px`;
+        this.uiOverlayLayer.style.height = `${window.innerHeight}px`;
         // Update Line2 material resolution for overlay circles
         if (this._circleTemplates && this._circleTemplates.useLine2) {
             const width = window.innerWidth;
@@ -1102,6 +1156,10 @@ export class GalaxyRenderer {
         this.clusters = [];
         // Clean up overlay circles
         this.disposeOverlayCircles();
+        this.selectionOverlay.clear();
+        this.pathOverlay.clear();
+        this.textOverlay.setLabels([]);
+        this.screenOverlayRegistry.clear();
     }
     getStatistics() {
         let numClusters = this.clusters.length;

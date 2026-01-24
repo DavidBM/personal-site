@@ -10,7 +10,7 @@ export class CursorStatsWidget {
      * @param {Bus} bus - The event bus to subscribe on.
      * @param {string} [lineId="cursorStats"] - id for the widget's <p> element (for uniqueness).
      */
-    constructor(bus, lineId = "cursorStats") {
+    constructor(bus, lineId = "cursorStats", container) {
         this.row = null;
         this.scrXLabel = null;
         this.scrXSpan = null;
@@ -22,6 +22,7 @@ export class CursorStatsWidget {
         this.galYSpan = null;
         this.bus = bus;
         this.lineId = lineId;
+        this.container = container ?? null;
         this._setupUI();
         this._onPointerEvent = this._onPointerEvent.bind(this);
         if (!bus._brokerReady)
@@ -29,7 +30,7 @@ export class CursorStatsWidget {
         bus.subscribe("pointer_event", this._onPointerEvent);
     }
     _setupUI() {
-        const statsBox = document.getElementById("stats");
+        const statsBox = this.container ?? document.getElementById("stats");
         if (!statsBox)
             return;
         const existing = document.getElementById(this.lineId);
@@ -68,6 +69,34 @@ export class CursorStatsWidget {
             }
             else {
                 statsBox.appendChild(this.row);
+            }
+        }
+        if (this.row && this.row.parentElement !== statsBox) {
+            if (statsBox.children.length > 0) {
+                statsBox.insertBefore(this.row, statsBox.children[1] ?? null);
+            }
+            else {
+                statsBox.appendChild(this.row);
+            }
+        }
+    }
+    setContainer(container) {
+        this.container = container;
+        if (!container) {
+            if (this.row)
+                this.row.remove();
+            return;
+        }
+        if (!this.row) {
+            this._setupUI();
+            return;
+        }
+        if (this.row.parentElement !== container) {
+            if (container.children.length > 0) {
+                container.insertBefore(this.row, container.children[1] ?? null);
+            }
+            else {
+                container.appendChild(this.row);
             }
         }
     }
