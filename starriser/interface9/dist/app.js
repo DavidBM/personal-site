@@ -38,6 +38,10 @@ export class App {
         // Create metrics instance and pass to galaxy for efficient statistics tracking
         this.metrics = new GalaxyMetrics();
         this.galaxy = new Galaxy(this.renderer, this.metrics, (evt) => this.handleClusterEditPointer(evt));
+        this.renderer.setFleetPositionProvider((node) => {
+            const sys = this.galaxy.getSolarSystemById(node.clusterId, node.solarSystemId);
+            return sys ? sys.position : null;
+        });
         this.galaxyBuilder = new IncrementalGalaxyBuilder(this.galaxy);
         this.cameraController = new CameraController(this.renderer);
         this.uiController =
@@ -59,6 +63,7 @@ export class App {
         this.lastUIState = { hoveredId: null, selectedId: null };
         this.clusterDragStarts = new Map();
         this.maxSolarSystemId = 0;
+        this.fleetStatusById = new Map();
     }
     buildUIBindings(mode) {
         return mode === "play"
@@ -98,6 +103,7 @@ export class App {
         }
         this.updateStats();
         this.updateUIModeHistory();
+        this.renderFleetList();
     }
     updateUIModeHistory() {
         const url = new URL(window.location.href);
@@ -122,6 +128,11 @@ export class App {
             // Launch business worker
             await this.mainBus.launchWorker("../business/business-worker.js", {
                 workerId: "business",
+                busOptions: { debug: 1 },
+            });
+            // Launch fleets worker
+            await this.mainBus.launchWorker("../fleets/fleets-worker.js", {
+                workerId: "fleets",
                 busOptions: { debug: 1 },
             });
             if (!this.mainBus._brokerReady) {
@@ -160,6 +171,15 @@ export class App {
                 });
                 this.mainBus.subscribe("commit_cluster_move", ({ clusterId, position, }) => {
                     this.handleClusterDragCommit(clusterId, position);
+                });
+                this.mainBus.subscribe("fleet_spawned", ({ id, counts, state, }) => {
+                    this.handleFleetSpawned(id, counts, state);
+                });
+                this.mainBus.subscribe("fleet_state", ({ id, state }) => {
+                    this.handleFleetState(id, state);
+                });
+                this.mainBus.subscribe("fleet_removed", ({ id }) => {
+                    this.handleFleetRemoved(id);
                 });
             }
             console.log("All workers initialized successfully");
@@ -817,10 +837,23 @@ export class App {
             this.mainBus.publish("generateGalaxy", params);
         }
     }
+    generateFleet() {
+        if (this.mainBus._brokerReady) {
+            this.mainBus.publish("generate_fleet", {});
+        }
+    }
+    generateFleetsBulk(count) {
+        if (!this.mainBus._brokerReady)
+            return;
+        for (let i = 0; i < count; i++) {
+            this.mainBus.publish("generate_fleet", {});
+        }
+    }
     clearGalaxy() {
         console.log("Clearing galaxy...");
         // Clear renderer
         this.renderer.clear();
+        this.renderer.clearFleets();
         // Clear galaxy
         this.galaxy.clear();
         this.maxSolarSystemId = 0;
@@ -836,7 +869,76 @@ export class App {
             connections: 0,
             internalConnections: 0,
         });
+        this.fleetStatusById.clear();
+        this.renderFleetList();
         console.log("Galaxy cleared!");
+    }
+    handleFleetSpawned(id, counts, state) {
+        this.fleetStatusById.set(id, { counts, state });
+        this.renderFleetList();
+        this.renderer.addFleet(id, counts, state);
+    }
+    handleFleetState(id, state) {
+        const existing = this.fleetStatusById.get(id);
+        if (existing) {
+            existing.state = state;
+        }
+        this.renderFleetList();
+        this.renderer.updateFleetState(id, state);
+    }
+    handleFleetRemoved(id) {
+        this.fleetStatusById.delete(id);
+        this.renderFleetList();
+        this.renderer.removeFleet(id);
+    }
+    renderFleetList() {
+        if (this.uiBindings.mode !== "editor")
+            return;
+        const fleetBindings = this.uiBindings.fleets;
+        if (!fleetBindings)
+            return;
+        const list = fleetBindings.list;
+        while (list.firstChild) {
+            list.removeChild(list.firstChild);
+        }
+        const fleetCount = this.fleetStatusById.size;
+        if (fleetCount === 0) {
+            list.appendChild(fleetBindings.empty);
+            return;
+        }
+        if (fleetCount > 10) {
+            const summary = document.createElement("span");
+            summary.textContent = `Active fleets: ${fleetCount}`;
+            summary.className = "ui-label";
+            list.appendChild(summary);
+            return;
+        }
+        const entries = Array.from(this.fleetStatusById.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+        for (const [id, data] of entries) {
+            const row = document.createElement("div");
+            row.style.display = "flex";
+            row.style.flexDirection = "column";
+            row.style.gap = "2px";
+            const title = document.createElement("span");
+            title.textContent = id;
+            title.className = "ui-label";
+            const status = document.createElement("span");
+            status.textContent = this.describeFleetStatus(data.state, data.counts);
+            status.style.opacity = "0.8";
+            row.appendChild(title);
+            row.appendChild(status);
+            list.appendChild(row);
+        }
+    }
+    describeFleetStatus(state, counts) {
+        const ships = counts.red + counts.blue + counts.green;
+        if (state.state === "jumping") {
+            return `Jumping (${ships} ships)`;
+        }
+        if (state.state === "cooldown") {
+            return `Cooling down (${ships} ships)`;
+        }
+        return `Awaiting (${ships} ships)`;
     }
     updateStats(stats) {
         const resolvedStats = stats ?? this.galaxy.getStatistics();

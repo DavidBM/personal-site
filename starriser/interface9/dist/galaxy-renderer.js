@@ -2,6 +2,7 @@ import * as THREE from "./vendor/three.js";
 import { CSS2DRenderer } from "./vendor/CSS2DRenderer.js";
 import { StarField } from "./star-field.js";
 import GalaxyConnectionLines from "./gfx-utils/galaxy-connection-lines.js";
+import { Fleets } from "./fleets.js";
 import { AxisGizmo, GraphPathOverlay, ScreenOverlayRegistry, SelectionOverlay, TextBillboardManager, } from "./gfx-utils/ui-overlays.js";
 /**
  * Centralized renderer and scene orchestrator for the galaxy and live ops.
@@ -72,6 +73,7 @@ export class GalaxyRenderer {
         this.editHandlesByCluster = new Map();
         this._editHandleCircle = null;
         this.axisGizmo = new AxisGizmo(this.editHandleOverlayGroup);
+        this.fleets = new Fleets(this.scene);
         this.fpsCallback = null;
         this.frameCount = 0;
         this.lastTime = performance.now();
@@ -111,6 +113,24 @@ export class GalaxyRenderer {
     }
     hasEditHandles() {
         return this.editHandleOverlayGroup.children.length > 0;
+    }
+    setFleetPositionProvider(provider) {
+        this.fleets.setPositionProvider(provider);
+    }
+    addFleet(id, counts, state) {
+        this.fleets.addFleet(id, counts, state);
+    }
+    updateFleetState(id, state) {
+        this.fleets.updateFleetState(id, state);
+    }
+    removeFleet(id) {
+        this.fleets.removeFleet(id);
+    }
+    clearFleets() {
+        this.fleets.clear();
+    }
+    setFleetUpdateConfig(options) {
+        this.fleets.setUpdateConfig(options);
     }
     getPointerRayFromEvent(event) {
         let x, y;
@@ -333,8 +353,9 @@ export class GalaxyRenderer {
             getPosition: () => cluster.position,
             size,
             html: selectionPanel,
-            htmlOffset: { x: 16, y: -16 },
-            htmlDraggable: true,
+            htmlOffset: { x: 8, y: -12 },
+            htmlAnchor: "box-right",
+            htmlDraggable: false,
         };
         this.selectionOverlay.setSelections([selection]);
     }
@@ -354,7 +375,7 @@ export class GalaxyRenderer {
         const panel = document.createElement("div");
         panel.className = "ui-panel webgl-selection-panel";
         panel.style.padding = "8px 10px";
-        panel.style.pointerEvents = "auto";
+        panel.style.pointerEvents = "none";
         const title = document.createElement("div");
         title.className = "ui-panel-title";
         title.textContent = `Cluster ${cluster.id}`;
@@ -1102,6 +1123,7 @@ export class GalaxyRenderer {
         this.selectionOverlay.update();
         this.textOverlay.update(this.camera, this.renderer.domElement);
         this.screenOverlayRegistry.update(this.camera, this.renderer.domElement);
+        this.fleets.update(Date.now(), this.camera.position.y);
         this.renderer.render(this.scene, this.camera);
         for (const panel of this.statsPanels) {
             panel.end();
@@ -1146,6 +1168,7 @@ export class GalaxyRenderer {
             this.galaxyClusterGroup.remove(c);
             // Dispose geometry/material if you want here...
         }
+        this.clearFleets();
         this.galaxyConnectionLines.clear();
         this.solarSystemConnectionLines.clear();
         this.connectionIdToBufferIndex = new Map();

@@ -15,6 +15,7 @@ export class ScreenOverlayRegistry {
             id: options.id,
             element: options.element,
             getWorldPosition: options.getWorldPosition,
+            getScreenPosition: options.getScreenPosition,
             offset: options.offset ?? { x: 0, y: 0 },
             draggable: options.draggable ?? false,
         };
@@ -50,11 +51,20 @@ export class ScreenOverlayRegistry {
         const width = viewport.clientWidth || window.innerWidth;
         const height = viewport.clientHeight || window.innerHeight;
         for (const entry of this.overlays.values()) {
-            const position = entry.getWorldPosition();
-            this._scratch.set(position.x, position.y, position.z);
-            this._scratch.project(camera);
-            const x = (this._scratch.x * 0.5 + 0.5) * width;
-            const y = (-this._scratch.y * 0.5 + 0.5) * height;
+            let x = 0;
+            let y = 0;
+            if (entry.getScreenPosition) {
+                const pos = entry.getScreenPosition(camera, viewport);
+                x = pos.x;
+                y = pos.y;
+            }
+            else {
+                const position = entry.getWorldPosition();
+                this._scratch.set(position.x, position.y, position.z);
+                this._scratch.project(camera);
+                x = (this._scratch.x * 0.5 + 0.5) * width;
+                y = (-this._scratch.y * 0.5 + 0.5) * height;
+            }
             const nextX = Math.round(x + entry.offset.x);
             const nextY = Math.round(y + entry.offset.y);
             entry.element.style.transform = `translate(${nextX}px, ${nextY}px)`;
@@ -206,10 +216,51 @@ export class SelectionOverlay {
                 continue;
             if (this._overlayHandles.has(item.id))
                 continue;
+            let getScreenPosition;
+            if (item.htmlAnchor === "box-right") {
+                const scratch = new THREE.Vector3();
+                getScreenPosition = (camera, viewport) => {
+                    const pos = item.getPosition();
+                    const halfX = item.size.x * 0.5;
+                    const halfY = item.size.y * 0.5;
+                    const halfZ = item.size.z * 0.5;
+                    const x0 = pos.x - halfX;
+                    const x1 = pos.x + halfX;
+                    const y0 = pos.y - halfY;
+                    const y1 = pos.y + halfY;
+                    const z0 = pos.z - halfZ;
+                    const z1 = pos.z + halfZ;
+                    const width = viewport.clientWidth || window.innerWidth;
+                    const height = viewport.clientHeight || window.innerHeight;
+                    let maxX = -Infinity;
+                    const corners = [
+                        [x0, y0, z0],
+                        [x1, y0, z0],
+                        [x1, y0, z1],
+                        [x0, y0, z1],
+                        [x0, y1, z0],
+                        [x1, y1, z0],
+                        [x1, y1, z1],
+                        [x0, y1, z1],
+                    ];
+                    for (const corner of corners) {
+                        scratch.set(corner[0], corner[1], corner[2]);
+                        scratch.project(camera);
+                        const sx = (scratch.x * 0.5 + 0.5) * width;
+                        if (sx > maxX)
+                            maxX = sx;
+                    }
+                    scratch.set(pos.x, pos.y, pos.z);
+                    scratch.project(camera);
+                    const centerY = (-scratch.y * 0.5 + 0.5) * height;
+                    return { x: maxX, y: centerY };
+                };
+            }
             const handle = this._overlayRegistry.register({
                 id: item.id,
                 element: item.html,
-                getWorldPosition: item.getPosition,
+                getWorldPosition: item.htmlGetPosition ?? item.getPosition,
+                getScreenPosition,
                 offset: item.htmlOffset,
                 draggable: item.htmlDraggable,
             });

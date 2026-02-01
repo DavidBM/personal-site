@@ -257,6 +257,18 @@ export function buildEditorUI(ctx, app) {
         onClick: (event) => buttonHandlers(event, () => app.generateInternalConnections()),
     });
     ctx.button({
+        id: "generateFleet",
+        parent: buttonRow.element,
+        text: "Generate a Fleet",
+        onClick: (event) => buttonHandlers(event, () => app.generateFleet()),
+    });
+    ctx.button({
+        id: "generateFleetsBulk",
+        parent: buttonRow.element,
+        text: "Generate 1000 Fleets",
+        onClick: (event) => buttonHandlers(event, () => app.generateFleetsBulk(1000)),
+    });
+    ctx.button({
         id: "clearGalaxy",
         parent: buttonRow.element,
         text: "Clear Galaxy",
@@ -288,6 +300,29 @@ export function buildEditorUI(ctx, app) {
         gates: totalGates,
         internalLinks,
     };
+    const fleetsPanel = ctx.panel({
+        id: "fleets-panel",
+        title: "Fleets",
+        width: 280,
+    });
+    fleetsPanel.element.style.position = "absolute";
+    fleetsPanel.element.style.top = "220px";
+    fleetsPanel.element.style.right = "12px";
+    const fleetList = ctx.container({
+        id: "fleets-list",
+        parent: fleetsPanel.content,
+    });
+    fleetList.element.style.display = "flex";
+    fleetList.element.style.flexDirection = "column";
+    fleetList.element.style.gap = "6px";
+    fleetList.element.style.maxHeight = "240px";
+    fleetList.element.style.overflowY = "auto";
+    const fleetEmpty = ctx.text({
+        id: "fleets-empty",
+        parent: fleetList.element,
+        text: "No fleets active.",
+        muted: true,
+    }).element;
     const contextMenu = ctx.panel({
         id: "cluster-context-menu",
         title: "Cluster",
@@ -333,6 +368,11 @@ export function buildEditorUI(ctx, app) {
         panels: {
             controls,
             stats: statsPanel,
+            fleets: fleetsPanel,
+        },
+        fleets: {
+            list: fleetList.element,
+            empty: fleetEmpty,
         },
     };
 }
@@ -366,24 +406,6 @@ export function buildPlayUI(ctx, app) {
         parent: statusPanel.content,
         text: "No fleet activity detected.",
         muted: true,
-    });
-    ctx.select({
-        id: "play-focus-select",
-        options: [
-            { value: "routes", label: "Routes" },
-            { value: "targets", label: "Targets" },
-            { value: "signals", label: "Signals" },
-        ],
-        value: "routes",
-        floating: true,
-        draggable: true,
-        position: {
-            x: window.innerWidth * 0.5 - 90,
-            y: window.innerHeight * 0.5 - 40,
-        },
-        onChange: (value) => {
-            console.log("Play focus set:", value);
-        },
     });
     return {
         mode: "play",
