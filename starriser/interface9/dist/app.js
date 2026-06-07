@@ -3,18 +3,21 @@ import { UIController } from "./ui-controller.js";
 import { CameraController } from "./camera-controller.js";
 import { Galaxy } from "./galaxy.js";
 import { GalaxyMetrics } from "./galaxy-metrics.js";
-import { Cluster } from "./cluster.js";
-import { SolarSystem } from "./solar-system.js";
 import { ControlsManager } from "./controls-manager.js";
-import { IncrementalGalaxyBuilder } from "./incremental-galaxy-builder.js";
 import { buildClusterSolarSystemPlan } from "./cluster-solar-system-plan.js";
+import { replayGalaxyOps } from "./galaxy/galaxy-op-replayer.js";
+import { ClusterContextMenuController } from "./main/cluster-context-menu-controller.js";
+import { subscribeAppLifecycleDebugTopics, subscribeAppTopics, } from "./main/app-subscriptions.js";
+import { initializeAppWorkers } from "./main/app-workers.js";
+import { createPointerEventRouter, } from "./main/pointer-event-router.js";
 import { Bus } from "./worker/bus/Bus.js";
+import { publishTopic, Topics } from "./worker/protocol/topics.js";
 import { CursorStatsWidget } from "./ui/cursor-stats-widget.js";
 import { createUIContext, createUIRoot } from "./ui/ui-kit.js";
 import { buildEditorUI, buildPlayUI, resolveUIMode, } from "./ui/ui-modes.js";
 import Stats from "./vendor/stats.js";
 import { opAddSolarSystem, opConnectClusters, opConnectSolarSystems, opRemoveConnection, opRemoveSolarSystem, } from "./worker/galaxy/galaxy-ops.js";
-import { angleXZ, pointAtAngle } from "./worker/galaxy/galaxy-xz-math.js";
+import { angleXZ, pointAtAngle } from "./math/galaxy-xz-math.js";
 export class App {
     constructor() {
         this.statsPanels = [];
@@ -24,7 +27,8 @@ export class App {
         this.uiBindings = this.buildUIBindings(this.uiMode);
         this.contextMenu =
             this.uiBindings.mode === "editor" ? this.uiBindings.contextMenu : null;
-        this.contextMenuClusterId = null;
+        this.contextMenuController = null;
+        this.pointerEventRouter = null;
         const statsBar = this.uiBindings.mode === "editor"
             ? (this.uiBindings.stats.container ?? null)
             : null;
@@ -42,12 +46,12 @@ export class App {
             const sys = this.galaxy.getSolarSystemById(node.clusterId, node.solarSystemId);
             return sys ? sys.position : null;
         });
-        this.galaxyBuilder = new IncrementalGalaxyBuilder(this.galaxy);
         this.cameraController = new CameraController(this.renderer);
+        this.contextMenuController = this.createContextMenuController();
         this.uiController =
             this.uiBindings.mode === "editor"
-                ? new UIController(this, this.uiBindings.stats)
-                : new UIController(this);
+                ? new UIController(this.uiBindings.stats)
+                : new UIController();
         this.controlsManager = ControlsManager.getInstance();
         // Create main bus for worker management
         this.mainBus = new Bus(window, {
@@ -70,6 +74,15 @@ export class App {
             ? buildPlayUI(this.uiContext, this)
             : buildEditorUI(this.uiContext, this);
     }
+    createContextMenuController() {
+        if (!this.contextMenu)
+            return null;
+        return new ClusterContextMenuController({
+            bindings: this.contextMenu,
+            getClusters: () => this.galaxy.clusters,
+            getGroundPoint: (screenX, screenY) => this.cameraController.getGroundPointFromScreenPosition(screenX, screenY),
+        });
+    }
     setUIMode(mode) {
         if (mode === this.uiMode)
             return;
@@ -78,7 +91,7 @@ export class App {
         this.uiBindings = this.buildUIBindings(this.uiMode);
         this.contextMenu =
             this.uiBindings.mode === "editor" ? this.uiBindings.contextMenu : null;
-        this.contextMenuClusterId = null;
+        this.contextMenuController = this.createContextMenuController();
         const statsBar = this.uiBindings.mode === "editor"
             ? (this.uiBindings.stats.container ?? null)
             : null;
@@ -115,81 +128,64 @@ export class App {
     }
     async initializeWorkers() {
         try {
-            // Enable pub/sub system first
-            await this.mainBus.enablePubSub();
-            // Log broker status for debugging
-            const brokerStatus = await this.mainBus.getBrokerStatus();
-            console.log("📊 Broker system status:", brokerStatus);
-            // Launch galaxy worker
-            await this.mainBus.launchWorker("../galaxy/galaxy-worker.js", {
-                workerId: "galaxy",
-                busOptions: { debug: 1 },
+            await initializeAppWorkers(this.mainBus);
+            subscribeAppTopics(this.mainBus, {
+                galaxy: {
+                    onGalaxyOps: (ops) => {
+                        this.processOps(ops);
+                        this.updateStats();
+                    },
+                    onGalaxyComplete: (payload) => {
+                        if (!payload || payload.finalizeBuffers !== false) {
+                            this.renderer.finalizeBuffers(this.galaxy);
+                        }
+                        this.updateStats();
+                    },
+                    onGalaxyError: (error) => {
+                        alert(`Galaxy Worker error: ${error}`);
+                    },
+                },
+                business: {
+                    onUIState: ({ hoveredId, selectedId }) => {
+                        this.handleUIStateUpdate({ hoveredId, selectedId });
+                    },
+                    onConnectionColors: (connectionColors) => {
+                        this.renderer.setConnectionColors(connectionColors);
+                    },
+                    onShowEditHandles: ({ clusterId, handles }) => {
+                        this.controlsManager.setEditModeActive(true, clusterId);
+                        this.galaxy.showEditHandles(clusterId, handles);
+                    },
+                    onHideEditHandles: ({ clusterId }) => {
+                        this.controlsManager.setEditModeActive(false, null);
+                        this.galaxy.hideEditHandles(clusterId);
+                    },
+                    onUpdateCluster: ({ clusterId, position }) => {
+                        this.handleClusterDragUpdate(clusterId, position);
+                    },
+                    onCommitClusterMove: ({ clusterId, position }) => {
+                        this.handleClusterDragCommit(clusterId, position);
+                    },
+                },
+                fleets: {
+                    onFleetSpawned: ({ id, counts, state }) => {
+                        this.handleFleetSpawned(id, counts, state);
+                    },
+                    onFleetState: ({ id, state }) => {
+                        this.handleFleetState(id, state);
+                    },
+                    onFleetRemoved: ({ id }) => {
+                        this.handleFleetRemoved(id);
+                    },
+                },
             });
-            // Launch business worker
-            await this.mainBus.launchWorker("../business/business-worker.js", {
-                workerId: "business",
-                busOptions: { debug: 1 },
-            });
-            // Launch fleets worker
-            await this.mainBus.launchWorker("../fleets/fleets-worker.js", {
-                workerId: "fleets",
-                busOptions: { debug: 1 },
-            });
-            if (!this.mainBus._brokerReady) {
-                console.warn("Pub/sub not available on main bus - broker not ready");
-            }
-            else {
-                this.mainBus.subscribe("ops", (ops) => {
-                    this.processOps(ops);
-                    this.updateStats();
-                });
-                this.mainBus.subscribe("complete", (payload) => {
-                    if (!payload || payload.finalizeBuffers !== false) {
-                        this.renderer.finalizeBuffers(this.galaxy);
-                    }
-                    this.updateStats();
-                });
-                this.mainBus.subscribe("error", ({ error }) => {
-                    alert(`Galaxy Worker error: ${error}`);
-                });
-                this.mainBus.subscribe("update_ui_state", ({ hoveredId, selectedId }) => {
-                    this.handleUIStateUpdate({ hoveredId, selectedId });
-                });
-                this.mainBus.subscribe("setConnectionColors", (connectionColors) => {
-                    this.renderer.setConnectionColors(connectionColors);
-                });
-                this.mainBus.subscribe("show_edit_handles", ({ clusterId, handles, }) => {
-                    this.controlsManager.setEditModeActive(true, clusterId);
-                    this.galaxy.showEditHandles(clusterId, handles);
-                });
-                this.mainBus.subscribe("hide_edit_handles", ({ clusterId }) => {
-                    this.controlsManager.setEditModeActive(false, null);
-                    this.galaxy.hideEditHandles(clusterId);
-                });
-                this.mainBus.subscribe("update_cluster", ({ clusterId, position, }) => {
-                    this.handleClusterDragUpdate(clusterId, position);
-                });
-                this.mainBus.subscribe("commit_cluster_move", ({ clusterId, position, }) => {
-                    this.handleClusterDragCommit(clusterId, position);
-                });
-                this.mainBus.subscribe("fleet_spawned", ({ id, counts, state, }) => {
-                    this.handleFleetSpawned(id, counts, state);
-                });
-                this.mainBus.subscribe("fleet_state", ({ id, state }) => {
-                    this.handleFleetState(id, state);
-                });
-                this.mainBus.subscribe("fleet_removed", ({ id }) => {
-                    this.handleFleetRemoved(id);
-                });
-            }
             console.log("All workers initialized successfully");
             // Setup event handling after workers are ready
             this.renderer.setCameraController(this.cameraController);
             this.initEventListeners();
-            // Set up pub/sub subscriptions and demo after everything is ready
+            // Set up optional lifecycle/debug subscriptions after workers are ready.
             setTimeout(() => {
-                this.setupMainPubSubSubscriptions();
-                this.demonstratePubSubSystem();
+                subscribeAppLifecycleDebugTopics(this.mainBus);
             }, 500);
         }
         catch (error) {
@@ -198,9 +194,9 @@ export class App {
         }
     }
     publishPointerEvent(payload, priority = 0) {
-        if (!this.mainBus._brokerReady)
+        if (!this.mainBus.isPubSubReady())
             return;
-        this.mainBus.publish("pointer_event", payload, priority);
+        publishTopic(this.mainBus, Topics.pointerEvent, payload, priority);
     }
     /**
      * Used by Cluster.editHandlePointerEvent to forward a handle drag/move edit event to the business worker.
@@ -221,7 +217,7 @@ export class App {
             clusterId: cluster.id,
             handleId,
             handleKind,
-            editDragMode, // "xz" or "y" for edit dragging
+            editDragMode,
             screen_position: { x: screenX, y: screenY },
             galaxy_position: { x: groundPoint.x, z: groundPoint.z },
             ray: pointerRay,
@@ -237,13 +233,23 @@ export class App {
         if (this.stats) {
             this.renderer.setStats(this.stats);
         }
-        // Unified event handling for camera, selection, and edit handles
-        this.setupUnifiedEventHandlers();
+        const canvas = this.renderer?.renderer?.domElement;
+        if (!canvas) {
+            console.error("Renderer domElement not available for events");
+            return;
+        }
+        this.pointerEventRouter?.dispose();
+        this.pointerEventRouter = createPointerEventRouter({
+            canvas,
+            cameraController: this.cameraController,
+            controlsManager: this.controlsManager,
+            galaxy: this.galaxy,
+            getContextMenuController: () => this.contextMenuController,
+            publishPointerEvent: (payload, priority) => this.publishPointerEvent(payload, priority),
+        });
     }
     handleContextMenuAction(action) {
-        if (!this.contextMenu)
-            return;
-        const clusterId = this.contextMenuClusterId;
+        const clusterId = this.contextMenuController?.getClusterId() ?? null;
         if (action === "regenerate" && typeof clusterId === "number") {
             this.regenerateCluster(clusterId);
         }
@@ -251,255 +257,9 @@ export class App {
             typeof clusterId === "number") {
             this.regenerateClusterExtended(clusterId);
         }
-        this.contextMenu.select.value = "inspect";
-        this.hideClusterContextMenu();
+        this.contextMenuController?.resetAction();
+        this.contextMenuController?.hide();
     }
-    /**
-     * Setup unified event handlers for camera controls and selection
-     */
-    setupUnifiedEventHandlers() {
-        const el = this.renderer?.renderer?.domElement;
-        if (!el) {
-            console.error("Renderer domElement not available for events");
-            return;
-        }
-        // Pointer movement and timing threshold for click/tap
-        const CLICK_DIST2 = 50 * 50;
-        const TAP_TIME_MS = 200;
-        const controlsManager = this.controlsManager;
-        el.addEventListener("mousedown", (e) => {
-            if (e.button === 0) {
-                this.hideClusterContextMenu();
-            }
-            // 1. Check edit handles first (highest priority)
-            if (this.galaxy.handleEditPointerDown(e)) {
-                e.preventDefault();
-                return;
-            }
-            // 2. Handle camera controls (local only, no bus)
-            this.cameraController.onMouseDown(e);
-            // 3. Always track selection state for movement calculation
-            controlsManager.pointerDown(e.clientX, e.clientY);
-            // Only send bus events if not camera dragging
-            if (!this.cameraController.isDragging) {
-                const galaxyVec = this.cameraController.getGroundPointFromScreenPosition(e.clientX, e.clientY) || { x: 0, y: 0, z: 0 };
-                const pointerRay = this.cameraController.getPointerRayFromScreenPosition(e.clientX, e.clientY);
-                this.publishPointerEvent({
-                    type: "down",
-                    screen_position: { x: e.clientX, y: e.clientY },
-                    galaxy_position: { x: galaxyVec.x, z: galaxyVec.z },
-                    key_state: controlsManager.getCurrentKeyState(),
-                    ray: pointerRay,
-                });
-            }
-        });
-        el.addEventListener("mousemove", (e) => {
-            // 1. Check edit handles first
-            if (this.galaxy.handleEditPointerMove(e)) {
-                e.preventDefault();
-                return;
-            }
-            // 2. Handle camera controls (local only)
-            this.cameraController.onMouseMove(e);
-            // 3. Always track selection movement for distance calculation
-            controlsManager.pointerMove(e.clientX, e.clientY);
-            // Only send bus events for selection logic
-            const galaxyVec = this.cameraController.getGroundPointFromScreenPosition(e.clientX, e.clientY) || { x: 0, y: 0, z: 0 };
-            const pointerRay = this.cameraController.getPointerRayFromScreenPosition(e.clientX, e.clientY);
-            this.publishPointerEvent({
-                type: "move",
-                screen_position: { x: e.clientX, y: e.clientY },
-                galaxy_position: { x: galaxyVec.x, z: galaxyVec.z },
-                key_state: controlsManager.getCurrentKeyState(),
-                ray: pointerRay,
-            });
-        });
-        el.addEventListener("mouseup", (e) => {
-            // 1. Check edit handles first
-            if (this.galaxy.handleEditPointerUp(e)) {
-                e.preventDefault();
-                return;
-            }
-            // 2. Handle camera controls (local only)
-            this.cameraController.onMouseUp(e);
-            // 3. Always track selection state for movement calculation
-            controlsManager.pointerUp(e.clientX, e.clientY);
-            const galaxyVec = this.cameraController.getGroundPointFromScreenPosition(e.clientX, e.clientY) || { x: 0, y: 0, z: 0 };
-            const pointerRay = this.cameraController.getPointerRayFromScreenPosition(e.clientX, e.clientY);
-            // Send up event to bus
-            this.publishPointerEvent({
-                type: "up",
-                screen_position: { x: e.clientX, y: e.clientY },
-                galaxy_position: { x: galaxyVec.x, z: galaxyVec.z },
-                key_state: controlsManager.getCurrentKeyState(),
-                ray: pointerRay,
-            });
-            // Generate tap event only if not camera dragging
-            const upTime = Date.now();
-            const pointerDownTime = controlsManager._pointerDownTimestamp || upTime;
-            const dur = upTime - pointerDownTime;
-            const movedDist = controlsManager.pointerMovedDistanceSq();
-            const isDragging = this.cameraController.isDragging;
-            if (e.button === 0 &&
-                movedDist < CLICK_DIST2 &&
-                dur < TAP_TIME_MS &&
-                !isDragging) {
-                this.publishPointerEvent({
-                    type: "tap",
-                    eventSource: "selection",
-                    tapId: `selection_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-                    screen_position: { x: e.clientX, y: e.clientY },
-                    galaxy_position: { x: galaxyVec.x, z: galaxyVec.z },
-                    key_state: controlsManager.getCurrentKeyState(),
-                    ray: pointerRay,
-                });
-            }
-            controlsManager._pointerDownTimestamp = null;
-        });
-        // --- Touch Events (Mobile/Tablets) ---
-        el.addEventListener("touchstart", (e) => {
-            this.hideClusterContextMenu();
-            if (e.touches && e.touches.length > 0) {
-                const touch = e.touches[0];
-                controlsManager.pointerDown(touch.clientX, touch.clientY);
-                const galaxyVec = this.cameraController.getGroundPointFromScreenPosition(touch.clientX, touch.clientY) || { x: 0, y: 0, z: 0 };
-                const pointerRay = this.cameraController.getPointerRayFromScreenPosition(touch.clientX, touch.clientY);
-                this.publishPointerEvent({
-                    type: "down",
-                    screen_position: { x: touch.clientX, y: touch.clientY },
-                    galaxy_position: { x: galaxyVec.x, z: galaxyVec.z },
-                    key_state: controlsManager.getCurrentKeyState(),
-                    ray: pointerRay,
-                });
-            }
-        });
-        el.addEventListener("touchmove", (e) => {
-            if (e.touches && e.touches.length > 0) {
-                const touch = e.touches[0];
-                controlsManager.pointerMove(touch.clientX, touch.clientY);
-                const galaxyVec = this.cameraController.getGroundPointFromScreenPosition(touch.clientX, touch.clientY) || { x: 0, y: 0, z: 0 };
-                const pointerRay = this.cameraController.getPointerRayFromScreenPosition(touch.clientX, touch.clientY);
-                this.publishPointerEvent({
-                    type: "move",
-                    screen_position: { x: touch.clientX, y: touch.clientY },
-                    galaxy_position: { x: galaxyVec.x, z: galaxyVec.z },
-                    key_state: controlsManager.getCurrentKeyState(),
-                    ray: pointerRay,
-                });
-            }
-        });
-        const handleTouchEndOrCancel = (e) => {
-            let screenX = 0, screenY = 0;
-            let galaxyVec = { x: 0, y: 0, z: 0 };
-            if ((e.changedTouches && e.changedTouches.length > 0) ||
-                (e.touches && e.touches.length > 0)) {
-                const touch = e.changedTouches && e.changedTouches.length > 0
-                    ? e.changedTouches[0]
-                    : e.touches[0];
-                screenX = touch.clientX;
-                screenY = touch.clientY;
-                galaxyVec = this.cameraController.getGroundPointFromScreenPosition(screenX, screenY) || { x: 0, y: 0, z: 0 };
-            }
-            controlsManager.pointerUp(screenX, screenY);
-            const pointerRay = this.cameraController.getPointerRayFromScreenPosition(screenX, screenY);
-            this.publishPointerEvent({
-                type: "up",
-                screen_position: { x: screenX, y: screenY },
-                galaxy_position: { x: galaxyVec.x, z: galaxyVec.z },
-                key_state: controlsManager.getCurrentKeyState(),
-                ray: pointerRay,
-            });
-            // Only send 'tap' if pointer moved less than 50px AND was under 500ms
-            const upTime = Date.now();
-            const pointerDownTime = controlsManager._pointerDownTimestamp || upTime;
-            const dur = upTime - pointerDownTime;
-            if (controlsManager.pointerMovedDistanceSq() < CLICK_DIST2 &&
-                dur < TAP_TIME_MS) {
-                this.publishPointerEvent({
-                    type: "tap",
-                    eventSource: "touch",
-                    tapId: `touch_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-                    screen_position: { x: screenX, y: screenY },
-                    galaxy_position: { x: galaxyVec.x, z: galaxyVec.z },
-                    key_state: controlsManager.getCurrentKeyState(),
-                    ray: pointerRay,
-                });
-            }
-            controlsManager._pointerDownTimestamp = null;
-        };
-        el.addEventListener("touchend", handleTouchEndOrCancel);
-        el.addEventListener("touchcancel", handleTouchEndOrCancel);
-        el.addEventListener("contextmenu", (e) => {
-            if (!this.contextMenu)
-                return;
-            e.preventDefault();
-            e.stopPropagation();
-            const pick = this.findClusterForContextMenu(e.clientX, e.clientY);
-            if (!pick) {
-                this.hideClusterContextMenu();
-                return;
-            }
-            this.showClusterContextMenu(pick.cluster.id, e.clientX, e.clientY);
-            const pointerRay = this.cameraController.getPointerRayFromScreenPosition(e.clientX, e.clientY);
-            this.publishPointerEvent({
-                type: "tap",
-                eventSource: "context",
-                screen_position: { x: e.clientX, y: e.clientY },
-                galaxy_position: { x: pick.ground.x, z: pick.ground.z },
-                key_state: controlsManager.getCurrentKeyState(),
-                ray: pointerRay,
-            });
-        });
-    }
-    findClusterForContextMenu(screenX, screenY) {
-        const ground = this.cameraController.getGroundPointFromScreenPosition(screenX, screenY);
-        if (!ground)
-            return null;
-        let closest = null;
-        let closestDist = Infinity;
-        const maxDist = 600;
-        for (const cluster of this.galaxy.clusters) {
-            const dx = cluster.position.x - ground.x;
-            const dz = cluster.position.z - ground.z;
-            const dist = Math.sqrt(dx * dx + dz * dz);
-            if (dist < closestDist) {
-                closestDist = dist;
-                closest = cluster;
-            }
-        }
-        if (!closest || closestDist > maxDist)
-            return null;
-        return {
-            cluster: closest,
-            ground: { x: ground.x, y: ground.y, z: ground.z },
-        };
-    }
-    showClusterContextMenu(clusterId, screenX, screenY) {
-        if (!this.contextMenu)
-            return;
-        const panel = this.contextMenu.panel.element;
-        this.contextMenu.select.value = "inspect";
-        panel.style.display = "block";
-        const rect = panel.getBoundingClientRect();
-        const width = rect.width || 180;
-        const height = rect.height || 80;
-        const maxX = window.innerWidth - width - 12;
-        const maxY = window.innerHeight - height - 12;
-        const x = Math.max(12, Math.min(screenX, maxX));
-        const y = Math.max(12, Math.min(screenY, maxY));
-        panel.style.left = `${x}px`;
-        panel.style.top = `${y}px`;
-        this.contextMenuClusterId = clusterId;
-    }
-    hideClusterContextMenu() {
-        if (!this.contextMenu)
-            return;
-        this.contextMenu.panel.element.style.display = "none";
-        this.contextMenuClusterId = null;
-    }
-    /**
-     * No longer needed: use renderer.screenToWorld directly.
-     */
     /**
      * When the business worker emits an overlay/selection update, update renderer accordingly.
      */
@@ -517,11 +277,12 @@ export class App {
         if (!this.clusterDragStarts.has(clusterId)) {
             this.clusterDragStarts.set(clusterId, {
                 x: cluster.position.x,
-                y: cluster.position.y,
+                y: 0,
                 z: cluster.position.z,
             });
         }
-        this.galaxy.previewMoveCluster(cluster, position);
+        this.galaxy.previewMoveCluster(cluster, { ...position, y: 0 });
+        cluster.position.y = 0;
         this.renderer.updateEditOverlayPosition(clusterId, cluster.position);
         if (this.lastUIState.hoveredId === clusterId) {
             this.galaxy.setHoveredCluster(cluster);
@@ -536,11 +297,12 @@ export class App {
             return;
         const startPos = this.clusterDragStarts.get(clusterId) ?? {
             x: cluster.position.x,
-            y: cluster.position.y,
+            y: 0,
             z: cluster.position.z,
         };
         this.clusterDragStarts.delete(clusterId);
-        this.galaxy.commitMoveCluster(cluster, startPos, position);
+        this.galaxy.commitMoveCluster(cluster, startPos, { ...position, y: 0 });
+        cluster.position.y = 0;
         this.renderer.updateEditOverlayPosition(clusterId, cluster.position);
         if (this.lastUIState.selectedId !== null) {
             this.renderer.refreshConnectionOverlays();
@@ -553,12 +315,12 @@ export class App {
         }
     }
     publishLocalOps(ops) {
-        if (!this.mainBus._brokerReady)
+        if (!this.mainBus.isPubSubReady())
             return;
-        this.mainBus.publish("ops_local", ops, 0);
+        publishTopic(this.mainBus, Topics.galaxyLocalOps, ops, 0);
     }
     publishRegenerationLifecycle(phase, regenerationId, clusterIds) {
-        if (!this.mainBus._brokerReady)
+        if (!this.mainBus.isPubSubReady())
             return;
         const payload = {
             regenerationId,
@@ -566,25 +328,20 @@ export class App {
             timestamp: Date.now(),
         };
         const eventName = phase === "started"
-            ? "galaxy_regeneration_started"
-            : "galaxy_regeneration_complete";
-        this.mainBus.publish(eventName, payload, 0);
+            ? Topics.galaxyRegenerationStarted
+            : Topics.galaxyRegenerationComplete;
+        publishTopic(this.mainBus, eventName, payload, 0);
     }
     publishOpsComplete(payload) {
-        if (!this.mainBus._brokerReady)
+        if (!this.mainBus.isPubSubReady())
             return;
-        this.mainBus.publish("complete", payload, 2);
+        publishTopic(this.mainBus, Topics.galaxyComplete, payload, 2);
     }
     applyLocalOps(ops) {
         if (!ops.length)
             return;
         this.processOps(ops);
         this.publishLocalOps(ops);
-    }
-    updateMaxSolarSystemId(id) {
-        if (id > this.maxSolarSystemId) {
-            this.maxSolarSystemId = id;
-        }
     }
     regenerateCluster(clusterId) {
         this.regenerateClusters([clusterId]);
@@ -713,104 +470,11 @@ export class App {
         this.applyLocalOps(ops);
         cluster.maxSystemDistance = plan.maxSystemDistance;
     }
-    removeInternalConnections(cluster) {
-        const idToSystem = new Map();
-        for (const sys of cluster.solarSystems) {
-            idToSystem.set(sys.id, sys);
-        }
-        for (const sys of cluster.solarSystems) {
-            if (!Array.isArray(sys.connections))
-                continue;
-            for (const connectedId of sys.connections) {
-                if (connectedId <= sys.id)
-                    continue;
-                const other = idToSystem.get(connectedId);
-                if (other) {
-                    this.galaxy.removeSolarSystemConnection(cluster, sys, other);
-                }
-            }
-        }
-    }
-    /**
-     * Handle OPs using id maps for clusters and solar systems when processing connection ops.
-     * All connections use only IDs now (point 5).
-     * Business worker consumes ops via broker pub/sub for BFS/gradient.
-     */
     processOps(ops) {
-        if (!Array.isArray(ops))
-            return;
-        let connectionsChanged = false;
-        for (const op of ops) {
-            if (op.type === "addCluster") {
-                const c = new Cluster(op.payload, this.galaxy);
-                this.galaxy.addCluster(c);
-            }
-            else if (op.type === "addSolarSystem") {
-                const cluster = this.galaxy.getClusterById(op.payload.clusterId);
-                if (cluster) {
-                    const s = new SolarSystem(op.payload);
-                    this.galaxy.addSolarSystem(cluster, s);
-                    this.updateMaxSolarSystemId(s.id);
-                }
-            }
-            else if (op.type === "removeSolarSystem") {
-                const { clusterId, solarSystemId } = op.payload;
-                const cluster = this.galaxy.getClusterById(clusterId);
-                const sys = cluster
-                    ? this.galaxy.getSolarSystemById(clusterId, solarSystemId)
-                    : null;
-                if (cluster && sys) {
-                    this.galaxy.removeSolarSystem(cluster, sys);
-                }
-            }
-            else if (op.type === "connectSolarSystems") {
-                const { clusterId, solarSystemId1, solarSystemId2 } = op.payload;
-                const cluster = this.galaxy.getClusterById(clusterId);
-                if (cluster) {
-                    const sys1 = this.galaxy.getSolarSystemById(clusterId, solarSystemId1);
-                    const sys2 = this.galaxy.getSolarSystemById(clusterId, solarSystemId2);
-                    if (sys1 && sys2) {
-                        this.galaxy.addSolarSystemConnection(cluster, sys1, sys2);
-                    }
-                }
-            }
-            else if (op.type === "connectClusters") {
-                const { clusterId1, clusterId2, jumpGate1, jumpGate2 } = op.payload;
-                const cl1 = this.galaxy.getClusterById(clusterId1);
-                const cl2 = this.galaxy.getClusterById(clusterId2);
-                const j1 = cl1 && jumpGate1
-                    ? this.galaxy.getSolarSystemById(clusterId1, jumpGate1.id)
-                    : null;
-                const j2 = cl2 && jumpGate2
-                    ? this.galaxy.getSolarSystemById(clusterId2, jumpGate2.id)
-                    : null;
-                if (cl1 && cl2 && j1 && j2) {
-                    this.galaxy.connectClusters(cl1, cl2, j1, j2);
-                    connectionsChanged = true;
-                }
-            }
-            else if (op.type === "removeConnection") {
-                const { clusterId1, clusterId2, jumpGate1, jumpGate2 } = op.payload;
-                const cl1 = this.galaxy.getClusterById(clusterId1);
-                const cl2 = this.galaxy.getClusterById(clusterId2);
-                const j1 = cl1 && jumpGate1
-                    ? this.galaxy.getSolarSystemById(clusterId1, jumpGate1.id)
-                    : null;
-                const j2 = cl2 && jumpGate2
-                    ? this.galaxy.getSolarSystemById(clusterId2, jumpGate2.id)
-                    : null;
-                if (cl1 && cl2 && j1 && j2) {
-                    this.galaxy.removeClusterConnection(cl1, cl2, j1, j2);
-                    connectionsChanged = true;
-                }
-            }
-            else if (op.type === "removeCluster") {
-                const cluster = this.galaxy.getClusterById(op.payload.clusterId);
-                if (cluster) {
-                    this.galaxy.removeCluster(cluster);
-                }
-            }
-        }
+        const result = replayGalaxyOps(this.galaxy, ops, {
+            maxSolarSystemId: this.maxSolarSystemId,
+        });
+        this.maxSolarSystemId = result.maxSolarSystemId;
     }
     getInputParameters() {
         if (this.uiBindings.mode === "editor") {
@@ -821,32 +485,20 @@ export class App {
     generateGalaxy() {
         console.log("Generating new galaxy...");
         const params = this.getInputParameters();
-        if (this.mainBus._brokerReady) {
-            this.mainBus.publish("generateGalaxy", params);
-        }
-    }
-    // (Removed: generateGalaxyFromDensityCylinders and all code related to density cylinders)
-    // Method to clear all density cylinders
-    // (Removed: clearDensityCylinders function for density cylinder editing)
-    generateInternalConnections() {
-        console.log("Generating internal connections...");
-        const params = this.getInputParameters();
-        // Use worker to generate internal connections as well
-        params.generateInternalConnections = true;
-        if (this.mainBus._brokerReady) {
-            this.mainBus.publish("generateGalaxy", params);
+        if (this.mainBus.isPubSubReady()) {
+            publishTopic(this.mainBus, Topics.generateGalaxy, params);
         }
     }
     generateFleet() {
-        if (this.mainBus._brokerReady) {
-            this.mainBus.publish("generate_fleet", {});
+        if (this.mainBus.isPubSubReady()) {
+            publishTopic(this.mainBus, Topics.generateFleet, {});
         }
     }
     generateFleetsBulk(count) {
-        if (!this.mainBus._brokerReady)
+        if (!this.mainBus.isPubSubReady())
             return;
         for (let i = 0; i < count; i++) {
-            this.mainBus.publish("generate_fleet", {});
+            publishTopic(this.mainBus, Topics.generateFleet, {});
         }
     }
     clearGalaxy() {
@@ -858,8 +510,8 @@ export class App {
         this.galaxy.clear();
         this.maxSolarSystemId = 0;
         // Notify workers to clear their state
-        if (this.mainBus._brokerReady) {
-            this.mainBus.publish("clearGalaxy", {});
+        if (this.mainBus.isPubSubReady()) {
+            publishTopic(this.mainBus, Topics.clearGalaxy, {});
         }
         // Reset stats
         this.updateStats({
@@ -894,51 +546,7 @@ export class App {
     renderFleetList() {
         if (this.uiBindings.mode !== "editor")
             return;
-        const fleetBindings = this.uiBindings.fleets;
-        if (!fleetBindings)
-            return;
-        const list = fleetBindings.list;
-        while (list.firstChild) {
-            list.removeChild(list.firstChild);
-        }
-        const fleetCount = this.fleetStatusById.size;
-        if (fleetCount === 0) {
-            list.appendChild(fleetBindings.empty);
-            return;
-        }
-        if (fleetCount > 10) {
-            const summary = document.createElement("span");
-            summary.textContent = `Active fleets: ${fleetCount}`;
-            summary.className = "ui-label";
-            list.appendChild(summary);
-            return;
-        }
-        const entries = Array.from(this.fleetStatusById.entries()).sort((a, b) => a[0].localeCompare(b[0]));
-        for (const [id, data] of entries) {
-            const row = document.createElement("div");
-            row.style.display = "flex";
-            row.style.flexDirection = "column";
-            row.style.gap = "2px";
-            const title = document.createElement("span");
-            title.textContent = id;
-            title.className = "ui-label";
-            const status = document.createElement("span");
-            status.textContent = this.describeFleetStatus(data.state, data.counts);
-            status.style.opacity = "0.8";
-            row.appendChild(title);
-            row.appendChild(status);
-            list.appendChild(row);
-        }
-    }
-    describeFleetStatus(state, counts) {
-        const ships = counts.red + counts.blue + counts.green;
-        if (state.state === "jumping") {
-            return `Jumping (${ships} ships)`;
-        }
-        if (state.state === "cooldown") {
-            return `Cooling down (${ships} ships)`;
-        }
-        return `Awaiting (${ships} ships)`;
+        this.uiBindings.fleets.render(this.fleetStatusById);
     }
     updateStats(stats) {
         const resolvedStats = stats ?? this.galaxy.getStatistics();
@@ -969,115 +577,15 @@ export class App {
         }
         // If update is already pending, do nothing
     }
-    /**
-     * Set up main thread pub/sub subscriptions
-     */
-    setupMainPubSubSubscriptions() {
-        if (!this.mainBus.subscribe || !this.mainBus._brokerReady) {
-            console.warn("Pub/sub not available on main bus - broker not ready");
-            return;
-        }
-        try {
-            const debugLevel = this.mainBus._options.debug ?? 0;
-            const isRecord = (value) => typeof value === "object" && value !== null;
-            // Subscribe to galaxy generation events
-            this.mainBus.subscribe("galaxy_generation_started", (data) => {
-                if (isRecord(data) && typeof data.generationId === "number") {
-                    console.log("🌌 Galaxy generation started:", data.generationId);
-                }
-            });
-            this.mainBus.subscribe("galaxy_generation_complete", (data) => {
-                if (isRecord(data) && typeof data.generationId === "number") {
-                    console.log("✅ Galaxy generation complete:", data.generationId);
-                }
-            });
-            this.mainBus.subscribe("galaxy_regeneration_started", (data) => {
-                if (isRecord(data) && typeof data.regenerationId === "number") {
-                    console.log("🔁 Galaxy regeneration started:", data.regenerationId);
-                }
-            });
-            this.mainBus.subscribe("galaxy_regeneration_complete", (data) => {
-                if (isRecord(data) && typeof data.regenerationId === "number") {
-                    console.log("✅ Galaxy regeneration complete:", data.regenerationId);
-                }
-            });
-            this.mainBus.subscribe("galaxy_generation_error", (data) => {
-                if (isRecord(data) && typeof data.error === "string") {
-                    console.error("❌ Galaxy generation error:", data.error);
-                }
-            });
-            // Subscribe to selection events
-            this.mainBus.subscribe("selection_changed", (data) => {
-                if (debugLevel >= 2) {
-                    console.log("🎯 Selection changed:", data);
-                }
-            });
-            // Subscribe to edit mode events
-            this.mainBus.subscribe("edit_mode_changed", (data) => {
-                if (isRecord(data)) {
-                    const clusterId = data.clusterId;
-                    const editMode = data.editMode;
-                    if (typeof clusterId === "number" && typeof editMode === "boolean") {
-                        console.log("✏️ Edit mode changed:", clusterId, "editMode:", editMode);
-                    }
-                }
-            });
-            console.log("📢 Main thread pub/sub subscriptions set up successfully");
-        }
-        catch (error) {
-            console.error("❌ Failed to set up main thread pub/sub subscriptions:", error);
-        }
-    }
-    /**
-     * Demonstrate the pub/sub system with test messages
-     */
-    demonstratePubSubSystem() {
-        if (!this.mainBus.publish || !this.mainBus._brokerReady) {
-            console.warn("Pub/sub not available for demonstration - broker not ready");
-            return;
-        }
-        console.log("🧪 Demonstrating pub/sub system...");
-        try {
-            // Send a test message after a short delay
-            setTimeout(() => {
-                try {
-                    this.mainBus.publish("test_message", {
-                        message: "Hello from main thread!",
-                        timestamp: Date.now(),
-                    });
-                    console.log("📤 Test message published");
-                }
-                catch (error) {
-                    console.error("❌ Failed to publish test message:", error);
-                }
-            }, 1000);
-            // Request galaxy status
-            setTimeout(() => {
-                try {
-                    this.mainBus.publish("request_galaxy_status", {});
-                    console.log("📤 Galaxy status request published");
-                }
-                catch (error) {
-                    console.error("❌ Failed to publish galaxy status request:", error);
-                }
-            }, 2000);
-        }
-        catch (error) {
-            console.error("❌ Failed to demonstrate pub/sub system:", error);
-        }
-    }
 }
 const DEFAULT_GENERATION_PARAMS = {
     numClusters: 15000,
     numSolarSystems: 80,
     maxConnections: 3,
-    internalConnections: 3,
     galaxySize: 300000,
     centerBias: 0.6,
     minDistance: 1500,
     heightVariation: 0,
-    showLabels: true,
-    generateInternalConnections: false,
 };
 function createAndInsertStatsPanels(statsBar) {
     const stats = new Stats();

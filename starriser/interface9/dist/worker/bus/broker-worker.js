@@ -30,7 +30,7 @@ export function busConstructor(bus) {
     // Main thread Bus reference for special handling
     const mainBus = bus;
     let isReady = false;
-    const debugLevel = bus._options.debug ?? 0;
+    const debugLevel = bus.getDebugLevel();
     if (debugLevel >= 1) {
         console.log("🏢 Broker worker starting up");
     }

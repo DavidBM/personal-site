@@ -55,6 +55,15 @@ export class Bus {
         this._setupMessageListener();
         this._startProcessor();
     }
+    isPubSubReady() {
+        return this._brokerReady;
+    }
+    hasBrokerPort() {
+        return this._brokerPort !== null;
+    }
+    getDebugLevel() {
+        return typeof this._options.debug === "number" ? this._options.debug : 0;
+    }
     /**
      * Enable pub/sub system by launching broker worker (main thread only)
      */

@@ -1,5 +1,5 @@
-import { opAddCluster, opRemoveCluster, opAddSolarSystem, opConnectClusters, } from "./galaxy-ops.js";
 import { generateGalaxyData } from "./galaxy-data-generator.js";
+import { publishTopic, subscribeTopic, Topics, } from "../protocol/topics.js";
 /**
  * Galaxy Worker Constructor - called by worker bootstrap
  */
@@ -9,12 +9,14 @@ export function busConstructor(bus) {
     let pubSubReady = false;
     const handleGenerateGalaxy = (params) => {
         if (isGenerating) {
-            bus.publish("error", { error: "Galaxy generation already in progress" });
+            publishTopic(bus, Topics.galaxyError, {
+                error: "Galaxy generation already in progress",
+            });
             return;
         }
         isGenerating = true;
         currentGeneration = Date.now();
-        bus.publish("galaxy_generation_started", {
+        publishTopic(bus, Topics.galaxyGenerationStarted, {
             generationId: currentGeneration,
             params,
             timestamp: Date.now(),
@@ -23,29 +25,25 @@ export function busConstructor(bus) {
             generateGalaxyData({
                 ...params,
                 centerBias: params.centerBias,
-                opBuilders: {
-                    opAddCluster,
-                    opRemoveCluster,
-                    opAddSolarSystem,
-                    opConnectClusters,
-                },
                 onBatch: (ops) => {
-                    bus.publish("ops", ops, 2);
+                    publishTopic(bus, Topics.galaxyOps, ops, 2);
                 },
             });
-            bus.publish("complete", { generationId: currentGeneration }, 2);
-            bus.publish("galaxy_generation_complete", {
+            publishTopic(bus, Topics.galaxyComplete, {
+                generationId: currentGeneration,
+            }, 2);
+            publishTopic(bus, Topics.galaxyGenerationComplete, {
                 generationId: currentGeneration,
                 timestamp: Date.now(),
             });
         }
         catch (err) {
             const message = err instanceof Error ? err.message : String(err);
-            bus.publish("error", {
+            publishTopic(bus, Topics.galaxyError, {
                 error: message,
                 generationId: currentGeneration,
             });
-            bus.publish("galaxy_generation_error", {
+            publishTopic(bus, Topics.galaxyGenerationError, {
                 error: message,
                 generationId: currentGeneration,
                 timestamp: Date.now(),
@@ -60,37 +58,25 @@ export function busConstructor(bus) {
         if (currentGeneration === generationId) {
             isGenerating = false;
             currentGeneration = null;
-            bus.publish("cancelled", { generationId });
-            bus.publish("galaxy_generation_cancelled", {
+            publishTopic(bus, Topics.galaxyCancelled, { generationId });
+            publishTopic(bus, Topics.galaxyGenerationCancelled, {
                 generationId,
                 timestamp: Date.now(),
             });
         }
     };
     const setupPubSubSubscriptions = () => {
-        if (pubSubReady || !bus._brokerPort)
+        if (pubSubReady || !bus.hasBrokerPort())
             return;
         pubSubReady = true;
-        const debugLevel = bus._options.debug ?? 0;
+        const debugLevel = bus.getDebugLevel();
         if (debugLevel >= 1) {
             console.log("📢 Galaxy worker setting up pub/sub subscriptions");
         }
-        bus.subscribe("generateGalaxy", handleGenerateGalaxy);
-        bus.subscribe("cancelGeneration", handleCancelGeneration);
-        bus.subscribe("request_galaxy_status", () => {
-            bus.publish("galaxy_status_response", {
-                isGenerating,
-                currentGeneration,
-                timestamp: Date.now(),
-            });
-        });
-        bus.subscribe("test_message", (data) => {
-            if (debugLevel >= 1) {
-                console.log("📨 Galaxy worker received test message:", data);
-            }
-        });
+        subscribeTopic(bus, Topics.generateGalaxy, handleGenerateGalaxy);
+        subscribeTopic(bus, Topics.cancelGeneration, handleCancelGeneration);
     };
-    if (bus._brokerPort) {
+    if (bus.hasBrokerPort()) {
         setupPubSubSubscriptions();
     }
     bus.on("setup_broker_port", () => {

@@ -1,4 +1,4 @@
-import { distZX, lineSegmentsCrossXZ, pointLineDistZX, tooCloseZX, } from "./worker/galaxy/galaxy-xz-math.js";
+import { distZX, lineSegmentsCrossXZ, pointLineDistZX, tooCloseZX, } from "./math/galaxy-xz-math.js";
 const SOLAR_SYSTEM_MIN_DIST_FACTOR = 3;
 const MAX_RETRIES = 2000;
 const N_NEIGHBORS = 3;
@@ -23,7 +23,7 @@ export function buildClusterSolarSystemPlan({ clusterId, clusterPosition, cluste
             name: gate.name,
             position: {
                 x: gate.position.x,
-                y: gate.position.y,
+                y: 0,
                 z: gate.position.z,
             },
             connections: [],
@@ -39,7 +39,7 @@ export function buildClusterSolarSystemPlan({ clusterId, clusterPosition, cluste
             const theta = Math.random() * Math.PI * 2;
             const position = {
                 x: clusterPosition.x + r * Math.cos(theta),
-                y: clusterPosition.y + Math.random() * 15,
+                y: 0,
                 z: clusterPosition.z + r * Math.sin(theta),
             };
             if (tooCloseZX(position, sysPositions, minInterSSDist)) {

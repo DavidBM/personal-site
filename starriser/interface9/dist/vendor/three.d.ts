@@ -116,12 +116,20 @@ export class BufferAttribute {
   needsUpdate: boolean;
 }
 
+export class InstancedBufferAttribute extends BufferAttribute {
+  constructor(array: AttributeArray, itemSize: number, meshPerAttribute?: number);
+}
+
 export class BufferGeometry {
   attributes: Record<string, BufferAttribute>;
   setAttribute(name: string, attribute: BufferAttribute): this;
   setDrawRange(start: number, count: number): void;
   setFromPoints(points: Vector3[]): this;
   dispose(): void;
+}
+
+export class InstancedBufferGeometry extends BufferGeometry {
+  instanceCount: number;
 }
 
 export class Material {

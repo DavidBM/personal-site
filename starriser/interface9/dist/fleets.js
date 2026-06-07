@@ -1,83 +1,125 @@
 import * as THREE from "./vendor/three.js";
-const BASE_SHIP_SIZE = 2.4;
-const SHIP_SPREAD = 26;
-const RED_SCALE = 20;
-const BLUE_SCALE = 3;
-const GREEN_SCALE = 1;
+import { buildFleetGeometry, buildFleetVisualGeometry, scaleFleetCounts, } from "./render/fleets/fleet-geometry.js";
 const LOD_HEIGHT = 180000;
 const LOD_MAX_SHIPS = 800;
 const COOLDOWN_SEGMENTS = 40;
 const COOLDOWN_RADIUS = 34;
-const COOLDOWN_Y_OFFSET = 6;
+const COOLDOWN_Y_OFFSET = 0;
+const HIDDEN_COORDINATE = 1e9;
+const RENDER_PLANE_Y = 0;
+const FLEET_TRIANGLE_VERTICES = new Float32Array([
+    1,
+    0,
+    0,
+    -0.5,
+    0,
+    0.8660254,
+    -0.5,
+    0,
+    -0.8660254,
+]);
+const FLEET_VERTEX_SHADER = `
+attribute vec3 instanceBase;
+attribute vec3 instanceCenter;
+attribute float instanceRotation;
+attribute float instanceSize;
+attribute vec3 instanceColor;
+varying vec3 vColor;
+
+void main() {
+  float s = sin(instanceRotation);
+  float c = cos(instanceRotation);
+  vec2 rotated = vec2(
+    position.x * c - position.z * s,
+    position.x * s + position.z * c
+  ) * instanceSize;
+  vec3 localPosition = instanceCenter + vec3(
+    rotated.x,
+    position.y * instanceSize,
+    rotated.y
+  );
+  vColor = instanceColor;
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(
+    instanceBase + localPosition,
+    1.0
+  );
+}
+`;
+const FLEET_FRAGMENT_SHADER = `
+uniform float opacity;
+varying vec3 vColor;
+
+void main() {
+  gl_FragColor = vec4(vColor, opacity);
+}
+`;
 function clamp01(value) {
     return Math.max(0, Math.min(1, value));
 }
-function pickTriangle(size, centerOffset, rotation) {
-    const a = rotation;
-    const b = rotation + (Math.PI * 2) / 3;
-    const c = rotation + (Math.PI * 4) / 3;
-    const scale = size * (0.6 + Math.random() * 0.4);
-    const ax = Math.cos(a) * scale + centerOffset.x;
-    const az = Math.sin(a) * scale + centerOffset.z;
-    const bx = Math.cos(b) * scale + centerOffset.x;
-    const bz = Math.sin(b) * scale + centerOffset.z;
-    const cx = Math.cos(c) * scale + centerOffset.x;
-    const cz = Math.sin(c) * scale + centerOffset.z;
-    const y = centerOffset.y;
-    return [ax, y, az, bx, y, bz, cx, y, cz];
+function getForcedFleetRendererMode() {
+    if (typeof window === "undefined")
+        return null;
+    const mode = new URLSearchParams(window.location.search).get("fleetRenderer");
+    return mode === "batched" || mode === "instanced" ? mode : null;
 }
-function buildFleetGeometry(counts) {
-    const totalShips = counts.red + counts.blue + counts.green;
-    const vertexCount = totalShips * 3;
-    const offsets = new Float32Array(vertexCount * 3);
-    const colors = new Float32Array(vertexCount * 3);
-    let cursor = 0;
-    const writeShip = (scale, color) => {
-        const centerOffset = {
-            x: (Math.random() - 0.5) * SHIP_SPREAD * scale,
-            y: (Math.random() - 0.5) * 6,
-            z: (Math.random() - 0.5) * SHIP_SPREAD * scale,
-        };
-        const rotation = Math.random() * Math.PI * 2;
-        const tri = pickTriangle(BASE_SHIP_SIZE * scale, centerOffset, rotation);
-        for (let i = 0; i < 9; i += 3) {
-            offsets[cursor] = tri[i];
-            offsets[cursor + 1] = tri[i + 1];
-            offsets[cursor + 2] = tri[i + 2];
-            colors[cursor] = color[0];
-            colors[cursor + 1] = color[1];
-            colors[cursor + 2] = color[2];
-            cursor += 3;
-        }
-    };
-    for (let i = 0; i < counts.red; i++) {
-        writeShip(RED_SCALE, [1.0, 0.2, 0.2]);
-    }
-    for (let i = 0; i < counts.blue; i++) {
-        writeShip(BLUE_SCALE, [0.2, 0.6, 1.0]);
-    }
-    for (let i = 0; i < counts.green; i++) {
-        writeShip(GREEN_SCALE, [0.2, 1.0, 0.4]);
-    }
-    return { offsets, colors, vertexCount };
+function hasInstancedFleetRenderer() {
+    return (typeof THREE.InstancedBufferGeometry === "function" &&
+        typeof THREE.InstancedBufferAttribute === "function" &&
+        typeof THREE.ShaderMaterial === "function");
 }
-function scaleFleetCounts(counts, scale) {
-    return {
-        red: Math.max(0, Math.floor(counts.red * scale)),
-        blue: Math.max(0, Math.floor(counts.blue * scale)),
-        green: Math.max(0, Math.floor(counts.green * scale)),
-    };
+function chooseFleetRendererMode() {
+    const forcedMode = getForcedFleetRendererMode();
+    if (forcedMode)
+        return forcedMode;
+    return hasInstancedFleetRenderer() ? "instanced" : "batched";
+}
+function setInstancedDrawCount(geometry, instanceCount) {
+    geometry.instanceCount = instanceCount;
+    // Three caches this from the first bound instanced attribute. If the mesh
+    // renders once while empty, the cache is 0 and later buffers still draw 0.
+    geometry._maxInstanceCount = instanceCount;
 }
 export class Fleets {
     constructor(scene) {
         this.scene = scene;
         this.group = new THREE.Group();
+        this.rendererMode = chooseFleetRendererMode();
+        this.instancedGeometry = new THREE.InstancedBufferGeometry();
+        this.instancedMaterial = new THREE.ShaderMaterial({
+            uniforms: {
+                opacity: { value: 0.9 },
+            },
+            vertexShader: FLEET_VERTEX_SHADER,
+            fragmentShader: FLEET_FRAGMENT_SHADER,
+            transparent: true,
+            depthWrite: false,
+            depthTest: false,
+            blending: THREE.AdditiveBlending,
+            side: THREE.DoubleSide,
+        });
+        this.instanceBases = new Float32Array(0);
+        this.instanceCenters = new Float32Array(0);
+        this.instanceRotations = new Float32Array(0);
+        this.instanceSizes = new Float32Array(0);
+        this.instanceColors = new Float32Array(0);
+        this.instancedGeometry.setAttribute("position", new THREE.BufferAttribute(FLEET_TRIANGLE_VERTICES, 3));
+        this.instancedGeometry.setAttribute("instanceBase", new THREE.InstancedBufferAttribute(this.instanceBases, 3));
+        this.instancedGeometry.setAttribute("instanceCenter", new THREE.InstancedBufferAttribute(this.instanceCenters, 3));
+        this.instancedGeometry.setAttribute("instanceRotation", new THREE.InstancedBufferAttribute(this.instanceRotations, 1));
+        this.instancedGeometry.setAttribute("instanceSize", new THREE.InstancedBufferAttribute(this.instanceSizes, 1));
+        this.instancedGeometry.setAttribute("instanceColor", new THREE.InstancedBufferAttribute(this.instanceColors, 3));
+        setInstancedDrawCount(this.instancedGeometry, 0);
+        this.instancedGeometry.setDrawRange(0, 3);
+        this.instancedMesh = new THREE.Mesh(this.instancedGeometry, this.instancedMaterial);
+        this.instancedMesh.frustumCulled = false;
+        this.instancedMesh.renderOrder = 3200;
         this.geometry = new THREE.BufferGeometry();
         this.material = new THREE.MeshBasicMaterial({
             vertexColors: true,
             transparent: true,
             opacity: 0.9,
             depthWrite: false,
+            depthTest: false,
             blending: THREE.AdditiveBlending,
             side: THREE.DoubleSide,
         });
@@ -94,6 +136,7 @@ export class Fleets {
             transparent: true,
             opacity: 0.85,
             depthWrite: false,
+            depthTest: false,
             blending: THREE.AdditiveBlending,
             side: THREE.DoubleSide,
         });
@@ -113,6 +156,7 @@ export class Fleets {
             transparent: true,
             opacity: 0.8,
             depthWrite: false,
+            depthTest: false,
         });
         this.cooldownPositions = new Float32Array(0);
         this.cooldownGeometry.setAttribute("position", new THREE.BufferAttribute(this.cooldownPositions, 3));
@@ -134,6 +178,9 @@ export class Fleets {
         this.listDirty = true;
         this.cooldownDirty = true;
         this.cooldownSlots = [];
+        this.instancedMesh.visible = this.rendererMode === "instanced";
+        this.mesh.visible = this.rendererMode === "batched";
+        this.group.add(this.instancedMesh);
         this.group.add(this.mesh);
         this.group.add(this.lodMesh);
         this.group.add(this.cooldownLines);
@@ -155,21 +202,33 @@ export class Fleets {
             this.updateFleetState(id, state);
             return;
         }
-        const geometry = buildFleetGeometry(counts);
+        const geometry = buildFleetVisualGeometry(counts);
         const visual = {
             id,
             counts,
             offsets: geometry.offsets,
-            colors: geometry.colors,
+            vertexColors: geometry.vertexColors,
             vertexStart: 0,
             vertexCount: geometry.vertexCount,
+            centers: geometry.centers,
+            rotations: geometry.rotations,
+            sizes: geometry.sizes,
+            instanceColors: geometry.instanceColors,
+            instanceStart: 0,
+            instanceCount: geometry.instanceCount,
+            hasBasePosition: false,
+            baseX: 0,
+            baseY: 0,
+            baseZ: 0,
             state,
         };
         this.fleets.set(id, visual);
         this.rebuildBuffers();
         this.listDirty = true;
         this.cooldownDirty = true;
-        this.updateFleetPosition(visual, Date.now());
+        if (this.updateFleetPosition(visual, Date.now())) {
+            this.markPositionsDirty();
+        }
     }
     updateFleetState(id, state) {
         const visual = this.fleets.get(id);
@@ -178,7 +237,9 @@ export class Fleets {
         visual.state = state;
         this.listDirty = true;
         this.cooldownDirty = true;
-        this.updateFleetPosition(visual, Date.now());
+        if (this.updateFleetPosition(visual, Date.now())) {
+            this.markPositionsDirty();
+        }
     }
     removeFleet(id) {
         if (!this.fleets.has(id))
@@ -199,13 +260,13 @@ export class Fleets {
             return;
         const lodActive = cameraHeight >= LOD_HEIGHT;
         if (lodActive) {
-            this.mesh.visible = false;
+            this.setMainFleetVisible(false);
             this.cooldownLines.visible = false;
             this.lodMesh.visible = true;
             this.updateLod(now);
             return;
         }
-        this.mesh.visible = true;
+        this.setMainFleetVisible(true);
         this.cooldownLines.visible = true;
         this.lodMesh.visible = false;
         if (this.listDirty) {
@@ -223,6 +284,62 @@ export class Fleets {
     }
     rebuildBuffers() {
         this.fleetOrder = Array.from(this.fleets.keys());
+        if (this.rendererMode === "instanced") {
+            this.rebuildInstancedBuffers();
+        }
+        else {
+            this.rebuildBatchedBuffers();
+        }
+        this.resetLodSignature();
+        this.listDirty = true;
+        this.cooldownDirty = true;
+    }
+    rebuildInstancedBuffers() {
+        let totalInstances = 0;
+        for (const id of this.fleetOrder) {
+            const fleet = this.fleets.get(id);
+            if (!fleet)
+                continue;
+            fleet.instanceStart = totalInstances;
+            totalInstances += fleet.instanceCount;
+        }
+        this.instanceBases = new Float32Array(totalInstances * 3);
+        this.instanceCenters = new Float32Array(totalInstances * 3);
+        this.instanceRotations = new Float32Array(totalInstances);
+        this.instanceSizes = new Float32Array(totalInstances);
+        this.instanceColors = new Float32Array(totalInstances * 3);
+        let vectorCursor = 0;
+        let scalarCursor = 0;
+        for (const id of this.fleetOrder) {
+            const fleet = this.fleets.get(id);
+            if (!fleet)
+                continue;
+            this.instanceCenters.set(fleet.centers, vectorCursor);
+            this.instanceColors.set(fleet.instanceColors, vectorCursor);
+            this.instanceRotations.set(fleet.rotations, scalarCursor);
+            this.instanceSizes.set(fleet.sizes, scalarCursor);
+            if (fleet.hasBasePosition) {
+                this.writeFleetBasePosition(fleet, fleet.baseX, fleet.baseY, fleet.baseZ, true);
+            }
+            vectorCursor += fleet.centers.length;
+            scalarCursor += fleet.instanceCount;
+        }
+        this.instancedGeometry.setAttribute("position", new THREE.BufferAttribute(FLEET_TRIANGLE_VERTICES, 3));
+        this.instancedGeometry.setAttribute("instanceBase", new THREE.InstancedBufferAttribute(this.instanceBases, 3));
+        this.instancedGeometry.setAttribute("instanceCenter", new THREE.InstancedBufferAttribute(this.instanceCenters, 3));
+        this.instancedGeometry.setAttribute("instanceRotation", new THREE.InstancedBufferAttribute(this.instanceRotations, 1));
+        this.instancedGeometry.setAttribute("instanceSize", new THREE.InstancedBufferAttribute(this.instanceSizes, 1));
+        this.instancedGeometry.setAttribute("instanceColor", new THREE.InstancedBufferAttribute(this.instanceColors, 3));
+        setInstancedDrawCount(this.instancedGeometry, totalInstances);
+        this.instancedGeometry.setDrawRange(0, 3);
+        this.instancedGeometry.attributes.position.needsUpdate = true;
+        this.instancedGeometry.attributes.instanceBase.needsUpdate = true;
+        this.instancedGeometry.attributes.instanceCenter.needsUpdate = true;
+        this.instancedGeometry.attributes.instanceRotation.needsUpdate = true;
+        this.instancedGeometry.attributes.instanceSize.needsUpdate = true;
+        this.instancedGeometry.attributes.instanceColor.needsUpdate = true;
+    }
+    rebuildBatchedBuffers() {
         let totalVertices = 0;
         for (const id of this.fleetOrder) {
             const fleet = this.fleets.get(id);
@@ -238,20 +355,25 @@ export class Fleets {
             const fleet = this.fleets.get(id);
             if (!fleet)
                 continue;
-            this.colors.set(fleet.colors, cursor);
-            cursor += fleet.colors.length;
+            this.colors.set(fleet.vertexColors, cursor);
+            if (fleet.hasBasePosition) {
+                this.writeFleetVertexPosition(fleet, fleet.baseX, fleet.baseY, fleet.baseZ, true);
+            }
+            cursor += fleet.vertexColors.length;
         }
         this.geometry.setAttribute("position", new THREE.BufferAttribute(this.positions, 3));
         this.geometry.setAttribute("color", new THREE.BufferAttribute(this.colors, 3));
         this.geometry.setDrawRange(0, totalVertices);
         this.geometry.attributes.position.needsUpdate = true;
         this.geometry.attributes.color.needsUpdate = true;
-        this.resetLodSignature();
-        this.listDirty = true;
-        this.cooldownDirty = true;
     }
     resetLodSignature() {
         this.lodSignature = null;
+    }
+    setMainFleetVisible(visible) {
+        this.instancedMesh.visible =
+            visible && this.rendererMode === "instanced";
+        this.mesh.visible = visible && this.rendererMode === "batched";
     }
     rebuildStateLists() {
         this.jumpingFleetIds = [];
@@ -275,7 +397,7 @@ export class Fleets {
         const total = ids.length;
         if (total === 0)
             return;
-        const positions = this.positions;
+        let changed = false;
         for (let i = 0; i < total; i++) {
             const id = ids[i];
             const fleet = this.fleets.get(id);
@@ -287,22 +409,19 @@ export class Fleets {
             const start = this.positionProvider?.(state.startNode);
             const end = this.positionProvider?.(state.endNode);
             if (!start || !end) {
-                this.hideFleetVertices(fleet, positions);
+                changed = this.hideFleetVertices(fleet) || changed;
                 continue;
             }
             const t = clamp01((now - state.startTime) / state.durationMs);
             const baseX = start.x + (end.x - start.x) * t;
-            const baseY = start.y + (end.y - start.y) * t;
+            const baseY = RENDER_PLANE_Y;
             const baseZ = start.z + (end.z - start.z) * t;
-            const offsets = fleet.offsets;
-            let target = fleet.vertexStart * 3;
-            for (let j = 0; j < offsets.length; j += 3) {
-                positions[target + j] = offsets[j] + baseX;
-                positions[target + j + 1] = offsets[j + 1] + baseY;
-                positions[target + j + 2] = offsets[j + 2] + baseZ;
-            }
+            changed =
+                this.writeFleetPosition(fleet, baseX, baseY, baseZ) || changed;
         }
-        this.geometry.attributes.position.needsUpdate = true;
+        if (changed) {
+            this.markPositionsDirty();
+        }
     }
     scheduleNextChunk(now) {
         this.scheduledFleetIds = this.nonJumpingFleetIds.slice();
@@ -318,28 +437,24 @@ export class Fleets {
             return;
         const targetCount = Math.max(1, Math.ceil(this.scheduledFleetIds.length * this.perFrameFraction));
         const count = Math.min(remaining, targetCount);
+        let changed = false;
         for (let i = 0; i < count; i++) {
             const id = this.scheduledFleetIds[this.scheduleCursor++];
             const fleet = this.fleets.get(id);
             if (!fleet)
                 continue;
-            this.updateFleetPosition(fleet, now);
+            changed = this.updateFleetPosition(fleet, now) || changed;
         }
-        this.geometry.attributes.position.needsUpdate = true;
+        if (changed) {
+            this.markPositionsDirty();
+        }
     }
     updateFleetPosition(fleet, now) {
         const position = this.resolveFleetPosition(fleet.state, now);
         if (!position) {
-            this.hideFleetVertices(fleet, this.positions);
-            return;
+            return this.hideFleetVertices(fleet);
         }
-        const offsets = fleet.offsets;
-        let target = fleet.vertexStart * 3;
-        for (let i = 0; i < offsets.length; i += 3) {
-            this.positions[target + i] = offsets[i] + position.x;
-            this.positions[target + i + 1] = offsets[i + 1] + position.y;
-            this.positions[target + i + 2] = offsets[i + 2] + position.z;
-        }
+        return this.writeFleetPosition(fleet, position.x, RENDER_PLANE_Y, position.z);
     }
     updateLod(now) {
         const summary = this.computeLodSummary(now);
@@ -385,7 +500,7 @@ export class Fleets {
             if (!pos)
                 continue;
             sumX += pos.x;
-            sumY += pos.y;
+            sumY += RENDER_PLANE_Y;
             sumZ += pos.z;
             count += 1;
             totalRed += fleet.counts.red;
@@ -404,7 +519,7 @@ export class Fleets {
             counts,
             position: {
                 x: sumX / count,
-                y: sumY / count,
+                y: RENDER_PLANE_Y,
                 z: sumZ / count,
             },
         };
@@ -488,14 +603,65 @@ export class Fleets {
         }
         return this.positionProvider(state.node);
     }
-    hideFleetVertices(fleet, target) {
-        let index = fleet.vertexStart * 3;
-        const end = index + fleet.vertexCount * 3;
-        for (; index < end; index += 3) {
-            target[index] = 1e9;
-            target[index + 1] = 1e9;
-            target[index + 2] = 1e9;
+    markPositionsDirty() {
+        if (this.rendererMode === "instanced") {
+            this.instancedGeometry.attributes.instanceBase.needsUpdate = true;
         }
+        else {
+            this.geometry.attributes.position.needsUpdate = true;
+        }
+    }
+    hideFleetVertices(fleet) {
+        return this.writeFleetPosition(fleet, HIDDEN_COORDINATE, HIDDEN_COORDINATE, HIDDEN_COORDINATE);
+    }
+    writeFleetPosition(fleet, x, y, z, force = false) {
+        if (this.rendererMode === "instanced") {
+            return this.writeFleetBasePosition(fleet, x, y, z, force);
+        }
+        return this.writeFleetVertexPosition(fleet, x, y, z, force);
+    }
+    writeFleetBasePosition(fleet, x, y, z, force = false) {
+        if (!force &&
+            fleet.hasBasePosition &&
+            fleet.baseX === x &&
+            fleet.baseY === y &&
+            fleet.baseZ === z) {
+            return false;
+        }
+        let index = fleet.instanceStart * 3;
+        const end = index + fleet.instanceCount * 3;
+        for (; index < end; index += 3) {
+            this.instanceBases[index] = x;
+            this.instanceBases[index + 1] = y;
+            this.instanceBases[index + 2] = z;
+        }
+        fleet.hasBasePosition = true;
+        fleet.baseX = x;
+        fleet.baseY = y;
+        fleet.baseZ = z;
+        return true;
+    }
+    writeFleetVertexPosition(fleet, x, y, z, force = false) {
+        if (!force &&
+            fleet.hasBasePosition &&
+            fleet.baseX === x &&
+            fleet.baseY === y &&
+            fleet.baseZ === z) {
+            return false;
+        }
+        const offsets = fleet.offsets;
+        const targetStart = fleet.vertexStart * 3;
+        for (let i = 0; i < offsets.length; i += 3) {
+            const target = targetStart + i;
+            this.positions[target] = offsets[i] + x;
+            this.positions[target + 1] = offsets[i + 1] + y;
+            this.positions[target + 2] = offsets[i + 2] + z;
+        }
+        fleet.hasBasePosition = true;
+        fleet.baseX = x;
+        fleet.baseY = y;
+        fleet.baseZ = z;
+        return true;
     }
 }
 //# sourceMappingURL=fleets.js.map

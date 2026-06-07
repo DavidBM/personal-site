@@ -3,6 +3,11 @@ import { SolarSystem } from "./solar-system.js";
 /**
  * Live builder for applying operation-log based galaxy mutations.
  * All methods operate on the provided Galaxy instance; updating it in-place.
+ *
+ * PHASE 0 NOTE (architecture cleanup):
+ * This class is largely dead / unused and duplicates logic from app.processOps.
+ * It will be removed as part of establishing a single true OP replay path.
+ * See AGENTS.md §10 (area 6) and the project plan.
  */
 export class IncrementalGalaxyBuilder {
     /**

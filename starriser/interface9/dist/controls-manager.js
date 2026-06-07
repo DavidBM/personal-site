@@ -157,6 +157,15 @@ export class ControlsManager {
     getPointerUpPosition() {
         return this.pointerUpScreen;
     }
+    getPointerDownTimestamp() {
+        return this._pointerDownTimestamp;
+    }
+    clearPointerDownTimestamp() {
+        this._pointerDownTimestamp = null;
+    }
+    isEditModeActive() {
+        return this._editModeActive;
+    }
     pointerMovedDistanceSq() {
         if (!this.pointerDownScreen || !this.pointerLastScreen)
             return 0;

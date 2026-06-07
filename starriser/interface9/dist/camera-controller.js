@@ -128,7 +128,7 @@ export class CameraController {
     }
     onMouseDown(event) {
         // Disable camera drag in edit mode.
-        if (this.controlsManager && this.controlsManager._editModeActive) {
+        if (this.controlsManager && this.controlsManager.isEditModeActive()) {
             this.isDragging = false;
             this.domElement.style.cursor = "grab";
             return;
@@ -148,7 +148,7 @@ export class CameraController {
     }
     onMouseMove(event) {
         // Disable camera drag in edit mode.
-        if (this.controlsManager && this.controlsManager._editModeActive) {
+        if (this.controlsManager && this.controlsManager.isEditModeActive()) {
             return;
         }
         if (this.isDragging) {
@@ -178,7 +178,7 @@ export class CameraController {
     }
     onMouseWheel(event) {
         // Disable zoom in edit mode.
-        if (this.controlsManager && this.controlsManager._editModeActive) {
+        if (this.controlsManager && this.controlsManager.isEditModeActive()) {
             event.preventDefault();
             return;
         }

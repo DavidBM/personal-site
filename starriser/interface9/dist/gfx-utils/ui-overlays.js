@@ -409,10 +409,9 @@ export class AxisGizmo {
         if (axisLength)
             this._axisLength = axisLength;
         this.clear();
-        this.group.position.set(position.x, position.y, position.z);
+        this.group.position.set(position.x, 0, position.z);
         const axes = [
             { kind: "axisX", color: 0xff4d4d, dir: new THREE.Vector3(1, 0, 0) },
-            { kind: "axisY", color: 0x59ff7a, dir: new THREE.Vector3(0, 1, 0) },
             { kind: "axisZ", color: 0x4da6ff, dir: new THREE.Vector3(0, 0, 1) },
         ];
         for (const axis of axes) {
@@ -445,9 +444,6 @@ export class AxisGizmo {
                 pickMesh.rotation.z = Math.PI / 2;
                 pickMesh.position.set(pickLength * 0.5, 0, 0);
             }
-            else if (axis.kind === "axisY") {
-                pickMesh.position.set(0, pickLength * 0.5, 0);
-            }
             else {
                 pickMesh.rotation.x = Math.PI / 2;
                 pickMesh.position.set(0, 0, pickLength * 0.5);
@@ -459,7 +455,7 @@ export class AxisGizmo {
         }
     }
     updatePosition(position) {
-        this.group.position.set(position.x, position.y, position.z);
+        this.group.position.set(position.x, 0, position.z);
     }
     hide() {
         this._clusterId = null;

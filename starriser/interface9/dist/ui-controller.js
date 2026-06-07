@@ -1,6 +1,5 @@
 export class UIController {
-    constructor(app, bindings) {
-        this.app = app;
+    constructor(bindings) {
         this.fpsElement =
             bindings?.fps ?? document.getElementById("fps");
         this.statsElements = {

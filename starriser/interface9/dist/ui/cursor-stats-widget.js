@@ -1,3 +1,4 @@
+import { subscribeTopic, Topics } from "../worker/protocol/topics.js";
 /**
  * CursorStatsWidget
  *
@@ -25,9 +26,9 @@ export class CursorStatsWidget {
         this.container = container ?? null;
         this._setupUI();
         this._onPointerEvent = this._onPointerEvent.bind(this);
-        if (!bus._brokerReady)
+        if (!bus.isPubSubReady())
             return;
-        bus.subscribe("pointer_event", this._onPointerEvent);
+        subscribeTopic(bus, Topics.pointerEvent, this._onPointerEvent);
     }
     _setupUI() {
         const statsBox = this.container ?? document.getElementById("stats");
@@ -100,8 +101,7 @@ export class CursorStatsWidget {
             }
         }
     }
-    _onPointerEvent(data) {
-        const payload = data;
+    _onPointerEvent(payload) {
         let sx = 0, sy = 0, gx = 0, gy = 0;
         if (payload && payload.screen_position) {
             sx =
