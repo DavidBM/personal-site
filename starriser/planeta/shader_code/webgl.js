@@ -8,9 +8,10 @@ var WebGLPlanet = (function () {
 	}
 
 	function planetLayout (vp) {
-		var size = Math.floor(Math.min(vp.w * 0.6, vp.h * 0.95));
-		// Anchor the planet center around 30% from the left, vertically centered.
-		var x = Math.max(20, Math.floor(vp.w * 0.3 - size / 2));
+		// Full-width planet. On landscape viewports this means the planet is
+		// taller than the viewport and gets cropped top + bottom — intentional.
+		var size = vp.w;
+		var x = 0;
 		var y = Math.floor((vp.h - size) / 2);
 		return { size: size, x: x, y: y };
 	}
