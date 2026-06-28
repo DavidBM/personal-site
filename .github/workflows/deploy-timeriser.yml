@@ -1,0 +1,38 @@
+name: Deploy timeriser.com
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'starriser/**'
+      - '.github/workflows/deploy-timeriser.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-timeriser
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Connect to tailnet
+        uses: tailscale/github-action@v3
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:ci
+          version: latest
+
+      - name: Sync starriser/ to ovh-claude:/var/www/timeriser/
+        run: |
+          mkdir -p ~/.ssh
+          rsync -avz --delete \
+            --exclude '*.php' \
+            -e "ssh -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=$HOME/.ssh/known_hosts" \
+            starriser/ \
+            claude@ovh-claude:/var/www/timeriser/
