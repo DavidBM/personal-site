@@ -1,19 +1,46 @@
 var WebGLPlanet = (function () {
 
-	var spriteWidth = 500;
-	var spriteHeight = 500;
-	var spriteX = 390;
-	var spriteY = 100;
-
 	var stage = new PIXI.Container(0x000000);
 	stage.interactive = true;
 
+	// First-principles sizing:
+	//   - canvas = viewport (so PIXI can draw anywhere on screen)
+	//   - sprite is square; the sphere shader fades alpha to 0 at the sprite edges
+	//   - sprite diameter <= min(vw, vh) so the sprite always fits in the canvas
+	//     and there are no hard cuts where canvas slices through solid planet
+	function viewportSize () { return { w: window.innerWidth, h: window.innerHeight }; }
+	function planetLayout (vp) {
+		var size = Math.floor(Math.min(vp.w, vp.h) * 0.95);
+		var x = Math.floor((vp.w - size) / 2);
+		var y = Math.floor((vp.h - size) / 2);
+		return { size: size, x: x, y: y };
+	}
+
+	var vp = viewportSize();
+	var layout = planetLayout(vp);
+
 	var renderer = PIXI.autoDetectRenderer({
-		width: 1280,
-		height: 1280
+		width: vp.w,
+		height: vp.h
 	});
 
 	document.body.appendChild(renderer.view);
+
+	var resizeRaf = null;
+	window.addEventListener('resize', function () {
+		if (resizeRaf) cancelAnimationFrame(resizeRaf);
+		resizeRaf = requestAnimationFrame(function () {
+			vp = viewportSize();
+			layout = planetLayout(vp);
+			renderer.resize(vp.w, vp.h);
+			sprite.forEach(function (sp, i) {
+				sp.width = sp.height = layout.size;
+				sp.position.x = layout.x;
+				sp.position.y = layout.y;
+				filter[i].uniforms.width = sp.width;
+			});
+		});
+	});
 
 	var desplazamiento = 0;
 	var container;
@@ -81,7 +108,7 @@ var WebGLPlanet = (function () {
 		cloud.baseTexture._powerOf2 = true;
 		ligth.baseTexture._powerOf2 = true;
 
-		stage.addChild(createPlanet(earthColor, cloud, earthSpec, earthNormal, ligth, 1000, 100, 20));
+		stage.addChild(createPlanet(earthColor, cloud, earthSpec, earthNormal, ligth, layout.size, layout.x, layout.y));
 		
 		stage.on("touchmove", function (event) {
 			console.log("touch move!");
