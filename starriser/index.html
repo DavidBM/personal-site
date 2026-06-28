@@ -44,10 +44,13 @@
     border: 0;
     width: 100%;
     height: 100%;
-    opacity: 0.55;
+    opacity: 0.65;
     filter: blur(0.5px) saturate(1.1);
-    transform: scale(1.05);
-    transform-origin: center;
+    /* The planeta demo renders a 1280×1280 canvas with the planet sphere
+       around (600, 520) at radius 500. We upscale the iframe so the planet
+       fills the viewport, anchored left. */
+    transform: scale(2.4);
+    transform-origin: 35% 55%;
     animation: bgFade 1.6s ease-out 0.2s both;
   }
   .bg-veil {
@@ -58,8 +61,8 @@
     z-index: 1;
   }
   @keyframes bgFade {
-    from { opacity: 0; transform: scale(1.08); }
-    to   { opacity: 0.55; transform: scale(1.05); }
+    from { opacity: 0; transform: scale(2.5); }
+    to   { opacity: 0.65; transform: scale(2.4); }
   }
 
   main {

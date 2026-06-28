@@ -1,46 +1,19 @@
 var WebGLPlanet = (function () {
 
+	var spriteWidth = 500;
+	var spriteHeight = 500;
+	var spriteX = 390;
+	var spriteY = 100;
+
 	var stage = new PIXI.Container(0x000000);
 	stage.interactive = true;
 
-	function viewportSize () {
-		return { w: window.innerWidth, h: window.innerHeight };
-	}
-
-	function planetLayout (vp) {
-		// Full-width planet. On landscape viewports this means the planet is
-		// taller than the viewport and gets cropped top + bottom — intentional.
-		var size = vp.w;
-		var x = 0;
-		var y = Math.floor((vp.h - size) / 2);
-		return { size: size, x: x, y: y };
-	}
-
-	var vp = viewportSize();
-	var layout = planetLayout(vp);
-
 	var renderer = PIXI.autoDetectRenderer({
-		width: vp.w,
-		height: vp.h
+		width: 1280,
+		height: 1280
 	});
 
 	document.body.appendChild(renderer.view);
-
-	var resizeRaf = null;
-	window.addEventListener('resize', function () {
-		if (resizeRaf) cancelAnimationFrame(resizeRaf);
-		resizeRaf = requestAnimationFrame(function () {
-			vp = viewportSize();
-			layout = planetLayout(vp);
-			renderer.resize(vp.w, vp.h);
-			sprite.forEach(function (sp, i) {
-				sp.width = sp.height = layout.size;
-				sp.position.x = layout.x;
-				sp.position.y = layout.y;
-				filter[i].uniforms.width = sp.width;
-			});
-		});
-	});
 
 	var desplazamiento = 0;
 	var container;
@@ -108,7 +81,7 @@ var WebGLPlanet = (function () {
 		cloud.baseTexture._powerOf2 = true;
 		ligth.baseTexture._powerOf2 = true;
 
-		stage.addChild(createPlanet(earthColor, cloud, earthSpec, earthNormal, ligth, layout.size, layout.x, layout.y));
+		stage.addChild(createPlanet(earthColor, cloud, earthSpec, earthNormal, ligth, 1000, 100, 20));
 		
 		stage.on("touchmove", function (event) {
 			console.log("touch move!");
