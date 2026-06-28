@@ -21,11 +21,7 @@ var WebGLPlanet = (function () {
 
 	var renderer = PIXI.autoDetectRenderer({
 		width: vp.w,
-		height: vp.h,
-		transparent: true,
-		antialias: true,
-		resolution: window.devicePixelRatio || 1,
-		autoDensity: true
+		height: vp.h
 	});
 
 	document.body.appendChild(renderer.view);
