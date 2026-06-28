@@ -10,7 +10,10 @@ var WebGLPlanet = (function () {
 	//     and there are no hard cuts where canvas slices through solid planet
 	function viewportSize () { return { w: window.innerWidth, h: window.innerHeight }; }
 	function planetLayout (vp) {
-		var size = Math.floor(Math.min(vp.w, vp.h) * 0.95);
+		// Planet diameter = 65% of the smaller window dimension. The smaller
+		// dim guarantees the sprite always fits in the canvas (no hard cuts);
+		// 65% leaves visible space around it.
+		var size = Math.floor(Math.min(vp.w, vp.h) * 0.65);
 		var x = Math.floor((vp.w - size) / 2);
 		var y = Math.floor((vp.h - size) / 2);
 		return { size: size, x: x, y: y };
