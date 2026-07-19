@@ -1,4 +1,5 @@
 import { TwoDotFiveDSpatialIndex } from "./TwoDotFiveDSpatialIndex.js";
+import { applyOps } from "../galaxy/apply-ops.js";
 export function createBusinessWorld() {
     return {
         clusters: [],
@@ -42,15 +43,12 @@ export function applyBusinessOps(world, ops) {
         connectionsChanged: false,
         clustersChanged: false,
     };
-    if (!Array.isArray(ops))
-        return result;
-    for (const op of ops) {
-        if (op.type === "addCluster") {
-            addCluster(world, op.payload);
+    applyOps(ops, {
+        addCluster: (payload) => {
+            addCluster(world, payload);
             result.clustersChanged = true;
-        }
-        else if (op.type === "connectClusters") {
-            const { clusterId1, clusterId2, jumpGate1, jumpGate2 } = op.payload;
+        },
+        connectClusters: ({ clusterId1, clusterId2, jumpGate1, jumpGate2 }) => {
             const connection = {
                 cluster1: { id: clusterId1 },
                 cluster2: { id: clusterId2 },
@@ -59,9 +57,8 @@ export function applyBusinessOps(world, ops) {
             };
             world.lastConnections.push(connection);
             result.connectionsChanged = true;
-        }
-        else if (op.type === "removeConnection") {
-            const { clusterId1, clusterId2, jumpGate1, jumpGate2 } = op.payload;
+        },
+        removeConnection: ({ clusterId1, clusterId2, jumpGate1, jumpGate2 }) => {
             world.lastConnections = world.lastConnections.filter((conn) => {
                 const matchesCluster1 = (conn.cluster1.id === clusterId1 &&
                     conn.cluster2.id === clusterId2) ||
@@ -76,15 +73,14 @@ export function applyBusinessOps(world, ops) {
                 return !(matchesCluster1 && matchesGates);
             });
             result.connectionsChanged = true;
-        }
-        else if (op.type === "removeCluster") {
-            const { clusterId } = op.payload;
+        },
+        removeCluster: ({ clusterId }) => {
             removeCluster(world, clusterId);
             world.lastConnections = world.lastConnections.filter((conn) => conn.cluster1.id !== clusterId && conn.cluster2.id !== clusterId);
             result.clustersChanged = true;
             result.connectionsChanged = true;
-        }
-    }
+        },
+    });
     return result;
 }
 export function clearBusinessWorld(world) {

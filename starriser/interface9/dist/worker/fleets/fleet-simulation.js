@@ -1,6 +1,20 @@
 import { computeJumpDuration, getNextNode } from "./fleet-pathfinding.js";
-const COOLDOWN_MS = 10000;
-export function startNextJump(world, fleet, now, publishState) {
+/**
+ * Post-jump dwell bounds (fleets **web worker** jump ownership — not GPU ship sim).
+ * Each hop rolls a fresh duration in this range when the jump completes.
+ */
+export const COOLDOWN_MS_MIN = 500;
+export const COOLDOWN_MS_MAX = 5000;
+/** @deprecated use COOLDOWN_MS_MIN..MAX; kept for import stability. */
+export const COOLDOWN_MS = COOLDOWN_MS_MIN;
+/** Uniform random cooldown in [COOLDOWN_MS_MIN, COOLDOWN_MS_MAX] ms. */
+export function randomCooldownMs() {
+    const span = COOLDOWN_MS_MAX - COOLDOWN_MS_MIN;
+    return COOLDOWN_MS_MIN + Math.floor(Math.random() * (span + 1));
+}
+export function startNextJump(world, fleet, now, 
+/** Optional — spawn path publishes once via fleet_spawned with jumping state. */
+publishState) {
     const nextNode = getNextNode(world, fleet);
     if (!nextNode)
         return false;
@@ -12,7 +26,7 @@ export function startNextJump(world, fleet, now, publishState) {
         endNode: nextNode,
         durationMs,
     };
-    publishState(fleet);
+    publishState?.(fleet);
     return true;
 }
 export function advanceFleet(world, fleet, now, publishState, publishRemoved) {
@@ -23,7 +37,7 @@ export function advanceFleet(world, fleet, now, publishState, publishRemoved) {
                 state: "cooldown",
                 startTime: now,
                 node: fleet.currentNode,
-                durationMs: COOLDOWN_MS,
+                durationMs: randomCooldownMs(),
             };
             publishState(fleet);
         }

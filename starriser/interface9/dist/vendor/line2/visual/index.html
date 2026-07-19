@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Line2 visual suite</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0c0e12;
+        --panel: #141820ee;
+        --text: #e8ecf4;
+        --muted: #9aa3b5;
+        --good: #3dd68c;
+        --residual: #f5a524;
+        --degen: #f76b6b;
+        --perf: #6aa7ff;
+        --integration: #c084fc;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: var(--bg);
+        color: var(--text);
+        font: 12px/1.35 ui-sans-serif, system-ui, sans-serif;
+        overflow: hidden;
+      }
+      #bar {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        z-index: 10;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px 14px;
+        align-items: center;
+        padding: 8px 12px;
+        background: var(--panel);
+        border-bottom: 1px solid #ffffff14;
+        backdrop-filter: blur(8px);
+      }
+      #bar label {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        color: var(--muted);
+        white-space: nowrap;
+      }
+      #bar input[type="text"] {
+        width: 120px;
+        background: #0b0d11;
+        border: 1px solid #ffffff22;
+        color: var(--text);
+        border-radius: 4px;
+        padding: 3px 6px;
+      }
+      #bar select,
+      #bar input[type="range"] {
+        accent-color: #6aa7ff;
+      }
+      #legend {
+        display: flex;
+        gap: 8px;
+        margin-left: auto;
+        flex-wrap: wrap;
+        align-items: center;
+      }
+      #legend span {
+        display: inline-flex;
+        align-items: center;
+        cursor: pointer;
+        padding: 1px 5px;
+        border-radius: 3px;
+        border: 1px solid transparent;
+        user-select: none;
+      }
+      #legend span:hover {
+        background: #ffffff10;
+      }
+      #legend span.active {
+        border-color: #ffffff33;
+        background: #ffffff12;
+      }
+      #legend span::before {
+        content: "";
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        border-radius: 2px;
+        margin-right: 4px;
+        flex-shrink: 0;
+      }
+      /* Legend swatches + text match caption badge-left colors */
+      .lg-good {
+        color: var(--good);
+      }
+      .lg-good::before {
+        background: var(--good);
+      }
+      .lg-residual {
+        color: var(--residual);
+      }
+      .lg-residual::before {
+        background: var(--residual);
+      }
+      .lg-degen {
+        color: var(--degen);
+      }
+      .lg-degen::before {
+        background: var(--degen);
+      }
+      .lg-perf {
+        color: var(--perf);
+      }
+      .lg-perf::before {
+        background: var(--perf);
+      }
+      .lg-integration {
+        color: var(--integration);
+      }
+      .lg-integration::before {
+        background: var(--integration);
+      }
+      .lg-all {
+        color: var(--muted);
+      }
+      .lg-all::before {
+        background: #666;
+      }
+      #stage {
+        position: absolute;
+        inset: 48px 0 28px 0;
+      }
+      #gpu {
+        width: 100%;
+        height: 100%;
+        display: block;
+      }
+      #captions {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+      }
+      .caption {
+        position: absolute;
+        padding: 4px 6px;
+        background: #0a0c10cc;
+        border-left: 3px solid #666;
+        overflow: hidden;
+        text-shadow: 0 1px 2px #000;
+        line-height: 1.3;
+      }
+      .caption strong {
+        font-size: 11px;
+      }
+      .caption .kind-tag {
+        font-size: 9px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+        opacity: 0.9;
+        margin-right: 4px;
+      }
+      .caption .hint {
+        color: var(--muted);
+        font-size: 10px;
+        display: -webkit-box;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 3;
+        overflow: hidden;
+      }
+      .badge-good {
+        border-left-color: var(--good);
+      }
+      .badge-good .kind-tag {
+        color: var(--good);
+      }
+      .badge-residual {
+        border-left-color: var(--residual);
+      }
+      .badge-residual .kind-tag {
+        color: var(--residual);
+      }
+      .badge-degen {
+        border-left-color: var(--degen);
+      }
+      .badge-degen .kind-tag {
+        color: var(--degen);
+      }
+      .badge-perf {
+        border-left-color: var(--perf);
+      }
+      .badge-perf .kind-tag {
+        color: var(--perf);
+      }
+      .badge-integration {
+        border-left-color: var(--integration);
+      }
+      .badge-integration .kind-tag {
+        color: var(--integration);
+      }
+      #empty {
+        display: none;
+        position: absolute;
+        inset: 0;
+        place-items: center;
+        color: var(--muted);
+        pointer-events: none;
+        font-size: 13px;
+        text-align: center;
+        padding: 24px;
+      }
+      #empty.show {
+        display: grid;
+      }
+      #hud {
+        position: fixed;
+        left: 12px;
+        bottom: 6px;
+        z-index: 10;
+        color: var(--muted);
+        font-variant-numeric: tabular-nums;
+      }
+      #status {
+        position: fixed;
+        right: 12px;
+        bottom: 6px;
+        z-index: 10;
+        color: var(--muted);
+        max-width: 50vw;
+        text-align: right;
+      }
+      #status.error {
+        color: var(--degen);
+      }
+    </style>
+  </head>
+  <body>
+    <div id="bar">
+      <strong>Line2 visual</strong>
+      <label><input type="checkbox" id="pause" /> pause</label>
+      <label><input type="checkbox" id="animate" checked /> animate</label>
+      <label>
+        softAA
+        <select id="softAA" title="Endcap soft only. Long edges use MSAA×4 + alphaToCoverage.">
+          <option value="default" selected>case default</option>
+          <option value="on">force on (endcaps)</option>
+          <option value="off">force off (hard caps)</option>
+        </select>
+      </label>
+      <label>
+        width
+        <input id="width" type="range" min="0.25" max="3" step="0.05" value="1" />
+        <span id="widthVal">1.00×</span>
+      </label>
+      <label>
+        filter
+        <input id="filter" type="text" placeholder="H12 residual…" />
+      </label>
+      <label>
+        kind
+        <select id="kind">
+          <option value="all" selected>all</option>
+          <option value="good">good</option>
+          <option value="residual">residual</option>
+          <option value="degen">degen</option>
+          <option value="perf">perf</option>
+          <option value="integration">integration</option>
+        </select>
+      </label>
+      <div id="legend" title="Click a kind to filter (same as kind select)">
+        <span class="lg-all active" data-kind="all">all</span>
+        <span class="lg-good" data-kind="good">good</span>
+        <span class="lg-residual" data-kind="residual">residual</span>
+        <span class="lg-degen" data-kind="degen">degen</span>
+        <span class="lg-perf" data-kind="perf">perf</span>
+        <span class="lg-integration" data-kind="integration">integration</span>
+      </div>
+    </div>
+    <div id="stage">
+      <canvas id="gpu"></canvas>
+      <div id="captions"></div>
+      <div id="empty">No cases match filter / kind. Clear filter or pick kind=all.</div>
+    </div>
+    <div id="hud">starting…</div>
+    <div id="status">init</div>
+    <script type="module" src="./main.mjs"></script>
+  </body>
+</html>

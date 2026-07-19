@@ -1,3 +1,4 @@
+import { distZX } from "../math/galaxy-xz-math.js";
 const CONTEXT_PICK_MAX_DISTANCE = 600;
 export class ClusterContextMenuController {
     constructor(options) {
@@ -38,9 +39,7 @@ export class ClusterContextMenuController {
         let closest = null;
         let closestDist = Infinity;
         for (const cluster of this.getClusters()) {
-            const dx = cluster.position.x - ground.x;
-            const dz = cluster.position.z - ground.z;
-            const dist = Math.sqrt(dx * dx + dz * dz);
+            const dist = distZX(cluster.position, ground);
             if (dist < closestDist) {
                 closestDist = dist;
                 closest = cluster;

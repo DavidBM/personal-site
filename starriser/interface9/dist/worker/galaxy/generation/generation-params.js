@@ -5,6 +5,7 @@ export function normalizeGalaxyParams(params) {
         numSolarSystems,
         minDistance,
         galaxySize,
+        // Strict 2D: ignore caller heightVariation until an explicit 2.5D reintroduction.
         heightVariation: 0,
         maxConnections,
         batchSize,

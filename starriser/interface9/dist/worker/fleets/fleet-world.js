@@ -1,3 +1,4 @@
+import { applyOps } from "../galaxy/apply-ops.js";
 export function createFleetWorld() {
     return {
         clusters: new Map(),
@@ -98,42 +99,38 @@ export function removeClusterConnection(world, clusterId1, clusterId2, gate1, ga
     removeDirectedEdge(world, clusterId2, clusterId1, gate2, gate1);
 }
 export function applyFleetOps(world, ops) {
-    if (!Array.isArray(ops))
-        return;
-    for (const op of ops) {
-        switch (op.type) {
-            case "addCluster":
-                ensureCluster(world, op.payload.id);
-                break;
-            case "removeCluster":
-                removeCluster(world, op.payload.clusterId);
-                break;
-            case "addSolarSystem":
-                addSolarSystem(world, op.payload.clusterId, {
-                    id: op.payload.id,
-                    position: op.payload.position,
-                    isJumpGate: op.payload.isJumpGate,
-                });
-                break;
-            case "removeSolarSystem":
-                removeSolarSystem(world, op.payload.clusterId, op.payload.solarSystemId);
-                break;
-            case "connectSolarSystems":
-                connectSolarSystems(world, op.payload.clusterId, op.payload.solarSystemId1, op.payload.solarSystemId2);
-                break;
-            case "connectClusters":
-                connectClusters(world, {
-                    fromClusterId: op.payload.clusterId1,
-                    toClusterId: op.payload.clusterId2,
-                    fromGateId: op.payload.jumpGate1.id,
-                    toGateId: op.payload.jumpGate2.id,
-                });
-                break;
-            case "removeConnection":
-                removeClusterConnection(world, op.payload.clusterId1, op.payload.clusterId2, op.payload.jumpGate1?.id, op.payload.jumpGate2?.id);
-                break;
-        }
-    }
+    applyOps(ops, {
+        addCluster: (payload) => {
+            ensureCluster(world, payload.id);
+        },
+        removeCluster: ({ clusterId }) => {
+            removeCluster(world, clusterId);
+        },
+        addSolarSystem: (payload) => {
+            addSolarSystem(world, payload.clusterId, {
+                id: payload.id,
+                position: payload.position,
+                isJumpGate: payload.isJumpGate,
+            });
+        },
+        removeSolarSystem: ({ clusterId, solarSystemId }) => {
+            removeSolarSystem(world, clusterId, solarSystemId);
+        },
+        connectSolarSystems: ({ clusterId, solarSystemId1, solarSystemId2 }) => {
+            connectSolarSystems(world, clusterId, solarSystemId1, solarSystemId2);
+        },
+        connectClusters: ({ clusterId1, clusterId2, jumpGate1, jumpGate2 }) => {
+            connectClusters(world, {
+                fromClusterId: clusterId1,
+                toClusterId: clusterId2,
+                fromGateId: jumpGate1.id,
+                toGateId: jumpGate2.id,
+            });
+        },
+        removeConnection: ({ clusterId1, clusterId2, jumpGate1, jumpGate2 }) => {
+            removeClusterConnection(world, clusterId1, clusterId2, jumpGate1?.id, jumpGate2?.id);
+        },
+    });
 }
 export function clearFleetWorld(world) {
     world.clusters.clear();

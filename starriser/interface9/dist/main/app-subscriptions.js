@@ -34,9 +34,11 @@ export function subscribeFleetTopics(mainBus, handlers) {
         return;
     }
     subscribeTopic(mainBus, Topics.fleetSpawned, handlers.onFleetSpawned);
+    subscribeTopic(mainBus, Topics.fleetsSpawnedBatch, handlers.onFleetsSpawnedBatch);
     subscribeTopic(mainBus, Topics.fleetState, handlers.onFleetState);
     subscribeTopic(mainBus, Topics.fleetRemoved, handlers.onFleetRemoved);
 }
+/** Debug-only lifecycle logs on the same functional topics (no dual events). */
 export function subscribeAppLifecycleDebugTopics(mainBus) {
     if (!mainBus.isPubSubReady()) {
         console.warn("Pub/sub not available on main bus - broker not ready");
@@ -49,10 +51,18 @@ export function subscribeAppLifecycleDebugTopics(mainBus) {
                 console.log("🌌 Galaxy generation started:", data.generationId);
             }
         });
-        subscribeTopic(mainBus, Topics.galaxyGenerationComplete, (data) => {
-            if (typeof data.generationId === "number") {
+        subscribeTopic(mainBus, Topics.galaxyComplete, (data) => {
+            if (debugLevel < 1)
+                return;
+            if (data.source === "regeneration") {
+                console.log("✅ Galaxy regeneration complete:", data.regenerationId);
+            }
+            else if (typeof data.generationId === "number") {
                 console.log("✅ Galaxy generation complete:", data.generationId);
             }
+        });
+        subscribeTopic(mainBus, Topics.galaxyError, ({ error }) => {
+            console.error("❌ Galaxy generation error:", error);
         });
         subscribeTopic(mainBus, Topics.galaxyRegenerationStarted, (data) => {
             if (typeof data.regenerationId === "number") {
@@ -64,12 +74,9 @@ export function subscribeAppLifecycleDebugTopics(mainBus) {
                 console.log("✅ Galaxy regeneration complete:", data.regenerationId);
             }
         });
-        subscribeTopic(mainBus, Topics.galaxyGenerationError, ({ error }) => {
-            console.error("❌ Galaxy generation error:", error);
-        });
-        subscribeTopic(mainBus, Topics.selectionChanged, (data) => {
+        subscribeTopic(mainBus, Topics.updateUIState, (data) => {
             if (debugLevel >= 2) {
-                console.log("🎯 Selection changed:", data);
+                console.log("🎯 Selection / UI state:", data);
             }
         });
         subscribeTopic(mainBus, Topics.editModeChanged, (data) => {

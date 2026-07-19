@@ -1,14 +1,20 @@
+import { distZX } from "../../math/galaxy-xz-math.js";
 import { getSolarPosition } from "./fleet-world.js";
-const MIN_JUMP_MS = 1200;
-const SPEED_UNITS_PER_SEC = 8000;
+/**
+ * Hop clock floor (ms). Room for soft launch + heading swing + entrance brake
+ * at visual cruise {@code SHIP_MAX_SPEED}. Too short → domain ends the hop
+ * while ships are still mid-path and starts the next jump early.
+ */
+/** Slightly longer floor so soft launch + turn still finish on the hop clock. */
+export const MIN_JUMP_MS = 3200;
+/** World units / sec for hop duration. Match ship-motion SHIP_MAX_SPEED. */
+export const SPEED_UNITS_PER_SEC = 12000;
 export function computeJumpDuration(world, start, end) {
     const startPos = getSolarPosition(world, start);
     const endPos = getSolarPosition(world, end);
     if (!startPos || !endPos)
         return MIN_JUMP_MS;
-    const dx = endPos.x - startPos.x;
-    const dz = endPos.z - startPos.z;
-    const distance = Math.sqrt(dx * dx + dz * dz);
+    const distance = distZX(startPos, endPos);
     const duration = (distance / SPEED_UNITS_PER_SEC) * 1000;
     return Math.max(MIN_JUMP_MS, Math.round(duration));
 }

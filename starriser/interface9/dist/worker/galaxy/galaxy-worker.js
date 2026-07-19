@@ -1,12 +1,14 @@
 import { generateGalaxyData } from "./galaxy-data-generator.js";
+import { whenPubSubReady } from "../bus/when-pubsub-ready.js";
 import { publishTopic, subscribeTopic, Topics, } from "../protocol/topics.js";
 /**
- * Galaxy Worker Constructor - called by worker bootstrap
+ * Galaxy Worker Constructor - called by worker bootstrap.
+ * Generation is currently synchronous; cancelGeneration only applies if a
+ * future chunked path re-checks flags between batches.
  */
 export function busConstructor(bus) {
     let currentGeneration = null;
     let isGenerating = false;
-    let pubSubReady = false;
     const handleGenerateGalaxy = (params) => {
         if (isGenerating) {
             publishTopic(bus, Topics.galaxyError, {
@@ -29,13 +31,10 @@ export function busConstructor(bus) {
                     publishTopic(bus, Topics.galaxyOps, ops, 2);
                 },
             });
+            // Single completion event (no parallel galaxyGenerationComplete).
             publishTopic(bus, Topics.galaxyComplete, {
                 generationId: currentGeneration,
             }, 2);
-            publishTopic(bus, Topics.galaxyGenerationComplete, {
-                generationId: currentGeneration,
-                timestamp: Date.now(),
-            });
         }
         catch (err) {
             const message = err instanceof Error ? err.message : String(err);
@@ -43,46 +42,29 @@ export function busConstructor(bus) {
                 error: message,
                 generationId: currentGeneration,
             });
-            publishTopic(bus, Topics.galaxyGenerationError, {
-                error: message,
-                generationId: currentGeneration,
-                timestamp: Date.now(),
-            });
         }
         finally {
             isGenerating = false;
         }
     };
-    // Handle cancellation requests
     const handleCancelGeneration = ({ generationId, }) => {
+        // Reserved: generation runs synchronously today, so cancel cannot
+        // interrupt mid-run. When batching becomes async, re-check isGenerating
+        // between onBatch calls.
         if (currentGeneration === generationId) {
             isGenerating = false;
             currentGeneration = null;
             publishTopic(bus, Topics.galaxyCancelled, { generationId });
-            publishTopic(bus, Topics.galaxyGenerationCancelled, {
-                generationId,
-                timestamp: Date.now(),
-            });
         }
     };
-    const setupPubSubSubscriptions = () => {
-        if (pubSubReady || !bus.hasBrokerPort())
-            return;
-        pubSubReady = true;
-        const debugLevel = bus.getDebugLevel();
-        if (debugLevel >= 1) {
+    whenPubSubReady(bus, () => {
+        if (bus.getDebugLevel() >= 1) {
             console.log("📢 Galaxy worker setting up pub/sub subscriptions");
         }
         subscribeTopic(bus, Topics.generateGalaxy, handleGenerateGalaxy);
         subscribeTopic(bus, Topics.cancelGeneration, handleCancelGeneration);
-    };
-    if (bus.hasBrokerPort()) {
-        setupPubSubSubscriptions();
-    }
-    bus.on("setup_broker_port", () => {
-        setupPubSubSubscriptions();
     });
-    // Return worker instance
+    bus.send("worker_ready", { role: "galaxy" });
     return {
         isGenerating: () => isGenerating,
         getCurrentGeneration: () => currentGeneration,

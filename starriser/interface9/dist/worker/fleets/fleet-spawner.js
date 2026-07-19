@@ -9,14 +9,21 @@ export function buildFleetCounts() {
         green: randomInt(100, 1000),
     };
 }
-export function spawnFleet(world, now, publishSpawned, publishState, publishRemoved) {
+/**
+ * Build + path + start first jump. On success returns fleet already in
+ * `jumping` (not yet published). On failure returns null (nothing in world).
+ *
+ * Single lifecycle publish is the caller's job — avoids awaiting+jump double
+ * messages on the main-thread Bus (critical for bulk 50k).
+ */
+export function trySpawnFleet(world, now) {
     const start = pickRandomNode(world);
     const destination = pickRandomNode(world);
     if (!start || !destination)
-        return;
+        return null;
     if (start.clusterId === destination.clusterId &&
         start.solarSystemId === destination.solarSystemId) {
-        return;
+        return null;
     }
     const path = findClusterPath(world, start.clusterId, destination.clusterId);
     const fleet = {
@@ -33,21 +40,37 @@ export function spawnFleet(world, now, publishSpawned, publishState, publishRemo
         },
     };
     world.fleets.set(fleet.id, fleet);
-    publishSpawned(fleet);
-    if (!startNextJump(world, fleet, now, publishState)) {
+    // No mid-spawn fleet_state: success path publishes once with jumping state.
+    if (!startNextJump(world, fleet, now)) {
         world.fleets.delete(fleet.id);
-        publishRemoved(fleet.id);
+        return null;
     }
+    return fleet;
+}
+/**
+ * Spawn one fleet: random start → dest → path → jump, then **one**
+ * publishSpawned with jumping state (no separate awaiting + fleet_state).
+ * publishState kept optional for call-site API stability.
+ */
+export function spawnFleet(world, now, publishSpawned, _publishState) {
+    const fleet = trySpawnFleet(world, now);
+    if (!fleet)
+        return;
+    publishSpawned(fleet);
 }
 function pickRandomNode(world) {
     if (world.clusterIds.length === 0)
         return null;
     for (let attempt = 0; attempt < 12; attempt++) {
         const clusterId = world.clusterIds[randomInt(0, world.clusterIds.length - 1)];
+        if (clusterId == null)
+            continue;
         const cluster = world.clusters.get(clusterId);
         if (!cluster || cluster.solarSystemIds.length === 0)
             continue;
         const solarSystemId = cluster.solarSystemIds[randomInt(0, cluster.solarSystemIds.length - 1)];
+        if (solarSystemId == null)
+            continue;
         return { clusterId, solarSystemId };
     }
     return null;

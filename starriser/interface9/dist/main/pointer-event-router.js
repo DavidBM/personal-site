@@ -1,6 +1,6 @@
 const CLICK_DIST2 = 50 * 50;
 const TAP_TIME_MS = 200;
-export function createPointerEventRouter({ canvas, cameraController, controlsManager, galaxy, getContextMenuController, publishPointerEvent, }) {
+export function createPointerEventRouter({ canvas, cameraController, controlsManager, editHandlePointer, getContextMenuController, publishPointerEvent, }) {
     const cleanup = [];
     const addCanvasListener = (type, handler) => {
         canvas.addEventListener(type, handler);
@@ -26,11 +26,15 @@ export function createPointerEventRouter({ canvas, cameraController, controlsMan
         });
     };
     addCanvasListener("mousedown", (event) => {
-        if (event.button === 0) {
-            getContextMenuController()?.hide();
+        // Primary button only for edit-handle capture + left-click selection path.
+        // Middle/right still reach camera (pan) via onMouseDown below.
+        if (event.button !== 0) {
+            cameraController.onMouseDown(event);
+            return;
         }
+        getContextMenuController()?.hide();
         // Edit handles are highest-priority and bypass camera/selection routing.
-        if (galaxy.handleEditPointerDown(event)) {
+        if (editHandlePointer.handleDown(event)) {
             event.preventDefault();
             return;
         }
@@ -41,7 +45,7 @@ export function createPointerEventRouter({ canvas, cameraController, controlsMan
         }
     });
     addCanvasListener("mousemove", (event) => {
-        if (galaxy.handleEditPointerMove(event)) {
+        if (editHandlePointer.handleMove(event)) {
             event.preventDefault();
             return;
         }
@@ -50,7 +54,7 @@ export function createPointerEventRouter({ canvas, cameraController, controlsMan
         publishScreenEvent("move", event.clientX, event.clientY);
     });
     addCanvasListener("mouseup", (event) => {
-        if (galaxy.handleEditPointerUp(event)) {
+        if (editHandlePointer.handleUp(event)) {
             event.preventDefault();
             return;
         }
@@ -88,6 +92,11 @@ export function createPointerEventRouter({ canvas, cameraController, controlsMan
     });
     addCanvasListener("touchstart", (event) => {
         getContextMenuController()?.hide();
+        // Mirror mouse: edit handles take priority when gizmo is active.
+        if (editHandlePointer.handleDown(event)) {
+            event.preventDefault();
+            return;
+        }
         if (event.touches && event.touches.length > 0) {
             const touch = event.touches[0];
             controlsManager.pointerDown(touch.clientX, touch.clientY);
@@ -95,6 +104,10 @@ export function createPointerEventRouter({ canvas, cameraController, controlsMan
         }
     });
     addCanvasListener("touchmove", (event) => {
+        if (editHandlePointer.handleMove(event)) {
+            event.preventDefault();
+            return;
+        }
         if (event.touches && event.touches.length > 0) {
             const touch = event.touches[0];
             controlsManager.pointerMove(touch.clientX, touch.clientY);
@@ -102,6 +115,10 @@ export function createPointerEventRouter({ canvas, cameraController, controlsMan
         }
     });
     const handleTouchEndOrCancel = (event) => {
+        if (editHandlePointer.handleUp(event)) {
+            event.preventDefault();
+            return;
+        }
         let screenX = 0;
         let screenY = 0;
         let ground = { x: 0, y: 0, z: 0 };

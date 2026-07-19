@@ -1,4 +1,3 @@
-import { buildEditorFleetsPanel, } from "./editor-fleets-panel.js";
 import { buildEditorGenerationPanel } from "./editor-generation-panel.js";
 import { buildEditorStatsPanel } from "./editor-stats-panel.js";
 import { buildPlayUIPanels } from "./play-ui.js";
@@ -70,7 +69,6 @@ export function buildEditorUI(ctx, actions) {
     addModeSwitcher(ctx, actions, "editor");
     const generation = buildEditorGenerationPanel(ctx, actions);
     const stats = buildEditorStatsPanel(ctx);
-    const fleets = buildEditorFleetsPanel(ctx);
     const contextMenu = buildEditorContextMenu(ctx, actions);
     return {
         mode: "editor",
@@ -80,9 +78,8 @@ export function buildEditorUI(ctx, actions) {
         panels: {
             controls: generation.panel,
             stats: stats.panel,
-            fleets: fleets.panel,
         },
-        fleets: fleets.fleets,
+        fleets: stats.fleets,
     };
 }
 export function buildPlayUI(ctx, actions) {

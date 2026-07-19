@@ -1,15 +1,6 @@
 import { makeColorGradient, rgbToHex } from "../../utils/color.js";
-export function makeConnectionKey(cluster1, cluster2, jumpGate1, jumpGate2) {
-    const c1id = typeof cluster1 === "object" ? cluster1.id : cluster1;
-    const c2id = typeof cluster2 === "object" ? cluster2.id : cluster2;
-    const jg1id = typeof jumpGate1 === "object" ? jumpGate1.id : jumpGate1;
-    const jg2id = typeof jumpGate2 === "object" ? jumpGate2.id : jumpGate2;
-    let arr = [c1id, c2id, jg1id, jg2id];
-    if (c1id > c2id || (c1id === c2id && jg1id > jg2id)) {
-        arr = [c2id, c1id, jg2id, jg1id];
-    }
-    return arr.join("_");
-}
+import { makeConnectionKey } from "../../contracts/connection-key.js";
+export { makeConnectionKey };
 export function computeConnectionGradient(selectedId, maxJumps, connections) {
     const connectionGraph = new Map();
     const connectionsFlat = connections ?? [];

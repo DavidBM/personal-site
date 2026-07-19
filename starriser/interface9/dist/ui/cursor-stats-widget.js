@@ -1,109 +1,127 @@
 import { subscribeTopic, Topics } from "../worker/protocol/topics.js";
 /**
- * CursorStatsWidget
- *
- * Specialized stats widget for displaying pointer stats.
- * Listens for "pointer_event" on the provided Bus (locally),
- * and updates the cursor screen and galaxy positions in the stats box.
+ * Compact cursor readout in the stats panel (3 lines):
+ * Screen coordinates · Map coordinates · Zoom level.
  */
 export class CursorStatsWidget {
-    /**
-     * @param {Bus} bus - The event bus to subscribe on.
-     * @param {string} [lineId="cursorStats"] - id for the widget's <p> element (for uniqueness).
-     */
-    constructor(bus, lineId = "cursorStats", container) {
-        this.row = null;
-        this.scrXLabel = null;
-        this.scrXSpan = null;
-        this.scrYLabel = null;
-        this.scrYSpan = null;
-        this.galXLabel = null;
-        this.galXSpan = null;
-        this.galYLabel = null;
-        this.galYSpan = null;
+    constructor(bus, lineId = "cursorStats", container, getZoom) {
+        this.root = null;
+        this.scrSpan = null;
+        this.mapSpan = null;
+        this.zoomSpan = null;
         this.bus = bus;
         this.lineId = lineId;
         this.container = container ?? null;
+        this.getZoom = getZoom ?? null;
+        this.onWheelBound = () => this._updateZoom();
         this._setupUI();
         this._onPointerEvent = this._onPointerEvent.bind(this);
+        // Wheel changes zoom without a pointer move — refresh the third line.
+        window.addEventListener("wheel", this.onWheelBound, { passive: true });
         if (!bus.isPubSubReady())
             return;
         subscribeTopic(bus, Topics.pointerEvent, this._onPointerEvent);
+    }
+    /** Optional late bind (e.g. camera ready after UI). */
+    setZoomProvider(getZoom) {
+        this.getZoom = getZoom;
+        this._updateZoom();
+    }
+    _lineStyle() {
+        return [
+            "margin: 0",
+            "padding: 0",
+            "white-space: nowrap",
+        ].join(";");
+    }
+    _makeLine(label, spanClass, initial) {
+        const line = document.createElement("p");
+        line.className = "cursor-stats-row";
+        line.style.cssText = this._lineStyle();
+        line.appendChild(document.createTextNode(`${label} `));
+        const span = document.createElement("span");
+        span.className = spanClass;
+        span.textContent = initial;
+        line.appendChild(span);
+        return { line, span };
     }
     _setupUI() {
         const statsBox = this.container ?? document.getElementById("stats");
         if (!statsBox)
             return;
         const existing = document.getElementById(this.lineId);
-        if (existing && existing instanceof HTMLParagraphElement) {
-            this.row = existing;
+        if (existing) {
+            // Drop legacy single-line markup so structure stays consistent.
+            existing.remove();
+        }
+        this.root = document.createElement("div");
+        this.root.id = this.lineId;
+        this.root.className = "ui-muted cursor-stats";
+        this.root.style.cssText = [
+            "margin: 2px 0 0",
+            "padding: 0",
+            "font-size: 11px",
+            "line-height: 1.35",
+            'font-family: "Fira Mono", "Menlo", "Monaco", "Consolas", monospace',
+        ].join(";");
+        const scr = this._makeLine("Screen coordinates", "cursor-scr", "(0.0, 0.0)");
+        const map = this._makeLine("Map coordinates", "cursor-map", "(0.0, 0.0)");
+        const zoom = this._makeLine("Zoom level", "cursor-zoom", "—");
+        this.scrSpan = scr.span;
+        this.mapSpan = map.span;
+        this.zoomSpan = zoom.span;
+        this.root.appendChild(scr.line);
+        this.root.appendChild(map.line);
+        this.root.appendChild(zoom.line);
+        if (statsBox.children.length > 0) {
+            statsBox.insertBefore(this.root, statsBox.children[1] ?? null);
         }
         else {
-            this.row = document.createElement("p");
-            this.row.setAttribute("id", this.lineId);
-            this.row.appendChild(document.createTextNode("Cursor: "));
-            this.scrXLabel = document.createTextNode("scrX: ");
-            this.scrXSpan = document.createElement("span");
-            this.scrXSpan.textContent = "0";
-            this.scrYLabel = document.createTextNode(", scrY: ");
-            this.scrYSpan = document.createElement("span");
-            this.scrYSpan.textContent = "0";
-            this.galXLabel = document.createTextNode("galX: ");
-            this.galXSpan = document.createElement("span");
-            this.galXSpan.textContent = "0";
-            this.galYLabel = document.createTextNode(", galY: ");
-            this.galYSpan = document.createElement("span");
-            this.galYSpan.textContent = "0";
-            this.row.appendChild(this.scrXLabel);
-            this.row.appendChild(this.scrXSpan);
-            this.row.appendChild(this.scrYLabel);
-            this.row.appendChild(this.scrYSpan);
-            this.row.appendChild(document.createElement("br"));
-            this.row.appendChild(document.createTextNode("Cursor: "));
-            this.row.appendChild(this.galXLabel);
-            this.row.appendChild(this.galXSpan);
-            this.row.appendChild(this.galYLabel);
-            this.row.appendChild(this.galYSpan);
-            // Insert after FPS for ergonomics, or at the end
-            if (statsBox.children.length > 0) {
-                statsBox.insertBefore(this.row, statsBox.children[1] ?? null);
-            }
-            else {
-                statsBox.appendChild(this.row);
-            }
+            statsBox.appendChild(this.root);
         }
-        if (this.row && this.row.parentElement !== statsBox) {
-            if (statsBox.children.length > 0) {
-                statsBox.insertBefore(this.row, statsBox.children[1] ?? null);
-            }
-            else {
-                statsBox.appendChild(this.row);
-            }
-        }
+        this._updateZoom();
     }
     setContainer(container) {
         this.container = container;
         if (!container) {
-            if (this.row)
-                this.row.remove();
+            if (this.root)
+                this.root.remove();
             return;
         }
-        if (!this.row) {
+        if (!this.root) {
             this._setupUI();
             return;
         }
-        if (this.row.parentElement !== container) {
+        if (this.root.parentElement !== container) {
             if (container.children.length > 0) {
-                container.insertBefore(this.row, container.children[1] ?? null);
+                container.insertBefore(this.root, container.children[1] ?? null);
             }
             else {
-                container.appendChild(this.row);
+                container.appendChild(this.root);
             }
         }
     }
+    _formatZoom(z) {
+        if (!Number.isFinite(z))
+            return "—";
+        // Camera height spans 1e2…1e6; whole units stay readable.
+        if (Math.abs(z) >= 1000)
+            return Math.round(z).toLocaleString("en-US");
+        return z.toFixed(1);
+    }
+    _updateZoom() {
+        if (!this.zoomSpan)
+            return;
+        const z = this.getZoom?.() ?? null;
+        this.zoomSpan.textContent =
+            z == null || !Number.isFinite(z) ? "—" : this._formatZoom(z);
+    }
     _onPointerEvent(payload) {
-        let sx = 0, sy = 0, gx = 0, gy = 0;
-        if (payload && payload.screen_position) {
+        let sx = 0;
+        let sy = 0;
+        let mx = 0;
+        let my = 0;
+        if (payload?.screen_position) {
             sx =
                 typeof payload.screen_position.x === "number"
                     ? payload.screen_position.x
@@ -113,24 +131,24 @@ export class CursorStatsWidget {
                     ? payload.screen_position.y
                     : 0;
         }
-        if (payload && payload.galaxy_position) {
-            gx =
+        if (payload?.galaxy_position) {
+            mx =
                 typeof payload.galaxy_position.x === "number"
                     ? payload.galaxy_position.x
                     : 0;
-            gy =
+            // Galaxy plane uses XZ; show as (x, y) with y ← z for the readout.
+            my =
                 typeof payload.galaxy_position.z === "number"
                     ? payload.galaxy_position.z
                     : 0;
         }
-        if (this.scrXSpan)
-            this.scrXSpan.textContent = sx.toFixed(1);
-        if (this.scrYSpan)
-            this.scrYSpan.textContent = sy.toFixed(1);
-        if (this.galXSpan)
-            this.galXSpan.textContent = gx.toFixed(1);
-        if (this.galYSpan)
-            this.galYSpan.textContent = gy.toFixed(1);
+        if (this.scrSpan) {
+            this.scrSpan.textContent = `(${sx.toFixed(1)}, ${sy.toFixed(1)})`;
+        }
+        if (this.mapSpan) {
+            this.mapSpan.textContent = `(${mx.toFixed(1)}, ${my.toFixed(1)})`;
+        }
+        this._updateZoom();
     }
 }
 //# sourceMappingURL=cursor-stats-widget.js.map

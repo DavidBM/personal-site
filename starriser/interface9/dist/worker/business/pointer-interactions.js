@@ -98,16 +98,14 @@ export function createPointerInteractionController({ world, editMode, publish, }
         }
     };
     const handleSelectionChange = ({ hoveredId, selectedId, }) => {
+        // One publish per semantic event (main applies UI + colors from these).
         publish(Topics.updateUIState, { hoveredId, selectedId });
-        publish(Topics.selectionChanged, { hoveredId, selectedId });
         if (selectedId != null) {
             const coloring = computeConnectionGradient(selectedId, 10, world.lastConnections);
             publish(Topics.setConnectionColors, coloring);
-            publish(Topics.connectionsColored, { selectedId, coloring });
         }
         else {
             publish(Topics.setConnectionColors, {});
-            publish(Topics.connectionsCleared, {});
         }
     };
     const handleOps = (ops) => {

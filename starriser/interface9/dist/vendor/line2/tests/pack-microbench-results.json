@@ -1,0 +1,195 @@
+{
+  "meta": {
+    "node": "v22.23.1",
+    "platform": "linux",
+    "arch": "x64",
+    "date": "2026-07-19T10:58:13.165Z",
+    "warmup": 50,
+    "iters": 400,
+    "itersLarge": 80
+  },
+  "rows": [
+    {
+      "kind": "pack alias (Float32Array)",
+      "n": 100,
+      "msPerCall": 0.00008726249999998714,
+      "nsPerSeg": 0.8726249999998714,
+      "thrMiBps": 26229.117425874083
+    },
+    {
+      "kind": "pack alias (Float32Array)",
+      "n": 1000,
+      "msPerCall": 0.0000844824999999716,
+      "nsPerSeg": 0.0844824999999716,
+      "thrMiBps": 270922.1861777018
+    },
+    {
+      "kind": "pack alias (Float32Array)",
+      "n": 1500,
+      "msPerCall": 0.000055480000000009965,
+      "nsPerSeg": 0.03698666666667331,
+      "thrMiBps": 618822.5557069004
+    },
+    {
+      "kind": "pack alias (Float32Array)",
+      "n": 2000,
+      "msPerCall": 0.00006629749999998325,
+      "nsPerSeg": 0.03314874999999162,
+      "thrMiBps": 690468.979788251
+    },
+    {
+      "kind": "pack alias (Float32Array)",
+      "n": 8000,
+      "msPerCall": 0.00006867750000001393,
+      "nsPerSeg": 0.008584687500001742,
+      "thrMiBps": 2666163.8637102814
+    },
+    {
+      "kind": "pack alias (Float32Array)",
+      "n": 50000,
+      "msPerCall": 0.0000800250000001057,
+      "nsPerSeg": 0.0016005000000021141,
+      "thrMiBps": 14300645.794264149
+    },
+    {
+      "kind": "pack copy (number[])",
+      "n": 100,
+      "msPerCall": 0.002196965000000013,
+      "nsPerSeg": 21.96965000000013,
+      "thrMiBps": 1041.8092046869142
+    },
+    {
+      "kind": "pack copy (number[])",
+      "n": 1000,
+      "msPerCall": 0.018092597500000026,
+      "nsPerSeg": 18.092597500000025,
+      "thrMiBps": 1265.0579107698586
+    },
+    {
+      "kind": "pack copy (number[])",
+      "n": 1500,
+      "msPerCall": 0.025743322500000013,
+      "nsPerSeg": 17.162215000000007,
+      "thrMiBps": 1333.6380877264378
+    },
+    {
+      "kind": "pack copy (number[])",
+      "n": 2000,
+      "msPerCall": 0.018222217500000006,
+      "nsPerSeg": 9.111108750000003,
+      "thrMiBps": 2512.1183625154285
+    },
+    {
+      "kind": "pack copy (number[])",
+      "n": 8000,
+      "msPerCall": 0.07840233749999999,
+      "nsPerSeg": 9.800292187499998,
+      "thrMiBps": 2335.4593062993818
+    },
+    {
+      "kind": "pack copy (number[])",
+      "n": 50000,
+      "msPerCall": 0.5408230499999999,
+      "nsPerSeg": 10.816460999999997,
+      "thrMiBps": 2116.051044214
+    },
+    {
+      "kind": "polylineToSegments",
+      "n": 100,
+      "msPerCall": 0.005439432500000052,
+      "nsPerSeg": 54.39432500000052,
+      "thrMiBps": 420.78256497805205
+    },
+    {
+      "kind": "polylineToSegments",
+      "n": 1000,
+      "msPerCall": 0.00808558749999996,
+      "nsPerSeg": 8.08558749999996,
+      "thrMiBps": 2830.7384706120756
+    },
+    {
+      "kind": "polylineToSegments",
+      "n": 1500,
+      "msPerCall": 0.017787252500000007,
+      "nsPerSeg": 11.858168333333337,
+      "thrMiBps": 1930.1618049569483
+    },
+    {
+      "kind": "polylineToSegments",
+      "n": 2000,
+      "msPerCall": 0.014509915000000007,
+      "nsPerSeg": 7.254957500000003,
+      "thrMiBps": 3154.8335870678757
+    },
+    {
+      "kind": "polylineToSegments",
+      "n": 8000,
+      "msPerCall": 0.03175325000000001,
+      "nsPerSeg": 3.9691562500000015,
+      "thrMiBps": 5766.511105162462
+    },
+    {
+      "kind": "polylineToSegments",
+      "n": 50000,
+      "msPerCall": 0.21944797499999993,
+      "nsPerSeg": 4.388959499999999,
+      "thrMiBps": 5214.945272051385
+    },
+    {
+      "kind": "computeLineDistances",
+      "n": 100,
+      "msPerCall": 0.010336527500000017,
+      "nsPerSeg": 103.36527500000017,
+      "thrMiBps": 73.81003466831571
+    },
+    {
+      "kind": "computeLineDistances",
+      "n": 1000,
+      "msPerCall": 0.027761050000000013,
+      "nsPerSeg": 27.761050000000015,
+      "thrMiBps": 274.82370195831913
+    },
+    {
+      "kind": "computeLineDistances",
+      "n": 1500,
+      "msPerCall": 0.0428857674999999,
+      "nsPerSeg": 28.5905116666666,
+      "thrMiBps": 266.8505768697045
+    },
+    {
+      "kind": "computeLineDistances",
+      "n": 2000,
+      "msPerCall": 0.05231582249999988,
+      "nsPerSeg": 26.157911249999938,
+      "thrMiBps": 291.6668100267378
+    },
+    {
+      "kind": "computeLineDistances",
+      "n": 8000,
+      "msPerCall": 0.2114970199999999,
+      "nsPerSeg": 26.43712749999999,
+      "thrMiBps": 288.58636518850255
+    },
+    {
+      "kind": "computeLineDistances",
+      "n": 50000,
+      "msPerCall": 1.3240290125,
+      "nsPerSeg": 26.48058025,
+      "thrMiBps": 288.11281547540864
+    }
+  ],
+  "sizes": [
+    100,
+    1000,
+    1500,
+    2000,
+    8000,
+    50000
+  ],
+  "briefSizes": [
+    100,
+    1000,
+    8000,
+    50000
+  ]
+}

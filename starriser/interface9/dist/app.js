@@ -1,23 +1,28 @@
-import { GalaxyRenderer } from "./galaxy-renderer.js";
 import { UIController } from "./ui-controller.js";
-import { CameraController } from "./camera-controller.js";
 import { Galaxy } from "./galaxy.js";
 import { GalaxyMetrics } from "./galaxy-metrics.js";
 import { ControlsManager } from "./controls-manager.js";
-import { buildClusterSolarSystemPlan } from "./cluster-solar-system-plan.js";
 import { replayGalaxyOps } from "./galaxy/galaxy-op-replayer.js";
 import { ClusterContextMenuController } from "./main/cluster-context-menu-controller.js";
 import { subscribeAppLifecycleDebugTopics, subscribeAppTopics, } from "./main/app-subscriptions.js";
 import { initializeAppWorkers } from "./main/app-workers.js";
 import { createPointerEventRouter, } from "./main/pointer-event-router.js";
+import { createEditHandlePointerController, } from "./main/edit-handle-pointer.js";
+import { createWebGpuViewHooks } from "./main/webgpu-view-bridge.js";
+import { collectExtendedClusterIds, regenerateClusters, } from "./main/cluster-regenerator.js";
+import { createFleetStatusController, } from "./main/fleet-status-controller.js";
+import { beginBulkAdd, endBulkAdd, installGamePerfGlobal, isBulkActive, noteBulkApplied, } from "./main/game-perf.js";
+import { CAP_NEAR, GLOBAL_MAX_INSTANCES } from "./gpu/fleet-lod.js";
 import { Bus } from "./worker/bus/Bus.js";
 import { publishTopic, Topics } from "./worker/protocol/topics.js";
 import { CursorStatsWidget } from "./ui/cursor-stats-widget.js";
 import { createUIContext, createUIRoot } from "./ui/ui-kit.js";
 import { buildEditorUI, buildPlayUI, resolveUIMode, } from "./ui/ui-modes.js";
 import Stats from "./vendor/stats.js";
-import { opAddSolarSystem, opConnectClusters, opConnectSolarSystems, opRemoveConnection, opRemoveSolarSystem, } from "./worker/galaxy/galaxy-ops.js";
-import { angleXZ, pointAtAngle } from "./math/galaxy-xz-math.js";
+import { assertWebGpuAvailable } from "./gpu/preferred-backend.js";
+import { WebGpuMapView } from "./gpu/webgpu-map-view.js";
+import { WebGpuCameraController } from "./gpu/webgpu-camera-controls.js";
+import { WebGpuCameraStub, WebGpuRendererShim, } from "./gpu/webgpu-renderer-shim.js";
 export class App {
     constructor() {
         this.statsPanels = [];
@@ -29,6 +34,9 @@ export class App {
             this.uiBindings.mode === "editor" ? this.uiBindings.contextMenu : null;
         this.contextMenuController = null;
         this.pointerEventRouter = null;
+        this.webGpuView = null;
+        this.webGpuShim = null;
+        this.editHandlePointer = null;
         const statsBar = this.uiBindings.mode === "editor"
             ? (this.uiBindings.stats.container ?? null)
             : null;
@@ -36,38 +44,84 @@ export class App {
             this.statsPanels.push(createAndInsertStatsPanels(statsBar));
         }
         this.stats = this.statsPanels[0] ?? null;
-        this.renderer = new GalaxyRenderer(document.body);
-        // Pass all stats panels; GalaxyRenderer will use statsPanels[0] (FPS) for timing, others are still updated for display.
-        this.renderer.setStatsPanels(this.statsPanels);
-        // Create metrics instance and pass to galaxy for efficient statistics tracking
         this.metrics = new GalaxyMetrics();
-        this.galaxy = new Galaxy(this.renderer, this.metrics, (evt) => this.handleClusterEditPointer(evt));
-        this.renderer.setFleetPositionProvider((node) => {
-            const sys = this.galaxy.getSolarSystemById(node.clusterId, node.solarSystemId);
-            return sys ? sys.position : null;
-        });
-        this.cameraController = new CameraController(this.renderer);
-        this.contextMenuController = this.createContextMenuController();
-        this.uiController =
-            this.uiBindings.mode === "editor"
-                ? new UIController(this.uiBindings.stats)
-                : new UIController();
         this.controlsManager = ControlsManager.getInstance();
-        // Create main bus for worker management
         this.mainBus = new Bus(window, {
             debug: 1,
             workerLabel: "App/Main",
             workerId: "main",
         });
         this.cursorStatsWidget = null;
-        // Throttled stats update mechanism (200ms interval)
-        this.statsUpdateInterval = 200; // milliseconds
+        this.statsUpdateInterval = 200;
         this.lastStatsUpdate = 0;
         this.statsUpdatePending = false;
         this.lastUIState = { hoveredId: null, selectedId: null };
         this.clusterDragStarts = new Map();
         this.maxSolarSystemId = 0;
-        this.fleetStatusById = new Map();
+        installGamePerfGlobal();
+        this.uiController =
+            this.uiBindings.mode === "editor"
+                ? new UIController(this.uiBindings.stats)
+                : new UIController();
+        // WebGPU device request is async in initialize() / setupWebGpuGraphics().
+        this.cameraController = new WebGpuCameraStub();
+        // Temporary empty galaxy until WebGPU view is ready.
+        this.galaxy = new Galaxy({}, this.metrics);
+        this.fleetStatus = createFleetStatusController({
+            renderer: {
+                addFleet: () => { },
+                updateFleetState: () => { },
+                removeFleet: () => { },
+            },
+            onListChanged: () => { },
+        });
+        installGamePerfGlobal();
+        console.info("[Galaxy] WebGPU backend. Completing device init…");
+    }
+    /** Finish WebGPU device + map view (async). Always runs; no dual path. */
+    async setupWebGpuGraphics() {
+        assertWebGpuAvailable();
+        this.webGpuView = await WebGpuMapView.create({ container: document.body });
+        this.webGpuShim = new WebGpuRendererShim(this.webGpuView);
+        this.webGpuShim.setStatsPanels(this.statsPanels);
+        this.cameraController = new WebGpuCameraController(this.webGpuView);
+        // Damped zoom/tilt: one tick per rAF before look-at + LOD.
+        this.webGpuView.setBeforeFrame((dtMs) => {
+            const cam = this.cameraController;
+            if (cam && "update" in cam && typeof cam.update === "function") {
+                cam.update(dtMs);
+            }
+        });
+        this.galaxy = new Galaxy(createWebGpuViewHooks(this.webGpuView, () => this.galaxy), this.metrics);
+        this.webGpuView.setFleetPositionProvider((node) => {
+            const sys = this.galaxy.getSolarSystemById(node.clusterId, node.solarSystemId);
+            return sys ? sys.position : null;
+        });
+        this.fleetStatus = createFleetStatusController({
+            renderer: this.webGpuView,
+            onListChanged: (byId) => {
+                if (this.uiBindings.mode !== "editor")
+                    return;
+                this.uiBindings.fleets.render(byId);
+            },
+            onApplied: (n) => {
+                if (!isBulkActive())
+                    return;
+                noteBulkApplied(n);
+                if (!isBulkActive())
+                    this.clearBulkShipBudgetHint();
+            },
+        });
+        // Edit handles: pan lock + pointer hit + M4 GPU overlay via view hooks.
+        this.editHandlePointer = createEditHandlePointerController({
+            target: this.webGpuShim,
+            camera: this.cameraController,
+            getFallbackClusterId: () => this.galaxy.getLastEditHandleClusterId() ??
+                this.lastUIState.selectedId,
+            publish: (payload) => this.publishPointerEvent(payload),
+        });
+        this.contextMenuController = this.createContextMenuController();
+        console.info("[Galaxy] WebGPU map view ready (points + lines + fleets + pick + M4 overlays).");
     }
     buildUIBindings(mode) {
         return mode === "play"
@@ -100,8 +154,7 @@ export class App {
             this.statsPanels.push(createAndInsertStatsPanels(statsBar));
         }
         this.stats = this.statsPanels[0] ?? null;
-        this.renderer.setStatsPanels(this.statsPanels);
-        this.renderer.setStats(this.stats);
+        this.webGpuShim?.setStatsPanels(this.statsPanels);
         if (this.uiBindings.mode === "editor") {
             this.uiController.setStatsElements(this.uiBindings.stats);
         }
@@ -116,7 +169,7 @@ export class App {
         }
         this.updateStats();
         this.updateUIModeHistory();
-        this.renderFleetList();
+        this.fleetStatus.renderList();
     }
     updateUIModeHistory() {
         const url = new URL(window.location.href);
@@ -124,7 +177,41 @@ export class App {
         window.history.replaceState({}, "", url.toString());
     }
     async initialize() {
+        await this.setupWebGpuGraphics();
         await this.initializeWorkers();
+        // Start rAF after workers. (First-frame + broker race was a headless
+        // SwiftShader issue; real GPUs are fine. Galaxy complete also ensures loop.)
+        this.webGpuView?.startRenderLoop();
+        // CDP / game-perf surface (10k bulk loop).
+        globalThis.__galaxyApp = {
+            generateFleetsBulk: (n) => this.generateFleetsBulk(n),
+            generateGalaxy: (overrideParams) => this.generateGalaxy(overrideParams),
+            generateFleet: () => this.generateFleet(),
+            clearGalaxy: () => this.clearGalaxy(),
+            getFleetCount: () => this.webGpuView?.getFleetCount() ?? this.fleetStatus.byId.size,
+            getClusterCount: () => this.galaxy.clusters.length,
+            getShipHighWater: () => this.webGpuView?.getShipHighWater() ?? 0,
+            getBulkShipBudgetHint: () => this.webGpuView?.getBulkShipBudgetHint() ?? null,
+            getPendingApplyCount: () => this.fleetStatus.getPendingApplyCount(),
+            isDeviceLost: () => this.webGpuView?.isDeviceLost() ?? true,
+            beginFrameCpuSample: () => this.webGpuView?.beginFrameCpuSample(),
+            getFrameCpuSampleAvg: () => this.webGpuView?.getFrameCpuSampleAvg() ?? 0,
+            getFrameCpuSampleCount: () => this.webGpuView?.getFrameCpuSampleCount() ?? 0,
+            getFrameGpuSampleAvg: () => this.webGpuView?.getFrameGpuSampleAvg() ?? 0,
+            getFrameGpuSampleCount: () => this.webGpuView?.getFrameGpuSampleCount() ?? 0,
+            getLastFrameCpuMs: () => this.webGpuView?.getLastFrameCpuMs() ?? 0,
+            getLastFrameGpuMs: () => this.webGpuView?.getLastFrameGpuMs() ?? 0,
+            measureOneGpuFrameMs: () => this.webGpuView?.measureOneGpuFrameMs() ?? Promise.resolve(0),
+            stopRenderLoop: () => this.webGpuView?.stopLoop(),
+            setCameraLookAt: (eyeX, eyeY, eyeZ, targetX, targetZ) => this.webGpuView?.setCameraLookAt(eyeX, eyeY, eyeZ, targetX, targetZ),
+            startRenderLoop: () => this.webGpuView?.startRenderLoop(),
+        };
+    }
+    /** Finalize/clear/colors surface (WebGPU shim). */
+    graphics() {
+        if (this.webGpuShim)
+            return this.webGpuShim;
+        throw new Error("WebGPU graphics not initialized");
     }
     async initializeWorkers() {
         try {
@@ -137,9 +224,18 @@ export class App {
                     },
                     onGalaxyComplete: (payload) => {
                         if (!payload || payload.finalizeBuffers !== false) {
-                            this.renderer.finalizeBuffers(this.galaxy);
+                            try {
+                                this.graphics().finalizeBuffers(this.galaxy);
+                            }
+                            catch (err) {
+                                console.warn("[Galaxy] finalizeBuffers failed:", err);
+                            }
                         }
+                        // Ensure rAF is running after first topology (safe if already started).
+                        this.webGpuView?.startRenderLoop();
                         this.updateStats();
+                        globalThis.__galaxyGenComplete =
+                            true;
                     },
                     onGalaxyError: (error) => {
                         alert(`Galaxy Worker error: ${error}`);
@@ -150,14 +246,17 @@ export class App {
                         this.handleUIStateUpdate({ hoveredId, selectedId });
                     },
                     onConnectionColors: (connectionColors) => {
-                        this.renderer.setConnectionColors(connectionColors);
+                        this.webGpuShim?.setConnectionColors(connectionColors);
                     },
                     onShowEditHandles: ({ clusterId, handles }) => {
+                        // Arm edit mode (pan lock + handle pointer) and GPU gizmo overlay.
                         this.controlsManager.setEditModeActive(true, clusterId);
+                        this.editHandlePointer?.setActiveClusterId(clusterId);
                         this.galaxy.showEditHandles(clusterId, handles);
                     },
                     onHideEditHandles: ({ clusterId }) => {
                         this.controlsManager.setEditModeActive(false, null);
+                        this.editHandlePointer?.setActiveClusterId(null);
                         this.galaxy.hideEditHandles(clusterId);
                     },
                     onUpdateCluster: ({ clusterId, position }) => {
@@ -169,19 +268,22 @@ export class App {
                 },
                 fleets: {
                     onFleetSpawned: ({ id, counts, state }) => {
-                        this.handleFleetSpawned(id, counts, state);
+                        // Immediate apply; noteBulkApplied via onApplied when bulk active.
+                        this.fleetStatus.handleSpawned(id, counts, state);
+                    },
+                    onFleetsSpawnedBatch: ({ fleets }) => {
+                        // Enqueue only — pack is rAF-budgeted; gamePerf counts real applies.
+                        this.fleetStatus.handleSpawnedBatch(fleets);
                     },
                     onFleetState: ({ id, state }) => {
-                        this.handleFleetState(id, state);
+                        this.fleetStatus.handleState(id, state);
                     },
                     onFleetRemoved: ({ id }) => {
-                        this.handleFleetRemoved(id);
+                        this.fleetStatus.handleRemoved(id);
                     },
                 },
             });
             console.log("All workers initialized successfully");
-            // Setup event handling after workers are ready
-            this.renderer.setCameraController(this.cameraController);
             this.initEventListeners();
             // Set up optional lifecycle/debug subscriptions after workers are ready.
             setTimeout(() => {
@@ -198,55 +300,40 @@ export class App {
             return;
         publishTopic(this.mainBus, Topics.pointerEvent, payload, priority);
     }
-    /**
-     * Used by Cluster.editHandlePointerEvent to forward a handle drag/move edit event to the business worker.
-     * @param {Object} evt - {cluster, type, handleId, handleKind, screenX, screenY, ndcX, ndcY, ...}
-     */
-    handleClusterEditPointer(evt) {
-        // Prepare pointer event for worker (most info packed in evt)
-        // Replicate pointer_event structure with additional cluster & handle info
-        const { cluster, type, handleId, handleKind, screenX, screenY, ndcX, ndcY, originalEvent, editDragMode, } = evt;
-        // Get world ray for pointer position
-        const pointerRay = this.cameraController.getPointerRayFromScreenPosition(screenX, screenY);
-        const groundPoint = this.cameraController.getGroundPointFromScreenPosition(screenX, screenY) || { x: 0, y: 0, z: 0 };
-        const ndc = typeof ndcX === "number" && typeof ndcY === "number"
-            ? { x: ndcX, y: ndcY }
-            : undefined;
-        this.publishPointerEvent({
-            type,
-            clusterId: cluster.id,
-            handleId,
-            handleKind,
-            editDragMode,
-            screen_position: { x: screenX, y: screenY },
-            galaxy_position: { x: groundPoint.x, z: groundPoint.z },
-            ray: pointerRay,
-            ndc,
-        });
-    }
     initEventListeners() {
         const statsContainer = this.uiBindings.mode === "editor"
             ? (this.uiBindings.stats.container ?? null)
             : null;
-        this.cursorStatsWidget = new CursorStatsWidget(this.mainBus, "cursorStats", statsContainer);
-        // Hook stats.js begin/end into renderer
-        if (this.stats) {
-            this.renderer.setStats(this.stats);
-        }
-        const canvas = this.renderer?.renderer?.domElement;
+        this.cursorStatsWidget = new CursorStatsWidget(this.mainBus, "cursorStats", statsContainer, () => {
+            const cam = this.cameraController;
+            if (cam && "getZoomLevel" in cam && typeof cam.getZoomLevel === "function") {
+                const z = cam.getZoomLevel();
+                if (typeof z === "number" && Number.isFinite(z))
+                    return z;
+            }
+            const view = this.webGpuView;
+            if (!view)
+                return null;
+            return view.getCameraState().eyeY;
+        });
+        this.webGpuShim?.setStatsPanels(this.statsPanels);
+        const canvas = this.webGpuView?.canvas;
         if (!canvas) {
-            console.error("Renderer domElement not available for events");
+            console.error("WebGPU canvas not available for events");
             return;
         }
-        this.pointerEventRouter?.dispose();
-        this.pointerEventRouter = createPointerEventRouter({
-            canvas,
-            cameraController: this.cameraController,
-            controlsManager: this.controlsManager,
-            galaxy: this.galaxy,
-            getContextMenuController: () => this.contextMenuController,
-            publishPointerEvent: (payload, priority) => this.publishPointerEvent(payload, priority),
-        });
+        // Edit-handle pointer path: hasEditHandles gates hit-test when gizmo is up.
+        if (this.editHandlePointer) {
+            this.pointerEventRouter?.dispose();
+            this.pointerEventRouter = createPointerEventRouter({
+                canvas,
+                cameraController: this.cameraController,
+                controlsManager: this.controlsManager,
+                editHandlePointer: this.editHandlePointer,
+                getContextMenuController: () => this.contextMenuController,
+                publishPointerEvent: (payload, priority) => this.publishPointerEvent(payload, priority),
+            });
+        }
     }
     handleContextMenuAction(action) {
         const clusterId = this.contextMenuController?.getClusterId() ?? null;
@@ -283,7 +370,7 @@ export class App {
         }
         this.galaxy.previewMoveCluster(cluster, { ...position, y: 0 });
         cluster.position.y = 0;
-        this.renderer.updateEditOverlayPosition(clusterId, cluster.position);
+        this.graphics().updateEditOverlayPosition(clusterId, cluster.position);
         if (this.lastUIState.hoveredId === clusterId) {
             this.galaxy.setHoveredCluster(cluster);
         }
@@ -303,9 +390,9 @@ export class App {
         this.clusterDragStarts.delete(clusterId);
         this.galaxy.commitMoveCluster(cluster, startPos, { ...position, y: 0 });
         cluster.position.y = 0;
-        this.renderer.updateEditOverlayPosition(clusterId, cluster.position);
+        this.graphics().updateEditOverlayPosition(clusterId, cluster.position);
         if (this.lastUIState.selectedId !== null) {
-            this.renderer.refreshConnectionOverlays();
+            this.graphics().refreshConnectionOverlays();
         }
         if (this.lastUIState.hoveredId === clusterId) {
             this.galaxy.setHoveredCluster(cluster);
@@ -319,156 +406,42 @@ export class App {
             return;
         publishTopic(this.mainBus, Topics.galaxyLocalOps, ops, 0);
     }
-    publishRegenerationLifecycle(phase, regenerationId, clusterIds) {
-        if (!this.mainBus.isPubSubReady())
-            return;
-        const payload = {
-            regenerationId,
-            clusterIds,
-            timestamp: Date.now(),
-        };
-        const eventName = phase === "started"
-            ? Topics.galaxyRegenerationStarted
-            : Topics.galaxyRegenerationComplete;
-        publishTopic(this.mainBus, eventName, payload, 0);
-    }
-    publishOpsComplete(payload) {
-        if (!this.mainBus.isPubSubReady())
-            return;
-        publishTopic(this.mainBus, Topics.galaxyComplete, payload, 2);
-    }
     applyLocalOps(ops) {
         if (!ops.length)
             return;
         this.processOps(ops);
         this.publishLocalOps(ops);
     }
+    regeneratorDeps() {
+        return {
+            galaxy: this.galaxy,
+            getMaxSolarSystemId: () => this.maxSolarSystemId,
+            getGenerationParams: () => this.getInputParameters(),
+            applyLocalOps: (ops) => this.applyLocalOps(ops),
+            publishRegenerationLifecycle: (phase, regenerationId, clusterIds) => {
+                if (!this.mainBus.isPubSubReady())
+                    return;
+                const eventName = phase === "started"
+                    ? Topics.galaxyRegenerationStarted
+                    : Topics.galaxyRegenerationComplete;
+                publishTopic(this.mainBus, eventName, { regenerationId, clusterIds, timestamp: Date.now() }, 0);
+            },
+            publishOpsComplete: (payload) => {
+                if (!this.mainBus.isPubSubReady())
+                    return;
+                publishTopic(this.mainBus, Topics.galaxyComplete, payload, 2);
+            },
+            updateStats: () => this.updateStats(),
+        };
+    }
     regenerateCluster(clusterId) {
-        this.regenerateClusters([clusterId]);
+        regenerateClusters(this.regeneratorDeps(), [clusterId]);
     }
     regenerateClusterExtended(clusterId) {
-        const cluster = this.galaxy.getClusterById(clusterId);
-        if (!cluster)
+        const ids = collectExtendedClusterIds(this.galaxy, clusterId);
+        if (!ids.length)
             return;
-        const neighborIds = new Set();
-        for (const conn of this.galaxy.connections) {
-            if (conn.cluster1.id === clusterId) {
-                neighborIds.add(conn.cluster2.id);
-            }
-            else if (conn.cluster2.id === clusterId) {
-                neighborIds.add(conn.cluster1.id);
-            }
-        }
-        const orderedIds = [
-            clusterId,
-            ...Array.from(neighborIds).sort((a, b) => a - b),
-        ];
-        this.regenerateClusters(orderedIds);
-    }
-    regenerateClusters(clusterIds) {
-        if (!clusterIds.length)
-            return;
-        const uniqueIds = [];
-        const seen = new Set();
-        for (const id of clusterIds) {
-            if (seen.has(id))
-                continue;
-            if (!this.galaxy.getClusterById(id))
-                continue;
-            seen.add(id);
-            uniqueIds.push(id);
-        }
-        if (!uniqueIds.length)
-            return;
-        const regenerationId = Date.now();
-        this.publishRegenerationLifecycle("started", regenerationId, uniqueIds);
-        for (const id of uniqueIds) {
-            this.regenerateClusterInternal(id);
-        }
-        this.updateStats();
-        this.publishRegenerationLifecycle("complete", regenerationId, uniqueIds);
-        this.publishOpsComplete({
-            source: "regeneration",
-            regenerationId,
-            clusterIds: uniqueIds,
-            finalizeBuffers: false,
-        });
-    }
-    regenerateClusterInternal(clusterId) {
-        const cluster = this.galaxy.getClusterById(clusterId);
-        if (!cluster)
-            return;
-        const connections = this.galaxy.connections.filter((conn) => conn.cluster1.id === clusterId || conn.cluster2.id === clusterId);
-        const neighborInfo = connections.map((conn) => {
-            const isCluster1 = conn.cluster1.id === clusterId;
-            return {
-                neighbor: isCluster1 ? conn.cluster2 : conn.cluster1,
-                neighborGate: isCluster1 ? conn.jumpGate2 : conn.jumpGate1,
-            };
-        });
-        const ops = [];
-        for (const conn of connections) {
-            ops.push(opRemoveConnection(conn.cluster1.id, conn.cluster2.id, { id: conn.jumpGate1.id }, { id: conn.jumpGate2.id }));
-        }
-        for (const sys of cluster.solarSystems.slice()) {
-            ops.push(opRemoveSolarSystem(cluster.id, sys.id));
-        }
-        if (neighborInfo.length === 0) {
-            this.applyLocalOps(ops);
-            return;
-        }
-        let nextId = this.maxSolarSystemId + 1;
-        const newGateSeeds = [];
-        const newGateByNeighbor = new Map();
-        for (const info of neighborInfo) {
-            const angle = angleXZ(cluster.position, info.neighbor.position);
-            const pos = pointAtAngle(cluster.position, cluster.radius * 1.07, angle);
-            const gate = {
-                id: nextId++,
-                name: `JumpGate ${cluster.id}->${info.neighbor.id}`,
-                position: pos,
-                connections: [],
-                isJumpGate: true,
-                connectedToClusterId: info.neighbor.id,
-            };
-            newGateSeeds.push({ neighborId: info.neighbor.id, gate });
-            newGateByNeighbor.set(info.neighbor.id, { id: gate.id });
-        }
-        const params = this.getInputParameters();
-        const plan = buildClusterSolarSystemPlan({
-            clusterId: cluster.id,
-            clusterPosition: {
-                x: cluster.position.x,
-                y: cluster.position.y,
-                z: cluster.position.z,
-            },
-            clusterRadius: cluster.radius,
-            numSolarSystems: params.numSolarSystems,
-            jumpGates: newGateSeeds.map(({ gate }) => ({
-                id: gate.id,
-                name: gate.name,
-                position: gate.position,
-                connectedToClusterId: gate.connectedToClusterId,
-            })),
-            nextSystemId: nextId,
-        });
-        for (const { gate } of newGateSeeds) {
-            ops.push(opAddSolarSystem(cluster.id, gate));
-        }
-        for (const sys of plan.systems) {
-            ops.push(opAddSolarSystem(cluster.id, sys));
-        }
-        for (const [id1, id2] of plan.connections) {
-            ops.push(opConnectSolarSystems(cluster.id, id1, id2));
-        }
-        for (const info of neighborInfo) {
-            const gate = newGateByNeighbor.get(info.neighbor.id);
-            if (!gate)
-                continue;
-            ops.push(opConnectClusters(cluster.id, info.neighbor.id, { id: gate.id }, { id: info.neighborGate.id }));
-        }
-        this.applyLocalOps(ops);
-        cluster.maxSystemDistance = plan.maxSystemDistance;
+        regenerateClusters(this.regeneratorDeps(), ids);
     }
     processOps(ops) {
         const result = replayGalaxyOps(this.galaxy, ops, {
@@ -482,9 +455,12 @@ export class App {
         }
         return DEFAULT_GENERATION_PARAMS;
     }
-    generateGalaxy() {
+    generateGalaxy(overrideParams) {
         console.log("Generating new galaxy...");
-        const params = this.getInputParameters();
+        const params = {
+            ...this.getInputParameters(),
+            ...(overrideParams ?? {}),
+        };
         if (this.mainBus.isPubSubReady()) {
             publishTopic(this.mainBus, Topics.generateGalaxy, params);
         }
@@ -494,18 +470,47 @@ export class App {
             publishTopic(this.mainBus, Topics.generateFleet, {});
         }
     }
+    /**
+     * One generate_fleets_bulk to the fleets-worker. Worker pathfinds + chunks;
+     * main only applies fleets_spawned_batch (64–128) with fair ship budget.
+     *
+     * Visual N = min(CAP_NEAR, floor(GLOBAL_MAX / n)) so **10k fleets** packs
+     * full formation (~48 → ~480k ships under GLOBAL_MAX_INSTANCES). No soft N=1
+     * stand-in — GPU LOD still demotes draw/sim by camera each frame.
+     */
     generateFleetsBulk(count) {
         if (!this.mainBus.isPubSubReady())
             return;
-        for (let i = 0; i < count; i++) {
-            publishTopic(this.mainBus, Topics.generateFleet, {});
+        const n = Math.max(0, Math.min(count | 0, 100000));
+        if (n <= 0)
+            return;
+        const hint = Math.max(1, Math.min(CAP_NEAR, Math.floor(GLOBAL_MAX_INSTANCES / Math.max(1, n))));
+        const view = this.webGpuView;
+        if (view) {
+            view.setBulkShipBudgetHint(hint);
+            if (!view.isDeviceLost()) {
+                try {
+                    view.reserveFleetCapacity(n, hint);
+                }
+                catch (err) {
+                    console.warn("[fleets] reserveFleetCapacity failed:", err);
+                }
+            }
+            view.startRenderLoop();
         }
+        beginBulkAdd(n);
+        publishTopic(this.mainBus, Topics.generateFleetsBulk, { count: n });
+    }
+    clearBulkShipBudgetHint() {
+        this.webGpuView?.setBulkShipBudgetHint(null);
     }
     clearGalaxy() {
         console.log("Clearing galaxy...");
+        endBulkAdd();
+        this.clearBulkShipBudgetHint();
         // Clear renderer
-        this.renderer.clear();
-        this.renderer.clearFleets();
+        this.graphics().clear();
+        this.graphics().clearFleets();
         // Clear galaxy
         this.galaxy.clear();
         this.maxSolarSystemId = 0;
@@ -521,32 +526,8 @@ export class App {
             connections: 0,
             internalConnections: 0,
         });
-        this.fleetStatusById.clear();
-        this.renderFleetList();
+        this.fleetStatus.clear();
         console.log("Galaxy cleared!");
-    }
-    handleFleetSpawned(id, counts, state) {
-        this.fleetStatusById.set(id, { counts, state });
-        this.renderFleetList();
-        this.renderer.addFleet(id, counts, state);
-    }
-    handleFleetState(id, state) {
-        const existing = this.fleetStatusById.get(id);
-        if (existing) {
-            existing.state = state;
-        }
-        this.renderFleetList();
-        this.renderer.updateFleetState(id, state);
-    }
-    handleFleetRemoved(id) {
-        this.fleetStatusById.delete(id);
-        this.renderFleetList();
-        this.renderer.removeFleet(id);
-    }
-    renderFleetList() {
-        if (this.uiBindings.mode !== "editor")
-            return;
-        this.uiBindings.fleets.render(this.fleetStatusById);
     }
     updateStats(stats) {
         const resolvedStats = stats ?? this.galaxy.getStatistics();

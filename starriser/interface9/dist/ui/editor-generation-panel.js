@@ -146,10 +146,22 @@ export function buildEditorGenerationPanel(ctx, actions) {
         onClick: (event) => buttonHandlers(event, () => actions.generateFleet()),
     });
     ctx.button({
-        id: "generateFleetsBulk",
+        id: "generateFleetsBulk1k",
         parent: buttonRow.element,
-        text: "Generate 1000 Fleets",
+        text: "Generate 1K Fleets",
         onClick: (event) => buttonHandlers(event, () => actions.generateFleetsBulk(1000)),
+    });
+    ctx.button({
+        id: "generateFleetsBulk10k",
+        parent: buttonRow.element,
+        text: "Generate 10K Fleets",
+        onClick: (event) => buttonHandlers(event, () => actions.generateFleetsBulk(10000)),
+    });
+    ctx.button({
+        id: "generateFleetsBulk50k",
+        parent: buttonRow.element,
+        text: "Generate 50K Fleets",
+        onClick: (event) => buttonHandlers(event, () => actions.generateFleetsBulk(50000)),
     });
     ctx.button({
         id: "clearGalaxy",
