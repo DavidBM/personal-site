@@ -14,6 +14,34 @@ uniform float lightPositionY;
 uniform float lightPositionZ;
 uniform float width;
 
+// Realistic globe orientation, all in degrees:
+//   uSpin       = daily rotation around the planet's own (polar) axis
+//   uObliquity  = axial tilt of that pole away from vertical
+//   uPrecession = slow rotation of the tilt direction (the axis itself turning)
+uniform float uSpin;
+uniform float uObliquity;
+uniform float uPrecession;
+
+// View-space rotation from mouse/touch drag (arcball). Applied to each fragment
+// BEFORE the auto spin/tilt/precession so a grabbed point follows the cursor
+// while the underlying rotation keeps going.
+uniform mat3 uDragRot;
+
+// Sun direction as latitude/longitude (degrees). lat = height above the
+// view plane (90 = straight up/top), lon = around (0 = toward camera/front,
+// 180 = behind the planet).
+uniform float sunLat;
+uniform float sunLon;
+
+// Screen-space placement (filter covers the whole window):
+//   uScreen        = canvas size in CSS px  (vTextureCoord * uScreen = pixel pos)
+//   planetCenter   = planet center in px
+//   planetDiameter = planet (rim) diameter in px
+// NOTE: do not name this 'resolution' — PixiJS reserves that filter uniform.
+uniform vec2 uScreen;
+uniform vec2 planetCenter;
+uniform float planetDiameter;
+
 varying vec2 vTextureCoord;
 
 // Inspiration (and a lot of copy paste) from https://www.shadertoy.com/view/MldyDH
@@ -208,7 +236,13 @@ vec4 atmosphere(vec2 fragCoord, float lat, float lon, float radius, vec4 color, 
     fragColor.rgb *= alpha;
     fragColor.a = alpha;
 
-    fragColor.rgb += in_scatter(camPos, dir, e, sun);
+    // Atmosphere scattering is emissive: add it to colour AND give it matching
+    // coverage in alpha. Otherwise the halo is colour with alpha 0 (a premultiplied
+    // pixel over "nothing"), so areas that should be fully transparent were not
+    // exactly (0,0,0,0). Where there is neither planet nor glow, alpha stays 0.
+    vec3 scatter = in_scatter(camPos, dir, e, sun);
+    fragColor.rgb += scatter;
+    fragColor.a = max(fragColor.a, clamp(max(scatter.r, max(scatter.g, scatter.b)), 0.0, 1.0));
 
     return fragColor;
 }
@@ -249,14 +283,18 @@ vec3 rotate_vertex_position(vec3 position, vec3 axis, float angle) {
 
 void main(void) {
 
-    // This marks makes the coordinates from the texture to be in a space inside of the full texture space. 
-    // Meaning, this gives some borders for the texture
-    float texResize = 1.1053;
+    // Filter now covers the whole window, so derive everything from the pixel
+    // position on screen instead of from the (clipped) sprite frame. Dividing
+    // both axes by the same px diameter keeps the planet a true circle at any
+    // window aspect ratio, and never clips it against a sprite-sized buffer.
+    vec2 fragPx = vTextureCoord * uScreen;
+    vec2 c = (fragPx - planetCenter) / planetDiameter; // 0 at center, +/-0.5 at rim, y-down
 
-    float textCoordS = vTextureCoord.s * texResize - (texResize - 1.0) / 2.0;
-    float textCoordT = vTextureCoord.t * texResize - (texResize - 1.0) / 2.0;
+    // Surface uses y-up; rim sits at radius 0.5 (matches the old texResize geometry).
+    vec2 screenPlanetXY = vec2(c.x, -c.y);
 
-    vec2 screenPlanetXY = vec2(textCoordS - 0.5, -textCoordT + 0.5);
+    // Atmosphere() expects the old sprite-normalized coord; 1.1053 reproduces it.
+    vec2 atmCoord = c / 1.1053 + 0.5;
 
     float radius = length( screenPlanetXY);
     float halfRadius = length( screenPlanetXY * 2.0 );
@@ -266,16 +304,22 @@ void main(void) {
 
     vec3 sphereVector = vec3(screenPlanetXY.x, screenPlanetXY.y, verticalCoordZ);
 
-    vec3 rotated = rotate_vertex_position(sphereVector, vec3(1.0, 0.0, 0.0), -lightPositionY / 5.0);
-    rotated = rotate_vertex_position(rotated, vec3(0.0, 1.0, 0.0), -lightPositionX / 5.0);
+    // Planet orientation (body -> screen) is:
+    //   precession(around vertical Y) * obliquity(tilt around X) * spin(around pole Y)
+    // To look up the texture we need the inverse: take the on-screen point back
+    // into the planet's body frame by applying those rotations in reverse.
+    vec3 rotated = uDragRot * sphereVector;
+    rotated = rotate_vertex_position(rotated, vec3(0.0, 1.0, 0.0), -uPrecession);
+    rotated = rotate_vertex_position(rotated, vec3(1.0, 0.0, 0.0), -uObliquity);
+    rotated = rotate_vertex_position(rotated, vec3(0.0, 1.0, 0.0), -uSpin);
     vec2 latlong = vector3toLonLatNormalized(rotated);
 
     vec2 finalPointWithDisplacement = vec2(latlong.x , latlong.y);
 
     gl_FragColor.rgba = atmosphere(
-        vec2(vTextureCoord.s, vTextureCoord.t), 
-        desplazamiento * 4000.0, 
-        desplazamiento * 2000.0,
+        atmCoord,
+        sunLat,
+        sunLon,
         radius,
         texture2D( planetTexture, finalPointWithDisplacement),
         texture2D( difTexture, finalPointWithDisplacement).r,
