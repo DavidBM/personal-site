@@ -16,13 +16,14 @@ import { FleetInstanceGpuLayer } from "./layers/fleet-instance-gpu-layer.js";
 import { MapOverlayGpuLayer } from "./layers/map-overlay-gpu-layer.js";
 import { MAP_MSAA_SAMPLES } from "./map-msaa.js";
 import { Line2Renderer } from "../vendor/line2/index.js";
-import { hashStringSeed, writeFleetFormation, initShipSimFromDrawFormation, FLEET_SHIP_DRAW_FLOATS, } from "./fleet-ship-pack.js";
+import { hashStringSeed, FLEET_SHIP_DRAW_FLOATS, } from "./fleet-ship-pack.js";
 import { CAP_NEAR, GLOBAL_MAX_INSTANCES, GPU_FLEET_CAPACITY_MIN, GPU_SHIP_CAPACITY_MIN, WARM_FRAMES, countShips, nextGrowCapacity, scaleCountsToBudget, } from "./fleet-lod.js";
 import { createFleetSlotAllocator } from "./fleet-slot-allocator.js";
 import { SYSTEM_POINT_DIAMETER_PX, billboardScaleForDiameterPx, cameraDistanceToTarget, clusterImpostorWithHysteresis, } from "./galaxy-point-lod.js";
-import { FLEET_GPU_STRIDE, FLEET_FLAG_ALIVE, FLEET_FLAG_JUMPING, FLEET_FLAG_COOLDOWN, FLEET_FLAG_WARM, FleetGpuFields, hashFleetId, writeFleetGpu, } from "./fleet-layout.js";
+import { FLEET_GPU_STRIDE, FLEET_FLAG_ALIVE, FLEET_FLAG_JUMPING, FLEET_FLAG_COOLDOWN, FLEET_FLAG_WARM, FleetGpuFields, hashFleetId, } from "./fleet-layout.js";
 import { SHIP_SIM_STRIDE, ShipSimFields } from "./ship-sim-layout.js";
 import { SHIP_MODE_PAUSED } from "./ship-flight-ref.js";
+import { fleetCenter, initShipsFromFormation, packFormation, writePathCommand, } from "./fleet-motion-api.js";
 import { mat4CameraRight, mat4CameraUp, mat4Identity, mat4Invert, mat4LookAt, mat4Perspective, mat4ViewProj, } from "./math/mat4.js";
 import { frameDebugBegin, frameDebugFrameTotal, frameDebugTime, } from "./frame-debug.js";
 import { hitEditHandleAtGround, layoutFromRadius, } from "./math/edit-handle-hit.js";
@@ -32,7 +33,6 @@ import { MAP_OVERLAY_FLOATS_PER_VERT } from "./shaders/map-overlay.wgsl.js";
 import { RENDER_PLANE_Y } from "../contracts/render-constants.js";
 import { solarConnectionClusterId } from "../contracts/connection-key.js";
 import { resolveFleetVisualPosition, } from "./fleet-motion-ref.js";
-import { integrateFleetPos } from "./fleet-integrate-ref.js";
 import { rebuildWebGpuConnectionsFromGalaxy } from "../main/webgpu-view-bridge.js";
 /** Max concurrent fleet GPU rows (free-list high-water cap). */
 const MAX_FLEET_SLOTS = 100000;
@@ -791,10 +791,11 @@ export class WebGpuMapView {
         // OOB when fleets complete before the first deferred upload.
         this.ensureGpuShipCapacity(this.slotAlloc.shipHighWater);
         // Pack formation at current visual base (path miss → origin; first integrate fixes).
+        // Spawn structure only — never re-pack every frame (GPU owns continuous pose).
         const base = this.fleetSpawnBase(state);
         if (N > 0) {
             const visualCounts = scaleCountsToBudget(counts, N);
-            writeFleetFormation(this.instanceData, range.start, visualCounts, visual.seed, base.x, base.y, base.z);
+            packFormation(this.instanceData, range.start, visualCounts, visual.seed, { x: base.x, y: base.y, z: base.z });
         }
         // FleetGpu first so initShipSim can read path/heading from the row.
         if (!this.writeFleetGpuFromState(visual, state, fleetSlot)) {
@@ -1110,6 +1111,7 @@ export class WebGpuMapView {
         let heading = 0;
         let posX = 0;
         let posZ = 0;
+        let jumping = false;
         if (state.state === "jumping") {
             const start = lookup(state.startNode);
             const end = lookup(state.endNode);
@@ -1122,19 +1124,19 @@ export class WebGpuMapView {
             t0 = this.toGpuTime(state.startTime);
             durationMs = state.durationMs;
             flags = FLEET_FLAG_ALIVE | FLEET_FLAG_JUMPING;
+            jumping = true;
             // Keep prior formation heading — do NOT snap to path dir on hop start
             // (that reorients every ship slot in one frame). First hop uses 0.
             heading = this.fleetGpuView.getFloat32(o + FleetGpuFields.heading, true);
-            const integrated = integrateFleetPos({
-                jumping: true,
-                pathStartX,
-                pathStartZ,
-                pathEndX,
-                pathEndZ,
-                t0,
+            const cmdJump = {
+                from: { x: pathStartX, z: pathStartZ },
+                target: { x: pathEndX, z: pathEndZ },
                 durationMs,
-                now: this.toGpuTime(Date.now()),
-            });
+                t0,
+                formationHeading: heading,
+                jumping: true,
+            };
+            const integrated = fleetCenter(cmdJump, this.toGpuTime(Date.now()));
             posX = integrated.x;
             posZ = integrated.z;
         }
@@ -1164,16 +1166,18 @@ export class WebGpuMapView {
         // R5: spawn warm-up (cs_ships sims + size 0). Shader LOD owns MID/FAR proxy.
         if (visual.warmFramesLeft > 0)
             flags |= FLEET_FLAG_WARM;
-        writeFleetGpu(this.fleetGpuView, o, {
+        const cmd = {
+            from: { x: pathStartX, z: pathStartZ },
+            target: { x: pathEndX, z: pathEndZ },
+            durationMs,
+            t0,
+            formationHeading: heading,
+            jumping,
+        };
+        writePathCommand(this.fleetGpuView, o, cmd, {
             posX,
             posZ,
             heading,
-            pathStartX,
-            pathStartZ,
-            pathEndX,
-            pathEndZ,
-            t0,
-            durationMs,
             flags,
             // Fixed capacity N — not host LOD count
             shipBudget: visual.instanceCapacity,
@@ -1207,16 +1211,18 @@ export class WebGpuMapView {
         let flags = FLEET_FLAG_ALIVE;
         if (visual.warmFramesLeft > 0)
             flags |= FLEET_FLAG_WARM;
-        writeFleetGpu(this.fleetGpuView, o, {
+        const cmd = {
+            from: { x: posX, z: posZ },
+            target: { x: posX, z: posZ },
+            durationMs: 1,
+            t0: 0,
+            formationHeading: heading,
+            jumping: false,
+        };
+        writePathCommand(this.fleetGpuView, o, cmd, {
             posX,
             posZ,
             heading,
-            pathStartX: posX,
-            pathStartZ: posZ,
-            pathEndX: posX,
-            pathEndZ: posZ,
-            t0: 0,
-            durationMs: 1,
             flags,
             shipBudget: visual.instanceCapacity,
             red: visual.counts.red,
@@ -1253,7 +1259,24 @@ export class WebGpuMapView {
         if (!path)
             return;
         const formationHeading = this.fleetGpuView.getFloat32(visual.fleetSlot * FLEET_GPU_STRIDE + FleetGpuFields.heading, true);
-        initShipSimFromDrawFormation(this.instanceData, this.shipSimView, visual.instanceStart, count, path.pathStartX, path.pathStartZ, path.pathEndX, path.pathEndZ, false, formationHeading, visual.fleetSlot, visual.seed, false);
+        const cmd = {
+            from: { x: path.pathStartX, z: path.pathStartZ },
+            target: { x: path.pathEndX, z: path.pathEndZ },
+            durationMs: 1,
+            t0: 0,
+            formationHeading,
+            jumping: false,
+        };
+        initShipsFromFormation({
+            instanceData: this.instanceData,
+            shipSimView: this.shipSimView,
+            instanceStart: visual.instanceStart,
+            count,
+            cmd,
+            fleetIndex: visual.fleetSlot,
+            seed: visual.seed,
+            paused: false, // formation agent — shader LOD pauses draw on MID/FAR
+        });
     }
     /**
      * R5 — after each integrate: count a warm frame for spawn warm-up.
