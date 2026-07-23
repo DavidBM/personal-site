@@ -9,10 +9,11 @@
  * Modes: PAUSED | SEEK (=JUMP, geometric far) | CIRCULATE (=ORBIT, on ring).
  * **Mode is geometric band, not domain warp.**
  *
- *   SEEK: external-tangent entrance T; desiredSpeedSeek = min(open, env, CFL)
- *   CIRCULATE: polar v_θ = v_orb, v_r = clamp(k_r·(R−r))
+ *   SEEK: external-tangent entrance T (planar ring or sphere); desiredSpeedSeek
+ *   CIRCULATE: polar XZ (planar) or sphere radial/tangential (space3d)
  * Profiles: Jump (domain warp SEEK, or residual dump) vs Cruise (default ring).
  * Capture: ρ ≤ max(ε_tiny, 0.2R) OR r ≤ 1.05R; exit r > 1.35R only when residual clear.
+ * Space3d: full 3D |P−C| band + rem to sphere tangent aim.
  * Residual (no stride bit): active while v > 1.2·v_orb — Jump dump + freeze EXIT.
  * Design set@1.5/clear@1.2 approximated by sticky-until-1.2 while near (closes 1.2–1.5 thrash).
  * Enter-latch ≥4 frames: no free ShipSim field; residual freeze covers hot enter; cold enter uses radial hysteresis only.
@@ -23,8 +24,8 @@
  *
  * flockForce reserved for L5d.
  */
-import { ORBIT_CAPTURE_K, ORBIT_CAPTURE_OUT_K, ORBIT_ENTRANCE_EPS_TINY, ORBIT_ENTRANCE_REM_K, computeOrbitAimTarget, integrateOrbitSeekStep, orbitFloorSpeed, orbitSideSign, ORBIT_DEFAULT_OMEGA_MAX, } from "./ship-orbit-ref.js";
-import { quatFromYaw, quatIsZero, quatRotateVec3, yawFromQuat, } from "./quat.js";
+import { ORBIT_CAPTURE_K, ORBIT_CAPTURE_OUT_K, ORBIT_ENTRANCE_EPS_TINY, ORBIT_ENTRANCE_REM_K, computeOrbitAimTarget, computeSphereOrbitAimTarget, integrateOrbitSeekStep, orbitFloorSpeed, orbitSideSign, ORBIT_DEFAULT_OMEGA_MAX, } from "./ship-orbit-ref.js";
+import { forwardFromQuat, quatFromYaw, quatIsZero, quatRotateVec3, yawFromQuat, } from "./quat.js";
 // Tune curves / ease / orbit here — not scattered through this file:
 //   js/gpu/ship-motion-config.ts
 export { SHIP_MAX_TURN_RAD_S, SHIP_MAX_ACCEL, SHIP_MAX_BRAKE, SHIP_MAX_SPEED, SHIP_ARRIVE_EPS, SHIP_SETTLE_TAU_S, SHIP_TRACK_TAU_S, SHIP_MIN_ALIGN, SHIP_AIM_BLEND_START, SHIP_SNAP_MS, SHIP_NOSE_OFFSET, SHIP_DEFAULT_BRAKE_DIST, SHIP_BRAKE_DIST_MARGIN, SHIP_APPROACH_BRAKE_POWER, SHIP_LAUNCH_ACCEL_MIN, SHIP_LAUNCH_SPEED_FRAC, SHIP_MID_CRUISE_BOOST, SHIP_HOP_ARRIVE_FRAC, SHIP_SETTLE_CRUISE_CAP, SHIP_AGENT_SETTLE_ENTER_DIST, SHIP_AGENT_ORBIT_ENTER_DIST, SHIP_AGENT_ORBIT_ENTER_SPEED, CRUISE_ACCEL_SCALE, CRUISE_BRAKE_MULT, JUMP_BRAKE_MULT, V_OPEN_UNCAP, ORBIT_ENTRANCE_EPS_TINY, RESIDUAL_HIGH_MUL, RESIDUAL_CLEAR_MUL, RESIDUAL_FREEZE_OUT_K, } from "./ship-motion-config.js";
@@ -467,7 +468,7 @@ export function integrateShipAgent(ship, params) {
         }
     }
     // Phase (F5): ρ_enter = max(ε_tiny, 0.2R) — NOT ARRIVE_EPS=2.
-    // Planar: XZ distance. 3D SEEK capture: full 3D distance to center.
+    // Planar: XZ distance. Sphere 3D: full |P−C| + rem to sphere tangent aim.
     const R = ship.orbitR > 1e-6 ? ship.orbitR : 1;
     const dx = ship.posX - params.centerX;
     const dz = ship.posZ - params.centerZ;
@@ -475,15 +476,19 @@ export function integrateShipAgent(ship, params) {
     const r = space3d
         ? Math.hypot(dx, dy, dz)
         : Math.hypot(dx, dz);
-    // Horizontal radius for CIRCULATE band / freeze (orbit is XZ polar at centerY).
-    const rHoriz = Math.hypot(dx, dz);
     const captureIn = ORBIT_CAPTURE_K * R;
     const captureOut = ORBIT_CAPTURE_OUT_K * R;
     const side = orbitSideSign(ship.orbitOmega);
-    const farAim = computeOrbitAimTarget(ship.posX, ship.posZ, params.centerX, params.centerZ, R, side, false, ship.heading);
-    const remEntrance = space3d
-        ? Math.hypot(farAim.x - ship.posX, centerY - posY, farAim.z - ship.posZ)
-        : Math.hypot(farAim.x - ship.posX, farAim.z - ship.posZ);
+    let remEntrance;
+    if (space3d) {
+        const fwd = forwardFromQuat(ship.qx ?? 0, ship.qy ?? 0, ship.qz ?? 0, ship.qw ?? 1);
+        const farAim = computeSphereOrbitAimTarget(ship.posX, posY, ship.posZ, params.centerX, centerY, params.centerZ, R, side, false, fwd.x, fwd.y, fwd.z);
+        remEntrance = Math.hypot(farAim.x - ship.posX, farAim.y - posY, farAim.z - ship.posZ);
+    }
+    else {
+        const farAim = computeOrbitAimTarget(ship.posX, ship.posZ, params.centerX, params.centerZ, R, side, false, ship.heading);
+        remEntrance = Math.hypot(farAim.x - ship.posX, farAim.z - ship.posZ);
+    }
     const entranceCap = Math.max(ORBIT_ENTRANCE_EPS_TINY, ORBIT_ENTRANCE_REM_K * R);
     const omegaMax = ship.omegaMax !== undefined && ship.omegaMax > 0
         ? ship.omegaMax
@@ -495,9 +500,8 @@ export function integrateShipAgent(ship, params) {
     // carve huge fast arcs far from the personal ring (screenshot outliers).
     const residualActive = ship.speed > RESIDUAL_CLEAR_MUL * vOrb;
     const residualFreezeOut = RESIDUAL_FREEZE_OUT_K * R;
-    // CIRCULATE enter/exit uses horizontal radius for ring geometry; SEEK enter
-    // can use 3D rem to elevated aim.
-    const rBand = space3d ? rHoriz : r;
+    // Band radius: planar XZ; sphere full 3D |P−C|.
+    const rBand = r;
     let near = ship.mode === SHIP_MODE_ORBIT || ship.mode === SHIP_MODE_SETTLE;
     if (near) {
         if (rBand > residualFreezeOut) {

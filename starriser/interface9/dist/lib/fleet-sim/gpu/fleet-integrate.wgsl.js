@@ -78,6 +78,7 @@ const FLEET_FLAG_JUMPING: u32 = 2u;
 const FLEET_FLAG_NO_TRAIL: u32 = 8u; // W4 icon — skip trail age/append/expand
 const FLEET_FLAG_SIM_PAUSED: u32 = 16u; // R3: host may still set; GPU LOD ignores for band
 const FLEET_FLAG_WARM: u32 = 32u; // R5: formation promote warm-up (sim + size 0)
+const FLEET_FLAG_SPACE3D: u32 = 64u; // bit6: sphere agent; _pad0 = pathEndY
 
 // GPU LOD bands — match fleet-lod.ts classifyFleetLodBandRaw
 const LOD_BAND_NEAR: u32 = 0u;
@@ -181,6 +182,7 @@ struct IntegrateUniforms {
 };
 
 // Scalar fields match writeFleetGpu DataView packing (stride 64).
+// _pad0: planar 0; SPACE3D → pathEndY (orbit/seek center height).
 struct FleetGpu {
   posX: f32,
   posZ: f32,
@@ -224,7 +226,7 @@ struct ShipSim {
   cruiseV: f32,
   orbitR: f32,
   orbitOmega: f32,
-  _pad0: f32,
+  omegaMax: f32,   // turn rate cap (rad/s); ≤0 → ORBIT_DEFAULT_OMEGA_MAX
   _pad1: f32,
 };
 
@@ -318,6 +320,190 @@ fn syncQuatFromHeading(shipIn: ShipSim) -> ShipSim {
   ship.qz = q.z;
   ship.qw = q.w;
   return ship;
+}
+
+/** Body +Z forward from unit quaternion — match forwardFromQuat. */
+fn forwardFromQuat(q: vec4<f32>) -> vec3<f32> {
+  // q * (0,0,1) * q^{-1}
+  let fx = 2.0 * (q.x * q.z + q.w * q.y);
+  let fy = 2.0 * (q.y * q.z - q.w * q.x);
+  let fz = 1.0 - 2.0 * (q.x * q.x + q.y * q.y);
+  return vec3<f32>(fx, fy, fz);
+}
+
+/** Yaw cache from quat — match yawFromQuat. */
+fn yawFromQuat(q: vec4<f32>) -> f32 {
+  let fx = 2.0 * (q.x * q.z + q.w * q.y);
+  let fz = 1.0 - 2.0 * (q.x * q.x + q.y * q.y);
+  return atan2(fx, fz);
+}
+
+fn quatNormalize4(q: vec4<f32>) -> vec4<f32> {
+  let lenSq = dot(q, q);
+  if (lenSq < 1e-20) {
+    return vec4<f32>(0.0, 0.0, 0.0, 1.0);
+  }
+  return q * inverseSqrt(lenSq);
+}
+
+/** Look-rotation: body +Z → forward, +Y toward up — match quatLookRotation. */
+fn quatLookRotation(forward: vec3<f32>, upIn: vec3<f32>) -> vec4<f32> {
+  var f = forward;
+  let fLen = length(f);
+  if (fLen < 1e-12) {
+    return vec4<f32>(0.0, 0.0, 0.0, 1.0);
+  }
+  f = f / fLen;
+  var r = cross(upIn, f);
+  var rLen = length(r);
+  if (rLen < 1e-8) {
+    var alt = vec3<f32>(0.0, 1.0, 0.0);
+    if (abs(f.y) >= 0.9) {
+      alt = vec3<f32>(1.0, 0.0, 0.0);
+    }
+    r = cross(alt, f);
+    rLen = length(r);
+    if (rLen < 1e-12) {
+      return vec4<f32>(0.0, 0.0, 0.0, 1.0);
+    }
+  }
+  r = r / rLen;
+  let u = cross(f, r);
+  // columns = right, up, forward
+  let m00 = r.x; let m01 = u.x; let m02 = f.x;
+  let m10 = r.y; let m11 = u.y; let m12 = f.y;
+  let m20 = r.z; let m21 = u.z; let m22 = f.z;
+  let trace = m00 + m11 + m22;
+  var x: f32; var y: f32; var z: f32; var w: f32;
+  if (trace > 0.0) {
+    let s = sqrt(trace + 1.0) * 2.0;
+    w = 0.25 * s;
+    x = (m21 - m12) / s;
+    y = (m02 - m20) / s;
+    z = (m10 - m01) / s;
+  } else if (m00 > m11 && m00 > m22) {
+    let s = sqrt(1.0 + m00 - m11 - m22) * 2.0;
+    w = (m21 - m12) / s;
+    x = 0.25 * s;
+    y = (m01 + m10) / s;
+    z = (m02 + m20) / s;
+  } else if (m11 > m22) {
+    let s = sqrt(1.0 + m11 - m00 - m22) * 2.0;
+    w = (m02 - m20) / s;
+    x = (m01 + m10) / s;
+    y = 0.25 * s;
+    z = (m12 + m21) / s;
+  } else {
+    let s = sqrt(1.0 + m22 - m00 - m11) * 2.0;
+    w = (m10 - m01) / s;
+    x = (m02 + m20) / s;
+    y = (m12 + m21) / s;
+    z = 0.25 * s;
+  }
+  return quatNormalize4(vec4<f32>(x, y, z, w));
+}
+
+/** Rate-limited slerp toward target quat by ≤ maxAngle — match quatRotateToward. */
+fn quatRotateToward(c: vec4<f32>, tIn: vec4<f32>, maxAngle: f32) -> vec4<f32> {
+  var t = tIn;
+  var cosOmega = dot(c, t);
+  if (cosOmega < 0.0) {
+    t = -t;
+    cosOmega = -cosOmega;
+  }
+  cosOmega = clamp(cosOmega, -1.0, 1.0);
+  let omega = acos(cosOmega);
+  if (omega < 1e-8 || maxAngle <= 0.0) {
+    return quatNormalize4(c);
+  }
+  let tt = min(1.0, maxAngle / omega);
+  // slerp
+  var t0: f32;
+  var t1: f32;
+  if (cosOmega > 0.9995) {
+    t0 = 1.0 - tt;
+    t1 = tt;
+  } else {
+    let sinOmega = sin(omega);
+    t0 = sin((1.0 - tt) * omega) / sinOmega;
+    t1 = sin(tt * omega) / sinOmega;
+  }
+  return quatNormalize4(c * t0 + t * t1);
+}
+
+/** Preferred sphere orbit up — match preferredSphereOrbitUp. */
+fn preferredSphereOrbitUp(rHat: vec3<f32>) -> vec3<f32> {
+  if (abs(rHat.y) > 0.95) {
+    return vec3<f32>(1.0, 0.0, 0.0);
+  }
+  return vec3<f32>(0.0, 1.0, 0.0);
+}
+
+/**
+ * Sphere external-tangent / lead aim — match computeSphereOrbitAimTarget.
+ * Returns (Tx, Ty, Tz); theta via atan2(tx,tz) stored by caller if needed.
+ */
+fn computeSphereOrbitAimTarget(
+  pos: vec3<f32>,
+  center: vec3<f32>,
+  radius: f32,
+  side: f32,
+  near: bool,
+  fallbackFwd: vec3<f32>,
+) -> vec4<f32> {
+  let R = select(ORBIT_R_MIN, radius, radius > 1e-6);
+  let s = select(-1.0, 1.0, side >= 0.0);
+  let v = pos - center;
+  let r2 = dot(v, v);
+  let rEps = max(ORBIT_R_EPS, 0.05 * R);
+  let rEps2 = rEps * rEps;
+
+  var rHat: vec3<f32>;
+  if (r2 < rEps2) {
+    var f = fallbackFwd;
+    var fLen = length(f);
+    if (fLen < 1e-6) {
+      f = vec3<f32>(0.0, 0.0, 1.0);
+      fLen = 1.0;
+    }
+    rHat = f / fLen;
+  } else {
+    rHat = v * inverseSqrt(r2);
+  }
+
+  let up = preferredSphereOrbitUp(rHat);
+  var sideV = cross(up, rHat);
+  var sideLen = length(sideV);
+  if (sideLen < 1e-8) {
+    var alt = vec3<f32>(0.0, 1.0, 0.0);
+    if (abs(rHat.y) >= 0.9) {
+      alt = vec3<f32>(1.0, 0.0, 0.0);
+    }
+    sideV = cross(alt, rHat);
+    sideLen = length(sideV);
+  }
+  if (sideLen > 1e-12) {
+    sideV = sideV * (s / sideLen);
+  } else {
+    sideV = vec3<f32>(s, 0.0, 0.0);
+  }
+
+  let useLead = near || (r2 <= R * R + 1e-6);
+  if (useLead) {
+    let cL = cos(ORBIT_LEAD_RAD);
+    let sL = sin(ORBIT_LEAD_RAD);
+    let tOff = R * (cL * rHat + sL * sideV);
+    let theta = atan2(tOff.x, tOff.z);
+    return vec4<f32>(center + tOff, theta);
+  }
+
+  let invD2 = 1.0 / r2;
+  let a = (R * R) * invD2;
+  let b = (R * sqrt(max(0.0, r2 - R * R))) * invD2;
+  let d = sqrt(r2);
+  let tOff2 = a * v + b * sideV * d;
+  let theta2 = atan2(tOff2.x, tOff2.z);
+  return vec4<f32>(center + tOff2, theta2);
 }
 
 /** Shortest signed turn fromAngle→toAngle in (-π, π] — match shortestAngleDelta. */
@@ -511,15 +697,17 @@ fn analyticFleetCenterVelocity(
 
 /**
  * Unified orbit-seek step — match integrateOrbitSeekStep (TS).
- * SEEK: external tangent + desiredSpeedSeek; F1 post-clamp + F2 wrong-way.
- * CIRCULATE: polar v_θ / v_r. Profile a_up/a_down/v_open from agent.
+ * Planar (!space3d): XZ ring + yaw — exact prior body.
+ * Space3d: sphere external-tangent + sphere CIRCULATE + full quat look-at.
  */
 fn integrateOrbitSeekStep(
   shipIn: ShipSim,
   centerX: f32,
   centerZ: f32,
+  centerY: f32,
   centerVelX: f32,
   centerVelZ: f32,
+  centerVelY: f32,
   dtSec: f32,
   near: bool,
   aUpIn: f32,
@@ -527,6 +715,7 @@ fn integrateOrbitSeekStep(
   vOpenIn: f32,
   brakeMarginIn: f32,
   softLaunch: bool,
+  space3d: bool,
 ) -> ShipSim {
   var ship = ensureShipQuat(shipIn);
   var dt = dtSec;
@@ -539,7 +728,7 @@ fn integrateOrbitSeekStep(
   let R = select(ORBIT_R_MIN, ship.orbitR, ship.orbitR > 1e-6);
   let omega = ship.orbitOmega;
   let side = orbitSideSign(omega);
-  let omegaMax = ORBIT_DEFAULT_OMEGA_MAX;
+  let omegaMax = select(ORBIT_DEFAULT_OMEGA_MAX, ship.omegaMax, ship.omegaMax > 0.0);
   var cruiseV = ship.cruiseV;
   if (cruiseV <= 0.0) {
     cruiseV = SHIP_MAX_SPEED;
@@ -550,199 +739,341 @@ fn integrateOrbitSeekStep(
   let vOpen = select(V_OPEN_UNCAP, vOpenIn, vOpenIn > 0.0);
   let brakeMargin = select(SHIP_BRAKE_DIST_MARGIN, brakeMarginIn, brakeMarginIn > 1e-6);
 
-  let dx = ship.posX - centerX;
-  let dz = ship.posZ - centerZ;
-  let r = sqrt(dx * dx + dz * dz);
-  let rEps = max(ORBIT_R_EPS, 0.05 * R);
-
   let vOrbit = orbitFloorSpeed(omega, R, omegaMax);
   let vOrbitUse = select(vOrbit, vOrbit * ORBIT_NEAR_SPEED_SCALE, near);
 
-  var vRelX: f32;
-  var vRelZ: f32;
-  var remAim: f32 = 0.0;
+  // -------- Planar path (production): bit-stable, no sphere cost --------
+  if (!space3d) {
+    let dx = ship.posX - centerX;
+    let dz = ship.posZ - centerZ;
+    let r = sqrt(dx * dx + dz * dz);
+    let rEps = max(ORBIT_R_EPS, 0.05 * R);
 
-  let singularity = near && (r < max(rEps, ORBIT_SINGULARITY_R_MUL * R));
+    var vRelX: f32;
+    var vRelZ: f32;
+    var remAim: f32 = 0.0;
+    let singularity = near && (r < max(rEps, ORBIT_SINGULARITY_R_MUL * R));
 
-  if (near) {
-    // CIRCULATE: polar only — no external-tangent aim (remAim unused on near).
-    var rHatX: f32;
-    var rHatZ: f32;
-    if (r >= rEps) {
-      let invR = 1.0 / r;
-      rHatX = dx * invR;
-      rHatZ = dz * invR;
-      ship.orbitPhase = atan2(dx, dz);
-    } else {
-      // At center: stable outward axis (not pure heading thrash).
-      ship.orbitPhase = wrapPi(ship.heading + side * (PI * 0.5));
-      rHatX = sin(ship.heading + side * (PI * 0.5));
-      rHatZ = cos(ship.heading + side * (PI * 0.5));
-      let rH = sqrt(rHatX * rHatX + rHatZ * rHatZ);
-      if (rH > 1e-6) {
-        rHatX = rHatX / rH;
-        rHatZ = rHatZ / rH;
+    if (near) {
+      var rHatX: f32;
+      var rHatZ: f32;
+      if (r >= rEps) {
+        let invR = 1.0 / r;
+        rHatX = dx * invR;
+        rHatZ = dz * invR;
+        ship.orbitPhase = atan2(dx, dz);
       } else {
-        rHatX = 1.0;
-        rHatZ = 0.0;
+        ship.orbitPhase = wrapPi(ship.heading + side * (PI * 0.5));
+        rHatX = sin(ship.heading + side * (PI * 0.5));
+        rHatZ = cos(ship.heading + side * (PI * 0.5));
+        let rH = sqrt(rHatX * rHatX + rHatZ * rHatZ);
+        if (rH > 1e-6) {
+          rHatX = rHatX / rH;
+          rHatZ = rHatZ / rH;
+        } else {
+          rHatX = 1.0;
+          rHatZ = 0.0;
+        }
       }
-    }
-    // τ̂ for +ω: (r̂_z, −r̂_x) — matches orbitTangentHeading / external-tangent arrival.
-    let tHatX = side * rHatZ;
-    let tHatZ = side * (-rHatX);
-    var vRadMax = min(ORBIT_V_RAD_MAX_FRAC * vOrbitUse, ORBIT_V_RAD_MAX_R_MUL * R);
-    if (singularity) {
-      vRadMax = max(vRadMax, max(ORBIT_ESCAPE_V_RAD, 4.0 * R));
-    }
-    var vR = ORBIT_SPRING_K * (R - r);
-    if (singularity && vR < ORBIT_ESCAPE_V_RAD) {
-      vR = ORBIT_ESCAPE_V_RAD;
-    }
-    vR = clamp(vR, -vRadMax, vRadMax);
-    let vTh = select(vOrbitUse, 0.0, singularity);
-    vRelX = vR * rHatX + vTh * tHatX;
-    vRelZ = vR * rHatZ + vTh * tHatZ;
-    if (!singularity) {
-      var vRelMag = sqrt(vRelX * vRelX + vRelZ * vRelZ);
-      let vNearCap = min(ORBIT_RESIDUAL_V_MUL * vOrbitUse, vOrbitUse + ORBIT_RESIDUAL_V_ADD);
-      if (vRelMag > vNearCap && vRelMag > 1e-6) {
-        let sc = vNearCap / vRelMag;
-        vRelX = vRelX * sc;
-        vRelZ = vRelZ * sc;
+      let tHatX = side * rHatZ;
+      let tHatZ = side * (-rHatX);
+      var vRadMax = min(ORBIT_V_RAD_MAX_FRAC * vOrbitUse, ORBIT_V_RAD_MAX_R_MUL * R);
+      if (singularity) {
+        vRadMax = max(vRadMax, max(ORBIT_ESCAPE_V_RAD, 4.0 * R));
       }
-    }
-  } else {
-    // SEEK: external tangent + desiredSpeedSeek
-    let aim = computeOrbitAimTarget(
-      ship.posX,
-      ship.posZ,
-      centerX,
-      centerZ,
-      R,
-      side,
-      false,
-      ship.heading,
-    );
-    ship.orbitPhase = aim.z;
-    remAim = sqrt(
-      (aim.x - ship.posX) * (aim.x - ship.posX) +
-        (aim.y - ship.posZ) * (aim.y - ship.posZ),
-    );
-    let vDes = desiredSpeedSeek(remAim, vOrbit, aDown, brakeMargin, vOpen, dt);
-    let toTx = aim.x - ship.posX;
-    let toTz = aim.y - ship.posZ;
-    let toTLen = sqrt(toTx * toTx + toTz * toTz);
-    if (toTLen > 1e-6) {
-      let inv = 1.0 / toTLen;
-      vRelX = toTx * inv * vDes;
-      vRelZ = toTz * inv * vDes;
+      var vR = ORBIT_SPRING_K * (R - r);
+      if (singularity && vR < ORBIT_ESCAPE_V_RAD) {
+        vR = ORBIT_ESCAPE_V_RAD;
+      }
+      vR = clamp(vR, -vRadMax, vRadMax);
+      let vTh = select(vOrbitUse, 0.0, singularity);
+      vRelX = vR * rHatX + vTh * tHatX;
+      vRelZ = vR * rHatZ + vTh * tHatZ;
+      if (!singularity) {
+        var vRelMag = sqrt(vRelX * vRelX + vRelZ * vRelZ);
+        let vNearCap = min(ORBIT_RESIDUAL_V_MUL * vOrbitUse, vOrbitUse + ORBIT_RESIDUAL_V_ADD);
+        if (vRelMag > vNearCap && vRelMag > 1e-6) {
+          let sc = vNearCap / vRelMag;
+          vRelX = vRelX * sc;
+          vRelZ = vRelZ * sc;
+        }
+      }
     } else {
-      let tangH = orbitTangentHeading(aim.z, side);
-      vRelX = sin(tangH) * vOrbit;
-      vRelZ = cos(tangH) * vOrbit;
+      let aim = computeOrbitAimTarget(
+        ship.posX, ship.posZ, centerX, centerZ, R, side, false, ship.heading,
+      );
+      ship.orbitPhase = aim.z;
+      remAim = sqrt(
+        (aim.x - ship.posX) * (aim.x - ship.posX) +
+          (aim.y - ship.posZ) * (aim.y - ship.posZ),
+      );
+      let vDes = desiredSpeedSeek(remAim, vOrbit, aDown, brakeMargin, vOpen, dt);
+      let toTx = aim.x - ship.posX;
+      let toTz = aim.y - ship.posZ;
+      let toTLen = sqrt(toTx * toTx + toTz * toTz);
+      if (toTLen > 1e-6) {
+        let inv = 1.0 / toTLen;
+        vRelX = toTx * inv * vDes;
+        vRelZ = toTz * inv * vDes;
+      } else {
+        let tangH = orbitTangentHeading(aim.z, side);
+        vRelX = sin(tangH) * vOrbit;
+        vRelZ = cos(tangH) * vOrbit;
+      }
     }
-  }
 
-  let vStarX = centerVelX + vRelX;
-  let vStarZ = centerVelZ + vRelZ;
-  let vStarLen = sqrt(vStarX * vStarX + vStarZ * vStarZ);
+    let vStarX = centerVelX + vRelX;
+    let vStarZ = centerVelZ + vRelZ;
+    let vStarLen = sqrt(vStarX * vStarX + vStarZ * vStarZ);
 
-  var psiStar = ship.heading;
-  if (vStarLen > 1e-6) {
-    psiStar = atan2(vStarX, vStarZ);
-  }
-
-  let e = shortestAngleDelta(ship.heading, psiStar);
-  let maxTurn = omegaMax * dt;
-  var turn = e;
-  if (turn > maxTurn) {
-    turn = maxTurn;
-  } else if (turn < -maxTurn) {
-    turn = -maxTurn;
-  }
-  // Planar: heading primary (matches TS); then yaw-only quat.
-  ship.heading = wrapPi(ship.heading + turn);
-  ship = syncQuatFromHeading(ship);
-
-  // F2 wrong-way (relaxed during singularity escape).
-  // Use cos(e) ≈ 1 − e²/2 for tiny heading error (common CIRCULATE steady state).
-  var cosE: f32;
-  let ae = abs(e);
-  if (ae < 0.25) {
-    cosE = 1.0 - 0.5 * e * e;
-  } else {
-    cosE = cos(e);
-  }
-  var vTarget: f32;
-  if (singularity) {
-    let align = max(SHIP_MIN_ALIGN, cosE);
-    vTarget = max(vStarLen * align, ORBIT_ESCAPE_V_RAD * 0.5);
-  } else if (ae > (PI * 0.5) || cosE < 0.0) {
-    let ell = V_TURN_ALLOW_R_FRAC * R;
-    let vTurn = omegaMax * ell;
-    vTarget = min(vStarLen, vTurn);
-  } else {
-    let align = max(SHIP_MIN_ALIGN, cosE);
-    vTarget = vStarLen * align;
-  }
-  if (near && cosE > 0.85) {
-    let cLen2 = centerVelX * centerVelX + centerVelZ * centerVelZ;
-    let floorW = select(vOrbitUse * 0.85, sqrt(cLen2) + vOrbitUse * 0.85, cLen2 > 1e-12);
-    if (vTarget < floorW) {
-      vTarget = floorW;
+    var psiStar = ship.heading;
+    if (vStarLen > 1e-6) {
+      psiStar = atan2(vStarX, vStarZ);
     }
-  }
 
-  // Soft launch scales a_up only (SEEK). CIRCULATE usually softLaunch=false.
-  if (vTarget > ship.speed) {
-    var maxDvUp = aUp * dt;
-    if (softLaunch) {
-      let launchRef = select(SHIP_MAX_SPEED, cruiseV, cruiseV > 0.0);
-      maxDvUp = aUp * launchAccelScale(ship.speed, launchRef) * dt;
+    let e = shortestAngleDelta(ship.heading, psiStar);
+    let maxTurn = omegaMax * dt;
+    var turn = e;
+    if (turn > maxTurn) {
+      turn = maxTurn;
+    } else if (turn < -maxTurn) {
+      turn = -maxTurn;
     }
-    ship.speed = min(ship.speed + maxDvUp, vTarget);
-  } else {
-    ship.speed = max(ship.speed - aDown * dt, vTarget);
-  }
-  if (ship.speed < 0.0) {
-    ship.speed = 0.0;
-  }
+    ship.heading = wrapPi(ship.heading + turn);
+    ship = syncQuatFromHeading(ship);
 
-  // F1 post-speed CFL (SEEK, heading toward T)
-  if (!near && cosE > 0.0) {
-    let cfl = remAim / max(dt, 1e-6);
-    let cap = max(vOrbit, cfl);
-    if (ship.speed > cap) {
-      ship.speed = cap;
+    var cosE: f32;
+    let ae = abs(e);
+    if (ae < 0.25) {
+      cosE = 1.0 - 0.5 * e * e;
+    } else {
+      cosE = cos(e);
     }
+    var vTarget: f32;
+    if (singularity) {
+      let align = max(SHIP_MIN_ALIGN, cosE);
+      vTarget = max(vStarLen * align, ORBIT_ESCAPE_V_RAD * 0.5);
+    } else if (ae > (PI * 0.5) || cosE < 0.0) {
+      let ell = V_TURN_ALLOW_R_FRAC * R;
+      let vTurn = omegaMax * ell;
+      vTarget = min(vStarLen, vTurn);
+    } else {
+      let align = max(SHIP_MIN_ALIGN, cosE);
+      vTarget = vStarLen * align;
+    }
+    if (near && cosE > 0.85) {
+      let cLen2 = centerVelX * centerVelX + centerVelZ * centerVelZ;
+      let floorW = select(vOrbitUse * 0.85, sqrt(cLen2) + vOrbitUse * 0.85, cLen2 > 1e-12);
+      if (vTarget < floorW) {
+        vTarget = floorW;
+      }
+    }
+
+    if (vTarget > ship.speed) {
+      var maxDvUp = aUp * dt;
+      if (softLaunch) {
+        let launchRef = select(SHIP_MAX_SPEED, cruiseV, cruiseV > 0.0);
+        maxDvUp = aUp * launchAccelScale(ship.speed, launchRef) * dt;
+      }
+      ship.speed = min(ship.speed + maxDvUp, vTarget);
+    } else {
+      ship.speed = max(ship.speed - aDown * dt, vTarget);
+    }
+    if (ship.speed < 0.0) {
+      ship.speed = 0.0;
+    }
+
+    if (!near && cosE > 0.0) {
+      let cfl = remAim / max(dt, 1e-6);
+      let cap = max(vOrbit, cfl);
+      if (ship.speed > cap) {
+        ship.speed = cap;
+      }
+    }
+
+    let step = ship.speed * dt;
+    let sh = sin(ship.heading);
+    let ch = cos(ship.heading);
+    ship.posX = ship.posX + sh * step;
+    ship.posY = 0.0;
+    ship.posZ = ship.posZ + ch * step;
+    return ship;
   }
 
-  // Planar step: (sin h, 0, cos h); force posY = 0.
-  let step = ship.speed * dt;
-  let sh = sin(ship.heading);
-  let ch = cos(ship.heading);
-  ship.posX = ship.posX + sh * step;
-  ship.posY = 0.0;
-  ship.posZ = ship.posZ + ch * step;
+  // -------- Sphere 3D path (SPACE3D) --------
+  {
+    let pos = vec3<f32>(ship.posX, ship.posY, ship.posZ);
+    let center = vec3<f32>(centerX, centerY, centerZ);
+    let dvec = pos - center;
+    let r = length(dvec);
+    let rEps = max(ORBIT_R_EPS, 0.05 * R);
+    let qCur = vec4<f32>(ship.qx, ship.qy, ship.qz, ship.qw);
+    let fwd0 = forwardFromQuat(qCur);
 
-  return ship;
+    let aim4 = computeSphereOrbitAimTarget(
+      pos, center, R, side, near, fwd0,
+    );
+    let aim = aim4.xyz;
+    ship.orbitPhase = aim4.w;
+
+    var vRel = vec3<f32>(0.0, 0.0, 0.0);
+    var remAim: f32 = 0.0;
+    let singularity = near && (r < max(rEps, ORBIT_SINGULARITY_R_MUL * R));
+
+    if (near) {
+      var rHat: vec3<f32>;
+      if (r >= rEps) {
+        rHat = dvec / r;
+      } else {
+        let fLen = length(fwd0);
+        if (fLen > 1e-6) {
+          rHat = fwd0 / fLen;
+        } else {
+          rHat = vec3<f32>(1.0, 0.0, 0.0);
+        }
+      }
+      let up = preferredSphereOrbitUp(rHat);
+      var tHat = cross(up, rHat);
+      var tLen = length(tHat);
+      if (tLen < 1e-8) {
+        tHat = vec3<f32>(1.0, 0.0, 0.0);
+        tLen = 1.0;
+      }
+      tHat = tHat * (side / tLen);
+
+      var vRadMax = min(ORBIT_V_RAD_MAX_FRAC * vOrbitUse, ORBIT_V_RAD_MAX_R_MUL * R);
+      if (singularity) {
+        vRadMax = max(vRadMax, max(ORBIT_ESCAPE_V_RAD, 4.0 * R));
+      }
+      var vR = ORBIT_SPRING_K * (R - r);
+      if (singularity && vR < ORBIT_ESCAPE_V_RAD) {
+        vR = ORBIT_ESCAPE_V_RAD;
+      }
+      vR = clamp(vR, -vRadMax, vRadMax);
+      let vTh = select(vOrbitUse, 0.0, singularity);
+      vRel = vR * rHat + vTh * tHat;
+      if (!singularity) {
+        let vRelMag = length(vRel);
+        let vNearCap = min(ORBIT_RESIDUAL_V_MUL * vOrbitUse, vOrbitUse + ORBIT_RESIDUAL_V_ADD);
+        if (vRelMag > vNearCap && vRelMag > 1e-6) {
+          vRel = vRel * (vNearCap / vRelMag);
+        }
+      }
+      remAim = length(aim - pos);
+    } else {
+      remAim = length(aim - pos);
+      let vDes = desiredSpeedSeek(remAim, vOrbit, aDown, brakeMargin, vOpen, dt);
+      let toT = aim - pos;
+      let toTLen = length(toT);
+      if (toTLen > 1e-6) {
+        vRel = (toT / toTLen) * vDes;
+      } else {
+        let ar = aim - center;
+        let arLen = length(ar);
+        var rhx = vec3<f32>(1.0, 0.0, 0.0);
+        if (arLen > 1e-6) {
+          rhx = ar / arLen;
+        }
+        let up2 = preferredSphereOrbitUp(rhx);
+        var tHat = cross(up2, rhx);
+        var tLen = length(tHat);
+        if (tLen < 1e-6) {
+          tHat = vec3<f32>(1.0, 0.0, 0.0);
+          tLen = 1.0;
+        }
+        vRel = tHat * ((side * vOrbit) / tLen);
+      }
+    }
+
+    let vStar = vec3<f32>(centerVelX, centerVelY, centerVelZ) + vRel;
+    let vStarLen = length(vStar);
+    let curFwd = forwardFromQuat(qCur);
+    var cosE: f32 = 1.0;
+    if (vStarLen > 1e-6) {
+      cosE = clamp(dot(curFwd, vStar / vStarLen), -1.0, 1.0);
+    }
+    let e = acos(cosE);
+    let maxTurn = omegaMax * dt;
+
+    var tq: vec4<f32>;
+    if (vStarLen > 1e-6) {
+      tq = quatLookRotation(vStar, vec3<f32>(0.0, 1.0, 0.0));
+    } else {
+      tq = quatLookRotation(curFwd, vec3<f32>(0.0, 1.0, 0.0));
+    }
+    let nextQ = quatRotateToward(qCur, tq, maxTurn);
+    ship.qx = nextQ.x;
+    ship.qy = nextQ.y;
+    ship.qz = nextQ.z;
+    ship.qw = nextQ.w;
+    ship.heading = yawFromQuat(nextQ);
+
+    var vTarget: f32;
+    if (singularity) {
+      let align = max(SHIP_MIN_ALIGN, cosE);
+      vTarget = max(vStarLen * align, ORBIT_ESCAPE_V_RAD * 0.5);
+    } else if (e > (PI * 0.5) || cosE < 0.0) {
+      let ell = V_TURN_ALLOW_R_FRAC * R;
+      let vTurn = omegaMax * ell;
+      vTarget = min(vStarLen, vTurn);
+    } else {
+      let align = max(SHIP_MIN_ALIGN, cosE);
+      vTarget = vStarLen * align;
+    }
+    if (near && cosE > 0.85) {
+      let cLen = length(vec3<f32>(centerVelX, centerVelY, centerVelZ));
+      let floorW = cLen + vOrbitUse * 0.85;
+      if (vTarget < floorW) {
+        vTarget = floorW;
+      }
+    }
+
+    if (vTarget > ship.speed) {
+      var maxDvUp = aUp * dt;
+      if (softLaunch) {
+        let launchRef = select(SHIP_MAX_SPEED, cruiseV, cruiseV > 0.0);
+        maxDvUp = aUp * launchAccelScale(ship.speed, launchRef) * dt;
+      }
+      ship.speed = min(ship.speed + maxDvUp, vTarget);
+    } else {
+      ship.speed = max(ship.speed - aDown * dt, vTarget);
+    }
+    if (ship.speed < 0.0) {
+      ship.speed = 0.0;
+    }
+
+    if (!near && cosE > 0.0) {
+      let cfl = remAim / max(dt, 1e-6);
+      let cap = max(vOrbit, cfl);
+      if (ship.speed > cap) {
+        ship.speed = cap;
+      }
+    }
+
+    let step = ship.speed * dt;
+    let fwd = forwardFromQuat(vec4<f32>(ship.qx, ship.qy, ship.qz, ship.qw));
+    ship.posX = ship.posX + fwd.x * step;
+    ship.posY = ship.posY + fwd.y * step;
+    ship.posZ = ship.posZ + fwd.z * step;
+    return ship;
+  }
 }
 
 /**
  * Unified agent — match integrateShipAgent (TS).
- * Phase = geometric SEEK/CIRCULATE; domainWarpActive selects Jump on SEEK only.
- * Residual recompute (no stride bit): residualActive = v > 1.2·v_orb →
- * Jump dump + freeze EXIT (design set@1.5/clear@1.2 sticky approximated).
- * Enter-latch covered by residual freeze on hot capture (no ShipSim field).
+ * space3d: sphere band + rem to sphere tangent; centerY from pathEndY.
  */
 fn integrateShipAgent(
   shipIn: ShipSim,
   centerX: f32,
   centerZ: f32,
+  centerY: f32,
   centerVelX: f32,
   centerVelZ: f32,
+  centerVelY: f32,
   dtMsIn: f32,
   domainWarpActive: bool,
+  space3d: bool,
 ) -> ShipSim {
   var ship = shipIn;
 
@@ -767,45 +1098,59 @@ fn integrateShipAgent(
   }
 
   let R = select(1.0, ship.orbitR, ship.orbitR > 1e-6);
-  let r = sqrt(
-    (ship.posX - centerX) * (ship.posX - centerX) +
-      (ship.posZ - centerZ) * (ship.posZ - centerZ),
-  );
+  var r: f32;
+  if (space3d) {
+    let dx = ship.posX - centerX;
+    let dy = ship.posY - centerY;
+    let dz = ship.posZ - centerZ;
+    r = sqrt(dx * dx + dy * dy + dz * dz);
+  } else {
+    r = sqrt(
+      (ship.posX - centerX) * (ship.posX - centerX) +
+        (ship.posZ - centerZ) * (ship.posZ - centerZ),
+    );
+  }
   let captureIn = ORBIT_CAPTURE_K * R;
   let captureOut = ORBIT_CAPTURE_OUT_K * R;
 
   let vOrb = orbitFloorSpeed(ship.orbitOmega, R, ORBIT_DEFAULT_OMEGA_MAX);
-  // residualActive: Jump dump always; soft EXIT freeze only inside freeze-out band.
   let residualActive = ship.speed > (RESIDUAL_CLEAR_MUL * vOrb);
   let residualFreezeOut = RESIDUAL_FREEZE_OUT_K * R;
 
   var near = ship.mode == SHIP_MODE_ORBIT || ship.mode == SHIP_MODE_SETTLE;
   if (near) {
-    // Past freeze-out: force SEEK (hot slings cannot stay CIRCULATE far out).
     if (r > residualFreezeOut) {
       near = false;
     } else if (r > captureOut && !residualActive) {
       near = false;
     }
   } else {
-    // Far entrance aim is only needed while SEEK — skip on stable ORBIT
-    // (500K pure-orbit path avoids external-tangent every frame).
     let side = orbitSideSign(ship.orbitOmega);
-    let farAim = computeOrbitAimTarget(
-      ship.posX,
-      ship.posZ,
-      centerX,
-      centerZ,
-      R,
-      side,
-      false,
-      ship.heading,
-    );
-    let remEntrance = sqrt(
-      (farAim.x - ship.posX) * (farAim.x - ship.posX) +
-        (farAim.y - ship.posZ) * (farAim.y - ship.posZ),
-    );
-    // F5: ρ_enter = max(ε_tiny, 0.2R) — not ARRIVE_EPS=2
+    var remEntrance: f32;
+    if (space3d) {
+      ship = ensureShipQuat(ship);
+      let fwd = forwardFromQuat(vec4<f32>(ship.qx, ship.qy, ship.qz, ship.qw));
+      let farAim = computeSphereOrbitAimTarget(
+        vec3<f32>(ship.posX, ship.posY, ship.posZ),
+        vec3<f32>(centerX, centerY, centerZ),
+        R,
+        side,
+        false,
+        fwd,
+      );
+      let dpx = farAim.x - ship.posX;
+      let dpy = farAim.y - ship.posY;
+      let dpz = farAim.z - ship.posZ;
+      remEntrance = sqrt(dpx * dpx + dpy * dpy + dpz * dpz);
+    } else {
+      let farAim = computeOrbitAimTarget(
+        ship.posX, ship.posZ, centerX, centerZ, R, side, false, ship.heading,
+      );
+      remEntrance = sqrt(
+        (farAim.x - ship.posX) * (farAim.x - ship.posX) +
+          (farAim.y - ship.posZ) * (farAim.y - ship.posZ),
+      );
+    }
     let entranceCap = max(ORBIT_ENTRANCE_EPS_TINY, ORBIT_ENTRANCE_REM_K * R);
     if (remEntrance <= entranceCap || r <= captureIn) {
       near = true;
@@ -817,7 +1162,6 @@ fn integrateShipAgent(
     ship.mode = SHIP_MODE_JUMP;
   }
 
-  // F3: residual always Jump dump; SEEK also Jump while domain warping
   let useJump = residualActive || (!near && domainWarpActive);
   var aUp: f32;
   var aDown: f32;
@@ -839,8 +1183,10 @@ fn integrateShipAgent(
     ship,
     centerX,
     centerZ,
+    centerY,
     centerVelX,
     centerVelZ,
+    centerVelY,
     dtSec,
     near,
     aUp,
@@ -848,6 +1194,7 @@ fn integrateShipAgent(
     vOpen,
     SHIP_BRAKE_DIST_MARGIN,
     softLaunch,
+    space3d,
   );
 }
 
@@ -1317,6 +1664,9 @@ fn cs_ships(@builtin(global_invocation_id) gid3: vec3<u32>) {
   let baseY = ${Number(RENDER_PLANE_Y).toFixed(1)};
   let ringBase = simIdx * TRAIL_RING_SIZE * TRAIL_SAMPLE_FLOATS;
   let domainWarpActive = (f.flags & FLEET_FLAG_JUMPING) != 0u;
+  let space3d = (f.flags & FLEET_FLAG_SPACE3D) != 0u;
+  // pathEndY lives in _pad0 when SPACE3D; else planar centerY = 0.
+  let pathEndY = select(0.0, f._pad0, space3d);
 
   // MID: lead-only agent.
   if (band == LOD_BAND_MID) {
@@ -1335,7 +1685,8 @@ fn cs_ships(@builtin(global_invocation_id) gid3: vec3<u32>) {
       ship.speed = 0.0;
     } else {
       ship = integrateShipAgent(
-        ship, f.pathEndX, f.pathEndZ, 0.0, 0.0, u.dtMs, domainWarpActive,
+        ship, f.pathEndX, f.pathEndZ, pathEndY,
+        0.0, 0.0, 0.0, u.dtMs, domainWarpActive, space3d,
       );
     }
     if (noTrail) {
@@ -1377,7 +1728,8 @@ fn cs_ships(@builtin(global_invocation_id) gid3: vec3<u32>) {
     ship.speed = 0.0;
   } else {
     ship = integrateShipAgent(
-      ship, f.pathEndX, f.pathEndZ, 0.0, 0.0, u.dtMs, domainWarpActive,
+      ship, f.pathEndX, f.pathEndZ, pathEndY,
+      0.0, 0.0, 0.0, u.dtMs, domainWarpActive, space3d,
     );
   }
 
@@ -1507,7 +1859,7 @@ struct ShipSim {
   slotX: f32, slotY: f32, slotZ: f32, heading: f32,
   trailWrite: u32, sinceSample: f32, mode: u32, fleetIndex: u32,
   targetKind: u32, orbitPhase: f32, accel: f32, cruiseV: f32,
-  orbitR: f32, orbitOmega: f32, _pad0: f32, _pad1: f32,
+  orbitR: f32, orbitOmega: f32, omegaMax: f32, _pad1: f32,
 };
 
 @group(0) @binding(0) var<uniform> u: IntegrateUniforms;

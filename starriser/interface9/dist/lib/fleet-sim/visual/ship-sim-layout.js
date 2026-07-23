@@ -27,13 +27,15 @@
  * 76  f32 cruiseV       // soft cruise (not hard clamp on jump)
  * 80  f32 orbitR
  * 84  f32 orbitOmega    // signed rad/s
- * 88  f32 _pad0
+ * 88  f32 omegaMax      // turn rate cap (rad/s); was pad0
  * 92  f32 _pad1
  *
- * omegaMax is **not** stored — derived from SHIP_MAX_TURN_RAD_S / orbit defaults.
+ * omegaMax is stored per ship (from type config at pack). ≤0 → agents/GPU use
+ * ORBIT_DEFAULT_OMEGA_MAX / SHIP_MAX_TURN_RAD_S.
  * Planar production keeps posY=slotY=0 and yaw-only quaternions.
  */
 import { quatFromYaw, quatIsZero } from "./quat.js";
+import { SHIP_MAX_TURN_RAD_S } from "./ship-motion-config.js";
 /** Bytes — must match WGSL `struct ShipSim` packing. */
 export const SHIP_SIM_STRIDE = 96;
 export const ShipSimFields = {
@@ -59,6 +61,9 @@ export const ShipSimFields = {
     cruiseV: 76,
     orbitR: 80,
     orbitOmega: 84,
+    /** Turn rate cap (rad/s). */
+    omegaMax: 88,
+    /** @deprecated use omegaMax — same offset 88 */
     pad0: 88,
     pad1: 92,
 };
@@ -71,6 +76,8 @@ export const SHIP_TARGET_WORLD = 2;
 // Defaults from ship-motion-config.ts (single tuning panel).
 export { SHIP_SIM_DEFAULT_ACCEL, SHIP_SIM_DEFAULT_CRUISE_V, SHIP_SIM_DEFAULT_ORBIT_R, SHIP_SIM_DEFAULT_ORBIT_OMEGA, } from "./ship-motion-config.js";
 import { SHIP_SIM_DEFAULT_ACCEL, SHIP_SIM_DEFAULT_CRUISE_V, SHIP_SIM_DEFAULT_ORBIT_R, SHIP_SIM_DEFAULT_ORBIT_OMEGA, } from "./ship-motion-config.js";
+/** Default turn cap when write omits omegaMax (matches red / global). */
+export const SHIP_SIM_DEFAULT_OMEGA_MAX = SHIP_MAX_TURN_RAD_S;
 /** Resolve quat + heading pair for write (heading fills zero quat). */
 function resolveOrientation(ship) {
     const qx = ship.qx ?? 0;
@@ -110,7 +117,7 @@ export function writeShipSim(view, byteOffset, ship) {
     view.setFloat32(o + ShipSimFields.cruiseV, ship.cruiseV ?? SHIP_SIM_DEFAULT_CRUISE_V, true);
     view.setFloat32(o + ShipSimFields.orbitR, ship.orbitR ?? SHIP_SIM_DEFAULT_ORBIT_R, true);
     view.setFloat32(o + ShipSimFields.orbitOmega, ship.orbitOmega ?? SHIP_SIM_DEFAULT_ORBIT_OMEGA, true);
-    view.setFloat32(o + ShipSimFields.pad0, 0, true);
+    view.setFloat32(o + ShipSimFields.omegaMax, ship.omegaMax ?? SHIP_SIM_DEFAULT_OMEGA_MAX, true);
     view.setFloat32(o + ShipSimFields.pad1, 0, true);
 }
 /** Read one ShipSim record (all stride-96 fields). */
@@ -139,6 +146,7 @@ export function readShipSim(view, byteOffset) {
         cruiseV: view.getFloat32(o + ShipSimFields.cruiseV, true),
         orbitR: view.getFloat32(o + ShipSimFields.orbitR, true),
         orbitOmega: view.getFloat32(o + ShipSimFields.orbitOmega, true),
+        omegaMax: view.getFloat32(o + ShipSimFields.omegaMax, true),
     };
 }
 /**
@@ -193,7 +201,8 @@ export function assertShipSimLayoutInvariants() {
     assertOffset(ShipSimFields.cruiseV, 76, "ShipSim.cruiseV");
     assertOffset(ShipSimFields.orbitR, 80, "ShipSim.orbitR");
     assertOffset(ShipSimFields.orbitOmega, 84, "ShipSim.orbitOmega");
-    assertOffset(ShipSimFields.pad0, 88, "ShipSim.pad0");
+    assertOffset(ShipSimFields.omegaMax, 88, "ShipSim.omegaMax");
+    assertOffset(ShipSimFields.pad0, 88, "ShipSim.pad0 (alias omegaMax)");
     assertOffset(ShipSimFields.pad1, 92, "ShipSim.pad1");
     if (ShipSimFields.pad1 + 4 !== SHIP_SIM_STRIDE) {
         throw new Error("ShipSim last field does not end at SHIP_SIM_STRIDE");

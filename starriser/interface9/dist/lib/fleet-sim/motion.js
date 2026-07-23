@@ -7,10 +7,21 @@
  * Domain (discrete path / events) stays under domain/* and worker shims.
  */
 import { integrateFleetPos } from "./visual/fleet-integrate-ref.js";
-import { FLEET_FLAG_ALIVE, FLEET_FLAG_JUMPING, FLEET_GPU_STRIDE, hashFleetId, writeFleetGpu, } from "./visual/fleet-layout.js";
+import { FLEET_FLAG_ALIVE, FLEET_FLAG_JUMPING, FLEET_FLAG_SPACE3D, FLEET_GPU_STRIDE, hashFleetId, writeFleetGpu, } from "./visual/fleet-layout.js";
 import { FLEET_SHIP_DRAW_FLOATS, initShipSimFromDrawFormation, writeFleetFormation, } from "./visual/fleet-ship-pack.js";
 import { clamp01, ease01, integrateShipAgent, } from "./visual/ship-flight-ref.js";
 import { SHIP_SIM_STRIDE, ShipSimFields, readShipSim, writeShipSim, } from "./visual/ship-sim-layout.js";
+/**
+ * Resolve jump vs cruise from travelMode / deprecated jumping.
+ * - jump if travelMode === "jump" OR (travelMode unset && jumping !== false)
+ * - cruise if travelMode === "cruise" OR jumping === false
+ */
+export function resolveTravelMode(cmd) {
+    if (cmd.travelMode === "jump" || cmd.travelMode === "cruise") {
+        return cmd.travelMode;
+    }
+    return cmd.jumping === false ? "cruise" : "jump";
+}
 // ---------------------------------------------------------------------------
 // Hot-path scratch (stepShips) — one agent object reused across the loop
 // ---------------------------------------------------------------------------
@@ -33,9 +44,24 @@ const _stepScratch = {
     orbitPhase: 0,
     accel: 0,
     cruiseV: 0,
+    omegaMax: 0,
 };
+/**
+ * Fleet-center ease active:
+ * - jump: always ease (integrateFleetPos jumping)
+ * - travelMode "cruise": ease when durationMs > 0, else park at target
+ * - legacy jumping:false (no travelMode): always park at target
+ */
+function fleetCenterEaseActive(cmd) {
+    if (resolveTravelMode(cmd) === "jump")
+        return true;
+    if (cmd.travelMode === "cruise")
+        return cmd.durationMs > 0;
+    return false;
+}
+/** @deprecated internal — use resolveTravelMode; true when jump travel. */
 function cmdJumping(cmd) {
-    return cmd.jumping !== false;
+    return resolveTravelMode(cmd) === "jump";
 }
 function pointY(p, fallback = 0) {
     return p.y !== undefined ? p.y : fallback;
@@ -45,11 +71,13 @@ function pointY(p, fallback = 0) {
 // ---------------------------------------------------------------------------
 /** CPU: ease fleet center along command. Returns {x,y,z} with y from command or 0. */
 export function fleetCenter(cmd, nowRel) {
-    const jumping = cmdJumping(cmd);
+    // jump: always ease. cruise: ease when durationMs > 0, else park at target.
+    // (Legacy jumping:false with from===target is a no-op either way.)
+    const ease = fleetCenterEaseActive(cmd);
     const fromY = pointY(cmd.from, 0);
     const targetY = pointY(cmd.target, fromY);
     const xz = integrateFleetPos({
-        jumping,
+        jumping: ease,
         pathStartX: cmd.from.x,
         pathStartZ: cmd.from.z,
         pathEndX: cmd.target.x,
@@ -59,7 +87,7 @@ export function fleetCenter(cmd, nowRel) {
         now: nowRel,
     });
     let y;
-    if (!jumping) {
+    if (!ease) {
         y = targetY;
     }
     else {
@@ -75,9 +103,12 @@ export function fleetCenter(cmd, nowRel) {
 export function stepShip(ship, cmd, clock) {
     const fromY = pointY(cmd.from, 0);
     const targetY = pointY(cmd.target, 0);
+    const mode = resolveTravelMode(cmd);
+    // jump: domainWarp default inferred mid-hop in integrateShipAgent.
+    // cruise: domainWarp default false (speed-limited Cruise profile).
     const domainWarpActive = cmd.domainWarpActive !== undefined
         ? cmd.domainWarpActive
-        : cmd.jumping === false
+        : mode === "cruise"
             ? false
             : undefined;
     return integrateShipAgent(ship, {
@@ -128,6 +159,7 @@ export function stepShips(shipSimView, instanceStart, count, cmd, clock) {
         scratch.orbitPhase = rec.orbitPhase;
         scratch.accel = rec.accel;
         scratch.cruiseV = rec.cruiseV;
+        scratch.omegaMax = rec.omegaMax;
         // trail / fleetIndex / targetKind stay on the buffer via writeShipSim merge
         stepShip(scratch, cmd, clock);
         writeShipSim(shipSimView, o, {
@@ -153,6 +185,7 @@ export function stepShips(shipSimView, instanceStart, count, cmd, clock) {
             cruiseV: scratch.cruiseV,
             orbitR: scratch.orbitR,
             orbitOmega: scratch.orbitOmega,
+            omegaMax: scratch.omegaMax ?? rec.omegaMax,
         });
     }
 }
@@ -192,8 +225,18 @@ export function initShipsFromFormation(opts) {
 /**
  * Write FleetGpu path/command row (go-to-orbit into GPU buffer).
  * Thin wrap of writeFleetGpu with cmd fields + meta.
+ * Flags are caller-owned (packJumpingFleet sets JUMPING from travelMode);
+ * SPACE3D + pathEndY are OR'd when cmd.space3d or any y≠0.
  */
 export function writePathCommand(view, byteOffset, cmd, meta) {
+    const fromY = pointY(cmd.from, 0);
+    const targetY = pointY(cmd.target, 0);
+    const space3d = cmd.space3d === true ||
+        Math.abs(fromY) > 1e-9 ||
+        Math.abs(targetY) > 1e-9;
+    let flags = meta.flags >>> 0;
+    if (space3d)
+        flags |= FLEET_FLAG_SPACE3D;
     writeFleetGpu(view, byteOffset, {
         posX: meta.posX,
         posZ: meta.posZ,
@@ -204,18 +247,19 @@ export function writePathCommand(view, byteOffset, cmd, meta) {
         pathEndZ: cmd.target.z,
         t0: cmd.t0,
         durationMs: cmd.durationMs,
-        flags: meta.flags,
+        flags,
         shipBudget: meta.shipBudget,
         red: meta.red,
         blue: meta.blue,
         green: meta.green,
         instanceStart: meta.instanceStart,
         fleetIdHash: meta.fleetIdHash,
+        pathEndY: space3d ? targetY : 0,
     });
 }
 /**
- * One-shot pack: FleetGpu row + formation draw + ShipSim for a jumping hop.
- * Tests only — not for per-frame use.
+ * One-shot pack: FleetGpu row + formation draw + ShipSim for a hop.
+ * Default travelMode is jump. Tests only — not for per-frame use.
  */
 export function packJumpingFleet(opts) {
     const shipCount = Math.max(1, (opts.shipCount ?? 8) | 0);
@@ -226,6 +270,7 @@ export function packJumpingFleet(opts) {
     const instanceStart = opts.instanceStart ?? 0;
     const fleetId = opts.fleetId ?? "test-fleet-1";
     const seed = hashFleetId(fleetId);
+    const travelMode = opts.travelMode ?? "jump";
     const dx = target.x - from.x;
     const dz = target.z - from.z;
     const heading = opts.formationHeading !== undefined
@@ -233,13 +278,18 @@ export function packJumpingFleet(opts) {
         : Math.hypot(dx, dz) > 1e-9
             ? Math.atan2(dx, dz)
             : 0;
+    const fromY = pointY(from, 0);
+    const targetY = pointY(target, 0);
+    const space3d = Math.abs(fromY) > 1e-9 || Math.abs(targetY) > 1e-9;
     const cmd = {
-        from: { x: from.x, y: pointY(from, 0), z: from.z },
-        target: { x: target.x, y: pointY(target, 0), z: target.z },
+        from: { x: from.x, y: fromY, z: from.z },
+        target: { x: target.x, y: targetY, z: target.z },
         durationMs,
         t0,
         formationHeading: heading,
-        jumping: true,
+        travelMode,
+        jumping: travelMode === "jump",
+        space3d: space3d || undefined,
     };
     if (typeof opts.orbitRadius === "number" &&
         Number.isFinite(opts.orbitRadius) &&
@@ -251,11 +301,15 @@ export function packJumpingFleet(opts) {
     const green = 0;
     const fleetGpuU8 = new Uint8Array(FLEET_GPU_STRIDE);
     const fleetView = new DataView(fleetGpuU8.buffer, fleetGpuU8.byteOffset, fleetGpuU8.byteLength);
+    // jump → ALIVE|JUMPING; cruise → ALIVE only (no timed warp flag)
+    const flags = travelMode === "jump"
+        ? FLEET_FLAG_ALIVE | FLEET_FLAG_JUMPING
+        : FLEET_FLAG_ALIVE;
     writePathCommand(fleetView, 0, cmd, {
         posX: from.x,
         posZ: from.z,
         heading,
-        flags: FLEET_FLAG_ALIVE | FLEET_FLAG_JUMPING,
+        flags,
         shipBudget: shipCount,
         red,
         blue,

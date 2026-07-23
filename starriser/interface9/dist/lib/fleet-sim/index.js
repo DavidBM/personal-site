@@ -12,11 +12,12 @@
  * (`js/lib/fleet-sim/domain/*`) or worker shims (`js/worker/fleets/*`).
  */
 // 1 · Curated continuous motion API (preferred product surface)
-export { createMotion, fleetCenter, stepShip, stepShips, packFormation, initShipsFromFormation, writePathCommand, packJumpingFleet, applyOrbitRadiusIfSet, } from "./motion.js";
+export { createMotion, fleetCenter, stepShip, stepShips, packFormation, initShipsFromFormation, writePathCommand, packJumpingFleet, applyOrbitRadiusIfSet, resolveTravelMode, } from "./motion.js";
 // ShipAgentState comes from ship-flight-ref (below); also re-exported by motion.ts
 // 2 · Visual (CPU ref + layouts + pack) — advanced / parity / GPU hosts
 export * from "./visual/quat.js";
 export * from "./visual/ship-motion-config.js";
+export * from "./visual/ship-type-config.js";
 export * from "./visual/ship-flight-ref.js";
 export * from "./visual/ship-orbit-ref.js";
 export * from "./visual/ship-sim-layout.js";

@@ -42,13 +42,14 @@ export const FLEET_GPU_STRIDE = 64;
  * FleetGpu (stride 64) — **do not change stride/offsets** (L1 tests):
  *  0  f32 posX / 4 f32 posZ   // visual center (updated by L3 compute)
  *  8  f32 heading
- * 12  f32 _pad0               // zeroed by writeFleetGpu
+ * 12  f32 _pad0               // planar: 0; SPACE3D: pathEndY (orbit/seek center height)
  * 16  f32 pathStartX / 20 pathStartZ
  * 24  f32 pathEndX / 28 pathEndZ
  * 32  f32 t0                  // jump start, **GPU-relative** ms (wall - origin)
  * 36  f32 durationMs
  * 40  u32 flags               // bit0 alive, bit1 jumping, bit2 cooldown, bit3 no-trail (icon),
- *                             // bit4 sim-paused (R3 impostor/icon), bit5 warm (R5 promote)
+ *                             // bit4 sim-paused (R3 impostor/icon), bit5 warm (R5 promote),
+ *                             // bit6 SPACE3D (sphere agent + pathEndY in _pad0)
  * 44  u32 shipBudget          // visual scatter count after L4 LOD (instanceCount)
  * 48  u32 countsPacked        // domain truth: red | blue<<10 | green<<20 (10 bits each)
  * 52  u32 instanceStart       // draw + ShipSim + trail-ring base index (ring cursor = ShipSim.trailWrite)
@@ -95,6 +96,12 @@ export const FLEET_FLAG_SIM_PAUSED = 1 << 4;
  * impostor/icon or when warmFramesLeft hits 0.
  */
 export const FLEET_FLAG_WARM = 1 << 5;
+/**
+ * Full sphere 3D ship agent (space3d). When set, FleetGpu._pad0 holds pathEndY
+ * (orbit/seek center height); GPU/CPU use sphere external-tangent + CIRCULATE.
+ * Planar production leaves this clear and _pad0 = 0.
+ */
+export const FLEET_FLAG_SPACE3D = 1 << 6;
 /**
  * Ship instance for instanced draw (vertex-step-mode instance). Stride 48.
  *
@@ -181,7 +188,11 @@ export function writeFleetGpu(view, byteOffset, fleet) {
     view.setFloat32(o + FleetGpuFields.posX, fleet.posX, true);
     view.setFloat32(o + FleetGpuFields.posZ, fleet.posZ, true);
     view.setFloat32(o + FleetGpuFields.heading, fleet.heading, true);
-    view.setFloat32(o + FleetGpuFields._pad0, 0, true);
+    // _pad0: pathEndY under SPACE3D; else zero (planar bit-compat).
+    const pathEndY = fleet.pathEndY !== undefined && Number.isFinite(fleet.pathEndY)
+        ? fleet.pathEndY
+        : 0;
+    view.setFloat32(o + FleetGpuFields._pad0, pathEndY, true);
     view.setFloat32(o + FleetGpuFields.pathStartX, fleet.pathStartX, true);
     view.setFloat32(o + FleetGpuFields.pathStartZ, fleet.pathStartZ, true);
     view.setFloat32(o + FleetGpuFields.pathEndX, fleet.pathEndX, true);

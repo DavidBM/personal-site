@@ -277,6 +277,7 @@ localIndexStart = 0) {
             cruiseV: motion.cruiseV,
             orbitR: orbit.radius,
             orbitOmega: orbit.omega,
+            omegaMax: motion.omegaMax,
         });
         // Draw: world in base, center zeroed; size/color untouched
         // Mesh remains XZ billboard; y = plane (planar pack).
