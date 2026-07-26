@@ -76,6 +76,88 @@ export function packPlaneQuad(cx, cz, halfExtent, color = OVERLAY_COLOR_PLANE, y
     writeVert(data, o, x0, y, z1, color);
     return { data, vertexCount };
 }
+/** Soft grid line (minor) — high alpha so thin lines read on dark clear. */
+export const OVERLAY_COLOR_GRID_MINOR = [0.55, 0.62, 0.78, 0.85];
+/** Stronger every Nth grid line (major). */
+export const OVERLAY_COLOR_GRID_MAJOR = [0.78, 0.86, 1.0, 0.95];
+/** Origin axes on the ground plane. */
+export const OVERLAY_COLOR_GRID_AXIS_X = [1.0, 0.4, 0.35, 1.0];
+export const OVERLAY_COLOR_GRID_AXIS_Z = [0.35, 0.65, 1.0, 1.0];
+/**
+ * Y = 0 (or `y`) ground grid as line-list verts for {@link MapOverlayGpuLayer}.
+ * Lines parallel to +X and +Z across ±halfExtent, with major every `majorEvery`
+ * cells and thicker-looking origin axes.
+ *
+ * Pure pack — no GPU. Scenic tech demos use this as a height reference.
+ */
+export function packGroundGridY0(opts) {
+    const half = typeof opts.halfExtent === "number" && opts.halfExtent > 0
+        ? opts.halfExtent
+        : 12000;
+    const spacing = typeof opts.spacing === "number" && opts.spacing > 0
+        ? opts.spacing
+        : 1000;
+    const majorEvery = Math.max(1, (typeof opts.majorEvery === "number" ? opts.majorEvery : 5) | 0);
+    const y = opts.y !== undefined ? opts.y : RENDER_PLANE_Y;
+    const includeAxes = opts.includeAxes !== false;
+    const minor = opts.minorColor ?? OVERLAY_COLOR_GRID_MINOR;
+    const major = opts.majorColor ?? OVERLAY_COLOR_GRID_MAJOR;
+    const axisX = opts.axisXColor ?? OVERLAY_COLOR_GRID_AXIS_X;
+    const axisZ = opts.axisZColor ?? OVERLAY_COLOR_GRID_AXIS_Z;
+    const n = Math.max(1, Math.round((2 * half) / spacing));
+    // For each of n+1 lines in X dir and n+1 in Z dir: 2 verts; + optional 2 axes.
+    const lineCount = (n + 1) * 2 + (includeAxes ? 2 : 0);
+    const vertexCount = lineCount * 2;
+    const data = new Float32Array(vertexCount * F);
+    let o = 0;
+    let vi = 0;
+    const writeLine = (x0, z0, x1, z1, c) => {
+        o = writeVert(data, o, x0, y, z0, c);
+        o = writeVert(data, o, x1, y, z1, c);
+        vi += 2;
+    };
+    for (let i = 0; i <= n; i++) {
+        const t = -half + i * spacing;
+        const isMajor = i % majorEvery === 0;
+        // Skip pure origin if axes drawn separately (avoid double-bright).
+        const onOrigin = Math.abs(t) < spacing * 0.01;
+        if (includeAxes && onOrigin)
+            continue;
+        const c = isMajor ? major : minor;
+        // Line parallel to X (constant z = t)
+        writeLine(-half, t, half, t, c);
+        // Line parallel to Z (constant x = t)
+        writeLine(t, -half, t, half, c);
+    }
+    if (includeAxes) {
+        writeLine(-half, 0, half, 0, axisX);
+        writeLine(0, -half, 0, half, axisZ);
+    }
+    return { data: data.subarray(0, vi * F), vertexCount: vi };
+}
+/**
+ * Ground plane + grid pack for scenic demos (fill under lines).
+ */
+export function packGroundReferenceY0(opts) {
+    const half = typeof opts?.halfExtent === "number" && opts.halfExtent > 0
+        ? opts.halfExtent
+        : 12000;
+    const y = opts?.y !== undefined ? opts.y : RENDER_PLANE_Y;
+    const planeColor = opts?.planeColor ?? [0.12, 0.18, 0.28, 0.55];
+    const plane = packPlaneQuad(0, 0, half, planeColor, y);
+    const grid = packGroundGridY0({
+        halfExtent: half,
+        spacing: opts?.spacing,
+        majorEvery: opts?.majorEvery,
+        y,
+    });
+    return {
+        fills: plane.data,
+        fillVertexCount: plane.vertexCount,
+        lines: grid.data,
+        lineVertexCount: grid.vertexCount,
+    };
+}
 /**
  * Closed ring as line-list pairs (N segments → 2N vertices).
  * Default 48 segments. Prefer {@link packRingLine2} for map fat lines.

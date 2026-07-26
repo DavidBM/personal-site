@@ -6,8 +6,125 @@
  * - Far: pure top-down (tilt 0). Near: up to 42° pitch along fixed −Z.
  * - Zoom-in: cursor pivot; zoom-out: screen-center pivot.
  */
-export const MIN_ZOOM = 100;
+/**
+ * Closest map height. Deep enough for close model inspection / roof-cam chase
+ * (~ship-scale framing at model LOD with DEFAULT_SCALE 0.25).
+ */
+export const MIN_ZOOM = 4;
 export const MAX_ZOOM = 1000000;
+/** CTRL free-look returns to rest over this many ms. */
+export const CTRL_LOOK_RETURN_MS = 200;
+/** Enter/exit ship-follow ease duration (ms). */
+export const FOLLOW_TRANSITION_MS = 500;
+/**
+ * Follow chase: slightly behind and below the nose line so the engine bay
+ * reads in frame (not pure roof-cam). Still << old third-person boom (~10).
+ * Ships are ~0.8…5 world units (BASE×type scale).
+ */
+/** Chase distance behind ship (world units). */
+export const FOLLOW_BACK_DIST = 1.55;
+/** Chase height above ship (slightly above engines, not pure roof). */
+export const FOLLOW_HEIGHT = 0.34;
+/** Look-at point ahead of ship along forward. */
+export const FOLLOW_LOOK_AHEAD = 6;
+/**
+ * Look-at Y relative to ship (not eye). Negative = aim below hull so the
+ * boom reads slightly downward (engines / deck in frame).
+ */
+export const FOLLOW_LOOK_Y = -0.12;
+/**
+ * Roof-cam chase: eye just above/behind the ship, look-at well ahead along travel.
+ * heading 0 = +Z; forward = (sin h, 0, cos h).
+ * lookYaw/lookPitch = CTRL free-look offsets (rad); 0 = pure chase.
+ */
+export function chaseCameraFromShip(posX, posY, posZ, heading, opts) {
+    const back = opts?.back ?? FOLLOW_BACK_DIST;
+    const height = opts?.height ?? FOLLOW_HEIGHT;
+    const lookAhead = opts?.lookAhead ?? FOLLOW_LOOK_AHEAD;
+    const lookY = opts?.lookY ?? FOLLOW_LOOK_Y;
+    const lookYaw = opts?.lookYaw ?? 0;
+    const lookPitch = opts?.lookPitch ?? 0;
+    const yaw = heading + lookYaw;
+    const fx = Math.sin(yaw);
+    const fz = Math.cos(yaw);
+    // Pitch: lift/drop look target relative to eye (clamped).
+    const pitch = Math.max(-0.85, Math.min(0.85, lookPitch));
+    const cosP = Math.cos(pitch);
+    const sinP = Math.sin(pitch);
+    // Eye sits back along −forward and up; pitch tilts the chase boom.
+    const eyeX = posX - fx * back * cosP;
+    const eyeY = posY + height + back * sinP;
+    const eyeZ = posZ - fz * back * cosP;
+    const targetX = posX + fx * lookAhead;
+    const targetY = posY + lookY;
+    const targetZ = posZ + fz * lookAhead;
+    return { eyeX, eyeY, eyeZ, targetX, targetY, targetZ };
+}
+/**
+ * Orbit eye around a fixed look-at pivot (sphere). Used for map CTRL free-look.
+ * dYaw rotates about world +Y; dPitch elevates (clamped so eye stays above ground).
+ * Keeps look-at fixed — no “slide” from re-deriving look along −Z.
+ */
+export function orbitEyeAroundLookAt(eyeX, eyeY, eyeZ, targetX, targetY, targetZ, dYaw, dPitch, opts) {
+    const minEyeY = opts?.minEyeY ?? MIN_ZOOM;
+    const minRadius = opts?.minRadius ?? 2;
+    const maxPitch = opts?.maxPitch ?? 1.35;
+    let dx = eyeX - targetX;
+    let dy = eyeY - targetY;
+    let dz = eyeZ - targetZ;
+    let r = Math.hypot(dx, dy, dz);
+    if (!(r > minRadius)) {
+        // Nearly top-down / on pivot: invent a back boom so orbit has leverage.
+        r = Math.max(minRadius, Math.max(eyeY - targetY, minEyeY));
+        dx = 0;
+        dy = r * 0.85;
+        dz = r * 0.5;
+    }
+    let yaw = Math.atan2(dx, dz);
+    let pitch = Math.asin(Math.max(-1, Math.min(1, dy / r)));
+    yaw += dYaw;
+    pitch = Math.max(-maxPitch, Math.min(maxPitch, pitch + dPitch));
+    // Keep a little elevation so the map does not flip under the plane.
+    const minPitch = Math.asin(Math.max(-1, Math.min(1, (minEyeY - targetY) / r)));
+    if (pitch < minPitch)
+        pitch = minPitch;
+    const cosP = Math.cos(pitch);
+    const sinP = Math.sin(pitch);
+    const nx = targetX + r * Math.sin(yaw) * cosP;
+    const ny = targetY + r * sinP;
+    const nz = targetZ + r * Math.cos(yaw) * cosP;
+    return {
+        eyeX: nx,
+        eyeY: Math.max(minEyeY, ny),
+        eyeZ: nz,
+    };
+}
+/**
+ * Ease CTRL look offset → 0 over returnMs. Returns remaining fraction of offset
+ * (1 = full offset, 0 = rest). Linear for predictable 200ms product feel.
+ */
+export function ctrlLookReturnFactor(elapsedMsSinceRelease, returnMs = CTRL_LOOK_RETURN_MS) {
+    if (returnMs <= 0)
+        return 0;
+    if (elapsedMsSinceRelease <= 0)
+        return 1;
+    if (elapsedMsSinceRelease >= returnMs)
+        return 0;
+    return 1 - elapsedMsSinceRelease / returnMs;
+}
+/**
+ * Lerp eye pose from → to with t in [0,1] (t=1 → fully at `to`).
+ * Pure helper for map CTRL free-look restore.
+ */
+export function lerpEyePose(from, to, t) {
+    const u = Math.max(0, Math.min(1, t));
+    return {
+        eyeX: from.eyeX + (to.eyeX - from.eyeX) * u,
+        eyeY: from.eyeY + (to.eyeY - from.eyeY) * u,
+        eyeZ: from.eyeZ + (to.eyeZ - from.eyeZ) * u,
+        tilt: from.tilt + (to.tilt - from.tilt) * u,
+    };
+}
 /**
  * Height at/below which tilt is full (tactical).
  * Paired with {@link TILT_FLAT_HEIGHT} ≈ strategic LOD band (~160k).

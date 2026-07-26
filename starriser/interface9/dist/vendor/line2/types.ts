@@ -35,11 +35,18 @@ export interface Line2MaterialParams {
   dashOffset?: number;
   /**
    * Soft **endcap** AA via `fwidth` + smoothstep (three.js LineMaterial parity).
-   * Long edges stay geometric — use pipeline `sampleCount > 1` +
-   * `alphaToCoverage` for smooth sides (do not expand ribbons / UV skirts).
+   * Only applies when {@link endcaps} is true. Long edges stay geometric — use
+   * pipeline `sampleCount > 1` + `alphaToCoverage` for smooth sides.
    * World-units: softens analytic half-width silhouette when true. Default true.
    */
   softAA?: boolean;
+  /**
+   * When true (default), expand round endcap skirts past segment ends (Line2 /
+   * three.js pill look). When **false**, body-only ribbon: no along-dir endcap
+   * push, fragment discards endcap skirt UVs. Galaxy topology connections use
+   * `endcaps: false` — map rings may keep them on.
+   */
+  endcaps?: boolean;
   /** Multiply fragment color by per-endpoint instance colors. Default false. */
   vertexColors?: boolean;
   /** Depth test. Default true. */

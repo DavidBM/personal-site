@@ -44,9 +44,15 @@ export interface Line2ExpandScreenParams {
   positionX: number;
   /**
    * Template ribbon `position.y` = along-line param (−1…2).
-   * `< 0.5` selects start clip; `> 1` / `< 0` extend endcaps along dir.
+   * `< 0.5` selects start clip; `> 1` / `< 0` extend endcaps along dir when
+   * {@link endcaps} is true.
    */
   positionY: number;
+  /**
+   * When false, no along-dir endcap push (body-only ribbon). Default true
+   * (Line2 / three.js pill). Matches material `endcaps` uniform.
+   */
+  endcaps?: boolean;
 }
 
 function xyz(v: Vec3Like): [number, number, number] {
@@ -202,13 +208,16 @@ export function expandLine2CornerScreenSpace(
     offsetY = -offsetY;
   }
 
-  // Endcaps
-  if (posY < 0) {
-    offsetX = offsetX - dirX;
-    offsetY = offsetY - dirY;
-  } else if (posY > 1) {
-    offsetX = offsetX + dirX;
-    offsetY = offsetY + dirY;
+  // Endcaps (along-dir push) — skipped when endcaps: false
+  const useEndcaps = params.endcaps !== false;
+  if (useEndcaps) {
+    if (posY < 0) {
+      offsetX = offsetX - dirX;
+      offsetY = offsetY - dirY;
+    } else if (posY > 1) {
+      offsetX = offsetX + dirX;
+      offsetY = offsetY + dirY;
+    }
   }
 
   offsetX = offsetX * linewidth;

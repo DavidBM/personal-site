@@ -32,7 +32,9 @@ export class ConnectionLineGpuLayer {
                 color: [1, 1, 1, 0.9],
                 linewidth: CONNECTION_LINEWIDTH_PX,
                 worldUnits: false,
-                softAA: true,
+                // Topology edges: body-only (no round endcap pills / soft discs).
+                endcaps: false,
+                softAA: false,
                 vertexColors: true,
                 depthTest: false,
                 depthWrite: false,

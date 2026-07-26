@@ -137,5 +137,9 @@ export class WebGpuCameraStub {
     }
     setZoomTarget(_height) { }
     focusOnPoint(_x, _z, _height) { }
+    setFollowShip(_getPose) { }
+    isFollowing() {
+        return false;
+    }
 }
 //# sourceMappingURL=webgpu-renderer-shim.js.map

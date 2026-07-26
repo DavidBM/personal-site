@@ -12,20 +12,33 @@
  * 44  pad          // >0.5 → size is screen-space px (icon); else world size
  *
  * Uniforms carry cameraY / viewportH / tanHalfFov so icon triangles stay ~15px.
+ * Model LOD: when modelLodActive>0.5, hide triangle only if modelHide[inst]!=0
+ * (sparse: only ships that the model path actually draws).
  */
 export const FLEET_SHIP_DRAW_STRIDE = 48;
 /** Screen-space flag written into draw pad (must match SHIP_DRAW_SCREEN_SPACE). */
 export const FLEET_SHIP_SCREEN_SPACE_FLAG = 1;
+/**
+ * mat4 viewProjRel + origin.xyz + opacity + cameraY + viewportH + tanHalfFov +
+ * modelLodActive = 96 B (same size; origin reuses former pad slots).
+ */
+export const FLEET_SHIP_UNIFORM_SIZE = 96;
 export const FLEET_SHIPS_WGSL = /* wgsl */ `
 struct Uniforms {
+  /** proj * lookAt(eye−origin, target−origin). */
   viewProj : mat4x4<f32>,
+  origin : vec3<f32>,
   opacity : f32,
   cameraY : f32,
   viewportH : f32,
   tanHalfFov : f32,
+  /** 1 = consult modelHide storage for per-instance triangle hide. */
+  modelLodActive : f32,
 };
 
 @group(0) @binding(0) var<uniform> u : Uniforms;
+/** 1 = hide this instance's formation triangle (model path owns it). */
+@group(0) @binding(1) var<storage, read> modelHide : array<u32>;
 
 struct VSOut {
   @builtin(position) clip : vec4<f32>,
@@ -41,8 +54,15 @@ fn vs_main(
   @location(4) size : f32,
   @location(5) color : vec3<f32>,
   @location(6) screenSpace : f32,
+  @builtin(instance_index) inst : u32,
 ) -> VSOut {
   var out : VSOut;
+  // Model LOD owns only listed ships — hide those triangles only (not all NEAR).
+  if (u.modelLodActive > 0.5 && modelHide[inst] != 0u) {
+    out.clip = vec4<f32>(0.0, 0.0, 2.0, 1.0);
+    out.color = color;
+    return out;
+  }
   // Tombstone / hidden slots: skip work (still launched as instances, but no FS).
   if (size <= 0.0) {
     out.clip = vec4<f32>(0.0, 0.0, 2.0, 1.0); // outside clip volume
@@ -63,8 +83,10 @@ fn vs_main(
   let rx = meshPos.x * c - meshPos.z * s;
   let rz = meshPos.x * s + meshPos.z * c;
   let local = center + vec3<f32>(rx * worldSize, meshPos.y * worldSize, rz * worldSize);
-  let world = base + local;
-  out.clip = u.viewProj * vec4<f32>(world, 1.0);
+  // Origin-relative before viewProj: (base − origin) + local — never
+  // (base + local) − origin, which drops mesh-scale bits at |world| ≳ 1e5.
+  let rel = base - u.origin + local;
+  out.clip = u.viewProj * vec4<f32>(rel, 1.0);
   out.color = color;
   return out;
 }

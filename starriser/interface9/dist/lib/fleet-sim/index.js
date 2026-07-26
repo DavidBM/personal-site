@@ -29,8 +29,12 @@ export * from "./visual/fleet-trail-ref.js";
 export * from "./visual/fleet-lod.js";
 export * from "./visual/fleet-slot-allocator.js";
 export * from "./visual/fleet-mesh.js";
+export * from "./visual/gltf-static-mesh.js";
+export * from "./visual/lowpoly-ship-mesh.js";
+export * from "./visual/model-trail-config.js";
 // 3 · WGSL string builders (no device)
 export * from "./gpu/fleet-integrate.wgsl.js";
 export * from "./gpu/fleet-ships.wgsl.js";
 export * from "./gpu/fleet-trails.wgsl.js";
+export * from "./gpu/fleet-model-ships.wgsl.js";
 //# sourceMappingURL=index.js.map

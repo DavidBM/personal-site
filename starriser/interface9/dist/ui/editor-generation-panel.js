@@ -158,6 +158,12 @@ export function buildEditorGenerationPanel(ctx, actions) {
         onClick: (event) => buttonHandlers(event, () => actions.generateFleetsBulk(10000)),
     });
     ctx.button({
+        id: "followRandomShip",
+        parent: buttonRow.element,
+        text: "Follow random ship",
+        onClick: (event) => buttonHandlers(event, () => actions.followRandomShip()),
+    });
+    ctx.button({
         id: "generateFleetsBulk50k",
         parent: buttonRow.element,
         text: "Generate 50K Fleets",

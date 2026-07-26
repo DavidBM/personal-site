@@ -349,6 +349,62 @@ export function runExpandRefTests(opts = {}) {
         `vertical endcap y>1 shifts along +dir (Δy=${vCap1.y - vBody1.y})`,
       );
     }
+
+    // endcaps: false — skirt corners collapse to body ends (no along-dir push)
+    {
+      const body0 = expandLine2CornerScreenSpace({
+        start,
+        end,
+        modelView,
+        projection,
+        resolution,
+        linewidth,
+        positionX: 1,
+        positionY: 0,
+        endcaps: false,
+      });
+      const skirt0 = expandLine2CornerScreenSpace({
+        start,
+        end,
+        modelView,
+        projection,
+        resolution,
+        linewidth,
+        positionX: 1,
+        positionY: -1,
+        endcaps: false,
+      });
+      const body1 = expandLine2CornerScreenSpace({
+        start,
+        end,
+        modelView,
+        projection,
+        resolution,
+        linewidth,
+        positionX: 1,
+        positionY: 1,
+        endcaps: false,
+      });
+      const skirt1 = expandLine2CornerScreenSpace({
+        start,
+        end,
+        modelView,
+        projection,
+        resolution,
+        linewidth,
+        positionX: 1,
+        positionY: 2,
+        endcaps: false,
+      });
+      assert(
+        approxEq(skirt0.x, body0.x, 1e-5) && approxEq(skirt0.y, body0.y, 1e-5),
+        `endcaps:false y=-1 matches body y=0 (${skirt0.x},${skirt0.y} vs ${body0.x},${body0.y})`,
+      );
+      assert(
+        approxEq(skirt1.x, body1.x, 1e-5) && approxEq(skirt1.y, body1.y, 1e-5),
+        `endcaps:false y=2 matches body y=1 (${skirt1.x},${skirt1.y} vs ${body1.x},${body1.y})`,
+      );
+    }
   }
 
   // --- Perspective path still finite on a simple frustum --------------------

@@ -2,9 +2,10 @@ import { computeJumpDuration, getNextNode } from "./fleet-pathfinding.js";
 /**
  * Post-jump dwell bounds (fleets **web worker** jump ownership — not GPU ship sim).
  * Each hop rolls a fresh duration in this range when the jump completes.
+ * Product: 5–20 s so cooldowns read as intentional pauses between hops.
  */
-export const COOLDOWN_MS_MIN = 500;
-export const COOLDOWN_MS_MAX = 5000;
+export const COOLDOWN_MS_MIN = 5000;
+export const COOLDOWN_MS_MAX = 20000;
 /** @deprecated use COOLDOWN_MS_MIN..MAX; kept for import stability. */
 export const COOLDOWN_MS = COOLDOWN_MS_MIN;
 /** Uniform random cooldown in [COOLDOWN_MS_MIN, COOLDOWN_MS_MAX] ms. */

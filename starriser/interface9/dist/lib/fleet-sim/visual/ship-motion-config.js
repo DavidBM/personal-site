@@ -22,12 +22,21 @@ export const SHIP_MAX_ACCEL = 14400;
 /** @deprecated not a hard clamp on the agent path; kept for import stability. */
 export const SHIP_MAX_BRAKE = 28800;
 /**
- * Soft cruise (world/s). Keep in lockstep with fleet
- * {@code SPEED_UNITS_PER_SEC} so agents match hop clocks.
- * Peak mid-path CruiseProfile is this × {@link SHIP_MID_CRUISE_BOOST}.
+ * Soft cruise (world/s) — personal default before hop scaling.
+ * Product hops use domain durationMs (30s); agent open speed is capped via
+ * {@link hopOpenSpeedFromDuration} so formation ships share the hop clock with
+ * the fleet triangle/impostor. Peak mid-path CruiseProfile is this ×
+ * {@link SHIP_MID_CRUISE_BOOST} when not hop-capped.
  * Independent of orbit |ω| (ring speed is ORBIT_OMEGA_* · R only).
  */
 export const SHIP_MAX_SPEED = 12000;
+/**
+ * Multiply mean hop speed (pathLen/durationS) for Jump open ceiling.
+ * Slightly above mean so soft-launch still finishes near domain duration.
+ */
+export const HOP_OPEN_SPEED_MUL = 1.75;
+/** Floor open speed on very short hops (world/s). */
+export const HOP_OPEN_SPEED_MIN = 40;
 /** Turn rate cap (rad/s) for all ship types — flat, not cruise-scaled. ~720°/s. */
 export const SHIP_MAX_TURN_RAD_S = Math.PI * 4;
 /** Min thrust scale while mis-pointed (avoid frozen ships). Only when cos(e)>0. */
@@ -107,12 +116,15 @@ export const ORBIT_R_MIN = 2;
 export const ORBIT_R_MAX = 7;
 /** Default orbit R when pack omits it. */
 export const SHIP_SIM_DEFAULT_ORBIT_R = 4;
-/** Min |ω| (rad/s). v_orbit ≈ |ω|·R — ring only (independent of hop cruise). */
-export const ORBIT_OMEGA_MIN = 0.45;
+/**
+ * Min |ω| (rad/s). v_orbit ≈ |ω|·R — ring only (independent of hop cruise).
+ * Dialed down so orbit is clearly slower but still visible (~0.4× prior).
+ */
+export const ORBIT_OMEGA_MIN = 0.18;
 /** Max |ω| (rad/s). */
-export const ORBIT_OMEGA_MAX = 1.4;
+export const ORBIT_OMEGA_MAX = 0.55;
 /** Default |ω| when pack omits it. */
-export const SHIP_SIM_DEFAULT_ORBIT_OMEGA = 0.7;
+export const SHIP_SIM_DEFAULT_ORBIT_OMEGA = 0.28;
 /** Near-band lead (rad) — heading helper only; polar speed is normative. */
 export const ORBIT_LEAD_RAD = 0.2;
 /**
@@ -208,6 +220,20 @@ export const ORBIT_DEFAULT_ACCEL = SHIP_MAX_ACCEL;
 export const ORBIT_DEFAULT_OMEGA_MAX = SHIP_MAX_TURN_RAD_S;
 export const SHIP_SIM_DEFAULT_ACCEL = SHIP_MAX_ACCEL;
 export const SHIP_SIM_DEFAULT_CRUISE_V = SHIP_MAX_SPEED;
+/**
+ * Open-speed ceiling for a domain hop of length pathLen over durationMs.
+ * Pure — used by TS agent + WGSL inject so NEAR ships track the fleet clock.
+ */
+export function hopOpenSpeedFromDuration(pathLen, durationMs, mul = HOP_OPEN_SPEED_MUL) {
+    const len = Math.max(0, pathLen);
+    const durS = Math.max(1e-3, durationMs / 1000);
+    if (!(len > 1e-6) || !(durationMs > 0)) {
+        return SHIP_MAX_SPEED;
+    }
+    const mean = len / durS;
+    const open = mean * Math.max(0.1, mul);
+    return Math.max(HOP_OPEN_SPEED_MIN, open);
+}
 // ---------------------------------------------------------------------------
 // Personal hash scatter (type + seed) around defaults
 // ---------------------------------------------------------------------------

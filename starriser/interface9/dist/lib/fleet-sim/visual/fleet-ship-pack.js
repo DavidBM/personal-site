@@ -17,6 +17,7 @@ import { rotateLocalSlot, shipDrawRotation, SHIP_MODE_JUMP, SHIP_MODE_PAUSED, } 
 import { hashOrbitParams, hashShipMotionParams } from "./ship-orbit-ref.js";
 import { TRAIL_MIN_DIST } from "./fleet-trail-ref.js";
 import { SHIP_SIM_STRIDE, SHIP_TARGET_FLEET_CENTER, SHIP_TARGET_PATH_END, readShipSim, writeShipSim, } from "./ship-sim-layout.js";
+import { jumpStaggerMs } from "./fleet-lod.js";
 /** Draw pad float: >0.5 → size is screen-space px (icon). */
 export const SHIP_DRAW_SCREEN_SPACE = 1;
 /** Lateral (right) spacing per type scale for grid formation. */
@@ -278,6 +279,8 @@ localIndexStart = 0) {
             orbitR: orbit.radius,
             orbitOmega: orbit.omega,
             omegaMax: motion.omegaMax,
+            // Visual hop desync 0..500ms so fleet members leave/arrive out of lockstep
+            jumpStaggerMs: paused ? 0 : jumpStaggerMs(personalSeed, localBase + i),
         });
         // Draw: world in base, center zeroed; size/color untouched
         // Mesh remains XZ billboard; y = plane (planar pack).

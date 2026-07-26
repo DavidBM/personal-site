@@ -28,8 +28,9 @@ import { ORBIT_CAPTURE_K, ORBIT_CAPTURE_OUT_K, ORBIT_ENTRANCE_EPS_TINY, ORBIT_EN
 import { forwardFromQuat, quatFromYaw, quatIsZero, quatRotateVec3, yawFromQuat, } from "./quat.js";
 // Tune curves / ease / orbit here — not scattered through this file:
 //   js/gpu/ship-motion-config.ts
-export { SHIP_MAX_TURN_RAD_S, SHIP_MAX_ACCEL, SHIP_MAX_BRAKE, SHIP_MAX_SPEED, SHIP_ARRIVE_EPS, SHIP_SETTLE_TAU_S, SHIP_TRACK_TAU_S, SHIP_MIN_ALIGN, SHIP_AIM_BLEND_START, SHIP_SNAP_MS, SHIP_NOSE_OFFSET, SHIP_DEFAULT_BRAKE_DIST, SHIP_BRAKE_DIST_MARGIN, SHIP_APPROACH_BRAKE_POWER, SHIP_LAUNCH_ACCEL_MIN, SHIP_LAUNCH_SPEED_FRAC, SHIP_MID_CRUISE_BOOST, SHIP_HOP_ARRIVE_FRAC, SHIP_SETTLE_CRUISE_CAP, SHIP_AGENT_SETTLE_ENTER_DIST, SHIP_AGENT_ORBIT_ENTER_DIST, SHIP_AGENT_ORBIT_ENTER_SPEED, CRUISE_ACCEL_SCALE, CRUISE_BRAKE_MULT, JUMP_BRAKE_MULT, V_OPEN_UNCAP, ORBIT_ENTRANCE_EPS_TINY, RESIDUAL_HIGH_MUL, RESIDUAL_CLEAR_MUL, RESIDUAL_FREEZE_OUT_K, } from "./ship-motion-config.js";
-import { SHIP_MAX_TURN_RAD_S, SHIP_MAX_ACCEL, SHIP_MAX_SPEED, SHIP_ARRIVE_EPS, SHIP_SETTLE_TAU_S, SHIP_TRACK_TAU_S, SHIP_MIN_ALIGN, SHIP_AIM_BLEND_START, SHIP_NOSE_OFFSET, SHIP_DEFAULT_BRAKE_DIST, SHIP_BRAKE_DIST_MARGIN, SHIP_APPROACH_BRAKE_POWER, SHIP_LAUNCH_ACCEL_MIN, SHIP_LAUNCH_SPEED_FRAC, SHIP_MID_CRUISE_BOOST, CRUISE_ACCEL_SCALE, CRUISE_BRAKE_MULT, JUMP_BRAKE_MULT, V_OPEN_UNCAP, RESIDUAL_CLEAR_MUL, RESIDUAL_FREEZE_OUT_K, } from "./ship-motion-config.js";
+export { SHIP_MAX_TURN_RAD_S, SHIP_MAX_ACCEL, SHIP_MAX_BRAKE, SHIP_MAX_SPEED, SHIP_ARRIVE_EPS, SHIP_SETTLE_TAU_S, SHIP_TRACK_TAU_S, SHIP_MIN_ALIGN, SHIP_AIM_BLEND_START, SHIP_SNAP_MS, SHIP_NOSE_OFFSET, SHIP_DEFAULT_BRAKE_DIST, SHIP_BRAKE_DIST_MARGIN, SHIP_APPROACH_BRAKE_POWER, SHIP_LAUNCH_ACCEL_MIN, SHIP_LAUNCH_SPEED_FRAC, SHIP_MID_CRUISE_BOOST, SHIP_HOP_ARRIVE_FRAC, SHIP_SETTLE_CRUISE_CAP, SHIP_AGENT_SETTLE_ENTER_DIST, SHIP_AGENT_ORBIT_ENTER_DIST, SHIP_AGENT_ORBIT_ENTER_SPEED, CRUISE_ACCEL_SCALE, CRUISE_BRAKE_MULT, JUMP_BRAKE_MULT, V_OPEN_UNCAP, hopOpenSpeedFromDuration, HOP_OPEN_SPEED_MUL, HOP_OPEN_SPEED_MIN, ORBIT_ENTRANCE_EPS_TINY, RESIDUAL_HIGH_MUL, RESIDUAL_CLEAR_MUL, RESIDUAL_FREEZE_OUT_K, } from "./ship-motion-config.js";
+import { SHIP_MAX_TURN_RAD_S, SHIP_MAX_ACCEL, SHIP_MAX_SPEED, SHIP_ARRIVE_EPS, SHIP_SETTLE_TAU_S, SHIP_TRACK_TAU_S, SHIP_MIN_ALIGN, SHIP_AIM_BLEND_START, SHIP_NOSE_OFFSET, SHIP_DEFAULT_BRAKE_DIST, SHIP_BRAKE_DIST_MARGIN, SHIP_APPROACH_BRAKE_POWER, SHIP_LAUNCH_ACCEL_MIN, SHIP_LAUNCH_SPEED_FRAC, SHIP_MID_CRUISE_BOOST, CRUISE_ACCEL_SCALE, CRUISE_BRAKE_MULT, JUMP_BRAKE_MULT, V_OPEN_UNCAP, hopOpenSpeedFromDuration, RESIDUAL_CLEAR_MUL, RESIDUAL_FREEZE_OUT_K, } from "./ship-motion-config.js";
+// hopOpenSpeedFromDuration used by integrateShipAgent (domain hop clock).
 // --- Ship modes (ShipSim.mode) — geometric band, NOT domain warp ---
 /** Hold pose; speed forced to 0. Impostor / icon. */
 export const SHIP_MODE_PAUSED = 0;
@@ -381,14 +382,27 @@ export function integrateThrustTurn(ship, targetX, targetZ, dtSec, opts) {
  * on SEEK after a sling past the ring (Cruise was too weak to kill hop speed).
  * Calm CIRCULATE while domain mid-hop stays Cruise.
  */
-export function selectMotionProfile(phaseCirculate, domainWarpActive, residualActive, baseAccel, cruiseV) {
+export function selectMotionProfile(phaseCirculate, domainWarpActive, residualActive, baseAccel, cruiseV, 
+/**
+ * When domain hop duration is known, Jump open is this (pathLen-scaled)
+ * instead of V_OPEN_UNCAP so ships share the fleet hop clock.
+ */
+hopOpenSpeed) {
     const base = baseAccel > 0 ? baseAccel : SHIP_MAX_ACCEL;
     const useJump = residualActive || (!phaseCirculate && domainWarpActive);
     if (useJump) {
+        // Residual dump still wants strong open if uncapped; domain hop SEEK uses hop open.
+        const jumpOpen = residualActive && !(domainWarpActive && hopOpenSpeed !== undefined)
+            ? V_OPEN_UNCAP
+            : hopOpenSpeed !== undefined && hopOpenSpeed > 0
+                ? hopOpenSpeed
+                : domainWarpActive
+                    ? peakCruiseSpeed(cruiseV > 0 ? cruiseV : SHIP_MAX_SPEED)
+                    : V_OPEN_UNCAP;
         return {
             aUp: base,
             aDown: base * JUMP_BRAKE_MULT,
-            vOpen: V_OPEN_UNCAP,
+            vOpen: jumpOpen,
             brakeMargin: SHIP_BRAKE_DIST_MARGIN,
             // Soft launch only on SEEK; residual dump needs full a_down immediately.
             softLaunch: !phaseCirculate,
@@ -420,11 +434,7 @@ export function selectMotionProfile(phaseCirculate, domainWarpActive, residualAc
 export function integrateShipAgent(ship, params) {
     void params.flockForceX;
     void params.flockForceZ;
-    void params.pathStartX;
-    void params.pathStartZ;
     void params.pathStartY;
-    void params.pathEndX;
-    void params.pathEndZ;
     void params.formationHeading;
     ensureShipOrientation(ship);
     let dt = params.dtMs;
@@ -466,6 +476,19 @@ export function integrateShipAgent(ship, params) {
         else {
             domainWarpActive = false;
         }
+    }
+    // Hop open from domain duration so formation ships share the fleet ease clock.
+    let hopOpen;
+    if (domainWarpActive &&
+        params.durationMs !== undefined &&
+        params.durationMs > 0 &&
+        params.pathStartX !== undefined &&
+        params.pathStartZ !== undefined) {
+        const pLen = Math.hypot(params.pathEndX - params.pathStartX, params.pathEndZ - params.pathStartZ);
+        hopOpen = hopOpenSpeedFromDuration(pLen, params.durationMs);
+        // Also soft-cap personal cruise so Cruise profile mid-hop isn't uncapped.
+        if (ship.cruiseV > hopOpen)
+            ship.cruiseV = hopOpen;
     }
     // Phase (F5): ρ_enter = max(ε_tiny, 0.2R) — NOT ARRIVE_EPS=2.
     // Planar: XZ distance. Sphere 3D: full |P−C| + rem to sphere tangent aim.
@@ -517,7 +540,7 @@ export function integrateShipAgent(ship, params) {
             near = true;
     }
     ship.mode = near ? SHIP_MODE_ORBIT : SHIP_MODE_JUMP;
-    const profile = selectMotionProfile(near, domainWarpActive, residualActive, ship.accel, ship.cruiseV);
+    const profile = selectMotionProfile(near, domainWarpActive, residualActive, ship.accel, ship.cruiseV, hopOpen);
     integrateOrbitSeekStep(ship, params.centerX, params.centerZ, params.centerVelX ?? 0, params.centerVelZ ?? 0, dtSec, near, profile, {
         centerY,
         centerVelY: params.centerVelY ?? 0,

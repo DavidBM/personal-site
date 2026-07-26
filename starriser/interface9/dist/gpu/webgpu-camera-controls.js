@@ -12,7 +12,8 @@
  */
 import { groundPickFromScreen, } from "./math/ground-pick.js";
 import { ControlsManager } from "../controls-manager.js";
-import { CHAIN_CURSOR_PX, DS_FRAME_MAX, TAU_S, TAU_TILT, TAU_XZ, clampLogHeight, clampZoomHeight, dampTowardExp, eyeAfterHeightScale, heightToLog, isPoseSettled, logToHeight, lookAtFromEyeTilt, pivotScreenForWheel, refineEyeForScreenGround, tiltFactorForHeight, wheelDeltaLogS, } from "./camera-zoom.js";
+import { CHAIN_CURSOR_PX, CTRL_LOOK_RETURN_MS, DS_FRAME_MAX, TAU_S, TAU_TILT, TAU_XZ, chaseCameraFromShip, clampLogHeight, clampZoomHeight, ctrlLookReturnFactor, lerpEyePose, dampTowardExp, eyeAfterHeightScale, heightToLog, isPoseSettled, logToHeight, lookAtFromEyeTilt, orbitEyeAroundLookAt, pivotScreenForWheel, refineEyeForScreenGround, tiltFactorForHeight, wheelDeltaLogS, MIN_ZOOM, FOLLOW_TRANSITION_MS, } from "./camera-zoom.js";
+import { applyFollowDragLook, followTransitionT, lerpFollowCamEndpoints, mapRestPoseFromFollowExit, } from "./follow-cam-pose.js";
 export class WebGpuCameraController {
     constructor(view) {
         this.isDragging = false;
@@ -28,6 +29,36 @@ export class WebGpuCameraController {
         /** Remaining |Δs| budget this frame (refilled in update). */
         this.wheelBudgetS = DS_FRAME_MAX;
         this.reducedMotion = false;
+        /** Third-person follow: ship pose provider set by map/app. */
+        this.followActive = false;
+        this.followGetPose = null;
+        /**
+         * Map pose snapshot when follow starts — restored (eased) on stop.
+         * Height is always clampZoomHeight so exit never lands past min/max zoom.
+         */
+        this.preFollowMap = null;
+        this.preFollowTarget = null;
+        /** Enter/exit ease (~500ms). Null when settled in map or follow. */
+        this.followTransition = null;
+        /** CTRL free-look offsets (rad). Also used for follow drag orbit. */
+        this.lookYaw = 0;
+        this.lookPitch = 0;
+        this.lookYawHeld = 0;
+        this.lookPitchHeld = 0;
+        this.ctrlDown = false;
+        this.ctrlReleaseAtMs = 0;
+        this.lastPointerX = 0;
+        this.lastPointerY = 0;
+        /** Map-mode CTRL free-look: eye pose at CTRL press (restored over 200ms). */
+        this.preCtrlEye = null;
+        this.preCtrlTgt = null;
+        /** Eye at CTRL release — lerp from here toward preCtrlEye. */
+        this.ctrlReturnFrom = null;
+        /**
+         * Fixed look-at pivot for map CTRL orbit (captured on press). Prevents the
+         * “center behind camera / slide” bug from re-deriving look along −Z each frame.
+         */
+        this.ctrlOrbitTarget = null;
         /** Reused Mat4s for pick — no alloc per pointer event. */
         this.pickScratch = {
             proj: new Float32Array(16),
@@ -52,8 +83,12 @@ export class WebGpuCameraController {
         this.view = view;
         this.onWheelBound = (e) => this.onMouseWheel(e);
         this.onDblClickBound = (e) => this.onDoubleClick(e);
+        this.onKeyDownBound = (e) => this.onKeyDown(e);
+        this.onKeyUpBound = (e) => this.onKeyUp(e);
         view.canvas.addEventListener("wheel", this.onWheelBound, { passive: false });
         view.canvas.addEventListener("dblclick", this.onDblClickBound);
+        window.addEventListener("keydown", this.onKeyDownBound);
+        window.addEventListener("keyup", this.onKeyUpBound);
         view.canvas.style.cursor = "grab";
         // Sync internal state from map view initial pose + apply tilt look-at.
         const st = view.getCameraState();
@@ -86,9 +121,144 @@ export class WebGpuCameraController {
         this.disposed = true;
         this.view.canvas.removeEventListener("wheel", this.onWheelBound);
         this.view.canvas.removeEventListener("dblclick", this.onDblClickBound);
+        window.removeEventListener("keydown", this.onKeyDownBound);
+        window.removeEventListener("keyup", this.onKeyUpBound);
         this.isDragging = false;
         this.dragStartGround = null;
+        this.followActive = false;
+        this.followGetPose = null;
+        this.followTransition = null;
+        this.preFollowMap = null;
+        this.preFollowTarget = null;
         this.invalidatePickCache();
+    }
+    /**
+     * Follow a ship (F1 roof-cam). Pass null to stop.
+     * getPose is polled every frame while active.
+     * Enter/exit ease over {@link FOLLOW_TRANSITION_MS} (~500ms).
+     */
+    setFollowShip(getPose) {
+        this.lookYaw = 0;
+        this.lookPitch = 0;
+        this.lookYawHeld = 0;
+        this.lookPitchHeld = 0;
+        this.ctrlOrbitTarget = null;
+        if (getPose == null) {
+            // Stop follow: ease back to a clamped map rest pose (not twisted chase boom).
+            this.followGetPose = null;
+            this.followActive = false;
+            const st = this.view.getCameraState();
+            const from = {
+                eyeX: this.cur.eyeX,
+                eyeY: this.cur.eyeY,
+                eyeZ: this.cur.eyeZ,
+                targetX: st.targetX,
+                targetY: 0,
+                targetZ: st.targetZ,
+            };
+            const preferredH = this.preFollowMap?.eyeY;
+            const rest = mapRestPoseFromFollowExit(this.cur.eyeX, this.cur.eyeY, this.cur.eyeZ, this.preFollowTarget?.x ?? st.targetX, this.preFollowTarget?.z ?? st.targetZ, preferredH);
+            const exitTo = {
+                eyeX: rest.eyeX,
+                eyeY: rest.eyeY,
+                eyeZ: rest.eyeZ,
+                targetX: rest.targetX,
+                targetY: 0,
+                targetZ: rest.targetZ,
+                tilt: rest.tilt,
+            };
+            this.followTransition = {
+                kind: "exit",
+                t0Ms: performance.now(),
+                durationMs: FOLLOW_TRANSITION_MS,
+                from,
+                exitTo,
+            };
+            this.preFollowMap = null;
+            this.preFollowTarget = null;
+            this.tgt = {
+                eyeX: rest.eyeX,
+                eyeY: rest.eyeY,
+                eyeZ: rest.eyeZ,
+                tilt: rest.tilt,
+            };
+            return;
+        }
+        // Enter follow: snapshot map pose, ease into chase.
+        this.preFollowMap = { ...this.cur };
+        const st = this.view.getCameraState();
+        this.preFollowTarget = { x: st.targetX, z: st.targetZ };
+        this.followGetPose = getPose;
+        this.followActive = true;
+        const from = {
+            eyeX: this.cur.eyeX,
+            eyeY: this.cur.eyeY,
+            eyeZ: this.cur.eyeZ,
+            targetX: st.targetX,
+            targetY: 0,
+            targetZ: st.targetZ,
+        };
+        this.followTransition = {
+            kind: "enter",
+            t0Ms: performance.now(),
+            durationMs: FOLLOW_TRANSITION_MS,
+            from,
+        };
+        // Seed first frame mid-ease (t=0 stays at map; update advances).
+        this.view.setCameraLookAt(from.eyeX, from.eyeY, from.eyeZ, from.targetX, from.targetZ, from.targetY);
+        this.invalidatePickCache();
+    }
+    isFollowing() {
+        return this.followActive;
+    }
+    /** True while enter/exit ease is running. */
+    isFollowTransitioning() {
+        return this.followTransition != null;
+    }
+    /**
+     * Chase free-look / follow-drag orbit angles (rad).
+     * Used by tests to prove {@link onMouseMove} follow-drag path mutates look.
+     */
+    getFollowLookAngles() {
+        return { lookYaw: this.lookYaw, lookPitch: this.lookPitch };
+    }
+    onKeyDown(e) {
+        if (e.key !== "Control" && e.code !== "ControlLeft" && e.code !== "ControlRight") {
+            return;
+        }
+        if (this.ctrlDown)
+            return;
+        this.ctrlDown = true;
+        this.lookYawHeld = this.lookYaw;
+        this.lookPitchHeld = this.lookPitch;
+        // Map free-look mutates eye — snapshot rest pose to ease back on release.
+        if (!this.followActive) {
+            this.preCtrlEye = { ...this.cur };
+            this.preCtrlTgt = { ...this.tgt };
+            const st = this.view.getCameraState();
+            this.ctrlOrbitTarget = {
+                x: st.targetX,
+                y: 0,
+                z: st.targetZ,
+            };
+        }
+    }
+    onKeyUp(e) {
+        if (e.key !== "Control" && e.code !== "ControlLeft" && e.code !== "ControlRight") {
+            return;
+        }
+        if (!this.ctrlDown)
+            return;
+        this.ctrlDown = false;
+        this.ctrlReleaseAtMs = performance.now();
+        this.lookYawHeld = this.lookYaw;
+        this.lookPitchHeld = this.lookPitch;
+        // Begin easing map eye back toward pre-CTRL snapshot.
+        if (!this.followActive && this.preCtrlEye) {
+            this.ctrlReturnFrom = { ...this.cur };
+            this.tgt = { ...this.preCtrlEye };
+        }
+        this.ctrlOrbitTarget = null;
     }
     /** Rendered camera height (matches LOD + HUD). */
     getZoomLevel() {
@@ -125,6 +295,112 @@ export class WebGpuCameraController {
         if (this.disposed)
             return false;
         this.wheelBudgetS = DS_FRAME_MAX;
+        // CTRL free-look return over ~200ms.
+        if (!this.ctrlDown) {
+            const elapsed = performance.now() - this.ctrlReleaseAtMs;
+            const f = ctrlLookReturnFactor(elapsed, CTRL_LOOK_RETURN_MS);
+            if (this.lookYawHeld !== 0 || this.lookPitchHeld !== 0) {
+                this.lookYaw = this.lookYawHeld * f;
+                this.lookPitch = this.lookPitchHeld * f;
+                if (f <= 0) {
+                    this.lookYaw = 0;
+                    this.lookPitch = 0;
+                    this.lookYawHeld = 0;
+                    this.lookPitchHeld = 0;
+                }
+            }
+            // Map mode: lerp eye from free-look pose back to pre-CTRL snapshot.
+            if (!this.followActive && this.preCtrlEye && this.ctrlReturnFrom) {
+                const t = 1 - f; // 0 at release → 1 at rest
+                this.cur = lerpEyePose(this.ctrlReturnFrom, this.preCtrlEye, t);
+                this.tgt = { ...this.cur };
+                this.applyPose(this.cur);
+                if (f <= 0) {
+                    this.cur = { ...this.preCtrlEye };
+                    this.tgt = { ...(this.preCtrlTgt ?? this.preCtrlEye) };
+                    this.applyPose(this.cur);
+                    this.preCtrlEye = null;
+                    this.preCtrlTgt = null;
+                    this.ctrlReturnFrom = null;
+                }
+                return true;
+            }
+        }
+        // Exit-follow ease (map rest) — runs after followActive is already false.
+        if (this.followTransition?.kind === "exit") {
+            const tr = this.followTransition;
+            const exitTo = tr.exitTo;
+            if (!exitTo) {
+                this.followTransition = null;
+            }
+            else {
+                const t = followTransitionT(performance.now() - tr.t0Ms, tr.durationMs);
+                const mid = lerpFollowCamEndpoints(tr.from, exitTo, t);
+                this.cur.eyeX = mid.eyeX;
+                this.cur.eyeY = mid.eyeY;
+                this.cur.eyeZ = mid.eyeZ;
+                this.cur.tilt = exitTo.tilt;
+                this.tgt = { ...this.cur };
+                this.view.setCameraLookAt(mid.eyeX, mid.eyeY, mid.eyeZ, mid.targetX, mid.targetZ, mid.targetY);
+                this.invalidatePickCache();
+                if (t >= 1) {
+                    this.followTransition = null;
+                    this.tgt = {
+                        eyeX: exitTo.eyeX,
+                        eyeY: exitTo.eyeY,
+                        eyeZ: exitTo.eyeZ,
+                        tilt: exitTo.tilt,
+                    };
+                    this.cur = { ...this.tgt };
+                    this.applyPose(this.cur);
+                }
+                return true;
+            }
+        }
+        // Ship follow (optional enter ease into chase).
+        if (this.followActive && this.followGetPose) {
+            const pose = this.followGetPose();
+            if (pose) {
+                const chase = chaseCameraFromShip(pose.posX, pose.posY, pose.posZ, pose.heading, {
+                    lookYaw: this.lookYaw,
+                    lookPitch: this.lookPitch,
+                });
+                let eyeX = chase.eyeX;
+                let eyeY = chase.eyeY;
+                let eyeZ = chase.eyeZ;
+                let targetX = chase.targetX;
+                let targetY = chase.targetY;
+                let targetZ = chase.targetZ;
+                if (this.followTransition?.kind === "enter") {
+                    const tr = this.followTransition;
+                    const t = followTransitionT(performance.now() - tr.t0Ms, tr.durationMs);
+                    const mid = lerpFollowCamEndpoints(tr.from, {
+                        eyeX: chase.eyeX,
+                        eyeY: chase.eyeY,
+                        eyeZ: chase.eyeZ,
+                        targetX: chase.targetX,
+                        targetY: chase.targetY,
+                        targetZ: chase.targetZ,
+                    }, t);
+                    eyeX = mid.eyeX;
+                    eyeY = mid.eyeY;
+                    eyeZ = mid.eyeZ;
+                    targetX = mid.targetX;
+                    targetY = mid.targetY;
+                    targetZ = mid.targetZ;
+                    if (t >= 1)
+                        this.followTransition = null;
+                }
+                this.cur.eyeX = eyeX;
+                this.cur.eyeY = eyeY;
+                this.cur.eyeZ = eyeZ;
+                this.tgt = { ...this.cur };
+                // Same-frame pose → eye/target; map view uses this for floating origin.
+                this.view.setCameraLookAt(eyeX, eyeY, eyeZ, targetX, targetZ, targetY);
+                this.invalidatePickCache();
+                return true;
+            }
+        }
         if (this.isDragging || this.controlsManager.isEditModeActive()) {
             return false;
         }
@@ -256,16 +532,78 @@ export class WebGpuCameraController {
         if (event.button !== 0)
             return;
         this.isDragging = true;
+        this.lastPointerX = event.clientX;
+        this.lastPointerY = event.clientY;
         // Freeze residual zoom: target adopts display so pan is authoritative on XZ.
         this.tgt = { ...this.cur };
-        this.dragStartGround = this.getGroundPointFromScreenPosition(event.clientX, event.clientY);
+        // Follow drag orbits around the ship (no ground lock). Map pan needs ground.
+        this.dragStartGround = this.followActive
+            ? null
+            : this.getGroundPointFromScreenPosition(event.clientX, event.clientY);
         this.view.canvas.style.cursor = "grabbing";
         event.preventDefault();
     }
     onMouseMove(event) {
         if (this.controlsManager.isEditModeActive())
             return;
-        if (!this.isDragging || !this.dragStartGround)
+        // CTRL free-look: orbit around look-at (map) or chase boom (follow).
+        if (this.ctrlDown) {
+            const mdx = event.clientX - this.lastPointerX;
+            const mdy = event.clientY - this.lastPointerY;
+            this.lastPointerX = event.clientX;
+            this.lastPointerY = event.clientY;
+            if (mdx !== 0 || mdy !== 0) {
+                this.lookYaw -= mdx * 0.005;
+                this.lookPitch -= mdy * 0.004;
+                this.lookPitch = Math.max(-0.85, Math.min(0.85, this.lookPitch));
+                this.lookYawHeld = this.lookYaw;
+                this.lookPitchHeld = this.lookPitch;
+                if (!this.followActive) {
+                    // Orbit eye on a sphere about the fixed pivot captured at CTRL press.
+                    // Do NOT applyPose (tilt −Z look) — that caused the slide effect.
+                    const pivot = this.ctrlOrbitTarget ??
+                        (() => {
+                            const st = this.view.getCameraState();
+                            return { x: st.targetX, y: 0, z: st.targetZ };
+                        })();
+                    const next = orbitEyeAroundLookAt(this.cur.eyeX, this.cur.eyeY, this.cur.eyeZ, pivot.x, pivot.y, pivot.z, -mdx * 0.005, -mdy * 0.004, { minEyeY: MIN_ZOOM });
+                    this.cur.eyeX = next.eyeX;
+                    this.cur.eyeY = next.eyeY;
+                    this.cur.eyeZ = next.eyeZ;
+                    this.tgt = { ...this.cur };
+                    this.view.setCameraLookAt(next.eyeX, next.eyeY, next.eyeZ, pivot.x, pivot.z);
+                    this.invalidatePickCache();
+                }
+                event.preventDefault();
+                return;
+            }
+            return;
+        }
+        if (!this.isDragging) {
+            this.lastPointerX = event.clientX;
+            this.lastPointerY = event.clientY;
+            return;
+        }
+        // Follow drag: orbit camera around the ship (lookYaw/lookPitch), not map pan.
+        // Delta MUST be computed before updating lastPointer (same order as CTRL free-look).
+        if (this.followActive) {
+            const mdx = event.clientX - this.lastPointerX;
+            const mdy = event.clientY - this.lastPointerY;
+            this.lastPointerX = event.clientX;
+            this.lastPointerY = event.clientY;
+            if (mdx !== 0 || mdy !== 0) {
+                const next = applyFollowDragLook(this.lookYaw, this.lookPitch, mdx, mdy);
+                this.lookYaw = next.lookYaw;
+                this.lookPitch = next.lookPitch;
+                this.lookYawHeld = this.lookYaw;
+                this.lookPitchHeld = this.lookPitch;
+            }
+            event.preventDefault();
+            return;
+        }
+        this.lastPointerX = event.clientX;
+        this.lastPointerY = event.clientY;
+        if (!this.dragStartGround)
             return;
         // One pick for pan (cursor-under-finger); then shift eye (tilt re-derived).
         const hit = this.pickAt(event.clientX, event.clientY);

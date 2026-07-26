@@ -64,10 +64,13 @@ export function createWebGpuViewHooks(view, getGalaxy) {
                 view.setSelectRing(null);
                 return;
             }
+            // Cluster selection ring (cyan) — radius tracks cluster footprint so the
+            // near-cluster highlight is visible at strategic and tactical zoom.
+            const r = Math.max(cluster.radius || 400, 200);
             view.setSelectRing({
                 x: cluster.position.x,
                 z: cluster.position.z,
-                radius: cluster.radius || 400,
+                radius: r,
             });
         },
         onShowEditHandles: (clusterId, handles) => {

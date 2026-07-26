@@ -471,6 +471,30 @@ export class App {
         }
     }
     /**
+     * Toggle third-person chase on a random ship (F1 roof-cam).
+     * Hold CTRL to free-look; release eases back over 200ms.
+     */
+    followRandomShip() {
+        const view = this.webGpuView;
+        const cam = this.cameraController;
+        if (!view || typeof cam.setFollowShip !== "function")
+            return;
+        if (typeof cam.isFollowing === "function" && cam.isFollowing()) {
+            cam.setFollowShip(null);
+            view?.setFollowShipIndex(null);
+            return;
+        }
+        const picked = view.pickRandomShipPose();
+        if (!picked) {
+            console.info("[camera] No ships to follow — generate fleets first.");
+            return;
+        }
+        const shipIndex = picked.shipIndex;
+        view.setFollowShipIndex(shipIndex);
+        cam.setFollowShip(() => view.getLiveShipPose(shipIndex));
+        console.info(`[camera] Following ship #${shipIndex} (CTRL free-look)`);
+    }
+    /**
      * One generate_fleets_bulk to the fleets-worker. Worker pathfinds + chunks;
      * main only applies fleets_spawned_batch (64–128) with fair ship budget.
      *

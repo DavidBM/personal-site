@@ -113,14 +113,17 @@ export function expandLine2CornerScreenSpace(params) {
         offsetX = -offsetX;
         offsetY = -offsetY;
     }
-    // Endcaps
-    if (posY < 0) {
-        offsetX = offsetX - dirX;
-        offsetY = offsetY - dirY;
-    }
-    else if (posY > 1) {
-        offsetX = offsetX + dirX;
-        offsetY = offsetY + dirY;
+    // Endcaps (along-dir push) — skipped when endcaps: false
+    const useEndcaps = params.endcaps !== false;
+    if (useEndcaps) {
+        if (posY < 0) {
+            offsetX = offsetX - dirX;
+            offsetY = offsetY - dirY;
+        }
+        else if (posY > 1) {
+            offsetX = offsetX + dirX;
+            offsetY = offsetY + dirY;
+        }
     }
     offsetX = offsetX * linewidth;
     offsetY = offsetY * linewidth;

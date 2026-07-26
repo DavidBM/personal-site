@@ -458,15 +458,23 @@ export function runGeometryMaterialTests(opts = {}) {
     assert(dst[44] === 1, "uniform[44] dashed = 1");
     assert(dst[45] === 0, "uniform[45] softAA = 0");
     assert(dst[46] === 1, "uniform[46] vertexColors = 1");
-    assert(dst[47] === 0, "uniform[47] pad = 0");
+    // Default endcaps true; this state did not set endcaps → true → 1
+    assert(dst[47] === 1, "uniform[47] endcaps = 1 (default on)");
     // Matrices left intact by writeMaterialUniforms
     assert(dst[0] === 1 && dst[16] === 2, "writeMaterialUniforms does not clobber mat4 slots");
+
+    // endcaps: false packs 0
+    const noCap = createDefaultMaterialState({ endcaps: false });
+    const dstOff = new Float32Array(LINE2_UNIFORM_FLOATS);
+    writeMaterialUniforms(dstOff, noCap);
+    assert(dstOff[47] === 0, "uniform[47] endcaps = 0 when disabled");
 
     // Defaults
     const def = createDefaultMaterialState();
     assert(
       def.linewidth === 1 &&
         def.softAA === true &&
+        def.endcaps === true &&
         def.dashed === false &&
         def.worldUnits === false &&
         def.vertexColors === false &&
@@ -475,9 +483,9 @@ export function runGeometryMaterialTests(opts = {}) {
       "createDefaultMaterialState defaults",
     );
 
-    applyMaterialParams(def, { linewidth: 9, dashed: true });
+    applyMaterialParams(def, { linewidth: 9, dashed: true, endcaps: false });
     assert(
-      def.linewidth === 9 && def.dashed === true && def.softAA === true,
+      def.linewidth === 9 && def.dashed === true && def.softAA === true && def.endcaps === false,
       "applyMaterialParams merges partial without clearing other fields",
     );
   }

@@ -4,7 +4,8 @@
  * (no per-frame CPU base walk).
  * Fleet spawn/remove: free-list + tombstone (fleet-slot-allocator). Formation
  * packed once at add; GPU shader LOD owns NEAR/MID/FAR (no host re-pack on zoom).
- * L5b: trail ring samples + fixed-slot line expand in integrate; draw before ships.
+ * L5b: trail ring samples + fixed-slot line expand in integrate.
+ * Strategic trails: color-only pass. Model pot trails: depth pass after models.
  * M4: map overlay — fat Line2 rings/axes + triangle-list plane fills (pack on dirty).
  */
 import { createWebGpuBootstrap, } from "./device.js";
@@ -13,18 +14,21 @@ import { SolarPointGpuLayer } from "./layers/solar-point-gpu-layer.js";
 import { ConnectionLineStore } from "./connection-line-store.js";
 import { ConnectionLineGpuLayer } from "./layers/connection-line-gpu-layer.js";
 import { FleetInstanceGpuLayer } from "./layers/fleet-instance-gpu-layer.js";
+import { FleetModelGpuLayer } from "./layers/fleet-model-gpu-layer.js";
 import { MapOverlayGpuLayer } from "./layers/map-overlay-gpu-layer.js";
 import { MAP_MSAA_SAMPLES } from "./map-msaa.js";
 import { Line2Renderer } from "../vendor/line2/index.js";
 import { hashStringSeed, FLEET_SHIP_DRAW_FLOATS, } from "./fleet-ship-pack.js";
-import { CAP_NEAR, GLOBAL_MAX_INSTANCES, GPU_FLEET_CAPACITY_MIN, GPU_SHIP_CAPACITY_MIN, WARM_FRAMES, countShips, nextGrowCapacity, scaleCountsToBudget, } from "./fleet-lod.js";
+import { CAP_NEAR, GLOBAL_MAX_INSTANCES, GPU_FLEET_CAPACITY_MIN, GPU_SHIP_CAPACITY_MIN, MODEL_LOD_DEFAULT_SCALE, MODEL_LOD_MAX_INSTANCES, WARM_FRAMES, buildModelTopologyContext, countShips, fleetTopologyLocFromState, isFleetModelTopologyEligible, isModelLodActiveSticky, modelLodFleetCullPos, nextGrowCapacity, parseInterClusterConnectionKey, resolveModelFocusClusterId, scaleCountsToBudget, selectModelShipIndices, shouldForceIncludeFollowedFleet, shouldResetFleetTrails, } from "./fleet-lod.js";
 import { createFleetSlotAllocator } from "./fleet-slot-allocator.js";
 import { SYSTEM_POINT_DIAMETER_PX, billboardScaleForDiameterPx, cameraDistanceToTarget, clusterImpostorWithHysteresis, } from "./galaxy-point-lod.js";
-import { FLEET_GPU_STRIDE, FLEET_FLAG_ALIVE, FLEET_FLAG_JUMPING, FLEET_FLAG_COOLDOWN, FLEET_FLAG_WARM, FleetGpuFields, hashFleetId, } from "./fleet-layout.js";
-import { SHIP_SIM_STRIDE, ShipSimFields } from "./ship-sim-layout.js";
+import { FLEET_GPU_STRIDE, FLEET_FLAG_ALIVE, FLEET_FLAG_JUMPING, FLEET_FLAG_COOLDOWN, FLEET_FLAG_WARM, FLEET_FLAG_SPACE3D, FleetGpuFields, hashFleetId, } from "./fleet-layout.js";
+import { SHIP_SIM_STRIDE, ShipSimFields, readShipSim, writeShipSim, } from "./ship-sim-layout.js";
 import { SHIP_MODE_PAUSED } from "./ship-flight-ref.js";
+import { FOLLOW_TRAIL_WIDTH_SCALE, followPoseFromAgent, stepFollowShipAgent, } from "./follow-cam-pose.js";
 import { fleetCenter, initShipsFromFormation, packFormation, writePathCommand, } from "./fleet-motion-api.js";
 import { mat4CameraRight, mat4CameraUp, mat4Identity, mat4Invert, mat4LookAt, mat4Perspective, mat4ViewProj, } from "./math/mat4.js";
+import { chooseFrameOrigin, ensureShipIndexInList, mat4LookAtRelative, } from "./math/world-origin.js";
 import { frameDebugBegin, frameDebugFrameTotal, frameDebugTime, } from "./frame-debug.js";
 import { hitEditHandleAtGround, layoutFromRadius, } from "./math/edit-handle-hit.js";
 import { intersectRayPlaneY0, rayFromNdc, } from "./math/ground-pick.js";
@@ -37,7 +41,8 @@ import { rebuildWebGpuConnectionsFromGalaxy } from "../main/webgpu-view-bridge.j
 /** Max concurrent fleet GPU rows (free-list high-water cap). */
 const MAX_FLEET_SLOTS = 100000;
 /** Screen-space overlay stroke width (buffer pixels; Line2 `worldUnits=false`). */
-const OVERLAY_LINEWIDTH_PX = 2.5;
+/** Fat selection/hover/edit rings (screen px). Slightly wider so select is obvious. */
+const OVERLAY_LINEWIDTH_PX = 3.5;
 /**
  * Owns canvas + WebGPU device + map layers. Call {@link WebGpuMapView.create}.
  */
@@ -99,10 +104,29 @@ export class WebGpuMapView {
         this.timeOriginMs = 0;
         /** Previous frame GPU-relative ms for dt; 0 means first frame. */
         this.prevNowRel = 0;
+        /**
+         * Model LOD sticky: global height band + per-fleet instanceStart eligibility.
+         * Prevents pure-pan thrash and same-system model/triangle splits.
+         */
+        this.modelLodGlobalSticky = false;
+        this.modelLodFleetSticky = new Map();
+        /**
+         * Inter-cluster jump edges keyed by connection key — for model topology LOD.
+         * Updated on add/remove connection (not solar edges).
+         */
+        this.jumpEdgesByKey = new Map();
         this.statsPanels = [];
         this.proj = mat4Identity();
         this.view = mat4Identity();
         this.viewProj = mat4Identity();
+        /**
+         * Origin-relative view / viewProj for fleet model, ship triangles, and trails.
+         * Built each frame with {@link chooseFrameOrigin} so close-up geometry keeps
+         * mesh-scale f32 precision at galaxy |world| coords.
+         */
+        this.viewRel = mat4Identity();
+        this.viewProjRel = mat4Identity();
+        this.frameOrigin = { x: 0, y: 0, z: 0 };
         this.cameraRight = new Float32Array(3);
         this.cameraUp = new Float32Array(3);
         this.cameraX = 0;
@@ -110,11 +134,14 @@ export class WebGpuMapView {
         /** Start above origin; controller applies height-linked tilt look-at. */
         this.cameraZ = 0;
         this.targetX = 0;
+        /** Look-at Y (0 for map ground; follow cam uses chase targetY). */
+        this.targetY = 0;
         this.targetZ = 0;
         this.cssWidth = 1;
         this.cssHeight = 1;
         /** Projection clip planes — single source for resize + pick. */
-        this.near = 10;
+        /** Near clip — must stay below MIN_ZOOM so deep chase/zoom isn't truncated. */
+        this.near = 0.5;
         this.far = 1e10;
         this.raf = 0;
         this.disposed = false;
@@ -154,11 +181,28 @@ export class WebGpuMapView {
          */
         this.msaaColor = null;
         this.msaaColorView = null;
+        /** MSAA depth for opaque ship models (exterior wins over back faces). */
+        this.msaaDepth = null;
+        this.msaaDepthView = null;
         this.msaaW = 0;
         this.msaaH = 0;
         this.onResize = () => {
             this.resize(window.innerWidth, window.innerHeight);
         };
+        /** Cached GPU agent pose for third-person follow (updated after integrate). */
+        this.followPoseCache = null;
+        /** Last known good pose — never return null mid-follow if readback hiccups. */
+        this.followPoseLastGood = null;
+        this.followReadbackBusy = false;
+        /** Ship index currently being followed (if any). */
+        this.followShipIndex = null;
+        /**
+         * True after the one-shot GPU seed (or after the first shadow step when no
+         * seed is needed). Per-frame camera never uses MAP_READ after this.
+         */
+        this.followShadowLive = false;
+        /** Accept at most one async seed so late readbacks do not re-introduce lag. */
+        this.followSeedDone = false;
         /** Last renderFrame wall time (ms) — independent of display vsync. */
         this.lastFrameCpuMs = 0;
         /** Last isolated GPU frame cost (ms). */
@@ -178,6 +222,11 @@ export class WebGpuMapView {
         this.impostorPoints = new SolarPointGpuLayer(bootstrap);
         this.lines = new ConnectionLineGpuLayer(bootstrap);
         this.fleetsLayer = new FleetInstanceGpuLayer(bootstrap);
+        this.modelLayer = new FleetModelGpuLayer(bootstrap, {
+            maxInstances: MODEL_LOD_MAX_INSTANCES,
+            modelScale: MODEL_LOD_DEFAULT_SCALE,
+            meshYawHalf: 0, // low-poly +Z forward
+        });
         this.overlay = new MapOverlayGpuLayer(bootstrap);
         // Color-only map pass: depthFormat null. MSAA + a2c for Line2 long edges.
         const msaa = { sampleCount: MAP_MSAA_SAMPLES };
@@ -199,15 +248,39 @@ export class WebGpuMapView {
         this.impostorPoints.init(msaa);
         this.lines.init(msaa);
         this.fleetsLayer.init(msaa);
+        this.modelLayer.init(msaa);
         this.overlay.init(msaa);
+        // Best-effort ship model for near LOD (no-op if asset missing).
+        void this.loadShipModel("models/spaceship_fighter__-_version_1_meshy_6.glb").catch(() => {
+            /* optional asset — triangle LOD remains the fallback */
+        });
     }
-    /** Grow/recreate the MSAA color attachment to match the drawing buffer. */
+    /**
+     * Load a glTF/GLB ship mesh for the model LOD band.
+     * Safe to call multiple times; last successful load wins.
+     */
+    async loadShipModel(url) {
+        const res = await fetch(url);
+        if (!res.ok) {
+            throw new Error(`loadShipModel: ${url} → HTTP ${res.status}`);
+        }
+        const buf = await res.arrayBuffer();
+        await this.modelLayer.loadGlb(buf);
+        const sim = this.fleetsLayer.getShipSimBuffer();
+        if (sim)
+            this.modelLayer.setShipSimBuffer(sim);
+        const fleetGpu = this.fleetsLayer.getFleetGpuBuffer?.();
+        if (fleetGpu)
+            this.modelLayer.setFleetGpuBuffer(fleetGpu);
+    }
+    /** Grow/recreate the MSAA color + depth attachments to match the drawing buffer. */
     ensureMsaaColor(width, height) {
         const w = Math.max(1, width | 0);
         const h = Math.max(1, height | 0);
         if (this.msaaColor && this.msaaW === w && this.msaaH === h)
             return;
         this.msaaColor?.destroy();
+        this.msaaDepth?.destroy();
         this.msaaColor = this.bootstrap.device.createTexture({
             label: "map-msaa-color",
             size: { width: w, height: h },
@@ -216,6 +289,14 @@ export class WebGpuMapView {
             usage: GPUTextureUsage.RENDER_ATTACHMENT,
         });
         this.msaaColorView = this.msaaColor.createView();
+        this.msaaDepth = this.bootstrap.device.createTexture({
+            label: "map-msaa-depth",
+            size: { width: w, height: h },
+            sampleCount: MAP_MSAA_SAMPLES,
+            format: "depth24plus",
+            usage: GPUTextureUsage.RENDER_ATTACHMENT,
+        });
+        this.msaaDepthView = this.msaaDepth.createView();
         this.msaaW = w;
         this.msaaH = h;
     }
@@ -291,11 +372,12 @@ export class WebGpuMapView {
         this.lines.setResolution(bufW, bufH);
         this.ensureMsaaColor(bufW, bufH);
     }
-    setCameraLookAt(eyeX, eyeY, eyeZ, targetX, targetZ) {
+    setCameraLookAt(eyeX, eyeY, eyeZ, targetX, targetZ, targetY = 0) {
         this.cameraX = eyeX;
         this.cameraY = eyeY;
         this.cameraZ = eyeZ;
         this.targetX = targetX;
+        this.targetY = targetY;
         this.targetZ = targetZ;
     }
     /**
@@ -399,6 +481,12 @@ export class WebGpuMapView {
         if (!this.lineStore.add(key, a, b, color))
             return;
         this.linesDirty = true;
+        // Inter-cluster jump edges feed model topology LOD.
+        const jump = parseInterClusterConnectionKey(key);
+        if (jump) {
+            this.jumpEdgesByKey.set(key, jump);
+            return;
+        }
         // Track solar edges under their cluster so impostor can hide them.
         const clusterId = solarConnectionClusterId(key);
         if (clusterId == null)
@@ -420,6 +508,7 @@ export class WebGpuMapView {
     removeConnection(key) {
         this.lineStore.remove(key);
         this.linesDirty = true;
+        this.jumpEdgesByKey.delete(key);
         const clusterId = solarConnectionClusterId(key);
         if (clusterId == null)
             return;
@@ -498,6 +587,7 @@ export class WebGpuMapView {
     }
     clearLines() {
         this.lineStore.clear();
+        this.jumpEdgesByKey.clear();
         for (const meta of this.clusterLodMeta.values()) {
             meta.lineKeys.length = 0;
         }
@@ -630,7 +720,7 @@ export class WebGpuMapView {
     getEditHandleHit(ndcX, ndcY) {
         if (!this.activeHandles || !this.editLayout)
             return null;
-        mat4LookAt(this.view, this.cameraX, this.cameraY, this.cameraZ, this.targetX, 0, this.targetZ);
+        mat4LookAt(this.view, this.cameraX, this.cameraY, this.cameraZ, this.targetX, this.targetY, this.targetZ);
         mat4ViewProj(this.viewProj, this.proj, this.view);
         if (mat4Invert(this.invViewProj, this.viewProj) == null)
             return null;
@@ -684,6 +774,228 @@ export class WebGpuMapView {
     }
     getBulkShipBudgetHint() {
         return this.bulkShipBudgetHint;
+    }
+    /**
+     * Pick a random **formation ship** (NEAR agent) for third-person follow.
+     * Prefers fleets with shipBudget > 1 so we chase a real agent, not an impostor icon.
+     * Returns a stable shipIndex; use {@link getLiveShipPose} each frame.
+     */
+    pickRandomShipPose() {
+        const all = [...this.fleets.values()].filter((f) => f.instanceActive > 0);
+        if (all.length === 0)
+            return null;
+        // Prefer multi-ship formation fleets (agent ships, not single impostor).
+        const multi = all.filter((f) => f.instanceCapacity > 1);
+        const pool = multi.length > 0 ? multi : all;
+        const f = pool[(Math.random() * pool.length) | 0];
+        const n = Math.max(1, f.instanceActive | 0);
+        const local = (Math.random() * n) | 0;
+        const shipIndex = f.instanceStart + local;
+        // Force an immediate GPU readback so chase starts on agent pose, not stale pack.
+        this.followPoseCache = null;
+        this.refreshFollowPoseFromGpu(shipIndex);
+        return this.getLiveShipPose(shipIndex);
+    }
+    /**
+     * Live chase pose for the followed ship.
+     * While follow is active, this is the **same-frame CPU shadow** stepped before
+     * camera / floating origin (not a multi-frame async MAP_READ).
+     * Falls back to CPU ShipSim mirror / last-good before the first shadow step.
+     */
+    getLiveShipPose(shipIndex) {
+        const i = shipIndex | 0;
+        if (i < 0)
+            return null;
+        if (this.followPoseCache && this.followPoseCache.shipIndex === i) {
+            return { ...this.followPoseCache };
+        }
+        // Bootstrap before first same-frame shadow step / seed.
+        const o = i * SHIP_SIM_STRIDE;
+        if (o + SHIP_SIM_STRIDE <= this.shipSimView.byteLength) {
+            const pose = {
+                posX: this.shipSimView.getFloat32(o + ShipSimFields.posX, true),
+                posY: this.shipSimView.getFloat32(o + ShipSimFields.posY, true),
+                posZ: this.shipSimView.getFloat32(o + ShipSimFields.posZ, true),
+                heading: this.shipSimView.getFloat32(o + ShipSimFields.heading, true),
+                shipIndex: i,
+                speed: this.shipSimView.getFloat32(o + ShipSimFields.speed, true),
+            };
+            if (this.followPoseLastGood &&
+                this.followPoseLastGood.shipIndex === i &&
+                !Number.isFinite(pose.posX)) {
+                return { ...this.followPoseLastGood };
+            }
+            if (Number.isFinite(pose.posX) && Number.isFinite(pose.posZ)) {
+                this.followPoseLastGood = { ...pose, speed: pose.speed ?? 0 };
+            }
+            return pose;
+        }
+        if (this.followPoseLastGood && this.followPoseLastGood.shipIndex === i) {
+            return { ...this.followPoseLastGood };
+        }
+        return null;
+    }
+    /**
+     * One-shot seed: pull ShipSim from GPU so the CPU shadow starts on the live
+     * agent (not a stale pack). Not used as the per-frame camera source.
+     */
+    refreshFollowPoseFromGpu(shipIndex) {
+        const i = shipIndex | 0;
+        if (i < 0 || this.followReadbackBusy)
+            return;
+        if (this.disposed || this.bootstrap.isLost)
+            return;
+        // One-shot seed only — never a per-frame camera source.
+        if (this.followSeedDone)
+            return;
+        this.followReadbackBusy = true;
+        void this.fleetsLayer
+            .readbackShipSimOne(i)
+            .then((ab) => {
+            if (this.followShipIndex !== i)
+                return;
+            if (this.followSeedDone)
+                return;
+            const o = i * SHIP_SIM_STRIDE;
+            if (o + SHIP_SIM_STRIDE <= this.shipSimBytes.byteLength) {
+                new Uint8Array(this.shipSimBytes, o, SHIP_SIM_STRIDE).set(new Uint8Array(ab));
+            }
+            const rec = readShipSim(this.shipSimView, o);
+            const pose = followPoseFromAgent(rec, i);
+            if (Number.isFinite(pose.posX) &&
+                Number.isFinite(pose.posZ) &&
+                Number.isFinite(pose.heading)) {
+                this.followPoseCache = pose;
+                this.followPoseLastGood = pose;
+                this.followShadowLive = true;
+                this.followSeedDone = true;
+            }
+        })
+            .catch(() => {
+            /* device lost / mid-dispose */
+        })
+            .finally(() => {
+            this.followReadbackBusy = false;
+        });
+    }
+    setFollowShipIndex(shipIndex) {
+        this.followShipIndex = shipIndex;
+        if (shipIndex == null) {
+            this.followPoseCache = null;
+            this.followPoseLastGood = null;
+            this.followShadowLive = false;
+            this.followSeedDone = false;
+        }
+        else {
+            this.followShadowLive = false;
+            this.followSeedDone = false;
+            // One-shot seed so shadow starts near live GPU agent (not pack-time).
+            this.refreshFollowPoseFromGpu(shipIndex);
+        }
+    }
+    /**
+     * Same-frame follow shadow: step the tracked ship on CPU with the same path
+     * inputs / dt the GPU integrate will use, then cache pose for camera + origin.
+     * Returns true when a pose was written to {@link followPoseCache}.
+     */
+    stepFollowShipShadow(dtMs, nowRel) {
+        const i = this.followShipIndex;
+        if (i == null || i < 0)
+            return false;
+        const o = i * SHIP_SIM_STRIDE;
+        if (o + SHIP_SIM_STRIDE > this.shipSimBytes.byteLength)
+            return false;
+        const rec = readShipSim(this.shipSimView, o);
+        if (!Number.isFinite(rec.posX) || !Number.isFinite(rec.posZ))
+            return false;
+        const fleetSlot = rec.fleetIndex | 0;
+        const fo = fleetSlot * FLEET_GPU_STRIDE;
+        let path;
+        if (fo + FLEET_GPU_STRIDE <= this.fleetGpuBytes.byteLength) {
+            const flags = this.fleetGpuView.getUint32(fo + FleetGpuFields.flags, true);
+            path = {
+                pathStartX: this.fleetGpuView.getFloat32(fo + FleetGpuFields.pathStartX, true),
+                pathStartZ: this.fleetGpuView.getFloat32(fo + FleetGpuFields.pathStartZ, true),
+                pathEndX: this.fleetGpuView.getFloat32(fo + FleetGpuFields.pathEndX, true),
+                pathEndZ: this.fleetGpuView.getFloat32(fo + FleetGpuFields.pathEndZ, true),
+                pathEndY: this.fleetGpuView.getFloat32(fo + FleetGpuFields._pad0, true),
+                t0: this.fleetGpuView.getFloat32(fo + FleetGpuFields.t0, true),
+                durationMs: this.fleetGpuView.getFloat32(fo + FleetGpuFields.durationMs, true),
+                domainWarpActive: (flags & FLEET_FLAG_JUMPING) !== 0,
+                space3d: (flags & FLEET_FLAG_SPACE3D) !== 0,
+                formationHeading: this.fleetGpuView.getFloat32(fo + FleetGpuFields.heading, true),
+            };
+        }
+        else {
+            // No fleet row — park orbit at current pos (still advances orientation).
+            path = {
+                pathStartX: rec.posX,
+                pathStartZ: rec.posZ,
+                pathEndX: rec.posX,
+                pathEndZ: rec.posZ,
+                pathEndY: rec.posY ?? 0,
+                t0: nowRel,
+                durationMs: 1,
+                domainWarpActive: false,
+            };
+        }
+        const agent = {
+            posX: rec.posX,
+            posY: rec.posY,
+            posZ: rec.posZ,
+            heading: rec.heading,
+            speed: rec.speed,
+            slotX: rec.slotX,
+            slotY: rec.slotY,
+            slotZ: rec.slotZ,
+            qx: rec.qx,
+            qy: rec.qy,
+            qz: rec.qz,
+            qw: rec.qw,
+            mode: rec.mode,
+            orbitR: rec.orbitR,
+            orbitOmega: rec.orbitOmega,
+            orbitPhase: rec.orbitPhase,
+            accel: rec.accel,
+            cruiseV: rec.cruiseV,
+            omegaMax: rec.omegaMax,
+        };
+        stepFollowShipAgent(agent, path, dtMs, nowRel);
+        writeShipSim(this.shipSimView, o, {
+            ...rec,
+            posX: agent.posX,
+            posY: agent.posY,
+            posZ: agent.posZ,
+            heading: agent.heading,
+            speed: agent.speed,
+            qx: agent.qx,
+            qy: agent.qy,
+            qz: agent.qz,
+            qw: agent.qw,
+            mode: agent.mode,
+            orbitPhase: agent.orbitPhase,
+            orbitR: agent.orbitR,
+            orbitOmega: agent.orbitOmega,
+            accel: agent.accel,
+            cruiseV: agent.cruiseV,
+            omegaMax: agent.omegaMax,
+        });
+        const pose = followPoseFromAgent(agent, i);
+        this.followPoseCache = pose;
+        this.followPoseLastGood = pose;
+        this.followShadowLive = true;
+        return true;
+    }
+    /**
+     * Upload followed-ship pose so model draw matches the camera shadow.
+     * Must **not** full-row upload — that clobbers GPU trailWrite/sinceSample and
+     * kills pot trails on the chased ship only (see uploadShipSimFollowShadowPose).
+     */
+    uploadFollowShipShadowToGpu() {
+        const i = this.followShipIndex;
+        if (i == null || i < 0 || !this.followShadowLive)
+            return;
+        this.fleetsLayer.uploadShipSimFollowShadowPose(this.shipSimU8, i);
     }
     getFleetCount() {
         return this.fleets.size;
@@ -803,6 +1115,8 @@ export class WebGpuMapView {
         }
         if (N > 0) {
             this.initShipSimForFleet(visual);
+            // Free-list reuse + fresh spawn: wipe trail rings so old segments never stitch.
+            this.fleetsLayer.killTrailRange(range.start, N);
         }
         this.markFleetDirty(fleetSlot);
         if (N > 0)
@@ -819,11 +1133,17 @@ export class WebGpuMapView {
         const f = this.fleets.get(id);
         if (!f)
             return;
+        const prev = f.state;
         f.state = state;
         this.ensureFleetGpuCapacity(this.slotAlloc.fleetHighWater);
         // Skip mark on lookup miss — keep prior FleetGpu row (no origin teleport).
         if (this.writeFleetGpuFromState(f, state, f.fleetSlot)) {
             this.markFleetDirty(f.fleetSlot);
+        }
+        // Significant path / node change → reset trails (no ghost stitch across hops).
+        if (f.instanceCapacity > 0 &&
+            shouldResetFleetTrails(prev, state)) {
+            this.fleetsLayer.killTrailRange(f.instanceStart, f.instanceCapacity);
         }
     }
     /**
@@ -1513,14 +1833,38 @@ export class WebGpuMapView {
             dtMs = 1;
         if (dtMs > 50)
             dtMs = 50;
+        // Follow lockstep (before camera): same sim dt the GPU integrate will use.
+        // Camera + floating origin then share this pose; async MAP_READ is seed only.
+        // Frame order when following:
+        //   stepFollow → beforeFrame(cam) → matrices → submit(integrate) →
+        //   writeBuffer(shadow) → encode draws (exact pose, not integrate+1).
+        const nowRelEarly = this.toGpuTime(Date.now());
+        let simDtMsEarly = nowRelEarly - this.prevNowRel;
+        if (this.prevNowRel === 0)
+            simDtMsEarly = 16;
+        if (simDtMsEarly < 0)
+            simDtMsEarly = 0;
+        else if (simDtMsEarly > 50)
+            simDtMsEarly = 50;
+        if (this.followShipIndex != null) {
+            frameDebugTime("stepFollowShipShadow", () => this.stepFollowShipShadow(simDtMsEarly, nowRelEarly));
+        }
         if (this.beforeFrame) {
             frameDebugTime("beforeFrame", () => this.beforeFrame(dtMs));
         }
         frameDebugTime("mat4LookAt+viewProj", () => {
-            mat4LookAt(this.view, this.cameraX, this.cameraY, this.cameraZ, this.targetX, 0, this.targetZ);
+            mat4LookAt(this.view, this.cameraX, this.cameraY, this.cameraZ, this.targetX, this.targetY, this.targetZ);
             mat4ViewProj(this.viewProj, this.proj, this.view);
             mat4CameraRight(this.view, this.cameraRight);
             mat4CameraUp(this.view, this.cameraUp);
+            // Floating origin: followed ship when chasing, else camera eye.
+            // Same follow pose as camera (stepFollow above) — not a lagging readback.
+            const followPose = this.followShipIndex != null
+                ? this.getLiveShipPose(this.followShipIndex)
+                : null;
+            this.frameOrigin = chooseFrameOrigin(this.cameraX, this.cameraY, this.cameraZ, followPose);
+            mat4LookAtRelative(this.viewRel, this.cameraX, this.cameraY, this.cameraZ, this.targetX, this.targetY, this.targetZ, this.frameOrigin.x, this.frameOrigin.y, this.frameOrigin.z);
+            mat4ViewProj(this.viewProjRel, this.proj, this.viewRel);
         });
         // Galaxy point LOD: O(clusters) on camera/viewport change (hysteresis sticky).
         frameDebugTime("applyGalaxyPointLod", () => this.applyGalaxyPointLod());
@@ -1549,72 +1893,260 @@ export class WebGpuMapView {
         frameDebugTime("packOverlaysIfDirty", () => this.packOverlaysIfDirty());
         // One coalesced GPU upload for all fleets/ships dirtied since last frame.
         frameDebugTime("flushFleetGpuDirt", () => this.flushFleetGpuDirt());
+        // Model LOD + trail ownership **before** integrate so expandTrails mode 2
+        // (model-only dense pack) uses this frame's modelHide mask.
+        // Follow: beforeFrame already set chase look-at from live pose this frame —
+        // recompute focus from that look-at + followed fleet domain (never freeze).
+        const fovyRad = (this.fovyDeg * Math.PI) / 180;
+        const tanHalfFov = Math.tan(fovyRad * 0.5);
+        let modelIndices = [];
+        frameDebugTime("selectModelLod", () => {
+            this.modelLodGlobalSticky = isModelLodActiveSticky(this.cameraY, this.cssHeight, tanHalfFov, this.modelLodGlobalSticky);
+            const followIdx = this.followShipIndex;
+            if (this.modelLayer.isReady() && this.modelLodGlobalSticky) {
+                const clusterCenters = [];
+                for (const meta of this.clusterLodMeta.values()) {
+                    clusterCenters.push({
+                        id: meta.clusterId,
+                        x: meta.x,
+                        z: meta.z,
+                        radius: meta.radius,
+                    });
+                }
+                // Live chase look-at (updated in beforeFrame) + optional follow loc.
+                const followPose = followIdx != null ? this.getLiveShipPose(followIdx) : null;
+                let followFleetId = null;
+                let followLoc = null;
+                if (followIdx != null) {
+                    for (const f of this.fleets.values()) {
+                        const n = f.instanceCapacity | 0;
+                        if (n > 0 &&
+                            followIdx >= f.instanceStart &&
+                            followIdx < f.instanceStart + n) {
+                            followFleetId = f.id;
+                            followLoc = fleetTopologyLocFromState(f.state);
+                            break;
+                        }
+                    }
+                }
+                // Look-at for focus: chase target each frame (moves with ship).
+                const lookX = this.targetX;
+                const lookZ = this.targetZ;
+                const focusId = resolveModelFocusClusterId(lookX, lookZ, clusterCenters, followLoc);
+                const topoCtx = focusId != null
+                    ? buildModelTopologyContext(focusId, [
+                        ...this.jumpEdgesByKey.values(),
+                    ])
+                    : null;
+                const forceFollow = shouldForceIncludeFollowedFleet(followFleetId != null, true);
+                const fleetList = [];
+                for (const f of this.fleets.values()) {
+                    const n = f.instanceCapacity | 0;
+                    if (n <= 0)
+                        continue;
+                    const isFollowed = followFleetId != null && f.id === followFleetId;
+                    // Topology filter; followed fleet always kept when forceFollow.
+                    if (topoCtx && !(isFollowed && forceFollow)) {
+                        const loc = fleetTopologyLocFromState(f.state);
+                        if (!isFleetModelTopologyEligible(loc, topoCtx))
+                            continue;
+                    }
+                    const o = f.fleetSlot * FLEET_GPU_STRIDE;
+                    // Marker ease pos vs pathEnd (ships orbit pathEnd).
+                    const markerX = this.fleetGpuView.getFloat32(o + FleetGpuFields.posX, true);
+                    const markerZ = this.fleetGpuView.getFloat32(o + FleetGpuFields.posZ, true);
+                    const pathEndX = this.fleetGpuView.getFloat32(o + FleetGpuFields.pathEndX, true);
+                    const pathEndZ = this.fleetGpuView.getFloat32(o + FleetGpuFields.pathEndZ, true);
+                    // Followed fleet: live ship pose so view cull tracks the chase.
+                    let posX;
+                    let posZ;
+                    if (isFollowed && followPose) {
+                        posX = followPose.posX;
+                        posZ = followPose.posZ;
+                    }
+                    else {
+                        // Prefer pathEnd when closer to look-at so inbound gate hops model.
+                        const cull = modelLodFleetCullPos(pathEndX, pathEndZ, markerX, markerZ, lookX, lookZ);
+                        posX = cull.x;
+                        posZ = cull.z;
+                    }
+                    fleetList.push({
+                        instanceStart: f.instanceStart,
+                        shipBudget: n,
+                        posX,
+                        posZ,
+                    });
+                }
+                modelIndices = selectModelShipIndices(fleetList, {
+                    // Live chase look-at — same values as setCameraLookAt this frame.
+                    targetX: lookX,
+                    targetZ: lookZ,
+                    cameraY: this.cameraY,
+                    tanHalfFov,
+                    eyeX: this.cameraX,
+                    eyeY: this.cameraY,
+                    eyeZ: this.cameraZ,
+                    viewportH: this.cssHeight,
+                    assumeHeightGate: true,
+                }, MODEL_LOD_MAX_INSTANCES, this.modelLodFleetSticky);
+            }
+            else {
+                this.modelLodFleetSticky.clear();
+                this.fleetsLayer.setTrailDrawShipIndices(null);
+            }
+            const modelOn = modelIndices.length > 0;
+            this.modelLayer.setActive(modelOn);
+            this.fleetsLayer.setModelLodActive(modelOn);
+            // Thick trail while following (roof-cam readability); restore after.
+            this.fleetsLayer.setTrailWidthScale(followIdx != null ? FOLLOW_TRAIL_WIDTH_SCALE : 1);
+            if (modelOn) {
+                // Follow force-include: budget/cull must never drop the chased ship from
+                // model hide + pot trail expand (fleetmates alone looked "traced").
+                if (followIdx != null) {
+                    modelIndices = ensureShipIndexInList(modelIndices, followIdx);
+                }
+                this.fleetsLayer.setModelHideIndices(modelIndices);
+                // Model pot trails (mode 2): model-owned set including followed ship.
+                this.fleetsLayer.setTrailDrawShipIndices(modelIndices);
+                const sim = this.fleetsLayer.getShipSimBuffer();
+                if (sim)
+                    this.modelLayer.setShipSimBuffer(sim);
+                const fleetGpu = this.fleetsLayer.getFleetGpuBuffer?.();
+                if (fleetGpu)
+                    this.modelLayer.setFleetGpuBuffer(fleetGpu);
+                this.modelLayer.setShipIndices(modelIndices);
+            }
+            else {
+                this.fleetsLayer.setModelHideIndices([]);
+                this.fleetsLayer.setTrailDrawShipIndices(null);
+            }
+        });
         try {
             const texture = frameDebugTime("getCurrentTexture", () => this.bootstrap.context.getCurrentTexture());
-            const encoder = this.bootstrap.device.createCommandEncoder({
-                label: "webgpu-map-frame",
-            });
-            // L5 continuous pose: nowRel = Date.now() - timeOriginMs (f32-safe).
-            const nowRel = this.toGpuTime(Date.now());
-            let simDtMs = nowRel - this.prevNowRel;
-            if (this.prevNowRel === 0)
-                simDtMs = 16;
-            if (simDtMs < 0)
-                simDtMs = 0;
-            else if (simDtMs > 50)
-                simDtMs = 50;
+            // L5 continuous pose: reuse the same nowRel/dt as the follow shadow step.
+            const nowRel = nowRelEarly;
+            const simDtMs = simDtMsEarly;
             this.prevNowRel = nowRel;
-            // CPU time to *record* dispatches — not GPU execution time.
-            // Dispatch high-water (includes tombstone holes). GPU LOD via camera params.
             const fleetHw = this.slotAlloc.fleetHighWater;
             const shipHw = this.instanceLiveCount;
             const fovyRadIntegrate = (this.fovyDeg * Math.PI) / 180;
-            frameDebugTime("dispatchIntegrate (encode)", () => this.fleetsLayer.dispatchIntegrate(encoder, nowRel, simDtMs, fleetHw, shipHw, {
+            const integrateCamera = {
                 cameraY: this.cameraY,
                 targetX: this.targetX,
                 targetZ: this.targetZ,
                 viewportH: this.cssHeight,
                 tanHalfFov: Math.tan(fovyRadIntegrate * 0.5),
-            }), `fleets=${fleetHw} ships=${shipHw}`);
-            // R5: after integrate counts as one warm frame; clear WARM + repack sizes.
-            frameDebugTime("tickWarmFleets", () => this.tickWarmFleets());
-            // MSAA ×4 color → resolve into the swapchain (Line2 long-edge AA +
-            // softer points/ships). storeOp discard: only the resolve is needed.
+                // Same floating origin as model/trail draw — expand writes origin-relative
+                // endpoints so pot offsets stay precise (esp. follow origin = ship).
+                originX: this.frameOrigin.x,
+                originY: this.frameOrigin.y,
+                originZ: this.frameOrigin.z,
+            };
+            const following = this.followShipIndex != null;
+            // Follow lockstep: integrate must *finish* on the GPU before we overwrite
+            // the tracked ship with the camera shadow. queue.writeBuffer before a single
+            // submit(encoder) runs *before* that encoder's compute — so the GPU would
+            // step the shadow again and draw 1 frame ahead of the camera. Split submit.
+            if (following) {
+                const encI = this.bootstrap.device.createCommandEncoder({
+                    label: "webgpu-map-integrate",
+                });
+                frameDebugTime("dispatchIntegrate (encode)", () => this.fleetsLayer.dispatchIntegrate(encI, nowRel, simDtMs, fleetHw, shipHw, integrateCamera), `fleets=${fleetHw} ships=${shipHw}`);
+                frameDebugTime("queue.submit.integrate", () => this.bootstrap.device.queue.submit([encI.finish()]));
+                frameDebugTime("tickWarmFleets", () => this.tickWarmFleets());
+                // Exact camera pose → ShipSim for draw (matches stepFollow above).
+                frameDebugTime("uploadFollowShipShadow", () => this.uploadFollowShipShadowToGpu());
+            }
+            const encoder = this.bootstrap.device.createCommandEncoder({
+                label: "webgpu-map-frame",
+            });
+            if (!following) {
+                frameDebugTime("dispatchIntegrate (encode)", () => this.fleetsLayer.dispatchIntegrate(encoder, nowRel, simDtMs, fleetHw, shipHw, integrateCamera), `fleets=${fleetHw} ships=${shipHw}`);
+                frameDebugTime("tickWarmFleets", () => this.tickWarmFleets());
+            }
+            const modelN = modelIndices.length;
+            const modelOn = modelN > 0;
+            // Two-pass map encode (WebGPU validation):
+            // 1) Color-only MSAA — Line2 / points / strategic trails / fleets / overlay
+            //    (depthFormat:null — cannot share a depth-bearing pass).
+            // 2) Depth-bearing pass — opaque models, then model pot trails
+            //    (depth test on, write off), then resolve.
+            // See vendor/line2 I01 "Galaxy color-only pipeline".
             this.ensureMsaaColor(texture.width, texture.height);
-            const pass = encoder.beginRenderPass({
+            const swapView = texture.createView();
+            const origin = this.frameOrigin;
+            const passColor = encoder.beginRenderPass({
                 colorAttachments: [
                     {
                         view: this.msaaColorView,
-                        resolveTarget: texture.createView(),
+                        // Keep MSAA samples for pass 2; resolve after models (or alone).
                         clearValue: this.bootstrap.clearColor,
                         loadOp: "clear",
-                        storeOp: "discard",
+                        storeOp: "store",
                     },
                 ],
             });
             // Topology connections: fat Line2 (separate view + proj, not viewProj).
-            frameDebugTime("encode.lines", () => this.lines.encode(pass, this.view, this.proj));
+            frameDebugTime("encode.lines", () => this.lines.encode(passColor, this.view, this.proj));
             // Systems then cluster impostors — same worldScale (~5px diameter).
-            frameDebugTime("encode.points", () => this.points.encode(pass, this.viewProj, this.pointWorldScale, this.store.currentCount, this.cameraRight, this.cameraUp));
-            frameDebugTime("encode.impostors", () => this.impostorPoints.encode(pass, this.viewProj, this.pointWorldScale, this.impostorStore.currentCount, this.cameraRight, this.cameraUp));
-            // L5b: fat Line2-style trails under ships (NEAR + MID lead). FAR: none.
-            // GPU expand buffer → instanced ribbons; wide head / thin tail from age α.
-            frameDebugTime("encode.trails", () => this.fleetsLayer.encodeTrails(pass, this.view, this.proj, this.canvas.width, this.canvas.height, this.cameraY));
-            // W4: pass cameraY / viewportH / tanHalfFov for screen-space icon sizing.
-            const fovyRad = (this.fovyDeg * Math.PI) / 180;
-            frameDebugTime("encode.fleets", () => this.fleetsLayer.encode(pass, this.viewProj, 0.95, {
+            frameDebugTime("encode.points", () => this.points.encode(passColor, this.viewProj, this.pointWorldScale, this.store.currentCount, this.cameraRight, this.cameraUp));
+            frameDebugTime("encode.impostors", () => this.impostorPoints.encode(passColor, this.viewProj, this.pointWorldScale, this.impostorStore.currentCount, this.cameraRight, this.cameraUp));
+            // Strategic trails only in the color-only pass (no depth). When model LOD
+            // owns ships, pot trails draw after models in the depth pass instead.
+            if (!(modelOn && modelN > 0)) {
+                frameDebugTime("encode.trails", () => this.fleetsLayer.encodeTrails(passColor, this.viewRel, this.proj, this.canvas.width, this.canvas.height, this.cameraY, origin));
+            }
+            // W4: cameraY / viewportH / tanHalfFov + floating origin for ship VS.
+            frameDebugTime("encode.fleets", () => this.fleetsLayer.encode(passColor, this.viewProjRel, 0.95, {
                 cameraY: this.cameraY,
                 viewportH: this.cssHeight,
-                tanHalfFov: Math.tan(fovyRad * 0.5),
+                tanHalfFov,
+                originX: origin.x,
+                originY: origin.y,
+                originZ: origin.z,
             }));
             // M4: translucent plane fills under fat Line2 rings/axes.
+            // Resolution every frame so select/hover rings keep correct screen width
+            // after resize / DPR changes (Line2 needs CSS/drawing buffer size).
             frameDebugTime("encode.overlay", () => {
-                this.overlay.encode(pass, this.viewProj);
-                // Line2 needs separate view + projection (not fused viewProj).
+                this.overlay.encode(passColor, this.viewProj);
+                this.overlayLines.setResolution(this.canvas.width, this.canvas.height);
                 this.overlayLines.writeViewProjection(this.view, this.proj);
-                this.overlayLines.encode(pass);
+                this.overlayLines.encode(passColor);
             });
-            pass.end();
+            passColor.end();
+            // Pass 2: optional depth for models + always resolve MSAA → swapchain.
+            const passResolve = encoder.beginRenderPass({
+                colorAttachments: [
+                    {
+                        view: this.msaaColorView,
+                        resolveTarget: swapView,
+                        loadOp: "load",
+                        storeOp: "discard",
+                    },
+                ],
+                depthStencilAttachment: modelOn && modelN > 0 && this.msaaDepthView
+                    ? {
+                        view: this.msaaDepthView,
+                        depthClearValue: 1,
+                        depthLoadOp: "clear",
+                        depthStoreOp: "discard",
+                    }
+                    : undefined,
+            });
+            if (modelOn && modelN > 0) {
+                // eyeWorld = true camera (rim only). Key light is fleet pathEnd in VS.
+                // Follow floating origin may be the ship — do not use origin as light.
+                frameDebugTime("encode.models", () => this.modelLayer.encode(passResolve, this.viewProjRel, modelIndices, origin, {
+                    x: this.cameraX,
+                    y: this.cameraY,
+                    z: this.cameraZ,
+                }));
+                // Model pot trails after opaque hull. Depth write off; compare less-equal
+                // so nearer hulls occlude far thruster ribbons (not always-on-top).
+                frameDebugTime("encode.modelTrails", () => this.fleetsLayer.encodeTrails(passResolve, this.viewRel, this.proj, this.canvas.width, this.canvas.height, this.cameraY, origin, { depthAware: true }));
+            }
+            passResolve.end();
             frameDebugTime("queue.submit", () => this.bootstrap.device.queue.submit([encoder.finish()]));
         }
         catch (err) {
@@ -1631,12 +2163,16 @@ export class WebGpuMapView {
         this.points.dispose();
         this.impostorPoints.dispose();
         this.lines.dispose();
+        this.modelLayer.dispose();
         this.fleetsLayer.dispose();
         this.overlayLines.dispose();
         this.overlay.dispose();
         this.msaaColor?.destroy();
         this.msaaColor = null;
         this.msaaColorView = null;
+        this.msaaDepth?.destroy();
+        this.msaaDepth = null;
+        this.msaaDepthView = null;
         this.bootstrap.destroy();
         this.canvas.remove();
     }

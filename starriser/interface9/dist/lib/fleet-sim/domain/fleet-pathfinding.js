@@ -1,22 +1,28 @@
 import { distZX } from "../../../math/galaxy-xz-math.js";
 import { getSolarPosition } from "./fleet-world.js";
 /**
- * Hop clock floor (ms). Room for soft launch + heading swing + entrance brake
- * at visual cruise {@code SHIP_MAX_SPEED}. Too short → domain ends the hop
- * while ships are still mid-path and starts the next jump early.
+ * Domain hop duration (ms). Product: ~30 s per jump so strategic travel is
+ * readable; visual fleet ease uses the same durationMs from the worker.
  */
-/** Slightly longer floor so soft launch + turn still finish on the hop clock. */
-export const MIN_JUMP_MS = 3200;
-/** World units / sec for hop duration. Match ship-motion SHIP_MAX_SPEED. */
+export const JUMP_DURATION_MS = 30000;
+/**
+ * @deprecated Prefer {@link JUMP_DURATION_MS}. Kept as the same 30s floor for
+ * import stability / older call sites that treated this as a minimum.
+ */
+export const MIN_JUMP_MS = JUMP_DURATION_MS;
+/**
+ * Legacy distance→time scale (unused for domain hops now that duration is fixed).
+ * Match ship-motion SHIP_MAX_SPEED for docs / tools.
+ */
 export const SPEED_UNITS_PER_SEC = 12000;
 export function computeJumpDuration(world, start, end) {
+    // Fixed product hop clock — still validate endpoints exist.
     const startPos = getSolarPosition(world, start);
     const endPos = getSolarPosition(world, end);
     if (!startPos || !endPos)
-        return MIN_JUMP_MS;
-    const distance = distZX(startPos, endPos);
-    const duration = (distance / SPEED_UNITS_PER_SEC) * 1000;
-    return Math.max(MIN_JUMP_MS, Math.round(duration));
+        return JUMP_DURATION_MS;
+    void distZX(startPos, endPos); // keep import / distance path exercised
+    return JUMP_DURATION_MS;
 }
 export function findClusterPath(world, startId, endId) {
     if (startId === endId)

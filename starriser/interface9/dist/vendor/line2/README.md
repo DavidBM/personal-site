@@ -38,7 +38,8 @@ lines.setMaterial({
   color: [1, 0.2, 0.1, 1],
   linewidth: 3,        // CSS / buffer pixels when worldUnits=false
   worldUnits: false,
-  softAA: true,        // endcap fwidth soft; long edges: use MSAA + alphaToCoverage
+  endcaps: true,       // round endcap skirts (false = body-only; Galaxy topology uses false)
+  softAA: true,        // endcap fwidth soft when endcaps on; long edges: MSAA + alphaToCoverage
   dashed: false,
 });
 

@@ -29,11 +29,15 @@ import { TRAIL_SAMPLE_STRIDE } from "./fleet-layout.js";
  * Do **not** lengthen this for tests; pass overrides into the fleet layer.
  */
 export const DEFAULT_TRAIL_CONFIG = {
-    // Power-of-2 ring (bitwise wrap). ~6-sample feel; 8 is the legal size.
+    // Power-of-2 ring (bitwise wrap). Short ring = cheap expand + fewer ghosts.
+    // 8 samples is enough for multi-segment ribbons once hop speed matches the
+    // 30s domain clock (fast uncapped hop was filling/overwriting every frame).
     ringSize: 8,
-    lifetimeMs: 1000,
-    minDist: 1.5,
-    maxIntervalMs: 40,
+    lifetimeMs: 1400,
+    // No distance gate: append every moving integrate step (follow-cam / hop
+    // visibility). Re-introduce a floor if short rings thrash at high speed.
+    minDist: 0,
+    maxIntervalMs: 48,
 };
 /**
  * Age factor: (1 − age01)^power. Secondary — short rings often never reach

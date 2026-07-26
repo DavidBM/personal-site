@@ -7,7 +7,7 @@
  * Features:
  *  - Screen-space thickness (pixels via resolution) or worldUnits
  *  - Vertex expansion of each segment into a ribbon (triangle-list, instanced)
- *  - Round endcaps: soft fwidth AA or hard discard (Three LineMaterial parity)
+ *  - Optional round endcaps (`endcaps` uniform): soft fwidth AA or hard discard
  *  - Long-edge quality: MSAA + pipeline alphaToCoverage (not ribbon-skirt fades)
  *  - Optional dashed lines (distance attributes)
  *  - Optional per-endpoint vertex colors
@@ -31,7 +31,8 @@ struct Line2Uniforms {
   dashed : f32,
   softAA : f32,
   vertexColors : f32,
-  _pad0 : f32,
+  /** 1 = round endcap skirts; 0 = body-only (discard |vUv.y| > 1). */
+  endcaps : f32,
 };
 
 @group(0) @binding(0) var<uniform> u : Line2Uniforms;
@@ -116,6 +117,7 @@ fn vs_main(input : VSIn) -> VSOut {
 
   let useWorld = u.worldUnits > 0.5;
   let useDash = u.dashed > 0.5;
+  let useEndcaps = u.endcaps > 0.5;
 
   if (useWorld) {
     out.worldStart = start.xyz;
@@ -204,8 +206,8 @@ fn vs_main(input : VSIn) -> VSOut {
       worldPos = vec4<f32>(worldPos.xyz - hw * worldUp, worldPos.w);
     }
 
-    // Endcaps + depth box (skipped for dashes — endcaps discarded in FS)
-    if (!useDash) {
+    // Endcaps + depth box (skipped for dashes / when endcaps off — FS discards skirts)
+    if (!useDash && useEndcaps) {
       if (input.position.y < 0.5) {
         worldPos = vec4<f32>(worldPos.xyz - hw * worldDir, worldPos.w);
       } else {
@@ -231,11 +233,13 @@ fn vs_main(input : VSIn) -> VSOut {
       offset = -offset;
     }
 
-    // Endcaps
-    if (input.position.y < 0.0) {
-      offset = offset - dir;
-    } else if (input.position.y > 1.0) {
-      offset = offset + dir;
+    // Endcaps (along-dir push) — body-only when endcaps off
+    if (useEndcaps) {
+      if (input.position.y < 0.0) {
+        offset = offset - dir;
+      } else if (input.position.y > 1.0) {
+        offset = offset + dir;
+      }
     }
 
     offset = offset * u.linewidth;
@@ -263,6 +267,12 @@ fn fs_main(input : VSOut) -> @location(0) vec4<f32> {
   let useWorld = u.worldUnits > 0.5;
   let useDash = u.dashed > 0.5;
   let soft = u.softAA > 0.5;
+  let useEndcaps = u.endcaps > 0.5;
+
+  // Body-only: kill template endcap skirts (|vUv.y| > 1) entirely.
+  if (!useEndcaps && abs(input.vUv.y) > 1.0) {
+    discard;
+  }
 
   if (useDash) {
     // Discard endcaps for dashes (Three parity)
@@ -298,7 +308,7 @@ fn fs_main(input : VSOut) -> @location(0) vec4<f32> {
         discard;
       }
     }
-  } else {
+  } else if (useEndcaps) {
     // Screen-space — classic three.js LineMaterial: soft endcaps only.
     // Long edges are the geometric ribbon; smooth them with MSAA + alphaToCoverage
     // on the pipeline (not UV/skirt fades — those look like gradient artifacts).

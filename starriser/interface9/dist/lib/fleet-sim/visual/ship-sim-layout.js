@@ -27,8 +27,8 @@
  * 76  f32 cruiseV       // soft cruise (not hard clamp on jump)
  * 80  f32 orbitR
  * 84  f32 orbitOmega    // signed rad/s
- * 88  f32 omegaMax      // turn rate cap (rad/s); was pad0
- * 92  f32 _pad1
+ * 88  f32 omegaMax         // turn rate cap (rad/s); was pad0
+ * 92  f32 jumpStaggerMs    // visual hop start delay 0..JUMP_STAGGER_MS_MAX
  *
  * omegaMax is stored per ship (from type config at pack). ≤0 → agents/GPU use
  * ORBIT_DEFAULT_OMEGA_MAX / SHIP_MAX_TURN_RAD_S.
@@ -65,6 +65,11 @@ export const ShipSimFields = {
     omegaMax: 88,
     /** @deprecated use omegaMax — same offset 88 */
     pad0: 88,
+    /**
+     * Visual jump start delay (ms). Agent holds until nowRel ≥ fleet.t0 + this.
+     * @deprecated alias pad1
+     */
+    jumpStaggerMs: 92,
     pad1: 92,
 };
 /** Target for agent seek: orbit around fleet center. */
@@ -118,7 +123,7 @@ export function writeShipSim(view, byteOffset, ship) {
     view.setFloat32(o + ShipSimFields.orbitR, ship.orbitR ?? SHIP_SIM_DEFAULT_ORBIT_R, true);
     view.setFloat32(o + ShipSimFields.orbitOmega, ship.orbitOmega ?? SHIP_SIM_DEFAULT_ORBIT_OMEGA, true);
     view.setFloat32(o + ShipSimFields.omegaMax, ship.omegaMax ?? SHIP_SIM_DEFAULT_OMEGA_MAX, true);
-    view.setFloat32(o + ShipSimFields.pad1, 0, true);
+    view.setFloat32(o + ShipSimFields.jumpStaggerMs, ship.jumpStaggerMs ?? ship.pad1 ?? 0, true);
 }
 /** Read one ShipSim record (all stride-96 fields). */
 export function readShipSim(view, byteOffset) {
@@ -147,6 +152,8 @@ export function readShipSim(view, byteOffset) {
         orbitR: view.getFloat32(o + ShipSimFields.orbitR, true),
         orbitOmega: view.getFloat32(o + ShipSimFields.orbitOmega, true),
         omegaMax: view.getFloat32(o + ShipSimFields.omegaMax, true),
+        jumpStaggerMs: view.getFloat32(o + ShipSimFields.jumpStaggerMs, true),
+        pad1: view.getFloat32(o + ShipSimFields.pad1, true),
     };
 }
 /**

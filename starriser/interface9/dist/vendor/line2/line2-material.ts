@@ -22,6 +22,8 @@ export interface Line2MaterialState {
   gapSize: number;
   dashOffset: number;
   softAA: boolean;
+  /** Round endcap skirts + FS disc. Default true; galaxy topology sets false. */
+  endcaps: boolean;
   vertexColors: boolean;
   depthTest: boolean;
   depthWrite: boolean;
@@ -44,6 +46,7 @@ export function createDefaultMaterialState(
     gapSize: params?.gapSize ?? 1,
     dashOffset: params?.dashOffset ?? 0,
     softAA: params?.softAA ?? true,
+    endcaps: params?.endcaps ?? true,
     vertexColors: params?.vertexColors ?? false,
     depthTest: params?.depthTest ?? true,
     depthWrite: params?.depthWrite ?? false,
@@ -66,6 +69,7 @@ export function applyMaterialParams(
   if (params.gapSize !== undefined) state.gapSize = params.gapSize;
   if (params.dashOffset !== undefined) state.dashOffset = params.dashOffset;
   if (params.softAA !== undefined) state.softAA = params.softAA;
+  if (params.endcaps !== undefined) state.endcaps = params.endcaps;
   if (params.vertexColors !== undefined) state.vertexColors = params.vertexColors;
   if (params.depthTest !== undefined) state.depthTest = params.depthTest;
   if (params.depthWrite !== undefined) state.depthWrite = params.depthWrite;
@@ -89,7 +93,7 @@ export function applyMaterialParams(
  *  44     dashed (0|1)
  *  45     softAA (0|1)
  *  46     vertexColors (0|1)
- *  47     pad
+ *  47     endcaps (0|1) — was pad; body-only when 0
  */
 export function writeMaterialUniforms(
   dst: Float32Array,
@@ -110,7 +114,7 @@ export function writeMaterialUniforms(
   dst[44] = state.dashed ? 1 : 0;
   dst[45] = state.softAA ? 1 : 0;
   dst[46] = state.vertexColors ? 1 : 0;
-  dst[47] = 0;
+  dst[47] = state.endcaps ? 1 : 0;
 }
 
 /** Copy a column-major mat4 into `dst` at float offset `base`. */
