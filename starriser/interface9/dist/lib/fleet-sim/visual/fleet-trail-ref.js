@@ -20,8 +20,9 @@
  * Ring: `write` is the next slot to overwrite; wrap with trailWrap.
  * Live samples walk backward from write while age01 < 1.
  *
- * Line expand (fixed slot, no atomics): per ship (RING-1)*2 verts × 7 floats
- * (pos.xyz, color.rgb, alpha). Dead segments write degenerate alpha-0 verts.
+ * Line expand (fixed slot, no atomics): per ship (RING-1) segments × 20 floats
+ * (start pos/col/α, end pos/col/α, prev pos, next pos). Dead segments write
+ * degenerate alpha-0 endpoints. prev/next feed continuous miter joints.
  */
 import { TRAIL_SAMPLE_STRIDE } from "./fleet-layout.js";
 /**
@@ -61,8 +62,16 @@ export const DEBUG_TRAIL_CONFIG = {
     minDist: 0.15,
     maxIntervalMs: 40,
 };
-/** Floats per expanded trail vertex: pos.xyz, color.rgb, alpha. */
+/** Floats per expanded trail endpoint: pos.xyz, color.rgb, alpha. */
 export const TRAIL_LINE_FLOATS_PER_VERT = 7;
+/**
+ * Floats per segment instance in trailLines:
+ * start(7) + end(7) + prev(3) + next(3) = 20.
+ * prev/next are neighbor samples for continuous miter joints in the draw VS.
+ */
+export const TRAIL_SEGMENT_FLOATS = TRAIL_LINE_FLOATS_PER_VERT * 2 + 6;
+/** Bytes per segment instance (start+end+prev+next). */
+export const TRAIL_SEGMENT_STRIDE = TRAIL_SEGMENT_FLOATS * 4;
 /** Floats per sample (posX, posZ, age01, pad). */
 export const TRAIL_SAMPLE_FLOATS = TRAIL_SAMPLE_STRIDE / 4;
 function assertPowerOfTwoRing(ringSize) {
@@ -91,6 +100,7 @@ export function resolveTrailLayout(partial) {
     const segsPerShip = ringSize - 1;
     const vertsPerShip = segsPerShip * 2;
     const lineFloatsPerVert = TRAIL_LINE_FLOATS_PER_VERT;
+    const segmentFloats = TRAIL_SEGMENT_FLOATS;
     return {
         ringSize,
         lifetimeMs,
@@ -100,8 +110,11 @@ export function resolveTrailLayout(partial) {
         sampleFloats: TRAIL_SAMPLE_FLOATS,
         vertsPerShip,
         lineFloatsPerVert,
-        lineFloatsPerShip: vertsPerShip * lineFloatsPerVert,
+        segmentFloats,
+        // Continuous body: each seg packs start+end+prev+next (not just 2×endpoint).
+        lineFloatsPerShip: segsPerShip * segmentFloats,
         lineStride: lineFloatsPerVert * 4,
+        segmentStride: segmentFloats * 4,
     };
 }
 /** Game layout (cached) — what the map view uses by default. */
@@ -123,8 +136,10 @@ export const TRAIL_SEGS_PER_SHIP = DEFAULT_TRAIL_LAYOUT.segsPerShip;
 export const TRAIL_VERTS_PER_SHIP = DEFAULT_TRAIL_LAYOUT.vertsPerShip;
 /** Floats written per ship into the trail line buffer (game default). */
 export const TRAIL_LINE_FLOATS_PER_SHIP = DEFAULT_TRAIL_LAYOUT.lineFloatsPerShip;
-/** Bytes per expanded trail vertex. */
+/** Bytes per expanded trail endpoint. */
 export const TRAIL_LINE_STRIDE = DEFAULT_TRAIL_LAYOUT.lineStride;
+/** Bytes per expanded trail segment instance (start+end+prev+next). */
+export const TRAIL_SEGMENT_STRIDE_DEFAULT = DEFAULT_TRAIL_LAYOUT.segmentStride;
 /** Power-of-2 wrap: i & (ringSize − 1). */
 export function trailWrap(i, ringSize) {
     return i & (ringSize - 1);

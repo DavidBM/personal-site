@@ -377,7 +377,8 @@ export class FleetInstanceGpuLayer {
             label: "fleet-trails",
             code: FLEET_TRAILS_WGSL,
         });
-        const trailSegStride = this.trailLayout.lineStride * 2; // two verts → one segment
+        // Continuous body: start+end+prev+next (segmentStride = 80 B for game layout).
+        const trailSegStride = this.trailLayout.segmentStride ?? this.trailLayout.lineStride * 2 + 24;
         const trailVertexBuffers = [
             {
                 arrayStride: TRAIL_TEMPLATE_STRIDE,
@@ -387,7 +388,7 @@ export class FleetInstanceGpuLayer {
                 ],
             },
             {
-                // GPU expand buffer: start(pos3+col3+a) + end(pos3+col3+a)
+                // GPU expand: start(pos3+col3+a) + end(pos3+col3+a) + prev(pos3) + next(pos3)
                 arrayStride: trailSegStride,
                 stepMode: "instance",
                 attributes: [
@@ -397,6 +398,8 @@ export class FleetInstanceGpuLayer {
                     { shaderLocation: 4, offset: 28, format: "float32x3" }, // end pos
                     { shaderLocation: 5, offset: 40, format: "float32x3" }, // end color
                     { shaderLocation: 6, offset: 52, format: "float32" }, // end alpha
+                    { shaderLocation: 7, offset: 56, format: "float32x3" }, // prev pos (miter)
+                    { shaderLocation: 8, offset: 68, format: "float32x3" }, // next pos (miter)
                 ],
             },
         ];

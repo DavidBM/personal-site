@@ -31,7 +31,7 @@
 import { RENDER_PLANE_Y } from "../../../contracts/render-constants.js";
 import { FLEET_GPU_STRIDE } from "../visual/fleet-layout.js";
 import { BASE_SHIP_SIZE, BLUE_SCALE, GREEN_SCALE, ICON_SCREEN_PX, RED_SCALE, } from "../visual/fleet-lod.js";
-import { DEFAULT_TRAIL_LAYOUT, TRAIL_ALPHA_POWER, TRAIL_ALONG_POWER, TRAIL_LINE_FLOATS_PER_VERT, TRAIL_SAMPLE_FLOATS, resolveTrailLayout, } from "../visual/fleet-trail-ref.js";
+import { DEFAULT_TRAIL_LAYOUT, TRAIL_ALPHA_POWER, TRAIL_ALONG_POWER, TRAIL_LINE_FLOATS_PER_VERT, TRAIL_SEGMENT_FLOATS, TRAIL_SAMPLE_FLOATS, resolveTrailLayout, } from "../visual/fleet-trail-ref.js";
 import { TRAIL_TEMPLATE_INDEX_COUNT } from "./fleet-trails.wgsl.js";
 import { MODEL_TRAIL_EMITTER_COUNT, MODEL_TRAIL_EMITTERS, } from "../visual/model-trail-config.js";
 import { SHIP_APPROACH_BRAKE_POWER, SHIP_BRAKE_DIST_MARGIN, SHIP_DEFAULT_BRAKE_DIST, SHIP_LAUNCH_ACCEL_MIN, SHIP_LAUNCH_SPEED_FRAC, SHIP_MAX_ACCEL, SHIP_MAX_SPEED, SHIP_MID_CRUISE_BOOST, SHIP_MIN_ALIGN, SHIP_MODE_JUMP, SHIP_MODE_ORBIT, SHIP_MODE_PAUSED, SHIP_MODE_SETTLE, SHIP_NOSE_OFFSET, CRUISE_ACCEL_SCALE, CRUISE_BRAKE_MULT, JUMP_BRAKE_MULT, V_OPEN_UNCAP, HOP_OPEN_SPEED_MUL, HOP_OPEN_SPEED_MIN, RESIDUAL_HIGH_MUL, RESIDUAL_CLEAR_MUL, RESIDUAL_FREEZE_OUT_K, } from "../visual/ship-flight-ref.js";
@@ -174,6 +174,8 @@ const TRAIL_MIN_DIST: f32 = ${layout.minDist};
 const TRAIL_MAX_INTERVAL_MS: f32 = ${layout.maxIntervalMs}.0;
 const TRAIL_SEGS: u32 = ${layout.segsPerShip}u;
 const TRAIL_LINE_FLOATS_PER_VERT: u32 = ${TRAIL_LINE_FLOATS_PER_VERT}u;
+// start7 + end7 + prev3 + next3 — continuous miter body
+const TRAIL_SEGMENT_FLOATS: u32 = ${TRAIL_SEGMENT_FLOATS}u;
 const TRAIL_LINE_FLOATS_PER_SHIP: u32 = ${layout.lineFloatsPerShip}u;
 // Alpha: age factor × along-trail factor (see fleet-trail-ref TRAIL_*_POWER).
 const TRAIL_ALPHA_POWER: f32 = ${Number(TRAIL_ALPHA_POWER)};
@@ -1417,9 +1419,23 @@ fn expandTrailLines(
   // Avoid /0 if TRAIL_SEGS ever 0 (layout always ≥ 3).
   let segsF = max(f32(TRAIL_SEGS), 1.0);
   let aMul = max(alphaMul, 0.0);
+
+  // Live sample count from tip (newest = depth 0). Prevents ring-wrap "prev"
+  // from a stale slot (age still young / birth garbage) which made miter spikes.
+  var nLive = 0u;
+  for (var d = 0u; d < TRAIL_RING_SIZE; d++) {
+    let idx = (write - 1u - d) & mask;
+    let birth = trails[ringBase + idx * TRAIL_SAMPLE_FLOATS + 2u];
+    if (sampleAge01(birth, u.nowRel) >= 1.0) {
+      break;
+    }
+    nLive = d + 1u;
+  }
+
   // Walk newest→oldest. First dead pair ⇒ remaining older segs are dead too
   // (ring ages uniformly). Zero-fill the tail once and stop (big win when the
   // ring is not full yet; full rings still write all live segs).
+  // Each seg packs start+end+prev+next for continuous miter joints in draw VS.
   for (var seg = 0u; seg < TRAIL_SEGS; seg++) {
     let idxB = (write - 1u - seg) & mask; // newer
     let idxA = (write - 2u - seg) & mask; // older
@@ -1427,12 +1443,12 @@ fn expandTrailLines(
     let baseB = ringBase + idxB * TRAIL_SAMPLE_FLOATS;
     let ageA = sampleAge01(trails[baseA + 2u], u.nowRel);
     let ageB = sampleAge01(trails[baseB + 2u], u.nowRel);
-    let vo = lineBase + seg * 2u * TRAIL_LINE_FLOATS_PER_VERT;
+    let vo = lineBase + seg * TRAIL_SEGMENT_FLOATS;
 
-    if (ageA >= 1.0 || ageB >= 1.0) {
+    if (ageA >= 1.0 || ageB >= 1.0 || nLive < seg + 2u) {
       // Degenerate this seg + all older segs (alpha 0). Positions irrelevant.
       for (var s2 = seg; s2 < TRAIL_SEGS; s2++) {
-        let vo2 = lineBase + s2 * 2u * TRAIL_LINE_FLOATS_PER_VERT;
+        let vo2 = lineBase + s2 * TRAIL_SEGMENT_FLOATS;
         // Only alphas are read for discard; zero both endpoints.
         trailLines[vo2 + 6u] = 0.0;
         trailLines[vo2 + 13u] = 0.0;
@@ -1459,6 +1475,30 @@ fn expandTrailLines(
     let a0 = trailDrawAlpha(ageA, alongA) * aMul;
     let a1 = trailDrawAlpha(ageB, alongB) * aMul;
 
+    // Neighbor samples for continuous miter (default = endpoint = no neighbor).
+    // prev only if live chain has depth seg+2 (tip-contiguous); never ring-wrap stale.
+    var px = x0;
+    var py = y0;
+    var pz = z0;
+    if (nLive >= seg + 3u) {
+      let idxPrev = (write - 3u - seg) & mask;
+      let basePrev = ringBase + idxPrev * TRAIL_SAMPLE_FLOATS;
+      px = (trails[basePrev] - ox) + worldOff.x;
+      pz = (trails[basePrev + 1u] - oz) + worldOff.z;
+      py = (baseY + trails[basePrev + 3u] - oy) + worldOff.y;
+    }
+    var nx = x1;
+    var ny = y1;
+    var nz = z1;
+    // seg>0 ⇒ a newer live sample exists toward the ship (depth seg-1).
+    if (seg > 0u) {
+      let idxNext = (write - seg) & mask;
+      let baseNext = ringBase + idxNext * TRAIL_SAMPLE_FLOATS;
+      nx = (trails[baseNext] - ox) + worldOff.x;
+      nz = (trails[baseNext + 1u] - oz) + worldOff.z;
+      ny = (baseY + trails[baseNext + 3u] - oy) + worldOff.y;
+    }
+
     trailLines[vo] = x0;
     trailLines[vo + 1u] = y0;
     trailLines[vo + 2u] = z0;
@@ -1473,6 +1513,12 @@ fn expandTrailLines(
     trailLines[vo + 11u] = colorG;
     trailLines[vo + 12u] = colorB;
     trailLines[vo + 13u] = a1;
+    trailLines[vo + 14u] = px;
+    trailLines[vo + 15u] = py;
+    trailLines[vo + 16u] = pz;
+    trailLines[vo + 17u] = nx;
+    trailLines[vo + 18u] = ny;
+    trailLines[vo + 19u] = nz;
   }
 }
 
