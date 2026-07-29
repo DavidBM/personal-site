@@ -107,6 +107,33 @@
         border-color: rgba(255, 180, 80, 0.65);
         color: #ffe8c0;
       }
+      #hud .pause-row {
+        display: flex;
+        gap: 8px;
+        margin: 10px 0 4px;
+        align-items: center;
+      }
+      #hud #btn-pause-sim {
+        appearance: none;
+        flex: 1;
+        border: 1px solid var(--border);
+        background: rgba(10, 18, 36, 0.95);
+        color: var(--text);
+        border-radius: 8px;
+        padding: 8px 10px;
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+        letter-spacing: 0.02em;
+      }
+      #hud #btn-pause-sim:hover {
+        border-color: rgba(255, 200, 120, 0.55);
+      }
+      #hud #btn-pause-sim.paused {
+        background: rgba(80, 40, 20, 0.85);
+        border-color: rgba(255, 160, 80, 0.65);
+        color: #ffe0b0;
+      }
       #hud .hint {
         margin-top: 10px;
         font-size: 11px;
@@ -396,9 +423,14 @@
     <div id="hud">
       <h1>Camera focus</h1>
       <p class="sub">
-        Orbit around the sun or a selected planet. Bodies keep spinning while
-        you move.
+        Orbit around the sun or a selected planet. Pause freezes body spin and
+        orbital motion; camera drag/zoom still work.
       </p>
+      <div class="pause-row">
+        <button type="button" id="btn-pause-sim" title="Toggle body spin + orbits (Space)">
+          Pause motion
+        </button>
+      </div>
       <div class="row">
         <span class="label">Focus</span>
         <span class="val" id="hud-focus">—</span>
@@ -414,7 +446,7 @@
       <div id="body-list"></div>
       <div class="hint">
         Drag — orbit · Wheel — zoom · Keys 0–4 / [ ] — select · Double-click —
-        pick body<br />
+        pick body · Space — pause spin/orbits<br />
         Left panel: atmosphere / planet limb. Serve over HTTP. WebGPU required.
       </div>
     </div>

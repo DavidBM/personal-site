@@ -36,6 +36,8 @@ const atmPanel = document.getElementById("atm-controls");
 const atmExport = document.getElementById("atm-export");
 const atmImport = document.getElementById("atm-import");
 function setStatus(msg, error = false) {
+    if (!statusEl)
+        return;
     statusEl.textContent = msg;
     statusEl.classList.toggle("error", error);
 }
@@ -482,17 +484,19 @@ async function main() {
         }
         else {
             const groups = {};
-            for (const g of ["limb", "surface", "scatter", "color"]) {
+            for (const g of ["limb", "rings", "surface", "scatter", "color"]) {
                 const fs = document.createElement("fieldset");
                 const leg = document.createElement("legend");
                 leg.textContent =
                     g === "limb"
-                        ? "Planet / limb"
-                        : g === "surface"
-                            ? "Surface / texture"
-                            : g === "scatter"
-                                ? "Scatter atmosphere"
-                                : "Atm color";
+                        ? "Planet limb / AA / spherize"
+                        : g === "rings"
+                            ? "Atmosphere rings / size / cut"
+                            : g === "surface"
+                                ? "Surface / texture"
+                                : g === "scatter"
+                                    ? "Scatter energy"
+                                    : "Atm color";
                 fs.appendChild(leg);
                 atmPanel.appendChild(fs);
                 groups[g] = fs;
@@ -696,12 +700,37 @@ async function main() {
     let fpsEma = 60;
     let frames = 0;
     let fpsWindowStart = 0;
+    /**
+     * When true, freeze body axial spin + orbital motion (simTime stops).
+     * Camera drag/zoom still update. Capture/profile still drive their own times.
+     */
+    let simPaused = false;
     /** When set, rAF loop yields to deterministic capture (no wall-clock drive). */
     let captureActive = false;
     /** EMA of actual GPU render work (timestamps or submit→done), not rAF idle. */
     let frameMsEma = 0;
     let gpuSampleCount = 0;
     const recentGpuSamples = [];
+    const PROFILE_STAGES = [
+        "clear",
+        "rings",
+        "sun",
+        "planets",
+        "full",
+    ];
+    let profileStage = "full";
+    /**
+     * Cumulative FS layer for gallery: 0 = product full; 1..5 = A..E stacks
+     * (planet: solid→maps→lighting→atm→full; sun: photo→chrom→sheath→rays→outer).
+     */
+    let shaderLayer = 0;
+    /** Last frame draw counts — structural proof for stage isolation smokes. */
+    let lastDrawCounts = {
+        stage: "full",
+        rings: 0,
+        sun: 0,
+        planets: 0,
+    };
     const gpuTimer = createGpuFrameTimer(device);
     const noteGpuSample = (ms) => {
         frameMsEma = frameMsEma > 0 ? frameMsEma * 0.85 + ms * 0.15 : ms;
@@ -712,6 +741,13 @@ async function main() {
         if (hudFrameMs)
             hudFrameMs.textContent = frameMsEma.toFixed(2);
     };
+    function parseProfileStage(raw) {
+        const s = String(raw ?? "full");
+        if (PROFILE_STAGES.includes(s)) {
+            return s;
+        }
+        return "full";
+    }
     // Sun-type control strip (do not re-apply look — URL may have layered sun= knobs)
     if (sunTypeButtons) {
         sunTypeButtons.innerHTML = "";
@@ -756,24 +792,29 @@ async function main() {
         wireLookUi();
     }
     function highlightBodyList() {
+        if (!bodyList)
+            return;
         const buttons = bodyList.querySelectorAll("button");
         buttons.forEach((btn, i) => {
             btn.classList.toggle("active", i === selected);
         });
     }
     // Build selection list HUD
-    bodyList.innerHTML = "";
-    SHOWCASE_BODIES.forEach((b, i) => {
-        const btn = document.createElement("button");
-        btn.type = "button";
-        btn.textContent = `${i}: ${b.name}`;
-        btn.addEventListener("click", () => {
-            selected = clampSelection(i, SHOWCASE_BODIES.length);
-            focusSelected(false);
+    if (bodyList) {
+        bodyList.innerHTML = "";
+        SHOWCASE_BODIES.forEach((b, i) => {
+            const btn = document.createElement("button");
+            btn.type = "button";
+            btn.textContent = `${i}: ${b.name}`;
+            btn.addEventListener("click", () => {
+                selected = clampSelection(i, SHOWCASE_BODIES.length);
+                focusSelected(false);
+            });
+            bodyList.appendChild(btn);
         });
-        bodyList.appendChild(btn);
-    });
-    hudBodies.textContent = String(SHOWCASE_BODIES.length);
+    }
+    if (hudBodies)
+        hudBodies.textContent = String(SHOWCASE_BODIES.length);
     canvas.addEventListener("pointerdown", (e) => {
         if (e.button !== 0)
             return;
@@ -821,6 +862,13 @@ async function main() {
         }
     });
     window.addEventListener("keydown", (e) => {
+        const t = e.target;
+        const typing = t &&
+            (t.tagName === "INPUT" ||
+                t.tagName === "TEXTAREA" ||
+                t.isContentEditable);
+        if (typing)
+            return;
         if (e.key >= "0" && e.key <= "9") {
             const i = Number(e.key);
             if (i < SHOWCASE_BODIES.length) {
@@ -835,6 +883,11 @@ async function main() {
         if (e.key === "]" || e.key === "ArrowRight") {
             selected = clampSelection(selected + 1, SHOWCASE_BODIES.length);
             focusSelected(false);
+        }
+        // Space: freeze planet spin + orbital motion (camera still free)
+        if (e.key === " " || e.code === "Space") {
+            e.preventDefault();
+            toggleSimPaused();
         }
     });
     // Prime poses + focus
@@ -903,8 +956,8 @@ async function main() {
         sunBodyCpu[29] = L.sheathGain;
         sunBodyCpu[30] = L.rayGain;
         sunBodyCpu[31] = L.veilGain;
-        // look2: unused/pad (legacy flareGain=0), outerGain, outerFalloff, glowMul
-        sunBodyCpu[32] = 0;
+        // look2: shaderLayer (0=full; 1..5 A..E), outerGain, outerFalloff, glowMul
+        sunBodyCpu[32] = shaderLayer;
         sunBodyCpu[33] = L.outerGain;
         sunBodyCpu[34] = L.outerFalloff;
         sunBodyCpu[35] = L.glowMul;
@@ -966,11 +1019,11 @@ async function main() {
         cpu[29] = a.extScale;
         cpu[30] = a.atmGain * Math.min(lightMul, 1.5);
         cpu[31] = a.camDist;
-        // look2: rInner, glowMul, mieEmit, pad
+        // look2: rInner, glowMul, mieEmit, shaderLayer (0=full; 1..5 cumulative)
         cpu[32] = a.rInner;
         cpu[33] = a.glowMul * lightMul;
         cpu[34] = a.mieEmit;
-        cpu[35] = 0;
+        cpu[35] = shaderLayer;
         // look3: colorRGB, texIntensity
         cpu[36] = a.colorR;
         cpu[37] = a.colorG;
@@ -993,6 +1046,16 @@ async function main() {
             const worldPerPx = (2 * dist * Math.tan(FOVY / 2)) / Math.max(viewportH, 1);
             cpu[47] = pose.def.radius / Math.max(worldPerPx, 1e-9);
         }
+        // look6: atmRingInner, atmRingFull, outerGlowAmt, outerGlowWidth
+        cpu[48] = a.atmRingInner;
+        cpu[49] = a.atmRingFull;
+        cpu[50] = a.outerGlowAmt;
+        cpu[51] = a.outerGlowWidth;
+        // look7: limbHugScale, spherize, pad, pad
+        cpu[52] = a.limbHugScale;
+        cpu[53] = a.spherize;
+        cpu[54] = 0;
+        cpu[55] = 0;
     }
     function uploadPlanetBodies(eye, viewportH) {
         for (const s of planetSlots) {
@@ -1064,38 +1127,64 @@ async function main() {
             ],
             ...(tsWrites ? { timestampWrites: tsWrites } : {}),
         });
+        // Stage isolation (profile/test): which draw classes issue on this pass.
+        // Product default is always "full". clear = clear-only baseline overhead.
+        const stage = profileStage;
+        const drawRings = stage === "full" || stage === "rings";
+        const drawSun = stage === "full" || stage === "sun";
+        const drawPlanets = stage === "full" || stage === "planets";
+        let ringDraws = 0;
+        let sunDraws = 0;
+        let planetDraws = 0;
         // Orbit rings — full showcase field (1 sun + 30 planet orbits).
-        pass.setPipeline(ringPipe);
-        pass.setBindGroup(0, ringBg);
-        for (let i = 0; i < ringBufs.length; i++) {
-            pass.setVertexBuffer(0, ringBufs[i]);
-            pass.draw(ringCounts[i]);
+        if (drawRings) {
+            pass.setPipeline(ringPipe);
+            pass.setBindGroup(0, ringBg);
+            for (let i = 0; i < ringBufs.length; i++) {
+                pass.setVertexBuffer(0, ringBufs[i]);
+                pass.draw(ringCounts[i]);
+                ringDraws++;
+            }
         }
         // Full planet set: only skip true sub-pixel discs (not a draw-count cap).
         // User workload is 1 sun + 30 planets; never shrink the showcase to win ms.
         const hPx = canvas.height || 1;
-        for (const cmd of bodyDrawOrder(eye)) {
-            if (cmd.kind === "sun") {
-                pass.setPipeline(sunPipe);
-                pass.setBindGroup(0, sunBg);
-                pass.draw(6);
-            }
-            else {
-                const slot = planetSlots[cmd.slot];
-                const pose = poses[slot.bodyIndex];
-                const dx = pose.x - eye.eyeX;
-                const dy = pose.y - eye.eyeY;
-                const dz = pose.z - eye.eyeZ;
-                const dist = Math.hypot(dx, dy, dz) || 1;
-                const worldPerPx = (2 * dist * Math.tan(FOVY / 2)) / Math.max(hPx, 1);
-                const screenR = pose.def.radius / Math.max(worldPerPx, 1e-9);
-                if (screenR < 1.5 && slot.bodyIndex !== selected)
-                    continue;
-                pass.setPipeline(planetPipe);
-                pass.setBindGroup(0, slot.bg);
-                pass.draw(6);
+        if (drawSun || drawPlanets) {
+            for (const cmd of bodyDrawOrder(eye)) {
+                if (cmd.kind === "sun") {
+                    if (!drawSun)
+                        continue;
+                    pass.setPipeline(sunPipe);
+                    pass.setBindGroup(0, sunBg);
+                    pass.draw(6);
+                    sunDraws++;
+                }
+                else {
+                    if (!drawPlanets)
+                        continue;
+                    const slot = planetSlots[cmd.slot];
+                    const pose = poses[slot.bodyIndex];
+                    const dx = pose.x - eye.eyeX;
+                    const dy = pose.y - eye.eyeY;
+                    const dz = pose.z - eye.eyeZ;
+                    const dist = Math.hypot(dx, dy, dz) || 1;
+                    const worldPerPx = (2 * dist * Math.tan(FOVY / 2)) / Math.max(hPx, 1);
+                    const screenR = pose.def.radius / Math.max(worldPerPx, 1e-9);
+                    if (screenR < 1.5 && slot.bodyIndex !== selected)
+                        continue;
+                    pass.setPipeline(planetPipe);
+                    pass.setBindGroup(0, slot.bg);
+                    pass.draw(6);
+                    planetDraws++;
+                }
             }
         }
+        lastDrawCounts = {
+            stage,
+            rings: ringDraws,
+            sun: sunDraws,
+            planets: planetDraws,
+        };
         pass.end();
         gpuTimer.resolve(enc);
         if (encoderHooks)
@@ -1104,6 +1193,22 @@ async function main() {
         // Async: timestamp readback or submit→GPU-done (not rAF interval)
         gpuTimer.afterSubmit(noteGpuSample);
     }
+    function setSimPaused(paused) {
+        simPaused = !!paused;
+        const btn = document.getElementById("btn-pause-sim");
+        if (btn) {
+            btn.classList.toggle("paused", simPaused);
+            btn.textContent = simPaused ? "Resume motion" : "Pause motion";
+            btn.setAttribute("aria-pressed", simPaused ? "true" : "false");
+        }
+        return simPaused;
+    }
+    function toggleSimPaused() {
+        return setSimPaused(!simPaused);
+    }
+    document.getElementById("btn-pause-sim")?.addEventListener("click", () => {
+        toggleSimPaused();
+    });
     function frame(ts) {
         if (boot.isLost)
             return;
@@ -1113,7 +1218,9 @@ async function main() {
                 lastTs = ts;
                 if (fpsWindowStart <= 0)
                     fpsWindowStart = ts;
-                simTime += dt;
+                // Pause freezes planet spin + solar-system orbits (simTime).
+                if (!simPaused)
+                    simTime += dt;
                 frames++;
                 if (ts - fpsWindowStart >= 500) {
                     const inst = (frames * 1000) / (ts - fpsWindowStart);
@@ -1266,10 +1373,369 @@ async function main() {
             lastTs = 0;
         }
     }
+    /**
+     * Render one frame of the current stage to an offscreen texture, read back,
+     * downscale for gallery, return JPEG data URL (not swapchain toDataURL).
+     */
+    async function captureStageStillDataUrl(timeSec, width, height) {
+        const w = Math.max(64, width | 0);
+        const h = Math.max(64, height | 0);
+        const format = boot.format;
+        const tex = device.createTexture({
+            size: { width: w, height: h },
+            format,
+            usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
+            label: "stage-gallery-still",
+        });
+        try {
+            // Same stage-masked path as live; targetView skips swapchain present.
+            renderAtTime(timeSec, tex.createView());
+            try {
+                await device.queue.onSubmittedWorkDone();
+            }
+            catch {
+                /* soft */
+            }
+            const bpp = 4;
+            const bytesPerRow = Math.ceil((w * bpp) / 256) * 256;
+            const bufSize = bytesPerRow * h;
+            const staging = device.createBuffer({
+                size: bufSize,
+                usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+                label: "stage-gallery-staging",
+            });
+            const enc = device.createCommandEncoder();
+            enc.copyTextureToBuffer({ texture: tex }, { buffer: staging, bytesPerRow, rowsPerImage: h }, { width: w, height: h });
+            device.queue.submit([enc.finish()]);
+            await staging.mapAsync(GPUMapMode.READ);
+            const src = new Uint8Array(staging.getMappedRange().slice(0));
+            staging.unmap();
+            staging.destroy();
+            // Gallery thumb (keeps page light; render+timer were full 4K).
+            const tw = Math.min(960, w);
+            const th = Math.max(1, Math.round((tw * h) / w));
+            const c2d = document.createElement("canvas");
+            c2d.width = tw;
+            c2d.height = th;
+            const ctx = c2d.getContext("2d");
+            if (!ctx)
+                return { dataUrl: "", pngBase64: "" };
+            const img = ctx.createImageData(tw, th);
+            const isBgra = format.indexOf("bgra") >= 0;
+            for (let y = 0; y < th; y++) {
+                const sy = Math.min(h - 1, Math.floor((y * h) / th));
+                for (let x = 0; x < tw; x++) {
+                    const sx = Math.min(w - 1, Math.floor((x * w) / tw));
+                    const si = sy * bytesPerRow + sx * bpp;
+                    const di = (y * tw + x) * 4;
+                    let r = src[si] ?? 0;
+                    let g = src[si + 1] ?? 0;
+                    let b = src[si + 2] ?? 0;
+                    if (isBgra) {
+                        const t = r;
+                        r = b;
+                        b = t;
+                    }
+                    img.data[di] = r;
+                    img.data[di + 1] = g;
+                    img.data[di + 2] = b;
+                    img.data[di + 3] = 255;
+                }
+            }
+            ctx.putImageData(img, 0, 0);
+            const dataUrl = c2d.toDataURL("image/jpeg", 0.88);
+            const comma = dataUrl.indexOf(",");
+            const pngBase64 = comma >= 0 ? dataUrl.slice(comma + 1) : "";
+            return { dataUrl, pngBase64 };
+        }
+        finally {
+            tex.destroy();
+        }
+    }
+    /**
+     * Stage-isolated GPU timing: set body + viewport + stage, render N frames,
+     * return mean/median of shipped timer samples (timestamps when available).
+     */
+    async function runStageProfile(opts = {}) {
+        const nFrames = Math.max(1, Math.floor(opts.frames ?? 20));
+        const settle = Math.max(0, Math.floor(opts.settleFrames ?? 8));
+        const dt = opts.dt ?? 1 / 60;
+        const startTime = opts.startTime ?? 12;
+        const yaw = opts.yaw ?? 0.85;
+        const pitch = opts.pitch ?? 0.38;
+        const radiusMul = opts.radiusMul ?? 1.6;
+        const cssW = Math.max(64, Math.floor(opts.width ?? 3840));
+        const cssH = Math.max(64, Math.floor(opts.height ?? 2160));
+        const stage = parseProfileStage(opts.stage);
+        const wantStill = opts.captureStill !== false;
+        const layer = Math.max(0, Math.min(5, Math.floor(opts.shaderLayer ?? 0)));
+        const label = opts.label || stage;
+        captureActive = true;
+        const prevStage = profileStage;
+        const prevLayer = shaderLayer;
+        try {
+            shaderLayer = layer;
+            await new Promise((r) => requestAnimationFrame(() => r()));
+            boot.configureContext(cssW, cssH);
+            try {
+                await device.queue.onSubmittedWorkDone();
+            }
+            catch {
+                /* settle after resize */
+            }
+            selected = resolveBodyIndex(opts.body ?? selected);
+            evaluateBodyPoses(SHOWCASE_BODIES, startTime, poses);
+            const focus = poses[selected];
+            const bodyR = focus.def.kind === "sun" ? sunResolved.radius : focus.def.radius;
+            const bounds = zoomBoundsForBody(bodyR);
+            const r = clampZoom(bodyR * radiusMul, bounds.min, bounds.max);
+            orbit = createSolarOrbitState({ yaw, pitch, radius: r });
+            orbit = solarOrbitSetFocus(orbit, focus.x, focus.y, focus.z, r);
+            if (hudFocus) {
+                hudFocus.textContent =
+                    focus.def.kind === "sun" ? sunResolved.label : focus.def.name;
+            }
+            highlightBodyList();
+            profileStage = stage;
+            frameMsEma = 0;
+            gpuSampleCount = 0;
+            recentGpuSamples.length = 0;
+            simTime = startTime;
+            const waitFrame = () => new Promise((r) => requestAnimationFrame((t) => r(t)));
+            // Warm a few frames so timestamp pipeline is primed
+            for (let k = 0; k < settle && !boot.isLost; k++) {
+                await waitFrame();
+                simTime = startTime + k * dt;
+                try {
+                    renderAtTime(simTime);
+                }
+                catch (err) {
+                    console.error("[solar-system stage-profile warm]", err);
+                    break;
+                }
+            }
+            // Drop warm samples — only measure the next nFrames
+            recentGpuSamples.length = 0;
+            frameMsEma = 0;
+            gpuSampleCount = 0;
+            for (let i = 0; i < nFrames && !boot.isLost; i++) {
+                await waitFrame();
+                simTime = startTime + (settle + i) * dt;
+                try {
+                    renderAtTime(simTime);
+                }
+                catch (err) {
+                    console.error("[solar-system stage-profile frame]", err);
+                    break;
+                }
+            }
+            // Drain async timestamp readbacks
+            for (let k = 0; k < 6 && !boot.isLost; k++) {
+                await waitFrame();
+            }
+            await new Promise((r) => setTimeout(r, 40));
+            const samples = recentGpuSamples.slice();
+            const sorted = samples.slice().sort((a, b) => a - b);
+            const n = sorted.length;
+            const meanMs = n === 0 ? 0 : samples.reduce((a, b) => a + b, 0) / samples.length;
+            const medianMs = n === 0
+                ? 0
+                : n % 2 === 1
+                    ? sorted[(n - 1) >> 1]
+                    : 0.5 * (sorted[n / 2 - 1] + sorted[n / 2]);
+            const minMs = n === 0 ? 0 : sorted[0];
+            const maxMs = n === 0 ? 0 : sorted[n - 1];
+            const bodyDef = SHOWCASE_BODIES[selected];
+            const drawCounts = { ...lastDrawCounts };
+            // Still capture on this stage via offscreen texture readback (WebGPU
+            // swapchain toDataURL is unreliable). Timing already done at full res.
+            let pngBase64 = "";
+            let dataUrl = "";
+            if (wantStill && !boot.isLost) {
+                try {
+                    // Match actual drawing buffer (configureContext applies devicePixelRatio).
+                    const stillW = canvas.width || cssW;
+                    const stillH = canvas.height || cssH;
+                    const still = await captureStageStillDataUrl(simTime, stillW, stillH);
+                    dataUrl = still.dataUrl;
+                    pngBase64 = still.pngBase64;
+                }
+                catch (err) {
+                    console.warn("[stage still capture]", err);
+                }
+            }
+            return {
+                stage,
+                label,
+                body: bodyDef.id,
+                bodyIndex: selected,
+                samples,
+                meanMs,
+                medianMs,
+                minMs,
+                maxMs,
+                n,
+                usesTimestamps: gpuTimer.usesTimestamps,
+                width: canvas.width,
+                height: canvas.height,
+                drawCounts,
+                radiusMul,
+                shaderLayer: layer,
+                pngBase64,
+                dataUrl,
+            };
+        }
+        finally {
+            profileStage = prevStage;
+            shaderLayer = prevLayer;
+            captureActive = false;
+            lastTs = 0;
+        }
+    }
+    function formatDeltaMs(delta) {
+        const sign = delta >= 0 ? "+" : "−";
+        return `${sign}${Math.abs(delta).toFixed(2)} ms`;
+    }
+    /** Attach sequential deltas within each section (timeline presentation). */
+    function attachTimelineDeltas(tiles) {
+        const bySec = new Map();
+        for (const t of tiles) {
+            if (!bySec.has(t.section))
+                bySec.set(t.section, []);
+            bySec.get(t.section).push(t);
+        }
+        for (const list of bySec.values()) {
+            for (let i = 0; i < list.length; i++) {
+                const cur = list[i];
+                if (i === 0) {
+                    cur.deltaMs = null;
+                    cur.deltaLabel = null;
+                }
+                else {
+                    const prev = list[i - 1];
+                    const d = cur.meanMs - prev.meanMs;
+                    cur.deltaMs = d;
+                    cur.deltaLabel = formatDeltaMs(d);
+                }
+            }
+        }
+    }
+    /**
+     * Cost timeline gallery: cumulative planet + sun feature stacks with plain
+     * names and inter-step Δms. Optional draw-class isolation (secondary).
+     * Always restores profileStage=full and shaderLayer=0 afterward.
+     */
+    async function runStageGallery(opts = {}) {
+        const frames = opts.frames ?? 12;
+        const settle = opts.settleFrames ?? 6;
+        const width = opts.width ?? 3840;
+        const height = opts.height ?? 2160;
+        const radiusMul = opts.radiusMul ?? 1.6;
+        const planetBody = String(opts.body ?? "azure");
+        const results = [];
+        let w = width;
+        let h = height;
+        let usesTs = gpuTimer.usesTimestamps;
+        const push = async (section, label, body, stage, layer) => {
+            const r = await runStageProfile({
+                body,
+                stage,
+                frames,
+                settleFrames: settle,
+                width,
+                height,
+                radiusMul,
+                captureStill: true,
+                shaderLayer: layer,
+                label,
+            });
+            w = r.width;
+            h = r.height;
+            usesTs = r.usesTimestamps;
+            results.push({
+                section,
+                stage: r.stage,
+                label,
+                body: r.body,
+                meanMs: r.meanMs,
+                medianMs: r.medianMs,
+                minMs: r.minMs,
+                maxMs: r.maxMs,
+                n: r.n,
+                dataUrl: r.dataUrl,
+                pngBase64: r.pngBase64,
+                shaderLayer: r.shaderLayer,
+                deltaMs: null,
+                deltaLabel: null,
+                drawCounts: r.drawCounts,
+            });
+        };
+        try {
+            if (opts.stages && opts.stages.length > 0) {
+                for (const st of opts.stages.map(parseProfileStage)) {
+                    const body = st === "sun" ? "sol" : planetBody;
+                    await push("draw-class", st, body, st, 0);
+                }
+            }
+            else {
+                // --- Primary: planet cumulative cost timeline (shader layers) ---
+                // layerMax 1 solid · 2 maps · 3 lighting · 4+ atmosphere (4 and 5 same)
+                const planetSteps = [
+                    {
+                        label: "Solid lit disc (sphere + day lighting, no maps)",
+                        layer: 1,
+                    },
+                    { label: "+ Surface maps (albedo & clouds)", layer: 2 },
+                    {
+                        label: "+ Lighting detail (normals, specular, night lights)",
+                        layer: 3,
+                    },
+                    { label: "+ Multi-sample atmosphere scatter", layer: 4 },
+                ];
+                for (const step of planetSteps) {
+                    await push("planet-layers", step.label, planetBody, "planets", step.layer);
+                }
+                // --- Primary: sun cumulative cost timeline ---
+                const sunSteps = [
+                    { label: "Photosphere (hot disc + granulation)", layer: 1 },
+                    { label: "+ Chromosphere (limb rim)", layer: 2 },
+                    { label: "+ Sheath (soft near-limb shell)", layer: 3 },
+                    { label: "+ Corona rays & veil", layer: 4 },
+                    { label: "+ Outer halo", layer: 5 },
+                ];
+                for (const step of sunSteps) {
+                    await push("sun-layers", step.label, "sol", "sun", step.layer);
+                }
+                // --- Secondary: draw-class isolation (absolute times; not feature stack) ---
+                await push("draw-class", "Clear only (pass overhead)", planetBody, "clear", 0);
+                await push("draw-class", "Orbit rings only", planetBody, "rings", 0);
+                await push("draw-class", "Sun impostor only (Sol focus)", "sol", "sun", 0);
+                await push("draw-class", "Planets only", planetBody, "planets", 0);
+                await push("draw-class", "Full scene (rings + sun + planets)", planetBody, "full", 0);
+            }
+        }
+        finally {
+            profileStage = "full";
+            shaderLayer = 0;
+        }
+        attachTimelineDeltas(results);
+        return {
+            body: planetBody,
+            width: w,
+            height: h,
+            usesTimestamps: usesTs,
+            stages: results,
+        };
+    }
     // Test / capture surface for CDP harness and manual DevTools use.
     window.__solarSystemTest = {
         ready: true,
         usesTimestamps: gpuTimer.usesTimestamps,
+        PROFILE_STAGES: PROFILE_STAGES.slice(),
+        getSimPaused: () => simPaused,
+        setSimPaused: (p) => setSimPaused(p),
+        toggleSimPaused: () => toggleSimPaused(),
+        getSimTime: () => simTime,
         getFrameMs: () => frameMsEma,
         getMedianRecentMs: () => {
             const s = recentGpuSamples.slice().sort((a, b) => a - b);
@@ -1289,9 +1755,134 @@ async function main() {
         setViewport: (w, h) => {
             boot.configureContext(Math.max(64, w | 0), Math.max(64, h | 0));
         },
+        setProfileStage: (stage) => {
+            profileStage = parseProfileStage(stage);
+            return profileStage;
+        },
+        getProfileStage: () => profileStage,
+        setShaderLayer: (layer) => {
+            shaderLayer = Math.max(0, Math.min(5, Math.floor(layer)));
+            return shaderLayer;
+        },
+        getShaderLayer: () => shaderLayer,
+        SHADER_LAYER_MAX: 5,
+        getLastDrawCounts: () => ({ ...lastDrawCounts }),
         runCapture,
+        runStageProfile,
+        runStageGallery,
     };
+    // Stage-gallery page: auto-sweep after first frames (main still boots full product path).
+    const galleryRoot = document.getElementById("stage-gallery");
+    if (galleryRoot) {
+        // Defer so rAF has presented at least once and textures are warm.
+        void (async () => {
+            try {
+                setStatus("Capturing stage gallery @ 4K…");
+                // Small delay for GPU device settle after bootstrap
+                await new Promise((r) => setTimeout(r, 400));
+                const params = new URLSearchParams(location.search);
+                const body = params.get("body") || "azure";
+                const frames = Math.max(4, Number(params.get("frames") || 12) | 0);
+                const result = await runStageGallery({
+                    body,
+                    frames,
+                    width: 3840,
+                    height: 2160,
+                    radiusMul: 1.6,
+                    settleFrames: 6,
+                });
+                profileStage = "full";
+                // Hand off to gallery UI module if present
+                const w = window;
+                if (typeof w.__onStageGalleryReady === "function") {
+                    w.__onStageGalleryReady(result);
+                }
+                else {
+                    // Minimal inline fill if gallery script not loaded
+                    fillStageGalleryDom(galleryRoot, result);
+                }
+                setStatus(`Stage gallery ready · ${result.body} · ${result.width}×${result.height} · ts=${result.usesTimestamps}`);
+                window.__stageGalleryResult =
+                    result;
+            }
+            catch (err) {
+                console.error(err);
+                setStatus(err instanceof Error ? err.message : String(err), true);
+            }
+        })();
+    }
     requestAnimationFrame(frame);
+}
+/** Fallback gallery fill when stage-gallery.js is not used. */
+function fillStageGalleryDom(root, result) {
+    let gridHost = root.querySelector(".gallery-content");
+    if (!gridHost) {
+        gridHost = document.createElement("div");
+        gridHost.className = "gallery-content";
+        root.appendChild(gridHost);
+    }
+    gridHost.innerHTML = "";
+    const bySection = new Map();
+    for (const s of result.stages) {
+        const sec = s.section || "stages";
+        if (!bySection.has(sec))
+            bySection.set(sec, []);
+        bySection.get(sec).push(s);
+    }
+    const sectionTitles = {
+        "planet-layers": "Planet cost timeline (cumulative features)",
+        "sun-layers": "Sun cost timeline (cumulative features)",
+        "draw-class": "Draw isolation (absolute times · not a feature stack)",
+    };
+    const sectionOrder = ["planet-layers", "sun-layers", "draw-class"];
+    const keys = [
+        ...sectionOrder.filter((k) => bySection.has(k)),
+        ...[...bySection.keys()].filter((k) => !sectionOrder.includes(k)),
+    ];
+    for (const sec of keys) {
+        const tiles = bySection.get(sec);
+        const h2 = document.createElement("h2");
+        h2.className = "gallery-section-title";
+        h2.textContent = sectionTitles[sec] || sec;
+        gridHost.appendChild(h2);
+        const isTimeline = sec === "planet-layers" || sec === "sun-layers";
+        const row = document.createElement("div");
+        row.className = isTimeline ? "timeline-row" : "gallery-grid";
+        for (let i = 0; i < tiles.length; i++) {
+            const s = tiles[i];
+            if (isTimeline && i > 0) {
+                const arrow = document.createElement("div");
+                arrow.className = "timeline-arrow";
+                const dLab = s.deltaLabel ??
+                    (s.deltaMs != null
+                        ? `${s.deltaMs >= 0 ? "+" : "−"}${Math.abs(s.deltaMs).toFixed(2)} ms`
+                        : "—");
+                arrow.innerHTML = `<span class="timeline-delta">${dLab}</span><span class="timeline-arrow-mark" aria-hidden="true">→</span>`;
+                row.appendChild(arrow);
+            }
+            const fig = document.createElement("figure");
+            fig.className = "gallery-tile";
+            const title = s.label || s.stage;
+            fig.dataset.stage = title;
+            const img = document.createElement("img");
+            img.alt = title;
+            img.loading = "lazy";
+            if (s.dataUrl)
+                img.src = s.dataUrl;
+            else
+                img.classList.add("missing");
+            const cap = document.createElement("figcaption");
+            const d = s.drawCounts;
+            cap.innerHTML = `<strong class="stage-name">${title}</strong>
+        <span class="stage-ms">${s.meanMs.toFixed(2)} ms mean</span>
+        <span class="stage-footnote">median ${s.medianMs.toFixed(2)} · n=${s.n}
+        · body ${s.body ?? "—"} · draws R/S/P ${d.rings}/${d.sun}/${d.planets}</span>`;
+            fig.appendChild(img);
+            fig.appendChild(cap);
+            row.appendChild(fig);
+        }
+        gridHost.appendChild(row);
+    }
 }
 main().catch((err) => {
     console.error(err);

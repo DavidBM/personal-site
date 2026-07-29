@@ -101,7 +101,7 @@ fn hash31(p : vec3<f32>) -> f32 {
   return fract((p3.x + p3.y) * p3.z);
 }
 
-/** 3D value noise — body-sphere / limb domain. */
+/** 3D value noise — body-sphere / limb domain (corona / legacy). */
 fn noise3(p : vec3<f32>) -> f32 {
   let i = floor(p);
   let f = fract(p);
@@ -123,6 +123,22 @@ fn noise3(p : vec3<f32>) -> f32 {
   return mix(nxy0, nxy1, u.z);
 }
 
+/** 2D value noise — 4 hashes (half of noise3). Photosphere granulation only. */
+fn hash21(p : vec2<f32>) -> f32 {
+  return hash31(vec3<f32>(p.x, p.y, p.x * 0.17 + p.y * 0.31));
+}
+
+fn noise2(p : vec2<f32>) -> f32 {
+  let i = floor(p);
+  let f = fract(p);
+  let u = f * f * (3.0 - 2.0 * f);
+  let a = hash21(i);
+  let b = hash21(i + vec2<f32>(1.0, 0.0));
+  let c = hash21(i + vec2<f32>(0.0, 1.0));
+  let d = hash21(i + vec2<f32>(1.0, 1.0));
+  return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+}
+
 /** 2-octave 3D fbm — used sparingly (photosphere prefers single noise now). */
 fn fbm3d(p : vec3<f32>) -> f32 {
   var x = p;
@@ -138,28 +154,18 @@ fn shellFade(rr : f32, fadeStart : f32, fadeEnd : f32, margin : f32) -> f32 {
   return 1.0 - smoothstep(start, end, rr);
 }
 
-// Solar blackbody-ish tint vs disc radius.
-// Core = saturated white; limb/rays ramp white -> yellow -> gold -> red-orange.
-// warm (discWarm) scales how hard the warm ramp hits (0 = no yellow/red).
+// Solar blackbody-ish tint vs disc radius (cheap 2-stop ramp).
+// Core cream-white → limb gold/orange; warm scales the ramp.
 // Cool/hot-blue spectral color comes from spectralTint(…, glow) when warm is low.
 fn solarTempRgb(rr : f32, warm : f32) -> vec3<f32> {
   let w = clamp(warm, 0.0, 1.5);
-  let tLimb = smoothstep(0.4, 1.02, rr);
-  let tRay = smoothstep(0.98, 1.85, rr);
-  let t = (tLimb * 0.55 + tRay * 0.95) * w;
-
-  let white = vec3<f32>(1.0, 1.0, 1.0);
-  let cream = vec3<f32>(1.0, 0.97, 0.88);
-  let yellow = vec3<f32>(1.0, 0.88, 0.38);
-  let gold = vec3<f32>(1.0, 0.62, 0.14);
-  let red = vec3<f32>(1.0, 0.32, 0.06);
-
-  var c = mix(white, cream, smoothstep(0.0, 0.22, t));
-  c = mix(c, yellow, smoothstep(0.15, 0.55, t));
-  c = mix(c, gold, smoothstep(0.45, 0.95, t));
-  c = mix(c, red, smoothstep(0.75, 1.4, t));
-  let coreKeep = 1.0 - smoothstep(0.0, 0.55, rr) * 0.15 * w;
-  c = mix(c, white, coreKeep * (1.0 - smoothstep(0.25, 0.7, rr)));
+  let t = smoothstep(0.35, 1.08, rr) * w;
+  let core = vec3<f32>(1.0, 0.99, 0.94);
+  let mid = vec3<f32>(1.0, 0.9, 0.45);
+  let limb = vec3<f32>(1.0, 0.55, 0.12);
+  // Two mixes (was 5+ stop ladder) — same Sol identity, far less ALU per pixel
+  var c = mix(core, mid, smoothstep(0.0, 0.55, t));
+  c = mix(c, limb, smoothstep(0.4, 1.15, t));
   return c;
 }
 
@@ -173,18 +179,26 @@ fn spectralTint(base : vec3<f32>, glow : vec3<f32>, warm : f32) -> vec3<f32> {
   let gMax = max(max(glow.r, glow.g), max(glow.b, 1e-3));
   let gN = glow / gMax;
   let cool = clamp(1.0 - warm, 0.0, 1.0);
-  // Boost blue channel slightly so O/B types read clearly on an HDR disc
+  // Fast path: warm stars — lean a bit more into body glow (orange/red dwarfs)
+  // so discs aren't pure white with only solarTempRgb. Still mild for Sol.
+  if (cool < 0.08) {
+    return base * mix(vec3<f32>(1.0), gN, 0.22);
+  }
   let coolTint = gN * vec3<f32>(0.72, 0.88, 1.2);
-  // Mild Sol-gold nudge when warm (keeps corona-linked tint on limb)
   let warmTint = mix(vec3<f32>(1.0), gN, 0.1 * clamp(warm, 0.0, 1.0));
   let tint = mix(warmTint, coolTint, cool * cool);
-  // Core stays a bit brighter white; limb takes more spectral color
   return base * tint;
 }
 
 /**
  * Photosphere granulation on body-sphere normal (camera-stable).
- * Budget: 2× noise3 (was multi-fbm) — cells still read at disc scale.
+ *
+ * - **Sphere domain:** 1× noise3(nBody·scale) — isotropic on the ball (no nBody.xy
+ *   billboard stretch that elongated cells at the limb).
+ * - **Fine grain:** scale ~54 (≈3× finer than the previous 18× 2D field).
+ * - **Hot white core:** strong core white + mild tonemap so center reads saturated
+ *   while soft boil still shows toward mid/limb.
+ * Cost: 1× noise3 (8 hashes) vs old 4× noise3 (32 hashes).
  */
 fn photosphereRgb(
   nBody : vec3<f32>,
@@ -195,34 +209,41 @@ fn photosphereRgb(
   coreLiftAmt : f32,
   granGain : f32,
 ) -> vec3<f32> {
-  // Slow boil in body frame (sticks under orbit)
-  let warp = noise3(nBody * 2.8 + vec3<f32>(time * 0.06, time * 0.04, 0.5));
-  let p = nBody * 6.2 + vec3<f32>(warp * 0.7, warp * 0.5, time * 0.035);
-
-  let cells = noise3(p);
-  let mid = noise3(p * 2.15 + vec3<f32>(4.2, time * 0.05, 1.1));
-  let lanes = noise3(p * 3.1 - vec3<f32>(time * 0.1, time * 0.055, 0.0));
-
-  let cellBright = smoothstep(0.22, 0.72, cells * 0.65 + mid * 0.35);
-  let laneDark = smoothstep(0.2, 0.65, lanes);
-  var contrast = mix(0.82, 1.14, cellBright);
-  contrast = contrast * mix(1.0, 0.78, laneDark);
-  contrast = contrast + pow(max(mid, 0.0), 3.0) * 0.08;
-
   let gAmt = clamp(granGain, 0.0, 2.0);
-  contrast = mix(1.0, contrast, clamp(gAmt, 0.0, 1.0));
-  contrast = contrast * (1.0 + max(gAmt - 1.0, 0.0) * 0.15 * (cellBright - 0.5));
-
-  let pore = smoothstep(0.8, 0.95, mid);
-  contrast = mix(contrast, contrast * 0.72, pore * 0.4 * min(gAmt, 1.0));
-
-  var col = solarTempRgb(rr, discWarm);
-  col = mix(col, vec3<f32>(1.0, 0.99, 0.95), cellBright * 0.12 * min(gAmt, 1.0));
-  col = mix(col, col * vec3<f32>(1.0, 0.9, 0.75), laneDark * 0.12 * min(gAmt, 1.0));
-  col = col * contrast;
-
   let coreLift = exp(-rr * rr * 1.6) * coreLiftAmt;
-  col = col * discGain + vec3<f32>(coreLift);
+
+  // Hot disc base — bright white core (push a bit hotter than previous pass)
+  var base = solarTempRgb(rr, discWarm);
+  let coreWhite = exp(-rr * rr * 2.1);
+  base = mix(base, vec3<f32>(1.0, 0.998, 0.99), coreWhite * 0.88);
+
+  let boosted = base * discGain + vec3<f32>(coreLift);
+  // Mild rein-in — slightly softer than before so core stays brighter
+  var col = boosted / (vec3<f32>(1.0) + boosted * 0.16);
+  col = col * 1.12;
+
+  if (gAmt < 0.02) {
+    return col;
+  }
+
+  // Isotropic sphere grain (soft bilinear 3D). Scale 54 ≈ one-third cell size vs 18.
+  let p = nBody * 54.0 + vec3<f32>(time * 0.07, time * 0.05, 1.1);
+  let n = noise3(p);
+
+  let cellBright = smoothstep(0.22, 0.76, n);
+  let laneDark = smoothstep(0.18, 0.68, 1.0 - n);
+
+  // Soft boil amplitude
+  var contrast = mix(0.9, 1.1, cellBright);
+  contrast = contrast * mix(1.0, 0.93, laneDark);
+  contrast = mix(1.0, contrast, clamp(gAmt, 0.0, 1.0));
+
+  // Grain weaker in the white core, stronger mid/limb (classic solar look)
+  let granW =
+    mix(0.22, 1.0, smoothstep(0.08, 0.62, rr)) * clamp(gAmt, 0.0, 1.0);
+  col = mix(col, col * contrast, granW);
+  col = mix(col, col * vec3<f32>(1.03, 1.01, 0.96), cellBright * 0.1 * granW);
+  col = mix(col, col * vec3<f32>(0.96, 0.88, 0.72), laneDark * 0.1 * granW);
   return col;
 }
 
@@ -319,7 +340,9 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
   let sheathGain = body.look1.y;
   let rayGain = body.look1.z;
   let veilGain = body.look1.w;
-  // look2.x unused (legacy flareGain pad — host may write 0)
+  // look2.x = shaderLayer (0=full; 1..5 cumulative A photosphere … E full)
+  let shaderLayerRaw = i32(body.look2.x + 0.5);
+  let layerMax = select(5, shaderLayerRaw, shaderLayerRaw > 0);
   let outerGain = body.look2.y;
   let outerFalloff = max(body.look2.z, 0.2);
   let fadeStart = body.look3.x;
@@ -330,6 +353,12 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
 
   let sFade = shellFade(rr, fadeStart, fadeEnd, margin);
   if (rr > margin * 0.96 || (rr > 1.02 && sFade < 0.002)) {
+    discard;
+  }
+
+  // Layer A (photosphere only): drop all pixels outside the soft limb — corona
+  // margin would otherwise pay full FS for a black/empty shell (huge fill on 4K).
+  if (layerMax <= 1 && rr > 1.0 + limbSoft * 2.5) {
     discard;
   }
 
@@ -360,6 +389,7 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
   nBody = normalize(nBody);
 
   // ---- Photosphere (body-frame texture + spectral class from glow) ----
+  // Layer A: photosphere only (also force photosphere-only for all rr when layerMax<=1).
   let photoRaw = photosphereRgb(
     nBody, rr, time, discGain, discWarm, coreLiftAmt, granGain,
   );
@@ -367,8 +397,8 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
   var rgb = photo * discMask;
   let alpha = discMask;
 
-  // Interior photosphere only — skip corona path for most of the disc (limb still soft)
-  if (rr < 0.96) {
+  // Layer A only, or deep interior: no corona stack
+  if (layerMax <= 1 || rr < 0.96) {
     rgb = clamp(rgb, vec3<f32>(0.0), vec3<f32>(6.0));
     return vec4<f32>(rgb, clamp(alpha, 0.0, 1.0));
   }
@@ -387,16 +417,19 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
   let cool = clamp(1.0 - discWarm, 0.0, 1.0);
   let glowWarm = mix(tempRay, glowCol, 0.18 + 0.55 * cool);
 
-  // Chromosphere — limb noise in body frame so detail orbits with camera
-  let chromPeak = exp(-pow((rr - 1.0) / 0.03, 2.0) * 0.5);
-  let spic = noise3(
-    edgeBody * 16.0 + vec3<f32>((rr - 0.95) * 28.0 - time * 0.8, time * 0.05, 0.7),
-  );
-  let chrom = chromPeak * (1.0 + 0.45 * spic * smoothstep(0.9, 1.04, rr));
-  let chromTint = mix(vec3<f32>(1.0, 0.95, 0.75), glowCol, cool * 0.7);
-  rgb = rgb + tempNear * chromTint * chrom * chromGain * (0.9 + 0.25 * glowStr);
+  // Layer B+: Chromosphere
+  if (layerMax >= 2) {
+    let chromPeak = exp(-pow((rr - 1.0) / 0.03, 2.0) * 0.5);
+    let spic = noise3(
+      edgeBody * 16.0 + vec3<f32>((rr - 0.95) * 28.0 - time * 0.8, time * 0.05, 0.7),
+    );
+    let chrom = chromPeak * (1.0 + 0.45 * spic * smoothstep(0.9, 1.04, rr));
+    let chromTint = mix(vec3<f32>(1.0, 0.95, 0.75), glowCol, cool * 0.7);
+    rgb = rgb + tempNear * chromTint * chrom * chromGain * (0.9 + 0.25 * glowStr);
+  }
 
-  if (sFade > 0.002) {
+  if (sFade > 0.002 && layerMax >= 3) {
+    // Layer C+: sheath
     let sheath = smoothstep(0.96, 1.03, rr) * exp(-max(rr - 1.0, 0.0) * 7.5);
     if (sheath > 0.002) {
       let sn = noise3(edgeBody * 7.0 + vec3<f32>(time * 0.04, rr * 10.0, 1.2));
@@ -404,34 +437,39 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
       rgb = rgb + sheathCol * sheath * (0.65 + 0.55 * sn) * sheathGain * glowStr * sFade;
     }
 
-    let rayAttach = smoothstep(0.9, 1.03, rr);
-    if (rayAttach > 0.001 && rayGain > 0.001) {
-      let angM = angularRays3d(edgeBody, time);
-      let beyond = max(rr - 1.0, 0.0);
-      let rayLen = exp(-beyond * outerFalloff * 0.7) * exp(-beyond * beyond * 0.35);
-      let streamer = angM * rayAttach * rayLen * sFade;
-      let fineRay = streamer * streamer;
+    // Layer D+: rays + veil
+    if (layerMax >= 4) {
+      let rayAttach = smoothstep(0.9, 1.03, rr);
+      if (rayAttach > 0.001 && rayGain > 0.001) {
+        let angM = angularRays3d(edgeBody, time);
+        let beyond = max(rr - 1.0, 0.0);
+        let rayLen = exp(-beyond * outerFalloff * 0.7) * exp(-beyond * beyond * 0.35);
+        let streamer = angM * rayAttach * rayLen * sFade;
+        let fineRay = streamer * streamer;
 
-      let rayCol = mix(tempRay, glowCol, 0.2 + 0.55 * cool);
-      let rayCore = mix(
-        mix(vec3<f32>(1.0, 0.98, 0.9), tempNear, 0.45),
-        glowCol * 1.1,
-        cool * 0.65,
-      );
-      rgb = rgb + rayCol * streamer * rayGain * glowStr;
-      rgb = rgb + rayCore * fineRay * rayGain * 0.5 * glowStr;
+        let rayCol = mix(tempRay, glowCol, 0.2 + 0.55 * cool);
+        let rayCore = mix(
+          mix(vec3<f32>(1.0, 0.98, 0.9), tempNear, 0.45),
+          glowCol * 1.1,
+          cool * 0.65,
+        );
+        rgb = rgb + rayCol * streamer * rayGain * glowStr;
+        rgb = rgb + rayCore * fineRay * rayGain * 0.5 * glowStr;
 
-      let veil = exp(-max(rr - 0.95, 0.0) * 0.65) * rayAttach * sFade;
-      let veilN = noise3(edgeBody * 1.8 + vec3<f32>(time * 0.03, rr * 1.2, 0.4));
-      rgb = rgb + mix(tempFar, glowCol, cool * 0.5) * veil * (0.55 + 0.45 * veilN) * veilGain * glowStr;
+        let veil = exp(-max(rr - 0.95, 0.0) * 0.65) * rayAttach * sFade;
+        let veilN = noise3(edgeBody * 1.8 + vec3<f32>(time * 0.03, rr * 1.2, 0.4));
+        rgb = rgb + mix(tempFar, glowCol, cool * 0.5) * veil * (0.55 + 0.45 * veilN) * veilGain * glowStr;
+      }
     }
 
-    let outer = exp(-max(rr - 1.0, 0.0) * outerFalloff) * smoothstep(0.92, 1.2, rr) * sFade;
-    if (outer > 0.002 && outerGain > 0.001) {
-      // Outer halo: warm stars → red-gold; cool stars → body glow (blue)
-      let outerWarm = mix(tempFar, vec3<f32>(1.0, 0.4, 0.1), 0.35);
-      let outerCol = mix(outerWarm, glowCol, cool * 0.85);
-      rgb = rgb + outerCol * outer * outerGain * glowStr;
+    // Layer E: outer halo (full)
+    if (layerMax >= 5) {
+      let outer = exp(-max(rr - 1.0, 0.0) * outerFalloff) * smoothstep(0.92, 1.2, rr) * sFade;
+      if (outer > 0.002 && outerGain > 0.001) {
+        let outerWarm = mix(tempFar, vec3<f32>(1.0, 0.4, 0.1), 0.35);
+        let outerCol = mix(outerWarm, glowCol, cool * 0.85);
+        rgb = rgb + outerCol * outer * outerGain * glowStr;
+      }
     }
   }
 

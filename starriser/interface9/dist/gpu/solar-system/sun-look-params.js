@@ -7,7 +7,8 @@
  * User-tuned baseline (tight halo, bright disc) + visible internal granulation.
  */
 export const SUN_LOOK_DEFAULTS = Object.freeze({
-    discGain: 2.5,
+    // Hot white core with mild tonemap so fine grain still reads mid-disc.
+    discGain: 2.2,
     coreLift: 0,
     discWarm: 0.95,
     granGain: 0.72,

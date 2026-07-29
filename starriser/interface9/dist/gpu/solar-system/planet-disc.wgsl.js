@@ -47,7 +47,7 @@ struct BodyUniforms {
   look0 : vec4<f32>,
   // look1: intensity, extScale, atmGain, camDist
   look1 : vec4<f32>,
-  // look2: rInner, glowMul, mieEmit, pad
+  // look2: rInner, glowMul, mieEmit, shaderLayer (0=full product; 1..5 cumulative A..E)
   look2 : vec4<f32>,
   // look3: colorR, colorG, colorB, texIntensity
   look3 : vec4<f32>,
@@ -73,10 +73,37 @@ struct VSOut {
 };
 
 // Sample counts fixed (WGSL loop bounds); intensity/thickness live in uniforms.
-// 4×2 vs old 8×3 ≈ 3× fewer density evals — keeps limb integral look; mild boost
-// in fs_main restores energy. (2×1 was too coarse — flattened Azure atmosphere.)
+// 4×2 path-integral (was briefly 2×1 — flattened Azure limb caustics / bright rim).
+// Multi-sample in_scatter retained (not a neon rim). Mild scatterBoost restores energy.
 const NUM_OUT_SCATTER : i32 = 2;
 const NUM_IN_SCATTER : i32 = 4;
+
+// Algebraically equivalent cheaper forms for old-GPU-friendly ALU.
+// exp(x) = exp2(x * log2(e)); log2(e) = 1/ln(2). Look knobs unchanged.
+const LOG2_E : f32 = 1.4426950408889634;
+
+fn exp_fast(x : f32) -> f32 {
+  return exp2(x * LOG2_E);
+}
+
+fn exp_fast3(v : vec3<f32>) -> vec3<f32> {
+  return exp2(v * LOG2_E);
+}
+
+/** sqrt(x) for x > 0 via inverseSqrt; 0 when x ≤ 0. */
+fn sqrt_fast(x : f32) -> f32 {
+  return select(0.0, x * inverseSqrt(x), x > 0.0);
+}
+
+/** normalize(v) via inverseSqrt; near-zero input → large but finite (callers guard). */
+fn normalize_fast(v : vec3<f32>) -> vec3<f32> {
+  return v * inverseSqrt(max(dot(v, v), 1e-20));
+}
+
+/** pow(x, p) = exp2(p * log2(x)) for x > 0; 0 when x ≤ 0 (p ≥ 1 on our path). */
+fn pow_fast(x : f32, p : f32) -> f32 {
+  return select(0.0, exp2(p * log2(x)), x > 0.0);
+}
 
 @vertex
 fn vs_main(@builtin(vertex_index) vi : u32) -> VSOut {
@@ -179,14 +206,16 @@ fn ray_vs_sphere(p : vec3<f32>, dir : vec3<f32>, r : f32) -> vec2<f32> {
   if (d < 0.0) {
     return vec2<f32>(1e4, -1e4);
   }
-  let s = sqrt(d);
+  // sqrt(d) ≡ d * inverseSqrt(d) for d > 0
+  let s = sqrt_fast(d);
   return vec2<f32>(-b - s, -b + s);
 }
 
 fn density(p : vec3<f32>, ph : f32) -> f32 {
   let rInner = body.look2.x;
   let thick = max(body.look0.w, 0.001);
-  return exp(-max(length(p) - rInner, 0.0) / thick / ph);
+  // exp(x) ≡ exp2(x * log2(e))
+  return exp_fast(-max(length(p) - rInner, 0.0) / thick / ph);
 }
 
 fn optic(p : vec3<f32>, q : vec3<f32>, ph : f32) -> f32 {
@@ -208,7 +237,8 @@ fn phase_mie(g : f32, c : f32, cc : f32) -> f32 {
   let gg = g * g;
   let a = (1.0 - gg) * (1.0 + cc);
   var b = 1.0 + gg - 2.0 * g * c;
-  b = b * sqrt(b);
+  // b * sqrt(b) ≡ b² * inverseSqrt(b) for b > 0
+  b = select(0.0, b * b * inverseSqrt(b), b > 0.0);
   b = b * (2.0 + gg);
   return (3.0 / 8.0 / 3.14159265) * a / max(b, 1e-4);
 }
@@ -246,7 +276,8 @@ fn in_scatter(o : vec3<f32>, dir : vec3<f32>, e : vec2<f32>, l : vec3<f32>) -> v
     let u = v + l * f.y;
     let n_ray1 = optic(v, u, ph_ray);
     let n_mie1 = optic(v, u, ph_mie);
-    let att = exp(-(n_ray0 + n_ray1) * k_ray - (n_mie0 + n_mie1) * k_mie * k_mie_ex);
+    // Vector attenuation: exp(v) ≡ exp2(v * log2(e))
+    let att = exp_fast3(-(n_ray0 + n_ray1) * k_ray - (n_mie0 + n_mie1) * k_mie * k_mie_ex);
     sum_ray = sum_ray + d_ray * att;
     sum_mie = sum_mie + d_mie * att;
     v = v + s;
@@ -314,17 +345,21 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
   let camDist = max(body.look1.w, 1.0);
   let atmGain = body.look1.z;
   let glowMul = body.look2.y;
+  // Cumulative shader layers for gallery: 0 = product full; 1=A .. 5=E(=full).
+  // A solid disc · B +maps · C +full lighting · D +atmosphere · E full.
+  let shaderLayerRaw = i32(body.look2.w + 0.5);
+  let layerMax = select(5, shaderLayerRaw, shaderLayerRaw > 0);
 
-  let zSphere = sqrt(max(0.0, 1.0 - min(rr * rr, 1.0)));
-  let nLocal = normalize(vec3<f32>(
+  let zSphere = sqrt_fast(max(0.0, 1.0 - min(rr * rr, 1.0)));
+  let nLocal = normalize_fast(vec3<f32>(
     local.x / discR,
     local.y / discR,
     select(0.12, zSphere, rr <= edgeOuter),
   ));
 
   // Billboard +Z toward camera (stable); used for sphere reconstruct + sunLocal
-  let camFwd = normalize(cross(body.camRight.xyz, body.camUp.xyz));
-  var nWorld = normalize(
+  let camFwd = normalize_fast(cross(body.camRight.xyz, body.camUp.xyz));
+  var nWorld = normalize_fast(
     body.camRight.xyz * nLocal.x
     + body.camUp.xyz * nLocal.y
     + camFwd * nLocal.z
@@ -333,7 +368,7 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
   var nBody = nWorld;
   nBody = rotateX(nBody, -obl);
   nBody = rotateY(nBody, -spin);
-  nBody = normalize(nBody);
+  nBody = normalize_fast(nBody);
   let uv = sphereToUv(nBody);
   let uvCloud = vec2<f32>(fract(uv.x + frame.timePad.x * 0.008), uv.y);
 
@@ -350,12 +385,26 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
   let nrmStr = body.look5.z;
   // Host packs projected limb radius in px for surface LOD only.
   // Atmosphere always uses multi-sample in_scatter (no cheap neon look3 rim).
-  let screenRpx = body.look5.w;
+  // When shaderLayer>0 (gallery cumulative), force full-path so layers are comparable.
+  var screenRpx = body.look5.w;
+  if (shaderLayerRaw > 0) {
+    screenRpx = 999.0;
+  }
 
-  let sunDir0 = normalize(frame.sunPos.xyz - body.centerRadius.xyz);
+  let sunDir0 = normalize_fast(frame.sunPos.xyz - body.centerRadius.xyz);
   let sunDir = sunDir0;
   let softEdge = max(edgeOuter - edgeInner, max(body.spinOblMargin.w, 1e-4));
   let surfaceMask0 = 1.0 - smoothstep(edgeOuter - softEdge, edgeOuter, rr);
+
+  // --- Layer A only: solid lit disc (sphere + day), no maps / no atmosphere ---
+  if (layerMax <= 1) {
+    let dayA = smoothstep(-0.12, 0.18, dot(nWorld, sunDir0));
+    let litA = albedoBase * (ambient + dayStr * dayA) * texI;
+    return vec4<f32>(
+      clamp(litA * surfaceMask0, vec3<f32>(0.0), vec3<f32>(6.0)),
+      clamp(surfaceMask0, 0.0, 1.0),
+    );
+  }
 
   // Shared multi-sample atmosphere (same family as close-up full path).
   // Used by mid LOD and full path so limb energy never jumps to a neon rim.
@@ -369,7 +418,7 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
     var atmTiny = vec3<f32>(0.0);
     let camPosT = vec3<f32>(0.0, 0.0, camDist);
     let pT = vec2<f32>(local.x / discR, local.y / discR);
-    let dirT = normalize(vec3<f32>(pT.x, pT.y, -camDist));
+    let dirT = normalize_fast(vec3<f32>(pT.x, pT.y, -camDist));
     var eT = ray_vs_sphere(camPosT, dirT, rInner + atmThick);
     if (eT.x < eT.y && eT.x > 0.0) {
       let fT = ray_vs_sphere(camPosT, dirT, rInner);
@@ -424,10 +473,10 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
     let dayM = smoothstep(-0.12, 0.18, dot(nShadeM, sunDir0));
     var litM = surfM * (body.look4.x + body.look4.y * dayM);
     if (isOcean) {
-      let viewDirM = normalize(frame.eyePos.xyz - body.centerRadius.xyz);
-      let halfM = normalize(sunDir0 + viewDirM);
+      let viewDirM = normalize_fast(frame.eyePos.xyz - body.centerRadius.xyz);
+      let halfM = normalize_fast(sunDir0 + viewDirM);
       litM = litM + vec3<f32>(1.0, 0.94, 0.82) *
-        pow(max(dot(nShadeM, halfM), 0.0), max(body.look4.w, 1.0)) *
+        pow_fast(max(dot(nShadeM, halfM), 0.0), max(body.look4.w, 1.0)) *
         0.35 * dayM * body.look4.z;
     }
     litM = mix(nightM * nightAmt, litM, dayM);
@@ -435,7 +484,7 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
     var atmM = vec3<f32>(0.0);
     let camPosM = vec3<f32>(0.0, 0.0, camDist);
     let pM = vec2<f32>(local.x / discR, local.y / discR);
-    let dirM = normalize(vec3<f32>(pM.x, pM.y, -camDist));
+    let dirM = normalize_fast(vec3<f32>(pM.x, pM.y, -camDist));
     var eM = ray_vs_sphere(camPosM, dirM, rInner + atmThick);
     if (eM.x < eM.y && eM.x > 0.0) {
       let fM = ray_vs_sphere(camPosM, dirM, rInner);
@@ -468,56 +517,71 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
   var specAmt = 0.15; // procedural bodies get a little gloss
   var nightCol = vec3<f32>(0.0);
 
-  // Kind-gated maps/noise: ocean skips fbm; gas/ice skip multi-map samples;
-  // rocky only samples moon + lite crater noise.
+  // Kind-gated maps/noise. Layer B (2): albedo/cloud/moon only.
+  // Layer C+ (3..): full multi-map + TBN + night.
   if (isOcean) {
     let dayMap = textureSampleLevel(texAlbedo, samp, uv, 0.0).rgb;
-    let nMap = textureSampleLevel(texNormal, samp, uv, 0.0).xyz * 2.0 - 1.0;
-    let specMap = textureSampleLevel(texSpec, samp, uv, 0.0).r;
-    let nightMap = textureSampleLevel(texNight, samp, uv, 0.0).rgb;
     let cloudMap = textureSampleLevel(texCloud, samp, uvCloud, 0.0).r;
     var earthSurf = mix(dayMap, vec3<f32>(1.0, 1.0, 1.0), cloudMap * cloudAmt);
-    // Tangent-space normal map → body space
-    let upRef = vec3<f32>(0.0, 1.0, 0.0);
-    var tAxis = cross(upRef, nBody);
-    if (dot(tAxis, tAxis) < 1e-8) {
-      tAxis = vec3<f32>(1.0, 0.0, 0.0);
-    }
-    tAxis = normalize(tAxis);
-    let bAxis = cross(nBody, tAxis);
-    let nMapped = normalize(tAxis * nMap.x + bAxis * nMap.y + nBody * nMap.z);
-    let nPertBody = normalize(mix(nBody, nMapped, clamp(nrmStr, 0.0, 1.5)));
-    var nEarth = nPertBody;
-    nEarth = rotateY(nEarth, spin);
-    nEarth = rotateX(nEarth, obl);
-    nEarth = normalize(nEarth);
     surface = earthSurf;
-    nShade = nEarth;
-    specAmt = specMap;
-    nightCol = nightMap;
+    if (layerMax >= 3) {
+      let nMap = textureSampleLevel(texNormal, samp, uv, 0.0).xyz * 2.0 - 1.0;
+      let specMap = textureSampleLevel(texSpec, samp, uv, 0.0).r;
+      let nightMap = textureSampleLevel(texNight, samp, uv, 0.0).rgb;
+      // Tangent-space normal map → body space
+      let upRef = vec3<f32>(0.0, 1.0, 0.0);
+      var tAxis = cross(upRef, nBody);
+      if (dot(tAxis, tAxis) < 1e-8) {
+        tAxis = vec3<f32>(1.0, 0.0, 0.0);
+      }
+      tAxis = normalize_fast(tAxis);
+      let bAxis = cross(nBody, tAxis);
+      let nMapped = normalize_fast(tAxis * nMap.x + bAxis * nMap.y + nBody * nMap.z);
+      let nPertBody = normalize_fast(mix(nBody, nMapped, clamp(nrmStr, 0.0, 1.5)));
+      var nEarth = nPertBody;
+      nEarth = rotateY(nEarth, spin);
+      nEarth = rotateX(nEarth, obl);
+      nEarth = normalize_fast(nEarth);
+      nShade = nEarth;
+      specAmt = specMap;
+      nightCol = nightMap;
+    }
   } else if (isRocky) {
     let moonMap = textureSampleLevel(texMoon, samp, uv, 0.0).rgb;
-    let crat = fbm3_lite(nBody * 12.0);
-    surface = mix(
-      moonMap * albedoBase * 1.4,
-      moonMap * 0.45,
-      smoothstep(0.55, 0.75, crat) * 0.35,
-    );
-    specAmt = 0.08;
+    if (layerMax >= 3) {
+      let crat = fbm3_lite(nBody * 12.0);
+      surface = mix(
+        moonMap * albedoBase * 1.4,
+        moonMap * 0.45,
+        smoothstep(0.55, 0.75, crat) * 0.35,
+      );
+      specAmt = 0.08;
+    } else {
+      surface = moonMap * albedoBase * 1.25;
+    }
   } else {
-    surface = proceduralAlbedo(kind, nBody, albedoBase, frame.timePad.x);
+    if (layerMax >= 3) {
+      surface = proceduralAlbedo(kind, nBody, albedoBase, frame.timePad.x);
+    } else {
+      let n1 = fbm3_lite(nBody * 4.5);
+      surface = mix(albedoBase * 0.75, albedoBase * 1.05, n1);
+    }
   }
 
   surface = surface * texI;
 
   let Ldot = dot(nShade, sunDir);
   let day = smoothstep(-0.12, 0.18, Ldot);
-  let viewDir = normalize(frame.eyePos.xyz - body.centerRadius.xyz);
-  let halfV = normalize(sunDir + viewDir);
-  let spec = pow(max(dot(nShade, halfV), 0.0), specPow) * specAmt * day * specStr;
   var lit = surface * (ambient + dayStr * day);
-  lit = lit + vec3<f32>(1.0, 0.94, 0.82) * spec;
-  lit = mix(nightCol * nightAmt, lit, day);
+  // Layer C+: specular + night lights
+  if (layerMax >= 3) {
+    let viewDir = normalize_fast(frame.eyePos.xyz - body.centerRadius.xyz);
+    let halfV = normalize_fast(sunDir + viewDir);
+    // pow(x,p) ≡ exp2(p * log2(x)) for x > 0
+    let spec = pow_fast(max(dot(nShade, halfV), 0.0), specPow) * specAmt * day * specStr;
+    lit = lit + vec3<f32>(1.0, 0.94, 0.82) * spec;
+    lit = mix(nightCol * nightAmt, lit, day);
+  }
 
   // Soft limb: geometric soft band + screen-space ~1px AA (PoC-style alpha edge).
   // Use edge0 < edge1 form (WGSL smoothstep is undefined if edge0 >= edge1).
@@ -527,15 +591,31 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
   var rgb = lit * surfaceMask;
   var alpha = surfaceMask;
 
-  // --- Atmosphere: in_scatter only (same disc scale; NO /0.9 inflate) ---
+  // Layer B only (maps, no atm) — stop before scatter
+  if (layerMax <= 2) {
+    return vec4<f32>(
+      clamp(rgb, vec3<f32>(0.0), vec3<f32>(6.0)),
+      clamp(alpha, 0.0, 1.0),
+    );
+  }
+
+  // Layer C only (full surface, no atm)
+  if (layerMax <= 3) {
+    return vec4<f32>(
+      clamp(rgb, vec3<f32>(0.0), vec3<f32>(6.0)),
+      clamp(alpha, 0.0, 1.0),
+    );
+  }
+
+  // --- Atmosphere: in_scatter only (layer D+ / E full) ---
   // Local frame: +X camRight, +Y camUp, +Z toward camera (camFwd). View rays
   // go -Z into the scene: dir = normalize(p.x, p.y, -camDist).
   let camPos = vec3<f32>(0.0, 0.0, camDist);
   let p = vec2<f32>(local.x / discR, local.y / discR);
-  let dir = normalize(vec3<f32>(p.x, p.y, -camDist));
+  let dir = normalize_fast(vec3<f32>(p.x, p.y, -camDist));
   var e = ray_vs_sphere(camPos, dir, rInner + atmThick);
   var atm = vec3<f32>(0.0);
-  // 4×2 vs 8×3: mild boost restores limb energy without overshoot.
+  // 4×2 sample grid: mild boost restores limb energy without overshoot.
   let scatterBoost = 1.1;
   if (e.x < e.y && e.x > 0.0) {
     let f = ray_vs_sphere(camPos, dir, rInner);

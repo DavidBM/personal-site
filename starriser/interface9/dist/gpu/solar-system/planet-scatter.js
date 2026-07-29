@@ -5,6 +5,9 @@
  * View ray must point from camera toward the origin sphere:
  *   camPos = (0,0,+CAM_DIST), dir = normalize(p.x, p.y, -CAM_DIST)
  * A wrong +Z dir yields t < 0 and ~zero scatter on-disc.
+ *
+ * Hot math uses the same algebraically equivalent cheaper forms as WGSL:
+ * exp → exp2(x*log2(e)), sqrt → x*invSqrt(x), Mie b*sqrt(b) → b²*invSqrt(b).
  */
 export const SCATTER_CAM_DIST = 10;
 export const SCATTER_R_INNER = 1;
@@ -22,6 +25,8 @@ export const SCATTER_DIR_TOWARD_SPHERE_MARKERS = [
     "camPos",
     "in_scatter",
 ];
+/** log2(e) — exp(x) ≡ Math.pow(2, x * LOG2_E). Matches WGSL LOG2_E / exp_fast. */
+export const SCATTER_LOG2_E = Math.LOG2E;
 function len(v) {
     return Math.hypot(v.x, v.y, v.z);
 }
@@ -41,17 +46,25 @@ function scale(v, s) {
 function sub(a, b) {
     return { x: a.x - b.x, y: a.y - b.y, z: a.z - b.z };
 }
+/** exp(x) ≡ 2^(x * log2(e)) — mirrors WGSL exp_fast. */
+function expFast(x) {
+    return Math.pow(2, x * SCATTER_LOG2_E);
+}
+/** sqrt(x) for x > 0 via invSqrt; 0 when x ≤ 0 — mirrors WGSL sqrt_fast. */
+function sqrtFast(x) {
+    return x > 0 ? x * (1 / Math.sqrt(x)) : 0;
+}
 export function rayVsSphere(p, dir, r) {
     const b = dot(p, dir);
     const c = dot(p, p) - r * r;
     const d = b * b - c;
     if (d < 0)
         return { tNear: 1e4, tFar: -1e4 };
-    const s = Math.sqrt(d);
+    const s = sqrtFast(d);
     return { tNear: -b - s, tFar: -b + s };
 }
 function density(p, ph) {
-    return Math.exp(-Math.max(len(p) - SCATTER_R_INNER, 0) / SCATTER_ATM_THICK / ph);
+    return expFast(-Math.max(len(p) - SCATTER_R_INNER, 0) / SCATTER_ATM_THICK / ph);
 }
 function optic(p, q, ph) {
     const s = scale(sub(q, p), 1 / SCATTER_NUM_OUT);
@@ -70,7 +83,8 @@ function phaseMie(g, c, cc) {
     const gg = g * g;
     const a = (1 - gg) * (1 + cc);
     let b = 1 + gg - 2 * g * c;
-    b = b * Math.sqrt(Math.max(b, 0));
+    // b * sqrt(b) ≡ b² * invSqrt(b) for b > 0 — mirrors WGSL phase_mie
+    b = b > 0 ? b * b * (1 / Math.sqrt(b)) : 0;
     b = b * (2 + gg);
     return (3 / 8 / Math.PI) * a / Math.max(b, 1e-4);
 }
@@ -105,9 +119,10 @@ export function inScatter(o, dir, eNear, eFar, light) {
         const u = add(v, scale(light, f.tFar));
         const nRay1 = optic(v, u, phRay);
         const nMie1 = optic(v, u, phMie);
-        const attR = Math.exp(-(nRay0 + nRay1) * kRay.x - (nMie0 + nMie1) * kMie.x * kMieEx);
-        const attG = Math.exp(-(nRay0 + nRay1) * kRay.y - (nMie0 + nMie1) * kMie.y * kMieEx);
-        const attB = Math.exp(-(nRay0 + nRay1) * kRay.z - (nMie0 + nMie1) * kMie.z * kMieEx);
+        // exp → exp2 form — mirrors WGSL exp_fast3 attenuation
+        const attR = expFast(-(nRay0 + nRay1) * kRay.x - (nMie0 + nMie1) * kMie.x * kMieEx);
+        const attG = expFast(-(nRay0 + nRay1) * kRay.y - (nMie0 + nMie1) * kMie.y * kMieEx);
+        const attB = expFast(-(nRay0 + nRay1) * kRay.z - (nMie0 + nMie1) * kMie.z * kMieEx);
         sumRay = {
             x: sumRay.x + dRay * attR,
             y: sumRay.y + dRay * attG,

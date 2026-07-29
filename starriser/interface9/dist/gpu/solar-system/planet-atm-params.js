@@ -27,11 +27,21 @@ export const PLANET_ATM_DEFAULTS = Object.freeze({
     cloudAmount: 0.55,
     nightLights: 1.15,
     normalStrength: 0.55,
-    edgeAaPx: 1.25,
+    edgeAaPx: 1.5,
+    atmRingInner: 0.88,
+    atmRingFull: 1.0,
+    outerGlowAmt: 0.25,
+    outerGlowWidth: 0.1,
+    limbHugScale: 0.0,
+    spherize: 1.0,
 });
 /**
  * User-tuned Azure (ocean multi-map) look — restored after 30-planet expand.
  * Paste-compatible with body=azure.
+ *
+ * drawMarginMul: half-extent scale = body.drawMargin × mul (Azure body = 1.48).
+ * Need headroom past atmOuter (1.28) for limb scatter/caustics — old 2.23 was
+ * wasteful (~3.3); 0.90 was too tight and clipped the bright rim. 1.15 → ~1.70.
  */
 export const AZURE_ATM_PRESET = Object.freeze({
     edgeInner: 0.995,
@@ -43,7 +53,7 @@ export const AZURE_ATM_PRESET = Object.freeze({
     atmGain: 0.65,
     camDist: 40,
     rInner: 0.99,
-    drawMarginMul: 2.23,
+    drawMarginMul: 1.15,
     mieEmit: 18,
     colorR: 4.2,
     colorG: 14.5,
@@ -57,7 +67,13 @@ export const AZURE_ATM_PRESET = Object.freeze({
     cloudAmount: 0.86,
     nightLights: 1.15,
     normalStrength: 0.04,
-    edgeAaPx: 1.0,
+    edgeAaPx: 1.5,
+    atmRingInner: 0.9,
+    atmRingFull: 1.0,
+    outerGlowAmt: 0.3,
+    outerGlowWidth: 0.12,
+    limbHugScale: 0.0,
+    spherize: 1.0,
 });
 /** Per-body showcase presets keyed by stable body id. */
 export const BODY_ATM_PRESETS = Object.freeze({
@@ -77,7 +93,7 @@ const CLAMP = {
     extScale: { min: 0.05, max: 2 },
     atmGain: { min: 0.1, max: 5 },
     camDist: { min: 2, max: 40 },
-    rInner: { min: 0.9, max: 1.1 },
+    rInner: { min: 0.7, max: 1.15 },
     drawMarginMul: { min: 0.8, max: 2.5 },
     mieEmit: { min: 1, max: 60 },
     colorR: { min: 0, max: 80 },
@@ -92,7 +108,13 @@ const CLAMP = {
     cloudAmount: { min: 0, max: 1 },
     nightLights: { min: 0, max: 4 },
     normalStrength: { min: 0, max: 2 },
-    edgeAaPx: { min: 0.25, max: 4 },
+    edgeAaPx: { min: 0.25, max: 6 },
+    atmRingInner: { min: 0.5, max: 1.0 },
+    atmRingFull: { min: 0.7, max: 1.05 },
+    outerGlowAmt: { min: 0, max: 4 },
+    outerGlowWidth: { min: 0.02, max: 0.5 },
+    limbHugScale: { min: 0, max: 0.25 },
+    spherize: { min: 0, max: 1 },
 };
 export function clampAtmParams(p) {
     const o = { ...p };
@@ -109,6 +131,9 @@ export function clampAtmParams(p) {
     }
     if (o.atmOuter <= o.edgeOuter) {
         o.atmOuter = o.edgeOuter + 0.05;
+    }
+    if (o.atmRingInner > o.atmRingFull) {
+        o.atmRingInner = Math.max(CLAMP.atmRingInner.min, o.atmRingFull - 0.02);
     }
     return o;
 }
@@ -296,12 +321,17 @@ export function atmParamsFromQuery(search, base = PLANET_ATM_DEFAULTS) {
 }
 /** UI metadata for building controls. */
 export const ATM_PARAM_UI = [
-    { key: "edgeInner", label: "Planet cut (inner soft)", step: 0.001, group: "limb" },
-    { key: "edgeOuter", label: "Planet limb (outer)", step: 0.001, group: "limb" },
-    { key: "edgeAaPx", label: "Limb AA (pixels)", step: 0.05, group: "limb" },
-    { key: "rInner", label: "Scatter R_INNER (limb)", step: 0.001, group: "limb" },
-    { key: "atmOuter", label: "Atmosphere outer (rr)", step: 0.01, group: "limb" },
+    { key: "edgeOuter", label: "Planet limb (outer rr)", step: 0.001, group: "limb" },
+    { key: "edgeInner", label: "Planet soft start (rr)", step: 0.001, group: "limb" },
+    { key: "edgeAaPx", label: "Border AA (constant px)", step: 0.05, group: "limb" },
+    { key: "spherize", label: "Texture spherize", step: 0.02, group: "limb" },
+    { key: "rInner", label: "Scatter surface radius", step: 0.001, group: "limb" },
     { key: "drawMarginMul", label: "Draw margin ×", step: 0.01, group: "limb" },
+    { key: "atmRingInner", label: "On-disc atm start (× limb)", step: 0.01, group: "rings" },
+    { key: "atmOuter", label: "Atmosphere outer cut (rr)", step: 0.01, group: "rings" },
+    { key: "atmThick", label: "Atmosphere shell thick", step: 0.01, group: "rings" },
+    { key: "outerGlowAmt", label: "Exterior shell × (at limb)", step: 0.05, group: "rings" },
+    { key: "outerGlowWidth", label: "Exterior falloff width", step: 0.01, group: "rings" },
     { key: "texIntensity", label: "Texture / albedo ×", step: 0.02, group: "surface" },
     { key: "ambient", label: "Ambient light", step: 0.01, group: "surface" },
     { key: "dayStrength", label: "Day lighting", step: 0.02, group: "surface" },
@@ -310,7 +340,6 @@ export const ATM_PARAM_UI = [
     { key: "cloudAmount", label: "Cloud whitening", step: 0.02, group: "surface" },
     { key: "nightLights", label: "Night city lights", step: 0.05, group: "surface" },
     { key: "normalStrength", label: "Normal map bump", step: 0.02, group: "surface" },
-    { key: "atmThick", label: "Atmosphere thickness", step: 0.01, group: "scatter" },
     { key: "intensity", label: "Scatter intensity", step: 0.5, group: "scatter" },
     { key: "extScale", label: "Extinction (lower=brighter)", step: 0.02, group: "scatter" },
     { key: "atmGain", label: "Atmosphere gain", step: 0.05, group: "scatter" },
