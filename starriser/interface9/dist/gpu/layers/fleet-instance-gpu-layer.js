@@ -6,17 +6,18 @@
  * - Dual dispatch same encoder: cs_fleets (ease center) then cs_ships (1 thread/ship).
  * - FleetGpu storage: one row per fleet slot (stable free-list index).
  * - ShipSim storage: one row per visual ship (index = draw instance index).
- * - Trail sample + fixed-slot expand; fat Line2-style ribbon draw (wide head / thin tail).
+ * - Trail sample + fixed-slot expand; body ribbon draw samples thruster atlas
+ *   (`images/engine-trail-01.png`) with blend alpha (no a2c).
  * - Draw instance buffer: vertex|storage|copy_dst so compute can scatter bases.
  * - Main does **not** walk ship bases every frame (L3 exit).
  */
 import { MAP_MSAA_SAMPLES } from "../map-msaa.js";
 import { FLEET_SHIPS_WGSL, FLEET_SHIP_DRAW_STRIDE, FLEET_SHIP_UNIFORM_SIZE, } from "../shaders/fleet-ships.wgsl.js";
 import { writeTrailVariantModulation, } from "../shaders/fleet-trails.wgsl.js";
-import { MODEL_TRAIL_EMITTER_COUNT, MODEL_TRAIL_EMITTERS, MODEL_TRAIL_VARIANTS, modelTrailDenseExpandBudget, } from "../../lib/fleet-sim/visual/model-trail-config.js";
+import { MODEL_TRAIL_EMITTER_COUNT, MODEL_TRAIL_EMITTERS, MODEL_TRAIL_VARIANTS, modelTrailDenseExpandBudget, modelTrailMaxWidthScale, } from "../../lib/fleet-sim/visual/model-trail-config.js";
 import { MODEL_LOD_MAX_INSTANCES, } from "../fleet-lod.js";
 import { buildFleetIntegrateWgsl, buildFleetIntegrateFastWgsl, FLEET_INTEGRATE_UNIFORM_SIZE, FLEET_INTEGRATE_WORKGROUP, FLEET_INTEGRATE_SHIP_SIM_STRIDE, } from "../shaders/fleet-integrate.wgsl.js";
-import { FLEET_TRAILS_WGSL, TRAIL_TEMPLATE_INDEX_COUNT, TRAIL_TEMPLATE_INDICES, TRAIL_TEMPLATE_STRIDE, TRAIL_UNIFORM_FLOATS, TRAIL_UNIFORM_SIZE, TRAIL_WIDTH_HEAD_PX, TRAIL_WIDTH_TAIL_PX, buildTrailTemplateInterleaved, writeTrailUniforms, } from "../shaders/fleet-trails.wgsl.js";
+import { DEFAULT_TRAIL_TEXTURE_URL, FLEET_TRAILS_WGSL, TRAIL_TEMPLATE_INDEX_COUNT, TRAIL_TEMPLATE_INDICES, TRAIL_TEMPLATE_STRIDE, TRAIL_UNIFORM_FLOATS, TRAIL_UNIFORM_SIZE, TRAIL_WIDTH_HEAD_PX, TRAIL_WIDTH_TAIL_PX, buildTrailTemplateInterleaved, resolveTrailDrawWidths, writeTrailUniforms, writeTrailWidthMode, writeTrailExposure, TRAIL_EXPOSURE_DEFAULT, } from "../shaders/fleet-trails.wgsl.js";
 import { TRAIL_SAMPLE_FLOATS, resolveTrailLayout, } from "../fleet-trail-ref.js";
 import { FLEET_GPU_STRIDE, TRAIL_SAMPLE_STRIDE } from "../fleet-layout.js";
 import { readGpuBuffer } from "../buffer-readback.js";
@@ -61,6 +62,11 @@ export class FleetInstanceGpuLayer {
         this.trailTemplateIndexHandle = null;
         this.trailTemplateVertBuffer = null;
         this.trailTemplateIndexBuffer = null;
+        /** Thruster atlas (fallback 1×1 white until {@link loadTrailTexture} resolves). */
+        this.trailTexture = null;
+        this.trailTextureView = null;
+        this.trailSampler = null;
+        this.trailTextureUrl = null;
         this.meshHandle = null;
         this.instanceHandle = null;
         this.fleetHandle = null;
@@ -191,8 +197,8 @@ export class FleetInstanceGpuLayer {
         return this.trailDrawShipIndices;
     }
     /**
-     * Screen-space trail width multiplier (1 = production default).
-     * Used while following a ship so the ribbon reads at roof-cam distance.
+     * Trail width multiplier (1 = production default). Optional test/debug knob;
+     * production map always leaves this at 1 (widths baked into TRAIL_WIDTH_*).
      */
     setTrailWidthScale(scale) {
         const s = Number(scale);
@@ -372,7 +378,7 @@ export class FleetInstanceGpuLayer {
             multisample: { count: sampleCount },
         });
         // Body-only trail quads: template (4 verts / 2 tris) + expand segs (per-instance).
-        // Alpha-to-coverage when MSAA for long-edge AA (no circular endcaps).
+        // Textured thruster atlas — blend only (no alphaToCoverage; soft alpha dithers badly).
         const trailModule = device.createShaderModule({
             label: "fleet-trails",
             code: FLEET_TRAILS_WGSL,
@@ -403,6 +409,8 @@ export class FleetInstanceGpuLayer {
                 ],
             },
         ];
+        // Additive thruster FS (one/one): stacked cores merge like light emitters.
+        // Premultiplied RGB × atlas α; dark halo must not darken a brighter core.
         const trailFragment = {
             module: trailModule,
             entryPoint: "fs_main",
@@ -411,13 +419,13 @@ export class FleetInstanceGpuLayer {
                     format,
                     blend: {
                         color: {
-                            srcFactor: "src-alpha",
-                            dstFactor: "one-minus-src-alpha",
+                            srcFactor: "one",
+                            dstFactor: "one",
                             operation: "add",
                         },
                         alpha: {
                             srcFactor: "one",
-                            dstFactor: "one-minus-src-alpha",
+                            dstFactor: "one",
                             operation: "add",
                         },
                     },
@@ -430,7 +438,8 @@ export class FleetInstanceGpuLayer {
         };
         const trailMultisample = {
             count: sampleCount,
-            alphaToCoverageEnabled: sampleCount > 1,
+            // Soft thruster PNG alpha needs real blend, not MSAA coverage dither.
+            alphaToCoverageEnabled: false,
         };
         // Strategic trails: color-only pass (depthFormat:null — same as Line2).
         this.trailPipeline = device.createRenderPipeline({
@@ -583,36 +592,99 @@ export class FleetInstanceGpuLayer {
         // Minimal hide buffer so bind group is always complete (model LOD inactive → all 0).
         this.ensureModelHideCapacity(256);
         this.rebuildShipBindGroup();
+        // Trail thruster atlas: 1×1 white until production PNG loads (tests keep drawing).
+        this.ensureTrailTextureResources();
         this.rebuildTrailBindGroups();
+        void this.loadTrailTexture(DEFAULT_TRAIL_TEXTURE_URL).catch(() => {
+            /* optional in fixtures without images/ — white fallback remains */
+        });
+    }
+    /**
+     * Load a thruster trail atlas PNG/JPEG and bind it for all trail draws.
+     * Safe to call multiple times; last successful load wins.
+     */
+    async loadTrailTexture(url) {
+        const res = await fetch(url);
+        if (!res.ok) {
+            throw new Error(`loadTrailTexture: ${url} → HTTP ${res.status}`);
+        }
+        const blob = await res.blob();
+        const bitmap = await createImageBitmap(blob);
+        const { device } = this.bootstrap;
+        const tex = device.createTexture({
+            label: `fleet-trails-atlas:${url}`,
+            size: [bitmap.width, bitmap.height],
+            format: "rgba8unorm",
+            usage: GPUTextureUsage.TEXTURE_BINDING |
+                GPUTextureUsage.COPY_DST |
+                GPUTextureUsage.RENDER_ATTACHMENT,
+        });
+        device.queue.copyExternalImageToTexture({ source: bitmap }, { texture: tex }, [bitmap.width, bitmap.height]);
+        bitmap.close();
+        this.trailTexture?.destroy();
+        this.trailTexture = tex;
+        this.trailTextureView = tex.createView();
+        this.trailTextureUrl = url;
+        this.ensureTrailTextureResources();
+        this.rebuildTrailBindGroups();
+    }
+    /** URL of the currently bound thruster atlas (null = solid fallback). */
+    getTrailTextureUrl() {
+        return this.trailTextureUrl;
+    }
+    /** Create sampler + solid 1×1 white atlas if missing. */
+    ensureTrailTextureResources() {
+        const { device } = this.bootstrap;
+        if (!this.trailSampler) {
+            this.trailSampler = device.createSampler({
+                label: "fleet-trails-sampler",
+                magFilter: "linear",
+                minFilter: "linear",
+                addressModeU: "clamp-to-edge",
+                addressModeV: "clamp-to-edge",
+            });
+        }
+        if (!this.trailTexture || !this.trailTextureView) {
+            const tex = device.createTexture({
+                label: "fleet-trails-fallback-white",
+                size: [1, 1],
+                format: "rgba8unorm",
+                usage: GPUTextureUsage.TEXTURE_BINDING |
+                    GPUTextureUsage.COPY_DST |
+                    GPUTextureUsage.RENDER_ATTACHMENT,
+            });
+            device.queue.writeTexture({ texture: tex }, new Uint8Array([255, 255, 255, 255]), { bytesPerRow: 4 }, [1, 1]);
+            this.trailTexture = tex;
+            this.trailTextureView = tex.createView();
+            this.trailTextureUrl = null;
+        }
     }
     /** Bind each trail uniform slot to color-only and depth trail pipeline layouts. */
     rebuildTrailBindGroups() {
         if (!this.trailPipeline)
             return;
+        this.ensureTrailTextureResources();
+        const texView = this.trailTextureView;
+        const sampler = this.trailSampler;
         const layout = this.trailPipeline.getBindGroupLayout(0);
         const layoutDepth = this.trailPipelineDepth?.getBindGroupLayout(0) ?? null;
         for (let s = 0; s < this.trailUniformSlots.length; s++) {
             const slot = this.trailUniformSlots[s];
+            const entries = [
+                { binding: 0, resource: { buffer: slot.buffer } },
+                { binding: 1, resource: texView },
+                { binding: 2, resource: sampler },
+            ];
             slot.bindGroup = this.bootstrap.device.createBindGroup({
                 label: `fleet-trails-bind-${s}`,
                 layout,
-                entries: [
-                    {
-                        binding: 0,
-                        resource: { buffer: slot.buffer },
-                    },
-                ],
+                entries,
             });
             if (layoutDepth) {
                 slot.bindGroupDepth = this.bootstrap.device.createBindGroup({
                     label: `fleet-trails-bind-depth-${s}`,
                     layout: layoutDepth,
-                    entries: [
-                        {
-                            binding: 0,
-                            resource: { buffer: slot.buffer },
-                        },
-                    ],
+                    entries,
                 });
             }
             else {
@@ -2090,7 +2162,7 @@ export class FleetInstanceGpuLayer {
      * - Strategic (color-only pass): single center ribbon, depthFormat:null pipeline.
      * - Model LOD pot (`depthAware: true`): depth test **less-equal** / write off —
      *   call **after** opaque models in the depth-bearing pass so far trails cannot
-     *   overpaint nearer hulls. Expand already wrote 3 emitters (1 large + 2 small);
+     *   overpaint nearer hulls. Expand already wrote pot emitters (viewer attaches);
      *   one draw consumes the dense stream.
      *
      * Needs separate **origin-relative** view + projection (screen-space expand) and
@@ -2114,7 +2186,7 @@ export class FleetInstanceGpuLayer {
         const shipCount = this.trailShipCount;
         if (shipCount <= 0)
             return;
-        // Model pot when mode-2 indices are set (expand wrote 3 emitters / ship).
+        // Model pot when mode-2 indices are set (expand wrote N emitters / ship).
         // Single draw — intensity/offset already in expand alphas + world offs.
         const modelOwnedN = this.trailDrawShipIndices?.length ?? 0;
         const modelPot = this.modelLodActive &&
@@ -2125,18 +2197,25 @@ export class FleetInstanceGpuLayer {
             (depthAware && !this.trailUniformSlots[0]?.bindGroupDepth)) {
             this.rebuildTrailBindGroups();
         }
-        // One uniform write + one draw. Model pot intensity is in expand alphas;
-        // width uses large-emitter scale as the ribbon baseline (small emitters
-        // already thinner via lower α → width mix).
+        // One uniform write + one draw. Model pot: uniforms use max widthScale;
+        // expand bakes each emitter’s widthScale/max into endpoint α (width mix).
         const slot = this.trailUniformSlots[0];
         const bg = depthAware ? slot.bindGroupDepth : slot.bindGroup;
         if (!bg)
             return;
-        const large = MODEL_TRAIL_EMITTERS.find((e) => e.large) ?? MODEL_TRAIL_EMITTERS[0];
-        const wScale = (modelPot ? large.widthScale : 1) * this.trailWidthScale;
+        const wScale = (modelPot ? modelTrailMaxWidthScale() : 1) * this.trailWidthScale;
+        // Model depthAware → world-unit width (ship-relative). Strategic → screen px.
+        const widths = resolveTrailDrawWidths({
+            depthAware,
+            widthScale: wScale,
+            screenHeadPx: TRAIL_WIDTH_HEAD_PX,
+            screenTailPx: TRAIL_WIDTH_TAIL_PX,
+        });
         // Expand already wrote origin-relative endpoints (integrate origin).
         // Pass residual origin 0 so VS does not double-subtract the frame origin.
-        writeTrailUniforms(this.trailUniformData, view, projection, resolutionW, resolutionH, TRAIL_WIDTH_HEAD_PX * wScale, TRAIL_WIDTH_TAIL_PX * wScale, 0, 0, 0);
+        writeTrailUniforms(this.trailUniformData, view, projection, resolutionW, resolutionH, widths.widthHead, widths.widthTail, 0, 0, 0);
+        writeTrailWidthMode(this.trailUniformData, widths.widthMode);
+        writeTrailExposure(this.trailUniformData, TRAIL_EXPOSURE_DEFAULT);
         writeTrailVariantModulation(this.trailUniformData, 1, 0);
         this.bootstrap.gpu.writeBuffer(slot.handle, 0, this.trailUniformData, 0, TRAIL_UNIFORM_SIZE);
         pass.setPipeline(pipeline);
@@ -2237,6 +2316,11 @@ export class FleetInstanceGpuLayer {
         }
         this.trailTemplateVertBuffer = null;
         this.trailTemplateIndexBuffer = null;
+        this.trailTexture?.destroy();
+        this.trailTexture = null;
+        this.trailTextureView = null;
+        this.trailSampler = null;
+        this.trailTextureUrl = null;
         if (this.integrateUniformHandle) {
             this.bootstrap.gpu.destroyBuffer(this.integrateUniformHandle);
             this.integrateUniformHandle = null;

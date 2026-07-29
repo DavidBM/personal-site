@@ -457,10 +457,10 @@ export function integrateShipAgent(ship, params) {
     const centerY = params.centerY ?? params.pathEndY ?? 0;
     const pathEndY = params.pathEndY ?? centerY;
     const posY = ship.posY ?? 0;
+    // Do not key off ship.posY: planar CIRCULATE personal height is non-zero by design.
     const space3d = params.space3d === true ||
         Math.abs(centerY) > 1e-9 ||
         Math.abs(pathEndY) > 1e-9 ||
-        Math.abs(posY) > 1e-9 ||
         Math.abs(params.centerVelY ?? 0) > 1e-9 ||
         Math.abs(params.pathStartY ?? 0) > 1e-9;
     // Domain warp: explicit flag, else mid-hop timing inference (no schedule use).

@@ -7,11 +7,17 @@
  * - Zoom-in: cursor pivot; zoom-out: screen-center pivot.
  */
 /**
- * Closest map height. Deep enough for close model inspection / roof-cam chase
- * (~ship-scale framing at model LOD with DEFAULT_SCALE 0.25).
+ * Closest map camera height (world units). Deep enough for close model
+ * inspection (~ship-scale framing at model LOD with DEFAULT_SCALE 0.25).
+ * Kept above the map near-clip so zoom-in is never frustum-culled.
  */
-export const MIN_ZOOM = 4;
+export const MIN_ZOOM = 1;
 export const MAX_ZOOM = 1000000;
+/**
+ * Max |pitch| for map CTRL free-look orbit (rad). Just shy of ±90° so the
+ * eye can go fully under the y=0 plane without a pole singularity.
+ */
+export const ORBIT_MAX_PITCH = Math.PI / 2 - 0.04;
 /** CTRL free-look returns to rest over this many ms. */
 export const CTRL_LOOK_RETURN_MS = 200;
 /** Enter/exit ship-follow ease duration (ms). */
@@ -62,20 +68,26 @@ export function chaseCameraFromShip(posX, posY, posZ, heading, opts) {
 }
 /**
  * Orbit eye around a fixed look-at pivot (sphere). Used for map CTRL free-look.
- * dYaw rotates about world +Y; dPitch elevates (clamped so eye stays above ground).
+ * dYaw rotates about world +Y; dPitch elevates/depresses.
  * Keeps look-at fixed — no “slide” from re-deriving look along −Z.
+ *
+ * Defaults allow a **full orbit** around the pivot (including eyeY &lt; 0 when
+ * target is on the ground plane). Pass a finite `minEyeY` to keep the eye
+ * above a floor (legacy map-height clamp).
  */
 export function orbitEyeAroundLookAt(eyeX, eyeY, eyeZ, targetX, targetY, targetZ, dYaw, dPitch, opts) {
-    const minEyeY = opts?.minEyeY ?? MIN_ZOOM;
+    // Default: no floor — full sphere orbit (under y=0 allowed).
+    const minEyeY = opts?.minEyeY !== undefined ? opts.minEyeY : Number.NEGATIVE_INFINITY;
     const minRadius = opts?.minRadius ?? 2;
-    const maxPitch = opts?.maxPitch ?? 1.35;
+    const maxPitch = opts?.maxPitch ?? ORBIT_MAX_PITCH;
     let dx = eyeX - targetX;
     let dy = eyeY - targetY;
     let dz = eyeZ - targetZ;
     let r = Math.hypot(dx, dy, dz);
     if (!(r > minRadius)) {
-        // Nearly top-down / on pivot: invent a back boom so orbit has leverage.
-        r = Math.max(minRadius, Math.max(eyeY - targetY, minEyeY));
+        // Nearly on pivot: invent a back boom so orbit has leverage.
+        const elev = Math.abs(eyeY - targetY);
+        r = Math.max(minRadius, elev > 1e-6 ? elev : minRadius * 4);
         dx = 0;
         dy = r * 0.85;
         dz = r * 0.5;
@@ -84,10 +96,12 @@ export function orbitEyeAroundLookAt(eyeX, eyeY, eyeZ, targetX, targetY, targetZ
     let pitch = Math.asin(Math.max(-1, Math.min(1, dy / r)));
     yaw += dYaw;
     pitch = Math.max(-maxPitch, Math.min(maxPitch, pitch + dPitch));
-    // Keep a little elevation so the map does not flip under the plane.
-    const minPitch = Math.asin(Math.max(-1, Math.min(1, (minEyeY - targetY) / r)));
-    if (pitch < minPitch)
-        pitch = minPitch;
+    // Optional floor: keep eye above minEyeY (skip when −∞ / free orbit).
+    if (Number.isFinite(minEyeY)) {
+        const minPitch = Math.asin(Math.max(-1, Math.min(1, (minEyeY - targetY) / r)));
+        if (pitch < minPitch)
+            pitch = minPitch;
+    }
     const cosP = Math.cos(pitch);
     const sinP = Math.sin(pitch);
     const nx = targetX + r * Math.sin(yaw) * cosP;
@@ -95,7 +109,7 @@ export function orbitEyeAroundLookAt(eyeX, eyeY, eyeZ, targetX, targetY, targetZ
     const nz = targetZ + r * Math.cos(yaw) * cosP;
     return {
         eyeX: nx,
-        eyeY: Math.max(minEyeY, ny),
+        eyeY: Number.isFinite(minEyeY) ? Math.max(minEyeY, ny) : ny,
         eyeZ: nz,
     };
 }

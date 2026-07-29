@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Galaxy — Solar system showcase (WebGPU)</title>
+    <style>
+      :root {
+        --bg: #02040c;
+        --panel: rgba(6, 12, 28, 0.88);
+        --border: rgba(120, 180, 255, 0.3);
+        --text: #d8ecff;
+        --muted: #6e8eaa;
+        --accent: #ffc878;
+        --active: rgba(255, 180, 80, 0.22);
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: var(--bg);
+        color: var(--text);
+        font-family: ui-sans-serif, system-ui, sans-serif;
+        overflow: hidden;
+      }
+      #canvas {
+        display: block;
+        width: 100vw;
+        height: 100vh;
+        touch-action: none;
+        cursor: grab;
+      }
+      #canvas:active {
+        cursor: grabbing;
+      }
+      #hud {
+        position: fixed;
+        top: 14px;
+        right: 14px;
+        width: min(300px, 42vw);
+        padding: 14px 16px;
+        border-radius: 12px;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+        z-index: 10;
+        backdrop-filter: blur(10px);
+      }
+      #hud h1 {
+        margin: 0 0 6px;
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--accent);
+      }
+      #hud .sub {
+        margin: 0 0 12px;
+        font-size: 12px;
+        color: var(--muted);
+        line-height: 1.4;
+      }
+      #hud .row {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        font-size: 13px;
+        font-variant-numeric: tabular-nums;
+        margin: 4px 0;
+      }
+      #hud .label {
+        color: var(--muted);
+      }
+      #hud .val {
+        color: #eef6ff;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 12px;
+      }
+      #body-list {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        margin: 12px 0 8px;
+        max-height: min(42vh, 360px);
+        overflow: auto;
+      }
+      #body-list button {
+        appearance: none;
+        border: 1px solid var(--border);
+        background: rgba(10, 18, 36, 0.75);
+        color: var(--text);
+        border-radius: 7px;
+        padding: 7px 10px;
+        text-align: left;
+        font-size: 12px;
+        cursor: pointer;
+        transition: background 0.12s, border-color 0.12s;
+      }
+      #body-list button:hover {
+        border-color: rgba(255, 200, 120, 0.55);
+      }
+      #body-list button.active {
+        background: var(--active);
+        border-color: rgba(255, 180, 80, 0.65);
+        color: #ffe8c0;
+      }
+      #hud .hint {
+        margin-top: 10px;
+        font-size: 11px;
+        color: var(--muted);
+        line-height: 1.45;
+      }
+      #status {
+        position: fixed;
+        left: 14px;
+        bottom: 14px;
+        font-size: 12px;
+        color: var(--muted);
+        background: rgba(0, 4, 16, 0.65);
+        padding: 7px 12px;
+        border-radius: 8px;
+        z-index: 10;
+        max-width: min(60vw, 520px);
+        border: 1px solid rgba(80, 120, 180, 0.25);
+      }
+      #status.error {
+        color: #ffb0a0;
+        border-color: rgba(255, 100, 80, 0.45);
+      }
+      #title-badge {
+        position: fixed;
+        left: 14px;
+        top: 14px;
+        z-index: 10;
+        padding: 10px 14px;
+        border-radius: 10px;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        pointer-events: none;
+      }
+      #title-badge strong {
+        display: block;
+        font-size: 13px;
+        color: var(--accent);
+        letter-spacing: 0.04em;
+      }
+      #title-badge span {
+        font-size: 11px;
+        color: var(--muted);
+      }
+      #atm-panel {
+        position: fixed;
+        left: 14px;
+        top: 72px;
+        width: min(320px, 44vw);
+        max-height: calc(100vh - 100px);
+        overflow: auto;
+        padding: 12px 14px 14px;
+        border-radius: 12px;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+        z-index: 10;
+        backdrop-filter: blur(10px);
+        pointer-events: auto;
+      }
+      #atm-panel h1 {
+        margin: 0 0 4px;
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--accent);
+      }
+      #atm-panel .sub {
+        margin: 0 0 10px;
+        font-size: 11px;
+        color: var(--muted);
+        line-height: 1.35;
+      }
+      #atm-controls fieldset {
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        margin: 0 0 8px;
+        padding: 8px 8px 6px;
+      }
+      #atm-controls legend {
+        padding: 0 6px;
+        font-size: 11px;
+        color: var(--accent);
+      }
+      #atm-controls .atm-row {
+        display: grid;
+        grid-template-columns: 1fr 72px;
+        gap: 6px;
+        align-items: center;
+        margin: 4px 0;
+        font-size: 11px;
+        color: var(--muted);
+      }
+      #atm-controls input[type="number"] {
+        width: 100%;
+        background: #0a1424;
+        border: 1px solid var(--border);
+        border-radius: 5px;
+        color: #e8f4ff;
+        font-family: ui-monospace, Menlo, monospace;
+        font-size: 11px;
+        padding: 4px 6px;
+      }
+      #atm-controls input.atm-scrub {
+        cursor: ns-resize;
+        user-select: none;
+      }
+      #atm-controls input.atm-scrub:active {
+        cursor: ns-resize;
+        background: #101c30;
+      }
+      #atm-controls .atm-editing {
+        margin: 0 0 8px;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      #atm-controls .atm-editing strong {
+        color: #ffe8c0;
+        font-weight: 600;
+      }
+      #atm-controls .atm-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-top: 8px;
+      }
+      #atm-controls .atm-actions button,
+      #atm-panel .atm-btn {
+        appearance: none;
+        border: 1px solid var(--border);
+        background: rgba(10, 18, 36, 0.9);
+        color: var(--text);
+        border-radius: 6px;
+        padding: 6px 8px;
+        font-size: 11px;
+        cursor: pointer;
+      }
+      #atm-controls .atm-actions button:hover,
+      #atm-panel .atm-btn:hover {
+        border-color: rgba(255, 200, 120, 0.55);
+      }
+      #atm-panel textarea {
+        width: 100%;
+        min-height: 88px;
+        margin-top: 6px;
+        background: #060e1a;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        color: #cfe8ff;
+        font-family: ui-monospace, Menlo, monospace;
+        font-size: 10px;
+        line-height: 1.35;
+        padding: 6px 8px;
+        resize: vertical;
+      }
+      #atm-panel .export-label {
+        margin-top: 8px;
+        font-size: 11px;
+        color: var(--muted);
+      }
+      #frame-ms-hud {
+        position: fixed;
+        top: 14px;
+        right: 14px;
+        z-index: 20;
+        padding: 8px 12px;
+        border-radius: 10px;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+        backdrop-filter: blur(10px);
+        font-variant-numeric: tabular-nums;
+        pointer-events: none;
+        min-width: 7.5em;
+        text-align: right;
+      }
+      #frame-ms-hud .label {
+        display: block;
+        font-size: 10px;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin-bottom: 2px;
+      }
+      #frame-ms-hud .val {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 16px;
+        color: #e8f4ff;
+      }
+      #frame-ms-hud .unit {
+        font-size: 12px;
+        color: var(--muted);
+        margin-left: 2px;
+      }
+      /* Keep camera HUD below frame counter when both top-right */
+      #hud {
+        top: 68px;
+      }
+      #sun-type-bar {
+        position: fixed;
+        left: 50%;
+        bottom: 14px;
+        transform: translateX(-50%);
+        z-index: 12;
+        width: min(920px, calc(100vw - 28px));
+        padding: 10px 12px 12px;
+        border-radius: 12px;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+        backdrop-filter: blur(10px);
+      }
+      #sun-type-bar h2 {
+        margin: 0 0 8px;
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.07em;
+        text-transform: uppercase;
+        color: var(--accent);
+      }
+      #sun-type-bar .sub {
+        margin: 0 0 8px;
+        font-size: 11px;
+        color: var(--muted);
+        line-height: 1.35;
+      }
+      #sun-type-buttons {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+      #sun-type-buttons button {
+        appearance: none;
+        border: 1px solid var(--border);
+        background: rgba(10, 18, 36, 0.9);
+        color: var(--text);
+        border-radius: 7px;
+        padding: 6px 10px;
+        font-size: 11px;
+        cursor: pointer;
+        transition: background 0.12s, border-color 0.12s;
+      }
+      #sun-type-buttons button:hover {
+        border-color: rgba(255, 200, 120, 0.55);
+      }
+      #sun-type-buttons button.active {
+        background: var(--active);
+        border-color: rgba(255, 180, 80, 0.7);
+        color: #ffe8c0;
+      }
+      #status {
+        bottom: 118px;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="canvas"></canvas>
+    <div id="frame-ms-hud" aria-live="polite" title="GPU render work (pass timestamps when available; else encode→GPU done). Not vsync frame period — FPS can be lower while this stays small.">
+      <span class="label">Render</span>
+      <span class="val" id="hud-frame-ms">—</span><span class="unit">ms</span>
+    </div>
+    <div id="title-badge">
+      <strong id="title-main">Sol system · WebGPU</strong>
+      <span id="title-sub">Impostor discs · designed sun</span>
+    </div>
+    <div id="sun-type-bar">
+      <h2>Sun type</h2>
+      <p class="sub" id="sun-type-hint">
+        Yellow dwarf (Sol) is the realistic baseline. Other types change size,
+        corona tint, and planet light.
+      </p>
+      <div id="sun-type-buttons"></div>
+    </div>
+    <div id="atm-panel">
+      <h1>Body look · sun layers / planet atm</h1>
+      <p class="sub">
+        Select Sol for disc/rim/rays/corona gains; select a planet for limb +
+        scatter. Scrub, copy/paste, URL-saved.
+      </p>
+      <div id="atm-controls"></div>
+      <div class="export-label">Copy-paste settings (for chat)</div>
+      <textarea id="atm-export" readonly spellcheck="false"></textarea>
+      <div class="export-label">Paste settings here → Apply paste</div>
+      <textarea id="atm-import" spellcheck="false" placeholder="planet-atm v1&#10;intensity=20&#10;…"></textarea>
+    </div>
+    <div id="hud">
+      <h1>Camera focus</h1>
+      <p class="sub">
+        Orbit around the sun or a selected planet. Bodies keep spinning while
+        you move.
+      </p>
+      <div class="row">
+        <span class="label">Focus</span>
+        <span class="val" id="hud-focus">—</span>
+      </div>
+      <div class="row">
+        <span class="label">FPS</span>
+        <span class="val" id="hud-fps">—</span>
+      </div>
+      <div class="row">
+        <span class="label">Bodies</span>
+        <span class="val" id="hud-bodies">—</span>
+      </div>
+      <div id="body-list"></div>
+      <div class="hint">
+        Drag — orbit · Wheel — zoom · Keys 0–4 / [ ] — select · Double-click —
+        pick body<br />
+        Left panel: atmosphere / planet limb. Serve over HTTP. WebGPU required.
+      </div>
+    </div>
+    <div id="status">Starting WebGPU…</div>
+    <script type="module" src="dist/gpu/solar-system/main.js"></script>
+  </body>
+</html>

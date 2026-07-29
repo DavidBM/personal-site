@@ -14,8 +14,10 @@
  * (4 floats per sample = TRAIL_SAMPLE_STRIDE bytes).
  *
  * Sample layout (matches fleet-layout TrailSample):
- *   [0] posX  [1] posZ  [2] age01 (or birth ms on GPU)  [3] posY (default 0)
- * Expand ribbons stay XZ-only this phase (ignore posY).
+ *   [0] relX  [1] relZ  [2] age01 (or birth ms on GPU)  [3] relY
+ * GPU stores **pathEnd-relative** offsets (O(R) / hop residual) so f32 keeps
+ * lateral bits at large |pathEnd|. Expand: (pathEnd − origin) + sample + pot.
+ * CPU goldens may still pass absolute world when pathEnd is omitted (0,0,0).
  *
  * Ring: `write` is the next slot to overwrite; wrap with trailWrap.
  * Live samples walk backward from write while age01 < 1.
@@ -38,6 +40,7 @@ export const DEFAULT_TRAIL_CONFIG = {
     // No distance gate: append every moving integrate step (follow-cam / hop
     // visibility). Re-introduce a floor if short rings thrash at high speed.
     minDist: 0,
+    // Time gate only when still under minDist (overrides); not used for minDist=0.
     maxIntervalMs: 48,
 };
 /**
@@ -171,7 +174,23 @@ export function ageTrailRing(samples, sampleStart, ringSize, dtMs, lifetimeMs = 
  *
  * @param cfg - optional gates; defaults to game {@link DEFAULT_TRAIL_CONFIG}
  */
-export function tryAppendTrailSample(samples, ringBaseFloat, write, sinceSample, posX, posZ, distMoved, allowAppend, ringSize = TRAIL_RING_SIZE, cfg = DEFAULT_TRAIL_CONFIG) {
+export function tryAppendTrailSample(samples, ringBaseFloat, write, sinceSample, posX, posZ, distMoved, allowAppend, ringSize = TRAIL_RING_SIZE, cfg = DEFAULT_TRAIL_CONFIG, 
+/**
+ * When set, store pathEnd-relative offsets (GPU production path for SEEK).
+ * Omit / (0,0) for absolute world samples (legacy goldens).
+ */
+pathEndX = 0, pathEndZ = 0, pathEndY = 0, posY = 0, 
+/**
+ * Settled CIRCULATE: write phase-local (R·sin/cos) — never pos−pathEnd after
+ * absolute reconstruct (f32 thrash at large |C|). Matches GPU tryAppendTrail.
+ * Optional `height` = personal orbit height (slotY); default 0.
+ */
+orbitLocal, 
+/**
+ * Strategic triangle trails: extra pathEnd-relative offset so the sample sits
+ * at the triangle aft (see {@link triangleAftWorldOffset}). Model pot leaves 0.
+ */
+aftOffsetX = 0, aftOffsetZ = 0) {
     if (!allowAppend) {
         return { write, sinceSample };
     }
@@ -182,18 +201,43 @@ export function tryAppendTrailSample(samples, ringBaseFloat, write, sinceSample,
     // ε: age01 * LIFETIME can be 39.999… for 40/1000 in f32/f64
     const timeOk = distMoved > 0.05 &&
         newestAge * cfg.lifetimeMs + 1e-3 >= cfg.maxIntervalMs;
+    // minDist=0: always append when moving (time gate unused).
+    // minDist>0: accumulate until dist gate; time gate can fire early.
     if (dist < cfg.minDist && !timeOk) {
         return { write, sinceSample: dist };
     }
     const w = write & mask;
     const base = ringBaseFloat + w * TRAIL_SAMPLE_FLOATS;
-    samples[base] = posX;
-    samples[base + 1] = posZ;
+    const ax = Number.isFinite(aftOffsetX) ? aftOffsetX : 0;
+    const az = Number.isFinite(aftOffsetZ) ? aftOffsetZ : 0;
+    if (orbitLocal != null && orbitLocal.radius > 0) {
+        // Phase-local — same as GPU CIRCULATE append (no absolute round-trip).
+        const R = orbitLocal.radius;
+        const phase = orbitLocal.phase;
+        samples[base] = R * Math.sin(phase) + ax;
+        samples[base + 1] = R * Math.cos(phase) + az;
+        samples[base + 3] = orbitLocal.height ?? 0;
+    }
+    else {
+        // pathEnd-relative when pathEnd provided; absolute when pathEnd is origin.
+        samples[base] = posX - pathEndX + ax;
+        samples[base + 1] = posZ - pathEndZ + az;
+        samples[base + 3] = posY - pathEndY;
+    }
     samples[base + 2] = 0; // fresh
-    samples[base + 3] = 0; // pad
     return {
         write: (w + 1) & mask,
         sinceSample: 0,
+    };
+}
+/**
+ * Expand one trail sample to origin-relative world (match GPU expand).
+ * sample is pathEnd-relative; result is suitable for origin-relative view.
+ */
+export function trailSampleToOriginRelative(sampleRelX, sampleRelZ, pathEndX, pathEndZ, originX, originZ, potX = 0, potZ = 0) {
+    return {
+        x: pathEndX - originX + sampleRelX + potX,
+        z: pathEndZ - originZ + sampleRelZ + potZ,
     };
 }
 /**

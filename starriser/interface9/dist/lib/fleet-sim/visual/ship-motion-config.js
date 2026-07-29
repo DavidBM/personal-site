@@ -8,7 +8,8 @@
  * ## Unified controller (Rev 2)
  * One non-holonomic step, two profiles (Jump / Cruise):
  *   - SEEK: external-tangent entrance; desiredSpeedSeek = min(open, env, CFL)
- *   - CIRCULATE: polar v_θ = v_orb, v_r = clamp(k_r·(R−r))
+ *   - CIRCULATE: polar v_θ = v_orb, v_r = clamp(k_r·(R−r)); once residual
+ *     clear + near ring → analytic settled ring (phase+=ω·dt, r≡R, exact tangent)
  * Soft launch scales **a_up only** — never a_down.
  *
  * Jump: high a_up + JUMP_BRAKE_MULT·a_up, uncapped open (still env+CFL).
@@ -114,6 +115,36 @@ export const SHIP_APPROACH_BRAKE_POWER = 3;
 export const ORBIT_R_MIN = 2;
 /** Personal orbit radius max (world units). */
 export const ORBIT_R_MAX = 7;
+/**
+ * Personal planar orbit height scatter as a fraction of {@link ORBIT_R_MAX}.
+ * Each ship gets a deterministic offset ∈ [−frac·R_max, +frac·R_max] (e.g. ±0.7
+ * when R_max=7). Visual only on NEAR triangle + model LOD; not space3d sphere.
+ */
+export const ORBIT_HEIGHT_FRAC = 0.1;
+/** |height| cap = ORBIT_HEIGHT_FRAC · ORBIT_R_MAX. */
+export const ORBIT_HEIGHT_MAX = ORBIT_HEIGHT_FRAC * ORBIT_R_MAX;
+/**
+ * Planar SEEK→CIRCULATE height ramp: rem to entrance / (this · R) → smoothstep
+ * 0..1 toward personal height. Larger = earlier/gentler climb.
+ */
+export const ORBIT_HEIGHT_BLEND_REM_K = 8;
+/**
+ * Time constant (s) for closing remaining height gap (rate-limit floor).
+ * Keeps CIRCULATE enter from snatching the full offset in one frame.
+ */
+export const ORBIT_HEIGHT_APPROACH_TAU_S = 0.35;
+/**
+ * Max |climb| relative to horizontal speed (gentle path angle).
+ * Combined with tau rate; not a pitch on the mesh (yaw-only planar).
+ */
+export const ORBIT_HEIGHT_CLIMB_SLOPE = 0.4;
+/**
+ * Hard cap: max |ΔposY| per frame as a fraction of |personal height|.
+ * Prevents one-frame snaps at capture even if rem collapses.
+ */
+export const ORBIT_HEIGHT_MAX_FRAME_FRAC = 0.28;
+/** Floor climb rate (world/s) so tiny heights still converge. */
+export const ORBIT_HEIGHT_MIN_RATE = 0.8;
 /** Default orbit R when pack omits it. */
 export const SHIP_SIM_DEFAULT_ORBIT_R = 4;
 /**
@@ -156,6 +187,16 @@ export const ORBIT_NEAR_SPEED_SCALE = 1.0;
 export const ORBIT_APPROACH_GATE_SPEED = 180;
 /** Soft radial spring gain (1/s): v_r = clamp(k · (R − r), ±v_rad_max). */
 export const ORBIT_SPRING_K = 3.0;
+/**
+ * Settled CIRCULATE: when residual is clear and |r−R|/R ≤ this **and**
+ * |heading−tangent| ≤ {@link ORBIT_SETTLED_HEADING_RAD}, skip the non-holonomic
+ * plant and advance on the analytic ring (phase += ω·dt, pos on R, tangent
+ * heading, speed = v_orb). Removes orbit thrash / relative wiggle under follow.
+ * Plant still owns residual dump, capture, singularity, and SEEK.
+ */
+export const ORBIT_SETTLED_R_FRAC = 0.05;
+/** Max |heading − geometric tangent| (rad) to enter analytic settled ring. */
+export const ORBIT_SETTLED_HEADING_RAD = 0.2;
 /** Cap v_orbit ≤ this · ω_max · R. */
 export const ORBIT_OMEGA_TURN_FRAC = 0.9;
 /** Center singularity guard (world units). */
@@ -318,6 +359,8 @@ export const ShipMotionTune = {
         /** @deprecated gate deleted */
         approachGateSpeed: ORBIT_APPROACH_GATE_SPEED,
         springK: ORBIT_SPRING_K,
+        settledRFrac: ORBIT_SETTLED_R_FRAC,
+        settledHeadingRad: ORBIT_SETTLED_HEADING_RAD,
         omegaTurnFrac: ORBIT_OMEGA_TURN_FRAC,
         residualHighMul: RESIDUAL_HIGH_MUL,
         residualClearMul: RESIDUAL_CLEAR_MUL,

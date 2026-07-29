@@ -7,11 +7,12 @@
  * - Cap: {@link MODEL_LOD_MAX_INSTANCES}. Zero work when inactive.
  */
 import { MAP_MSAA_SAMPLES } from "../map-msaa.js";
-import { FLEET_MODEL_SHIPS_WGSL, FLEET_MODEL_UNIFORM_SIZE, FLEET_MODEL_VERTEX_STRIDE, } from "../shaders/fleet-model-ships.wgsl.js";
+import { FLEET_MODEL_SHIPS_WGSL, FLEET_MODEL_UNIFORM_SIZE, FLEET_MODEL_U_THRUSTER_PULSE, FLEET_MODEL_VERTEX_STRIDE, } from "../shaders/fleet-model-ships.wgsl.js";
 import { MODEL_LOD_DEFAULT_SCALE, MODEL_LOD_MAX_INSTANCES, modelLodInstanceCount, } from "../fleet-lod.js";
 import { gltfHasColorAndNormal, parseGlb, } from "../../lib/fleet-sim/visual/gltf-static-mesh.js";
 import { createLowPolyShipMesh } from "../../lib/fleet-sim/visual/lowpoly-ship-mesh.js";
 import { GLB_MESH_YAW_HALF, LOWPOLY_MESH_YAW_HALF, } from "../../lib/fleet-sim/visual/mesh-yaw-facing.js";
+import { thrusterPulse } from "../../lib/fleet-sim/gpu/model-aft-light.js";
 export class FleetModelGpuLayer {
     constructor(bootstrap, options) {
         this.name = "fleet-model-ships";
@@ -352,8 +353,9 @@ export class FleetModelGpuLayer {
      * `viewProj` must be origin-relative; pass the same frame `origin` used for
      * look-at / trail / triangle ship draws.
      * `eyeWorld` = camera eye in **world** (rim only); key light is fleet pathEnd.
+     * `timeSec` drives aft thruster light pulse (synced with trail glow feel).
      */
-    encode(pass, viewProj, shipCountOrIndices, origin, eyeWorld) {
+    encode(pass, viewProj, shipCountOrIndices, origin, eyeWorld, timeSec) {
         this.lastInstanceCount = 0;
         if (!this.active || !this.ready)
             return 0;
@@ -384,7 +386,8 @@ export class FleetModelGpuLayer {
         if (n <= 0)
             return 0;
         // Layout: viewProj[0..15], origin.xyz+modelScale[16..19],
-        // fallbackLight.xyz+ambient[20..23], eyeWorld.xyz+meshYawHalf[24..27] — 112 B.
+        // fallbackLight.xyz+ambient[20..23], eyeWorld.xyz+meshYawHalf[24..27],
+        // thrusterPulse[28] + WGSL pad → 144 B.
         // Primary diffuse = per-ship pathEnd; eyeWorld is rim only (not the key light).
         this.uniformData.set(viewProj, 0);
         this.uniformData[16] = origin?.x ?? 0;
@@ -399,6 +402,14 @@ export class FleetModelGpuLayer {
         this.uniformData[25] = eyeWorld?.y ?? origin?.y ?? 0;
         this.uniformData[26] = eyeWorld?.z ?? origin?.z ?? 0;
         this.uniformData[27] = this.meshYawHalf;
+        const t = timeSec !== undefined && Number.isFinite(timeSec)
+            ? timeSec
+            : (typeof performance !== "undefined" ? performance.now() : Date.now()) /
+                1000;
+        this.uniformData[FLEET_MODEL_U_THRUSTER_PULSE] = thrusterPulse(t, 1);
+        this.uniformData[29] = 0;
+        this.uniformData[30] = 0;
+        this.uniformData[31] = 0;
         this.bootstrap.gpu.writeBuffer(this.uniformHandle, 0, this.uniformData, 0, FLEET_MODEL_UNIFORM_SIZE);
         pass.setPipeline(this.pipeline);
         pass.setBindGroup(0, this.bindGroup);

@@ -24,8 +24,8 @@ import { createFleetSlotAllocator } from "./fleet-slot-allocator.js";
 import { SYSTEM_POINT_DIAMETER_PX, billboardScaleForDiameterPx, cameraDistanceToTarget, clusterImpostorWithHysteresis, } from "./galaxy-point-lod.js";
 import { FLEET_GPU_STRIDE, FLEET_FLAG_ALIVE, FLEET_FLAG_JUMPING, FLEET_FLAG_COOLDOWN, FLEET_FLAG_WARM, FLEET_FLAG_SPACE3D, FleetGpuFields, hashFleetId, } from "./fleet-layout.js";
 import { SHIP_SIM_STRIDE, ShipSimFields, readShipSim, writeShipSim, } from "./ship-sim-layout.js";
-import { SHIP_MODE_PAUSED } from "./ship-flight-ref.js";
-import { FOLLOW_TRAIL_WIDTH_SCALE, followPoseFromAgent, stepFollowShipAgent, } from "./follow-cam-pose.js";
+import { SHIP_MODE_ORBIT, SHIP_MODE_PAUSED } from "./ship-flight-ref.js";
+import { followPoseFromAgent, stepFollowShipAgent, } from "./follow-cam-pose.js";
 import { fleetCenter, initShipsFromFormation, packFormation, writePathCommand, } from "./fleet-motion-api.js";
 import { mat4CameraRight, mat4CameraUp, mat4Identity, mat4Invert, mat4LookAt, mat4Perspective, mat4ViewProj, } from "./math/mat4.js";
 import { chooseFrameOrigin, ensureShipIndexInList, mat4LookAtRelative, } from "./math/world-origin.js";
@@ -141,7 +141,7 @@ export class WebGpuMapView {
         this.cssHeight = 1;
         /** Projection clip planes — single source for resize + pick. */
         /** Near clip — must stay below MIN_ZOOM so deep chase/zoom isn't truncated. */
-        this.near = 0.5;
+        this.near = 0.15;
         this.far = 1e10;
         this.raf = 0;
         this.disposed = false;
@@ -795,6 +795,50 @@ export class WebGpuMapView {
         this.followPoseCache = null;
         this.refreshFollowPoseFromGpu(shipIndex);
         return this.getLiveShipPose(shipIndex);
+    }
+    /**
+     * Follow opts for {@link chooseFrameOrigin}: ship pose + planar CIRCULATE
+     * pathEnd when the chased agent is orbiting (not SPACE3D). Pure data for
+     * floating origin — camera look-at still uses {@link getLiveShipPose}.
+     */
+    followFrameOriginOpts(shipIndex) {
+        const pose = this.getLiveShipPose(shipIndex);
+        if (!pose)
+            return null;
+        const i = shipIndex | 0;
+        const o = i * SHIP_SIM_STRIDE;
+        let planarCirculate = false;
+        let pathEndX;
+        let pathEndY;
+        let pathEndZ;
+        if (o + SHIP_SIM_STRIDE <= this.shipSimView.byteLength) {
+            const mode = this.shipSimView.getUint32(o + ShipSimFields.mode, true);
+            const fleetSlot = this.shipSimView.getUint32(o + ShipSimFields.fleetIndex, true);
+            const fo = fleetSlot * FLEET_GPU_STRIDE;
+            if (fo + FLEET_GPU_STRIDE <= this.fleetGpuView.byteLength) {
+                const flags = this.fleetGpuView.getUint32(fo + FleetGpuFields.flags, true);
+                const space3d = (flags & FLEET_FLAG_SPACE3D) !== 0;
+                // Planar CIRCULATE only — matches model/scatter phase-local gate.
+                if (mode === SHIP_MODE_ORBIT && !space3d) {
+                    planarCirculate = true;
+                    pathEndX = this.fleetGpuView.getFloat32(fo + FleetGpuFields.pathEndX, true);
+                    pathEndZ = this.fleetGpuView.getFloat32(fo + FleetGpuFields.pathEndZ, true);
+                    // Planar pathEndY is 0 in _pad0; keep explicit for origin Y.
+                    pathEndY = this.fleetGpuView.getFloat32(fo + FleetGpuFields._pad0, true);
+                    if (!Number.isFinite(pathEndY))
+                        pathEndY = 0;
+                }
+            }
+        }
+        return {
+            posX: pose.posX,
+            posY: pose.posY,
+            posZ: pose.posZ,
+            planarCirculate,
+            pathEndX,
+            pathEndY,
+            pathEndZ,
+        };
     }
     /**
      * Live chase pose for the followed ship.
@@ -1857,12 +1901,13 @@ export class WebGpuMapView {
             mat4ViewProj(this.viewProj, this.proj, this.view);
             mat4CameraRight(this.view, this.cameraRight);
             mat4CameraUp(this.view, this.cameraUp);
-            // Floating origin: followed ship when chasing, else camera eye.
-            // Same follow pose as camera (stepFollow above) — not a lagging readback.
-            const followPose = this.followShipIndex != null
-                ? this.getLiveShipPose(this.followShipIndex)
+            // Floating origin: planar CIRCULATE follow → pathEnd (orbit center);
+            // else followed ship pose; else camera eye. Chase look-at still uses ship.
+            // Same-frame shadow (stepFollow above) — not a lagging readback.
+            const followOriginOpts = this.followShipIndex != null
+                ? this.followFrameOriginOpts(this.followShipIndex)
                 : null;
-            this.frameOrigin = chooseFrameOrigin(this.cameraX, this.cameraY, this.cameraZ, followPose);
+            this.frameOrigin = chooseFrameOrigin(this.cameraX, this.cameraY, this.cameraZ, followOriginOpts);
             mat4LookAtRelative(this.viewRel, this.cameraX, this.cameraY, this.cameraZ, this.targetX, this.targetY, this.targetZ, this.frameOrigin.x, this.frameOrigin.y, this.frameOrigin.z);
             mat4ViewProj(this.viewProjRel, this.proj, this.viewRel);
         });
@@ -1997,8 +2042,7 @@ export class WebGpuMapView {
             const modelOn = modelIndices.length > 0;
             this.modelLayer.setActive(modelOn);
             this.fleetsLayer.setModelLodActive(modelOn);
-            // Thick trail while following (roof-cam readability); restore after.
-            this.fleetsLayer.setTrailWidthScale(followIdx != null ? FOLLOW_TRAIL_WIDTH_SCALE : 1);
+            // Trail width is one production size (no follow-only scale).
             if (modelOn) {
                 // Follow force-include: budget/cull must never drop the chased ship from
                 // model hide + pot trail expand (fleetmates alone looked "traced").
@@ -2141,7 +2185,9 @@ export class WebGpuMapView {
                     x: this.cameraX,
                     y: this.cameraY,
                     z: this.cameraZ,
-                }));
+                }, 
+                // Aft thruster pulse — same wall clock as trail glow feel.
+                this.toGpuTime(Date.now()) / 1000));
                 // Model pot trails after opaque hull. Depth write off; compare less-equal
                 // so nearer hulls occlude far thruster ribbons (not always-on-top).
                 frameDebugTime("encode.modelTrails", () => this.fleetsLayer.encodeTrails(passResolve, this.viewRel, this.proj, this.canvas.width, this.canvas.height, this.cameraY, origin, { depthAware: true }));

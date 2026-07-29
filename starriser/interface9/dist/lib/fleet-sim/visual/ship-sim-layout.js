@@ -6,7 +6,7 @@
  *
  * ShipSim (stride 96):
  *  0  f32 posX
- *  4  f32 posY          // 2D always 0
+ *  4  f32 posY          // live height; 0 on planar SEEK; personal orbit height when CIRCULATE
  *  8  f32 posZ
  * 12  f32 speed
  * 16  f32 qx            // orientation quaternion (source of truth in 3D)
@@ -14,7 +14,7 @@
  * 24  f32 qz
  * 28  f32 qw
  * 32  f32 slotX         // local formation (right); world = rotate(slot, formH)
- * 36  f32 slotY         // 2D always 0
+ * 36  f32 slotY         // planar: personal orbit height offset (±ORBIT_HEIGHT_MAX); pack once
  * 40  f32 slotZ
  * 44  f32 heading       // CACHED yaw from quat (heading 0 = +Z); draw + tests
  * 48  u32 trailWrite    // next ring index (L5b pure trail; power-of-2 ring)
@@ -32,7 +32,8 @@
  *
  * omegaMax is stored per ship (from type config at pack). ≤0 → agents/GPU use
  * ORBIT_DEFAULT_OMEGA_MAX / SHIP_MAX_TURN_RAD_S.
- * Planar production keeps posY=slotY=0 and yaw-only quaternions.
+ * Planar production: yaw-only quaternions; slotY holds personal orbit height;
+ * posY is 0 on SEEK and matches slotY once CIRCULATE (settled ring / plant near).
  */
 import { quatFromYaw, quatIsZero } from "./quat.js";
 import { SHIP_MAX_TURN_RAD_S } from "./ship-motion-config.js";

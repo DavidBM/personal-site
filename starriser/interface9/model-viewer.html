@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Galaxy — Ship model viewer (thruster attach)</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #000015;
+        color: #cfe8ff;
+        font-family: ui-sans-serif, system-ui, sans-serif;
+        overflow: hidden;
+      }
+      #canvas {
+        display: block;
+        width: 100vw;
+        height: 100vh;
+        touch-action: none;
+        cursor: crosshair;
+      }
+      #hud {
+        position: fixed;
+        top: 12px;
+        right: 12px;
+        min-width: 220px;
+        max-width: min(360px, 42vw);
+        padding: 12px 14px;
+        border-radius: 10px;
+        background: rgba(8, 16, 32, 0.82);
+        border: 1px solid rgba(120, 180, 255, 0.35);
+        box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+        font-size: 13px;
+        line-height: 1.45;
+        pointer-events: none;
+        z-index: 10;
+      }
+      #hud h1 {
+        margin: 0 0 8px;
+        font-size: 13px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: #8ec8ff;
+      }
+      #hud .row {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        font-variant-numeric: tabular-nums;
+      }
+      #hud .label {
+        color: #7a9ab8;
+      }
+      #hud .val {
+        color: #e8f4ff;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 12px;
+      }
+      #hud .hint {
+        margin-top: 10px;
+        font-size: 11px;
+        color: #6a88a8;
+        line-height: 1.35;
+      }
+      #status {
+        position: fixed;
+        left: 12px;
+        bottom: 12px;
+        font-size: 12px;
+        color: #7a9ab8;
+        background: rgba(0, 0, 20, 0.55);
+        padding: 6px 10px;
+        border-radius: 6px;
+        z-index: 10;
+        max-width: 50vw;
+      }
+      #status.error {
+        color: #ff8a8a;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="canvas"></canvas>
+    <aside id="hud" aria-live="polite">
+      <h1>Attach point (world)</h1>
+      <div class="row"><span class="label">X</span><span class="val" id="hx">—</span></div>
+      <div class="row"><span class="label">Y</span><span class="val" id="hy">—</span></div>
+      <div class="row"><span class="label">Z</span><span class="val" id="hz">—</span></div>
+      <div class="row" style="margin-top: 6px">
+        <span class="label">Hit (orig)</span
+        ><span class="val" id="hhit">none</span>
+      </div>
+      <div class="hint">
+        Click mesh → red ball. Drag <b style="color: #f55">X</b> /
+        <b style="color: #5f5">Y</b> / <b style="color: #55f">Z</b> arrows to
+        move. Background drag orbits. Wheel zooms. Line = original hit → ball.
+        Light rotates on two axes (game-style shading).
+      </div>
+    </aside>
+    <div id="status">Loading WebGPU…</div>
+    <script type="module" src="./dist/gpu/model-viewer/main.js"></script>
+  </body>
+</html>

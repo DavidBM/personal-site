@@ -83,9 +83,9 @@ fn vs_main(
   let rx = meshPos.x * c - meshPos.z * s;
   let rz = meshPos.x * s + meshPos.z * c;
   let local = center + vec3<f32>(rx * worldSize, meshPos.y * worldSize, rz * worldSize);
-  // Origin-relative before viewProj: (base − origin) + local — never
-  // (base + local) − origin, which drops mesh-scale bits at |world| ≳ 1e5.
-  let rel = base - u.origin + local;
+  // Instance base is **already origin-relative** (integrate scatter writes
+  // ship−origin or (pathEnd−origin)+orbitLocal). Do not subtract origin again.
+  let rel = base + local;
   out.clip = u.viewProj * vec4<f32>(rel, 1.0);
   out.color = color;
   return out;

@@ -13,11 +13,13 @@ import { FLEET_GPU_STRIDE } from "../visual/fleet-layout.js";
 export const FLEET_MODEL_VERTEX_STRIDE = 32; // 8 × f32
 /**
  * mat4 viewProjRel + origin.xyz + modelScale + fallbackLight.xyz + ambient +
- * eyeWorld.xyz + meshYawHalf = 112 B.
+ * eyeWorld.xyz + meshYawHalf + thrusterPulse + WGSL vec3 pad = **144 B**.
+ * (thrusterPulse @112; next vec3 aligns to 128 → struct rounds to 144.)
  * Primary diffuse = per-ship pathEnd; fallbackLight only when |center−ship|≈0.
  * eyeWorld is **camera eye in world** for rim only (not the key light).
+ * thrusterPulse gently modulates the aft hard thruster light.
  */
-export const FLEET_MODEL_UNIFORM_SIZE = 112;
+export const FLEET_MODEL_UNIFORM_SIZE = 144;
 export { MODEL_LOD_MAX_INSTANCES };
 /** Must match ShipSim stride used by integrate. */
 export const FLEET_MODEL_SHIP_SIM_STRIDE = SHIP_SIM_STRIDE;
@@ -28,6 +30,8 @@ export const FLEET_MODEL_FLEET_GPU_STRIDE = FLEET_GPU_STRIDE;
  * Injected into WGSL so TS pure helper and GPU stay aligned.
  */
 export const FLEET_MODEL_LIGHT_CENTER_EPS = 1e-3;
+/** Uniform float index for thruster pulse (after meshYawHalf @ 27). */
+export const FLEET_MODEL_U_THRUSTER_PULSE = 28;
 export const FLEET_MODEL_SHIPS_WGSL = /* wgsl */ `
 struct ModelUniforms {
   /** proj * lookAt(eye−origin, target−origin) — origin-relative viewProj. */
@@ -42,6 +46,13 @@ struct ModelUniforms {
   eyeWorld : vec3<f32>,
   /** Half-angle (rad) for yaw pre-rotate so mesh nose → body +Z. */
   meshYawHalf : f32,
+  /** Aft thruster light pulse (~0.86…1.14). @ offset 112. */
+  thrusterPulse : f32,
+  /**
+   * Explicit vec3 pad: WGSL aligns it to 16 B → offset 128, struct size 144.
+   * Host buffer must be ≥ 144 or CreateBindGroup fails (minBindingSize).
+   */
+  _padPulse : vec3<f32>,
 };
 
 struct ShipSim {
@@ -102,6 +113,9 @@ struct FleetGpu {
 @group(0) @binding(7) var<storage, read> fleets : array<FleetGpu>;
 
 const SHIP_MODE_PAUSED: u32 = 0u;
+const SHIP_MODE_ORBIT: u32 = 3u;
+/** FleetGpu bit6 — sphere agent; pathEndY in _pad0. Match fleet-layout. */
+const FLEET_FLAG_SPACE3D: u32 = 64u;
 const LIGHT_CENTER_EPS: f32 = ${FLEET_MODEL_LIGHT_CENTER_EPS};
 
 struct VSIn {
@@ -119,6 +133,8 @@ struct VSOut {
   @location(2) relPos : vec3<f32>,
   /** Unit light dir from ship → pathEnd (point light at destination/orbit). */
   @location(3) lightDir : vec3<f32>,
+  /** Unit dir from surface toward aft thruster lamp (body −Z). */
+  @location(4) aftLightDir : vec3<f32>,
 };
 
 fn quatRotate(q: vec4<f32>, v: vec3<f32>) -> vec3<f32> {
@@ -156,6 +172,7 @@ fn vs_main(input : VSIn) -> VSOut {
     out.worldNrm = vec3<f32>(0.0, 1.0, 0.0);
     out.relPos = vec3<f32>(0.0);
     out.lightDir = normalize(u.fallbackLight);
+    out.aftLightDir = vec3<f32>(0.0, 0.0, -1.0);
     return out;
   }
   var q = quatNormalize(vec4<f32>(ship.qx, ship.qy, ship.qz, ship.qw));
@@ -169,23 +186,41 @@ fn vs_main(input : VSIn) -> VSOut {
   let localMesh = quatRotate(meshFix, input.meshPos) * u.modelScale;
   let nMesh = quatRotate(meshFix, input.meshNrm);
   let worldOff = quatRotate(q, localMesh);
-  let shipPos = vec3<f32>(ship.posX, ship.posY, ship.posZ);
-  // Origin-relative draw; light dir stays world (pathEnd − ship).
-  let rel = shipPos - u.origin + worldOff;
+
+  // PathEnd + orbit phase for planar CIRCULATE: origin-relative without abs thrash.
+  // SPACE3D CIRCULATE stays on shipPos−origin (sphere agent; planar phase would snap).
+  let fi = ship.fleetIndex;
+  var pathEnd = vec3<f32>(ship.posX, ship.posY, ship.posZ);
+  var space3d = false;
+  if (fi < arrayLength(&fleets)) {
+    let f = fleets[fi];
+    pathEnd = vec3<f32>(f.pathEndX, f.pathEndY, f.pathEndZ);
+    space3d = (f.flags & FLEET_FLAG_SPACE3D) != 0u;
+  }
+  var shipPos = vec3<f32>(ship.posX, ship.posY, ship.posZ);
+  var rel: vec3<f32>;
+  // Planar CIRCULATE only: reconstruct from phase (match triangle scatter gate).
+  // localOrb.y = live posY (approach ramp + settled personal height).
+  if (ship.mode == SHIP_MODE_ORBIT && !space3d) {
+    let R = select(2.0, ship.orbitR, ship.orbitR > 1e-6);
+    let sp = sin(ship.orbitPhase);
+    let cp = cos(ship.orbitPhase);
+    let localOrb = vec3<f32>(R * sp, ship.posY, R * cp);
+    // Draw: f32(pathEnd − origin) + local — keeps R-scale under follow-cam.
+    rel = (pathEnd - u.origin) + localOrb + worldOff;
+    // Light toward pathEnd from ship = −radial (precise, no absolute thrash).
+    out.lightDir = lightDirFromOrbitCenter(localOrb, vec3<f32>(0.0));
+  } else {
+    rel = shipPos - u.origin + worldOff;
+    out.lightDir = lightDirFromOrbitCenter(shipPos, pathEnd);
+  }
   let nWorld = quatRotate(q, nMesh);
   out.clip = u.viewProj * vec4<f32>(rel, 1.0);
   out.uv = input.meshUv;
   out.worldNrm = nWorld;
   out.relPos = rel;
-
-  // Point light at fleet pathEnd (world). Independent of floating origin / camera.
-  let fi = ship.fleetIndex;
-  var center = shipPos;
-  if (fi < arrayLength(&fleets)) {
-    let f = fleets[fi];
-    center = vec3<f32>(f.pathEndX, f.pathEndY, f.pathEndZ);
-  }
-  out.lightDir = lightDirFromOrbitCenter(shipPos, center);
+  // Aft thruster lamp: body −Z (forward is +Z). Direction from surface toward light.
+  out.aftLightDir = normalize(quatRotate(q, vec3<f32>(0.0, 0.0, -1.0)));
   return out;
 }
 
@@ -217,7 +252,14 @@ fn fs_main(input : VSOut) -> @location(0) vec4<f32> {
   let rim = pow(1.0 - max(dot(n, viewDir), 0.0), 2.5);
   // Keep rim subtle so pathEnd key light dominates (esp. under follow cam).
   let eng = hot * rim * 0.18;
-  let lit = albedo * hemi + eng + vec3<f32>(0.04, 0.06, 0.1);
+
+  // Hard aft thruster light (body −Z), lightly pulsing with trails.
+  let Laft = normalize(input.aftLightDir);
+  let nAft = max(dot(n, Laft), 0.0);
+  let aftHard = pow(nAft, 1.35) * 1.35 * max(u.thrusterPulse, 0.5);
+  let aftCol = vec3<f32>(0.55, 0.75, 1.0) * aftHard;
+
+  let lit = albedo * hemi + eng + aftCol + vec3<f32>(0.04, 0.06, 0.1);
   return vec4<f32>(lit, max(baseSample.a, 0.92));
 }
 `;

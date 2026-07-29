@@ -12,7 +12,7 @@
  */
 import { groundPickFromScreen, } from "./math/ground-pick.js";
 import { ControlsManager } from "../controls-manager.js";
-import { CHAIN_CURSOR_PX, CTRL_LOOK_RETURN_MS, DS_FRAME_MAX, TAU_S, TAU_TILT, TAU_XZ, chaseCameraFromShip, clampLogHeight, clampZoomHeight, ctrlLookReturnFactor, lerpEyePose, dampTowardExp, eyeAfterHeightScale, heightToLog, isPoseSettled, logToHeight, lookAtFromEyeTilt, orbitEyeAroundLookAt, pivotScreenForWheel, refineEyeForScreenGround, tiltFactorForHeight, wheelDeltaLogS, MIN_ZOOM, FOLLOW_TRANSITION_MS, } from "./camera-zoom.js";
+import { CHAIN_CURSOR_PX, CTRL_LOOK_RETURN_MS, DS_FRAME_MAX, TAU_S, TAU_TILT, TAU_XZ, chaseCameraFromShip, clampLogHeight, clampZoomHeight, ctrlLookReturnFactor, lerpEyePose, dampTowardExp, eyeAfterHeightScale, heightToLog, isPoseSettled, logToHeight, lookAtFromEyeTilt, orbitEyeAroundLookAt, pivotScreenForWheel, refineEyeForScreenGround, tiltFactorForHeight, wheelDeltaLogS, ORBIT_MAX_PITCH, FOLLOW_TRANSITION_MS, } from "./camera-zoom.js";
 import { applyFollowDragLook, followTransitionT, lerpFollowCamEndpoints, mapRestPoseFromFollowExit, } from "./follow-cam-pose.js";
 export class WebGpuCameraController {
     constructor(view) {
@@ -566,7 +566,8 @@ export class WebGpuCameraController {
                             const st = this.view.getCameraState();
                             return { x: st.targetX, y: 0, z: st.targetZ };
                         })();
-                    const next = orbitEyeAroundLookAt(this.cur.eyeX, this.cur.eyeY, this.cur.eyeZ, pivot.x, pivot.y, pivot.z, -mdx * 0.005, -mdy * 0.004, { minEyeY: MIN_ZOOM });
+                    // Full sphere about y=0 look-at — eye may go under the ground plane.
+                    const next = orbitEyeAroundLookAt(this.cur.eyeX, this.cur.eyeY, this.cur.eyeZ, pivot.x, pivot.y, pivot.z, -mdx * 0.005, -mdy * 0.004, { maxPitch: ORBIT_MAX_PITCH });
                     this.cur.eyeX = next.eyeX;
                     this.cur.eyeY = next.eyeY;
                     this.cur.eyeZ = next.eyeZ;

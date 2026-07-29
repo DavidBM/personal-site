@@ -265,7 +265,8 @@ localIndexStart = 0) {
             heading: formH,
             speed: 0,
             slotX,
-            slotY: 0,
+            // Planar: personal orbit height offset (hashed); applied in CIRCULATE.
+            slotY: orbit.height,
             slotZ,
             // quat derived from heading inside writeShipSim
             trailWrite: 0,

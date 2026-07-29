@@ -4,6 +4,7 @@
  * SEEK: external-tangent entrance T on side s (true 90° contact);
  *       desiredSpeedSeek = min(open, env, CFL); F1 post-clamp + F2 wrong-way.
  * CIRCULATE: polar (planar) or sphere (space3d) v_θ = v_orb, v_r = clamp(k_r·(R−r)).
+ * Settled CIRCULATE (residual clear + near ring): analytic ring step — no plant thrash.
  * Capture thresholds live in integrateShipAgent (F5).
  *
  * Planar (`!space3d`) and sphere (`space3d`) are separate early-branch bodies —
@@ -15,8 +16,8 @@ import { clamp01, easeDeriv, shortestAngleDelta, wrapPi, SHIP_MIN_ALIGN, desired
 import { forwardFromQuat, quatFromYaw, quatIsZero, quatLookRotation, quatRotateToward, yawFromQuat, } from "./quat.js";
 // Tune orbit / brake mult here — not scattered through this file:
 //   js/gpu/ship-motion-config.ts
-export { ORBIT_R_MIN, ORBIT_R_MAX, ORBIT_OMEGA_MIN, ORBIT_OMEGA_MAX, ORBIT_ARRIVE_EPS, ORBIT_SPRING_K, ORBIT_DEFAULT_OMEGA_MAX, ORBIT_DEFAULT_ACCEL, ORBIT_BRAKE_MULT, JUMP_BRAKE_MULT, ORBIT_LEAD_RAD, ORBIT_ENTRANCE_REM_K, ORBIT_ENTRANCE_EPS_TINY, ORBIT_CAPTURE_K, ORBIT_CAPTURE_OUT_K, ORBIT_NEAR_SPEED_SCALE, ORBIT_APPROACH_GATE_SPEED, ORBIT_OMEGA_TURN_FRAC, ORBIT_R_EPS, CRUISE_ACCEL_SCALE, CRUISE_BRAKE_MULT, V_OPEN_UNCAP, RESIDUAL_HIGH_MUL, RESIDUAL_CLEAR_MUL, V_TURN_ALLOW_R_FRAC, ORBIT_V_RAD_MAX_FRAC, ORBIT_V_RAD_MAX_R_MUL, ORBIT_RESIDUAL_V_MUL, ORBIT_RESIDUAL_V_ADD, ORBIT_SINGULARITY_R_MUL, ORBIT_ESCAPE_V_RAD, } from "./ship-motion-config.js";
-import { ORBIT_R_MIN, ORBIT_R_MAX, ORBIT_OMEGA_MIN, ORBIT_OMEGA_MAX, ORBIT_SPRING_K, ORBIT_DEFAULT_OMEGA_MAX, ORBIT_DEFAULT_ACCEL, JUMP_BRAKE_MULT, ORBIT_LEAD_RAD, ORBIT_NEAR_SPEED_SCALE, ORBIT_OMEGA_TURN_FRAC, ORBIT_R_EPS, SHIP_MAX_SPEED, SHIP_SPEED_VARIANCE, SHIP_TYPE_MUL_RED, SHIP_TYPE_MUL_BLUE, SHIP_TYPE_MUL_GREEN, SHIP_BRAKE_DIST_MARGIN, CRUISE_ACCEL_SCALE, CRUISE_BRAKE_MULT, V_OPEN_UNCAP, V_TURN_ALLOW_R_FRAC, ORBIT_V_RAD_MAX_FRAC, ORBIT_V_RAD_MAX_R_MUL, ORBIT_RESIDUAL_V_MUL, ORBIT_RESIDUAL_V_ADD, ORBIT_SINGULARITY_R_MUL, ORBIT_ESCAPE_V_RAD, } from "./ship-motion-config.js";
+export { ORBIT_R_MIN, ORBIT_R_MAX, ORBIT_HEIGHT_FRAC, ORBIT_HEIGHT_MAX, ORBIT_HEIGHT_BLEND_REM_K, ORBIT_HEIGHT_APPROACH_TAU_S, ORBIT_HEIGHT_CLIMB_SLOPE, ORBIT_HEIGHT_MAX_FRAME_FRAC, ORBIT_HEIGHT_MIN_RATE, ORBIT_OMEGA_MIN, ORBIT_OMEGA_MAX, ORBIT_ARRIVE_EPS, ORBIT_SPRING_K, ORBIT_DEFAULT_OMEGA_MAX, ORBIT_DEFAULT_ACCEL, ORBIT_BRAKE_MULT, JUMP_BRAKE_MULT, ORBIT_LEAD_RAD, ORBIT_ENTRANCE_REM_K, ORBIT_ENTRANCE_EPS_TINY, ORBIT_CAPTURE_K, ORBIT_CAPTURE_OUT_K, ORBIT_NEAR_SPEED_SCALE, ORBIT_APPROACH_GATE_SPEED, ORBIT_OMEGA_TURN_FRAC, ORBIT_R_EPS, ORBIT_SETTLED_R_FRAC, ORBIT_SETTLED_HEADING_RAD, CRUISE_ACCEL_SCALE, CRUISE_BRAKE_MULT, V_OPEN_UNCAP, RESIDUAL_HIGH_MUL, RESIDUAL_CLEAR_MUL, V_TURN_ALLOW_R_FRAC, ORBIT_V_RAD_MAX_FRAC, ORBIT_V_RAD_MAX_R_MUL, ORBIT_RESIDUAL_V_MUL, ORBIT_RESIDUAL_V_ADD, ORBIT_SINGULARITY_R_MUL, ORBIT_ESCAPE_V_RAD, } from "./ship-motion-config.js";
+import { ORBIT_R_MIN, ORBIT_R_MAX, ORBIT_HEIGHT_MAX, ORBIT_HEIGHT_BLEND_REM_K, ORBIT_HEIGHT_APPROACH_TAU_S, ORBIT_HEIGHT_CLIMB_SLOPE, ORBIT_HEIGHT_MAX_FRAME_FRAC, ORBIT_HEIGHT_MIN_RATE, ORBIT_OMEGA_MIN, ORBIT_OMEGA_MAX, ORBIT_SPRING_K, ORBIT_DEFAULT_OMEGA_MAX, ORBIT_DEFAULT_ACCEL, JUMP_BRAKE_MULT, ORBIT_LEAD_RAD, ORBIT_NEAR_SPEED_SCALE, ORBIT_OMEGA_TURN_FRAC, ORBIT_R_EPS, ORBIT_SETTLED_R_FRAC, ORBIT_SETTLED_HEADING_RAD, SHIP_MAX_SPEED, SHIP_SPEED_VARIANCE, SHIP_TYPE_MUL_RED, SHIP_TYPE_MUL_BLUE, SHIP_TYPE_MUL_GREEN, SHIP_BRAKE_DIST_MARGIN, CRUISE_ACCEL_SCALE, CRUISE_BRAKE_MULT, V_OPEN_UNCAP, V_TURN_ALLOW_R_FRAC, ORBIT_V_RAD_MAX_FRAC, ORBIT_V_RAD_MAX_R_MUL, ORBIT_RESIDUAL_V_MUL, ORBIT_RESIDUAL_V_ADD, ORBIT_SINGULARITY_R_MUL, ORBIT_ESCAPE_V_RAD, RESIDUAL_CLEAR_MUL, } from "./ship-motion-config.js";
 import { getShipTypeConfig } from "./ship-type-config.js";
 /** Deterministic 0..1 from seed (xorshift-ish mix). */
 function hash01(seed) {
@@ -48,18 +49,92 @@ export function personalSpeedVarianceMul(seed) {
  * Deterministic personal orbit parameters from a seed (instance / ship id).
  * radius ∈ [ORBIT_R_MIN, ORBIT_R_MAX], phase0 ∈ [0, 2π).
  * |ω| = base band × personal ±10% only — **not** type hop mul (green stays calm).
+ * height ∈ [−ORBIT_HEIGHT_MAX, +ORBIT_HEIGHT_MAX] (±ORBIT_HEIGHT_FRAC of R_max).
  */
 export function hashOrbitParams(seed, typeId = 0) {
     void typeId; // hop type mul must not inflate ring rate
     const u0 = hash01(seed);
     const u1 = hash01((seed >>> 0) ^ 0x9e3779b9);
     const u2 = hash01((seed >>> 0) ^ 0x85ebca6b);
+    const uH = hash01((seed >>> 0) ^ 0x27d4eb2d);
     const radius = ORBIT_R_MIN + u0 * (ORBIT_R_MAX - ORBIT_R_MIN);
     const omegaMag = (ORBIT_OMEGA_MIN + u1 * (ORBIT_OMEGA_MAX - ORBIT_OMEGA_MIN)) *
         personalSpeedVarianceMul(seed);
     const omega = (u2 < 0.5 ? -1 : 1) * omegaMag;
     const phase0 = hash01((seed >>> 0) ^ 0xc2b2ae35) * Math.PI * 2;
-    return { radius, omega, phase0 };
+    // uH ∈ [0,1) → height ∈ [−H, +H]; map open [0,1) so max is approachable.
+    const height = (uH * 2 - 1) * ORBIT_HEIGHT_MAX;
+    return { radius, omega, phase0, height };
+}
+/**
+ * Personal planar orbit height from ShipSim (slotY at pack). Falls back to 0.
+ * Bounded to ORBIT_HEIGHT_MAX for safety if pack/hand-written state is wild.
+ */
+export function personalOrbitHeight(slotY) {
+    const h = slotY !== undefined && Number.isFinite(slotY) ? slotY : 0;
+    if (h > ORBIT_HEIGHT_MAX)
+        return ORBIT_HEIGHT_MAX;
+    if (h < -ORBIT_HEIGHT_MAX)
+        return -ORBIT_HEIGHT_MAX;
+    return h;
+}
+/**
+ * Entrance / ring aim height for planar orbit = personal height (pathEnd-relative).
+ * XZ aim stays external-tangent; Y target is this value so entry is elevated.
+ */
+export function orbitEntranceAimHeight(slotY) {
+    return personalOrbitHeight(slotY);
+}
+/**
+ * Blend rem scale: height ramps over this XZ distance to the entrance aim.
+ */
+export function orbitHeightBlendDist(radius) {
+    const R = radius > 1e-6 ? radius : ORBIT_R_MIN;
+    return Math.max(ORBIT_HEIGHT_BLEND_REM_K * R, ORBIT_R_MIN);
+}
+/**
+ * Desired planar height along SEEK→CIRCULATE approach.
+ * - CIRCULATE (near): full personal height (entry target).
+ * - SEEK: smoothstep from 0 → h as remHoriz shrinks over blendDist.
+ * Does not rate-limit; pair with {@link stepOrbitApproachHeight}.
+ */
+export function orbitApproachHeightDesired(personalHeight, remHoriz, blendDist, near) {
+    const h = personalOrbitHeight(personalHeight);
+    if (Math.abs(h) < 1e-12)
+        return 0;
+    if (near)
+        return h;
+    const bd = blendDist > 1e-6 ? blendDist : 1;
+    let t = 1 - clamp01(remHoriz / bd);
+    // smoothstep — soft start/end so climb does not kick heading feel
+    t = t * t * (3 - 2 * t);
+    return h * t;
+}
+/**
+ * Rate-limited posY step toward yDes. Caps one-frame |ΔY| so capture cannot
+ * snap the full personal offset (yaw-only mesh; pure vertical correction).
+ */
+export function stepOrbitApproachHeight(posY, yDes, personalHeight, dtSec, horizSpeed) {
+    let dt = dtSec;
+    if (dt < 0)
+        dt = 0;
+    else if (dt > 0.05)
+        dt = 0.05;
+    const y0 = Number.isFinite(posY) ? posY : 0;
+    const dy = yDes - y0;
+    if (Math.abs(dy) < 1e-12)
+        return yDes;
+    const hAbs = Math.max(Math.abs(personalOrbitHeight(personalHeight)), 1e-6);
+    const tau = ORBIT_HEIGHT_APPROACH_TAU_S > 1e-6 ? ORBIT_HEIGHT_APPROACH_TAU_S : 0.35;
+    const rateFromTau = hAbs / tau;
+    const rateFromHoriz = Math.abs(horizSpeed) * ORBIT_HEIGHT_CLIMB_SLOPE;
+    const maxRate = Math.max(rateFromTau, rateFromHoriz, ORBIT_HEIGHT_MIN_RATE);
+    const maxDy = Math.min(maxRate * dt, ORBIT_HEIGHT_MAX_FRAME_FRAC * hAbs);
+    if (maxDy < 1e-12)
+        return y0;
+    if (Math.abs(dy) <= maxDy)
+        return yDes;
+    return y0 + (dy > 0 ? maxDy : -maxDy);
 }
 /**
  * Personal linear accel + soft cruise + turn cap from seed and typeId (0/1/2).
@@ -121,6 +196,100 @@ export function orbitFloorSpeed(omega, radius, omegaMax = ORBIT_DEFAULT_OMEGA_MA
     const vOmega = Math.abs(omega) * R;
     const turnCap = ORBIT_OMEGA_TURN_FRAC * (omegaMax > 0 ? omegaMax : ORBIT_DEFAULT_OMEGA_MAX) * R;
     return Math.min(vOmega, turnCap);
+}
+/**
+ * Planar ring offset from orbit phase (pathEnd-relative, O(R) — f32-safe).
+ * x = R·sin(φ), z = R·cos(φ). Use with center for world, or alone for trail samples.
+ */
+export function orbitLocalOffset(radius, phase) {
+    const R = radius > 1e-6 ? radius : ORBIT_R_MIN;
+    return { x: R * Math.sin(phase), z: R * Math.cos(phase) };
+}
+/**
+ * Origin-relative draw position for a settled planar orbit ship (f32-stable).
+ *   rel = f32(pathEnd − origin) + f32(R·(sin φ, cos φ))
+ * Never form absolute world then subtract origin (loses R-scale bits at |C| ≳ 1e5).
+ */
+export function orbitDrawRelativeToOrigin(pathEndX, pathEndZ, radius, phase, originX, originZ) {
+    const local = orbitLocalOffset(radius, phase);
+    return {
+        x: pathEndX - originX + local.x,
+        z: pathEndZ - originZ + local.z,
+    };
+}
+/**
+ * Analytic settled CIRCULATE on the personal ring (planar).
+ * **Phase is the source of truth** (advance orbitPhase += ω·dt) — never re-atan2
+ * from absolute pos (f32 |world| thrash). Pos = C + R·(sin,cos) reconstructed.
+ * Mutates `ship` and returns it (GPU-like).
+ */
+export function integrateOrbitRingSettled(ship, centerX, centerZ, dtSec, omegaMax = ORBIT_DEFAULT_OMEGA_MAX) {
+    let dt = dtSec;
+    if (dt < 0)
+        dt = 0;
+    else if (dt > 0.05)
+        dt = 0.05;
+    const R = ship.orbitR > 1e-6 ? ship.orbitR : ORBIT_R_MIN;
+    const omega = ship.orbitOmega;
+    const side = orbitSideSign(omega);
+    // Phase-primary: stored orbitPhase only. Bootstrap from pos solely when
+    // phase is non-finite (pack always sets phase0).
+    let phase0 = ship.orbitPhase;
+    if (!Number.isFinite(phase0)) {
+        const dx = ship.posX - centerX;
+        const dz = ship.posZ - centerZ;
+        phase0 = dx * dx + dz * dz > 1e-12 ? Math.atan2(dx, dz) : 0;
+    }
+    const phase = wrapPi(phase0 + omega * dt);
+    const local = orbitLocalOffset(R, phase);
+    // Reconstruct XZ from center + local (JS f64; GPU f32 same formula).
+    // Height: rate-limit toward personal offset so first settled frame never
+    // snaps the remaining climb (same law as plant approach).
+    ship.posX = centerX + local.x;
+    ship.posZ = centerZ + local.z;
+    {
+        const h = personalOrbitHeight(ship.slotY);
+        ship.posY = stepOrbitApproachHeight(ship.posY ?? 0, h, h, dt, ship.speed);
+    }
+    ship.orbitPhase = phase;
+    ship.heading = orbitTangentHeading(phase, side);
+    {
+        const q = quatFromYaw(ship.heading);
+        ship.qx = q.x;
+        ship.qy = q.y;
+        ship.qz = q.z;
+        ship.qw = q.w;
+    }
+    const vOrbit = orbitFloorSpeed(omega, R, omegaMax);
+    ship.speed = vOrbit * ORBIT_NEAR_SPEED_SCALE;
+    return ship;
+}
+/**
+ * True when CIRCULATE may leave the non-holonomic plant for analytic ring.
+ * Residual must be clear; |r−R|/R and |heading−tangent| within settle bands.
+ * Heading tangent uses stored `orbitPhase` when provided (avoids atan2 thrash
+ * at large |pathEnd| in f32).
+ */
+export function isOrbitSettledForAnalytic(posX, posZ, centerX, centerZ, radius, omega, heading, speed, omegaMax = ORBIT_DEFAULT_OMEGA_MAX, orbitPhase) {
+    const R = radius > 1e-6 ? radius : ORBIT_R_MIN;
+    const dx = posX - centerX;
+    const dz = posZ - centerZ;
+    const r = Math.hypot(dx, dz);
+    const rEps = Math.max(ORBIT_R_EPS, 0.05 * R);
+    if (r < rEps)
+        return false;
+    const vOrbit = orbitFloorSpeed(omega, R, omegaMax);
+    if (speed > RESIDUAL_CLEAR_MUL * vOrbit)
+        return false;
+    if (Math.abs(r - R) / R > ORBIT_SETTLED_R_FRAC)
+        return false;
+    const side = orbitSideSign(omega);
+    const phase = orbitPhase !== undefined && Number.isFinite(orbitPhase)
+        ? orbitPhase
+        : Math.atan2(dx, dz);
+    const tangH = orbitTangentHeading(phase, side);
+    const headErr = Math.abs(shortestAngleDelta(heading, tangH));
+    return headErr <= ORBIT_SETTLED_HEADING_RAD;
 }
 /**
  * Far or near aim target on the orbit ring around destination C.
@@ -402,10 +571,18 @@ function integrateOrbitSeekStepPlanar(ship, centerX, centerZ, centerVelX, center
     const dz = ship.posZ - centerZ;
     const r = Math.hypot(dx, dz);
     const rEps = Math.max(ORBIT_R_EPS, 0.05 * R);
-    const aim = computeOrbitAimTarget(ship.posX, ship.posZ, centerX, centerZ, R, side, near, ship.heading);
-    ship.orbitPhase = aim.theta;
     const vOrbit = orbitFloorSpeed(omega, R, omegaMax);
     const vOrbitUse = near ? vOrbit * ORBIT_NEAR_SPEED_SCALE : vOrbit;
+    // Settled CIRCULATE: analytic ring — no non-holonomic thrash under follow-cam.
+    // Only when residual clear + near ring + heading near tangent; plant owns else.
+    // Skip when center has velocity (Galilean / moving pathEnd) — keep plant.
+    if (near &&
+        Math.hypot(centerVelX, centerVelZ) < 1e-6 &&
+        isOrbitSettledForAnalytic(ship.posX, ship.posZ, centerX, centerZ, R, omega, ship.heading, ship.speed, omegaMax, ship.orbitPhase)) {
+        return integrateOrbitRingSettled(ship, centerX, centerZ, dt, omegaMax);
+    }
+    const aim = computeOrbitAimTarget(ship.posX, ship.posZ, centerX, centerZ, R, side, near, ship.heading);
+    ship.orbitPhase = aim.theta;
     let vRelX;
     let vRelZ;
     let remAim;
@@ -544,8 +721,15 @@ function integrateOrbitSeekStepPlanar(ship, centerX, centerZ, centerVelX, center
     }
     const step = ship.speed * dt;
     ship.posX += Math.sin(ship.heading) * step;
-    ship.posY = 0;
     ship.posZ += Math.cos(ship.heading) * step;
+    // Continuous height: entrance aim is at personal height; ramp posY over
+    // rem-to-aim (smoothstep) and rate-limit so CIRCULATE enter never snaps Y.
+    // XZ heading/path stay planar (yaw-only) — height is pure vertical correction.
+    {
+        const h = personalOrbitHeight(ship.slotY);
+        const yDes = orbitApproachHeightDesired(h, remAim, orbitHeightBlendDist(R), near);
+        ship.posY = stepOrbitApproachHeight(ship.posY ?? 0, yDes, h, dt, ship.speed);
+    }
     return ship;
 }
 /**

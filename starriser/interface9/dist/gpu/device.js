@@ -79,22 +79,36 @@ export async function createWebGpuBootstrap(options) {
     // high ship caps exceed that. Request the adapter's full limits when larger.
     const label = options.label ?? "galaxy-webgpu";
     const requiredLimits = buildRequiredLimits(adapter);
+    // Optional: GPU pass timestamps for true render-time HUD (solar showcase, etc.)
+    // Optional GPU pass timestamps (solar HUD, etc.). Cast: ambient GPUFeatureName varies by @types.
+    const requiredFeatures = (adapter.features?.has?.("timestamp-query") ? ["timestamp-query"] : []);
     let device;
     try {
         device = await adapter.requestDevice({
             label,
             requiredLimits,
+            ...(requiredFeatures?.length ? { requiredFeatures } : {}),
         });
     }
     catch (err) {
         // Some stacks reject partial limit bags — fall back to defaults, then clamp allocs.
         console.warn("[WebGPU] requestDevice with raised limits failed; retrying defaults.", err);
         try {
-            device = await adapter.requestDevice({ label });
+            device = await adapter.requestDevice({
+                label,
+                ...(requiredFeatures?.length ? { requiredFeatures } : {}),
+            });
         }
         catch (err2) {
-            const msg = err2 instanceof Error ? err2.message : String(err2);
-            throw new Error(`Galaxy requires WebGPU. requestDevice() failed: ${msg}`);
+            // Timestamp feature optional — last resort without it
+            try {
+                device = await adapter.requestDevice({ label });
+            }
+            catch (err3) {
+                const msg = err3 instanceof Error ? err3.message : String(err3);
+                throw new Error(`Galaxy requires WebGPU. requestDevice() failed: ${msg}`);
+            }
+            void err2;
         }
     }
     const limits = {

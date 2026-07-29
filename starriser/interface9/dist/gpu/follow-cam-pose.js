@@ -33,10 +33,10 @@ export function applyFollowDragLook(lookYaw, lookPitch, mdx, mdy, opts) {
     return { lookYaw: yaw, lookPitch: pitch };
 }
 /**
- * Trail ribbon width multiplier while following a ship (screen-space).
- * Restored to 1 when follow ends. Thick enough to read at roof-cam distance.
+ * @deprecated Trails use one production width always (no follow-only thick path).
+ * Kept at 1 for import stability; do not reintroduce a dual size.
  */
-export const FOLLOW_TRAIL_WIDTH_SCALE = 5;
+export const FOLLOW_TRAIL_WIDTH_SCALE = 1;
 /**
  * Ease factor t∈[0,1] for follow enter/exit (smoothstep). Pure.
  */

@@ -1,0 +1,562 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Galaxy — Thruster texture creator</title>
+    <style>
+      :root {
+        --bg: #060a14;
+        --panel: rgba(8, 16, 32, 0.92);
+        --border: rgba(120, 180, 255, 0.28);
+        --text: #cfe8ff;
+        --muted: #7a9ab8;
+        --accent: #8ec8ff;
+        --input: #0c1424;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: var(--bg);
+        color: var(--text);
+        font-family: ui-sans-serif, system-ui, sans-serif;
+        overflow: hidden;
+      }
+      #layout {
+        display: grid;
+        grid-template-columns: minmax(280px, 340px) 1fr;
+        height: 100%;
+      }
+      #sidebar {
+        overflow: auto;
+        padding: 14px 14px 28px;
+        background: var(--panel);
+        border-right: 1px solid var(--border);
+        box-shadow: 4px 0 24px rgba(0, 0, 0, 0.35);
+      }
+      #sidebar h1 {
+        margin: 0 0 4px;
+        font-size: 13px;
+        font-weight: 600;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        color: var(--accent);
+      }
+      #sidebar .sub {
+        margin: 0 0 14px;
+        font-size: 12px;
+        color: var(--muted);
+        line-height: 1.4;
+      }
+      fieldset {
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        margin: 0 0 12px;
+        padding: 10px 10px 8px;
+      }
+      legend {
+        padding: 0 6px;
+        font-size: 11px;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--accent);
+      }
+      .row {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 6px;
+        font-size: 12px;
+      }
+      .row label {
+        color: var(--muted);
+      }
+      .row input[type="number"],
+      .row input[type="range"] {
+        width: 110px;
+      }
+      .row input[type="color"] {
+        width: 42px;
+        height: 26px;
+        padding: 0;
+        border: 1px solid var(--border);
+        background: var(--input);
+        cursor: pointer;
+      }
+      input[type="number"],
+      input[type="range"] {
+        background: var(--input);
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        color: var(--text);
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 12px;
+        padding: 3px 6px;
+      }
+      /* Vertical drag-scrub: up increases, down decreases (see number-scrub.ts) */
+      input[type="number"] {
+        cursor: ns-resize;
+        touch-action: none;
+        user-select: none;
+      }
+      input[type="number"]:focus {
+        cursor: text;
+        user-select: text;
+      }
+      input[type="number"].scrubbing {
+        cursor: ns-resize;
+        background: #152a48;
+        border-color: var(--accent);
+        user-select: none;
+      }
+      input[type="checkbox"] {
+        accent-color: #4aa3ff;
+      }
+      .check {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 8px;
+        font-size: 12px;
+        color: var(--text);
+      }
+      .btns {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-bottom: 12px;
+      }
+      button {
+        cursor: pointer;
+        border: 1px solid var(--border);
+        background: #0e1a30;
+        color: var(--text);
+        border-radius: 6px;
+        padding: 7px 10px;
+        font-size: 12px;
+      }
+      button:hover {
+        border-color: var(--accent);
+        background: #152640;
+      }
+      button.primary {
+        background: #1a3a68;
+        border-color: #5aa0e8;
+        font-weight: 600;
+      }
+      #stage {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        min-width: 0;
+        background:
+          radial-gradient(ellipse at 50% 40%, #0a1530 0%, var(--bg) 70%);
+      }
+      #preview-wrap {
+        position: relative;
+        max-width: min(92%, 960px);
+        max-height: 70vh;
+        border-radius: 10px;
+        border: 1px solid var(--border);
+        box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+        /* Checkerboard shows transparent PNG regions */
+        background-color: #1a1a22;
+        background-image:
+          linear-gradient(45deg, #2a2a35 25%, transparent 25%),
+          linear-gradient(-45deg, #2a2a35 25%, transparent 25%),
+          linear-gradient(45deg, transparent 75%, #2a2a35 75%),
+          linear-gradient(-45deg, transparent 75%, #2a2a35 75%);
+        background-size: 16px 16px;
+        background-position:
+          0 0,
+          0 8px,
+          8px -8px,
+          -8px 0;
+        overflow: auto;
+      }
+      #preview {
+        display: block;
+        image-rendering: auto;
+        width: 100%;
+        height: auto;
+        vertical-align: middle;
+      }
+      #status {
+        margin-top: 14px;
+        font-size: 12px;
+        color: var(--muted);
+        text-align: center;
+        max-width: 90%;
+      }
+      #status.error {
+        color: #ff8a8a;
+      }
+      .hint {
+        margin-top: 10px;
+        font-size: 11px;
+        color: #5a7898;
+        text-align: center;
+        max-width: 36rem;
+        line-height: 1.4;
+      }
+      @media (max-width: 800px) {
+        #layout {
+          grid-template-columns: 1fr;
+          grid-template-rows: 45vh 1fr;
+        }
+        #sidebar {
+          border-right: none;
+          border-bottom: 1px solid var(--border);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="layout">
+      <aside id="sidebar">
+        <h1>Thruster texture creator</h1>
+        <p class="sub">
+          Equation-layered engine trails (core, glow, distance rings, shock
+          diamonds, noise). Export transparent-background PNG for ribbon UVs.
+        </p>
+
+        <div class="btns">
+          <button type="button" id="btnPresetBlue">Blue jet</button>
+          <button type="button" id="btnPresetOrange">Orange jet</button>
+          <button type="button" id="btnPresetIon">Ion needle</button>
+          <button type="button" id="btnPresetPlasma">Soft plasma</button>
+        </div>
+        <div class="btns">
+          <button type="button" class="primary" id="btnExport">
+            Export PNG
+          </button>
+        </div>
+
+        <form id="controls">
+          <fieldset>
+            <legend>Canvas &amp; scale</legend>
+            <div class="row">
+              <label for="widthPx">Width (px)</label>
+              <input id="widthPx" type="number" min="16" max="4096" step="1" />
+            </div>
+            <div class="row">
+              <label for="heightPx">Height (px)</label>
+              <input id="heightPx" type="number" min="8" max="2048" step="1" />
+            </div>
+            <div class="row">
+              <label for="trailWidth">Trail width</label>
+              <input
+                id="trailWidth"
+                type="number"
+                min="0.05"
+                max="4"
+                step="0.01"
+              />
+            </div>
+            <div class="row">
+              <label for="trailLength">Trail length</label>
+              <input
+                id="trailLength"
+                type="number"
+                min="0.05"
+                max="4"
+                step="0.01"
+              />
+            </div>
+            <div class="row">
+              <label for="exposure">Exposure</label>
+              <input
+                id="exposure"
+                type="number"
+                min="0.05"
+                max="8"
+                step="0.05"
+              />
+            </div>
+            <div class="row">
+              <label for="gamma">Gamma</label>
+              <input id="gamma" type="number" min="0.2" max="2.5" step="0.05" />
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <legend>Core glow</legend>
+            <label class="check"
+              ><input id="coreEnabled" type="checkbox" /> Enabled</label
+            >
+            <div class="row">
+              <label for="coreColor">Color</label>
+              <input id="coreColor" type="color" />
+            </div>
+            <div class="row">
+              <label for="coreIntensity">Intensity</label>
+              <input id="coreIntensity" type="number" min="0" max="10" step="0.05" />
+            </div>
+            <div class="row">
+              <label for="coreSigma">Radial σ</label>
+              <input id="coreSigma" type="number" min="0.01" max="1" step="0.005" />
+            </div>
+            <div class="row">
+              <label for="coreDecay">Length decay</label>
+              <input id="coreDecay" type="number" min="0" max="8" step="0.05" />
+            </div>
+            <div class="row">
+              <label for="corePower">Length power</label>
+              <input id="corePower" type="number" min="0" max="6" step="0.05" />
+            </div>
+            <div class="row">
+              <label for="coreExtent">Length extent</label>
+              <input id="coreExtent" type="number" min="0.05" max="2" step="0.01" />
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <legend>Mid glow</legend>
+            <label class="check"
+              ><input id="midEnabled" type="checkbox" /> Enabled</label
+            >
+            <div class="row">
+              <label for="midColor">Color</label>
+              <input id="midColor" type="color" />
+            </div>
+            <div class="row">
+              <label for="midIntensity">Intensity</label>
+              <input id="midIntensity" type="number" min="0" max="10" step="0.05" />
+            </div>
+            <div class="row">
+              <label for="midSigma">Radial σ</label>
+              <input id="midSigma" type="number" min="0.01" max="1" step="0.005" />
+            </div>
+            <div class="row">
+              <label for="midDecay">Length decay</label>
+              <input id="midDecay" type="number" min="0" max="8" step="0.05" />
+            </div>
+            <div class="row">
+              <label for="midPower">Length power</label>
+              <input id="midPower" type="number" min="0" max="6" step="0.05" />
+            </div>
+            <div class="row">
+              <label for="midExtent">Length extent</label>
+              <input id="midExtent" type="number" min="0.05" max="2" step="0.01" />
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <legend>Outer glow</legend>
+            <label class="check"
+              ><input id="outerEnabled" type="checkbox" /> Enabled</label
+            >
+            <div class="row">
+              <label for="outerColor">Color</label>
+              <input id="outerColor" type="color" />
+            </div>
+            <div class="row">
+              <label for="outerIntensity">Intensity</label>
+              <input id="outerIntensity" type="number" min="0" max="10" step="0.05" />
+            </div>
+            <div class="row">
+              <label for="outerSigma">Radial σ</label>
+              <input id="outerSigma" type="number" min="0.01" max="1.5" step="0.005" />
+            </div>
+            <div class="row">
+              <label for="outerDecay">Length decay</label>
+              <input id="outerDecay" type="number" min="0" max="8" step="0.05" />
+            </div>
+            <div class="row">
+              <label for="outerPower">Length power</label>
+              <input id="outerPower" type="number" min="0" max="6" step="0.05" />
+            </div>
+            <div class="row">
+              <label for="outerExtent">Length extent</label>
+              <input id="outerExtent" type="number" min="0.05" max="2" step="0.01" />
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <legend>Wash (base bloom)</legend>
+            <label class="check"
+              ><input id="washEnabled" type="checkbox" /> Enabled</label
+            >
+            <div class="row">
+              <label for="washColor">Color</label>
+              <input id="washColor" type="color" />
+            </div>
+            <div class="row">
+              <label for="washIntensity">Intensity</label>
+              <input id="washIntensity" type="number" min="0" max="10" step="0.05" />
+            </div>
+            <div class="row">
+              <label for="washSigma">Radial σ</label>
+              <input id="washSigma" type="number" min="0.01" max="2" step="0.01" />
+            </div>
+            <div class="row">
+              <label for="washDecay">Length decay</label>
+              <input id="washDecay" type="number" min="0" max="8" step="0.05" />
+            </div>
+            <div class="row">
+              <label for="washPower">Length power</label>
+              <input id="washPower" type="number" min="0" max="6" step="0.05" />
+            </div>
+            <div class="row">
+              <label for="washExtent">Length extent</label>
+              <input id="washExtent" type="number" min="0.05" max="2" step="0.01" />
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <legend>Static distance rings</legend>
+            <label class="check"
+              ><input id="ringsEnabled" type="checkbox" /> Enabled</label
+            >
+            <div class="row">
+              <label for="ringsColor">Color</label>
+              <input id="ringsColor" type="color" />
+            </div>
+            <div class="row">
+              <label for="ringsCount">Count</label>
+              <input id="ringsCount" type="number" min="0" max="40" step="1" />
+            </div>
+            <div class="row">
+              <label for="ringsThickness">Thickness</label>
+              <input
+                id="ringsThickness"
+                type="number"
+                min="0.002"
+                max="0.2"
+                step="0.001"
+              />
+            </div>
+            <div class="row">
+              <label for="ringsIntensity">Intensity</label>
+              <input
+                id="ringsIntensity"
+                type="number"
+                min="0"
+                max="5"
+                step="0.05"
+              />
+            </div>
+            <div class="row">
+              <label for="ringsUStart">U start</label>
+              <input id="ringsUStart" type="number" min="0" max="1" step="0.01" />
+            </div>
+            <div class="row">
+              <label for="ringsUEnd">U end</label>
+              <input id="ringsUEnd" type="number" min="0" max="1" step="0.01" />
+            </div>
+            <div class="row">
+              <label for="ringsSigma">Radial σ</label>
+              <input id="ringsSigma" type="number" min="0.02" max="1" step="0.01" />
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <legend>Shock diamonds</legend>
+            <label class="check"
+              ><input id="shocksEnabled" type="checkbox" /> Enabled</label
+            >
+            <div class="row">
+              <label for="shocksColor">Color</label>
+              <input id="shocksColor" type="color" />
+            </div>
+            <div class="row">
+              <label for="shocksCount">Count</label>
+              <input id="shocksCount" type="number" min="0" max="20" step="1" />
+            </div>
+            <div class="row">
+              <label for="shocksIntensity">Intensity</label>
+              <input
+                id="shocksIntensity"
+                type="number"
+                min="0"
+                max="5"
+                step="0.05"
+              />
+            </div>
+            <div class="row">
+              <label for="shocksUStart">U start</label>
+              <input id="shocksUStart" type="number" min="0" max="1" step="0.01" />
+            </div>
+            <div class="row">
+              <label for="shocksSpacing">Spacing</label>
+              <input
+                id="shocksSpacing"
+                type="number"
+                min="0.02"
+                max="0.5"
+                step="0.005"
+              />
+            </div>
+            <div class="row">
+              <label for="shocksHalf">Half length</label>
+              <input
+                id="shocksHalf"
+                type="number"
+                min="0.005"
+                max="0.2"
+                step="0.001"
+              />
+            </div>
+            <div class="row">
+              <label for="shocksSigma">Radial σ</label>
+              <input
+                id="shocksSigma"
+                type="number"
+                min="0.01"
+                max="0.5"
+                step="0.005"
+              />
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <legend>Noise / filaments</legend>
+            <label class="check"
+              ><input id="noiseEnabled" type="checkbox" /> Enabled</label
+            >
+            <div class="row">
+              <label for="noiseIntensity">Intensity</label>
+              <input
+                id="noiseIntensity"
+                type="number"
+                min="0"
+                max="1.5"
+                step="0.01"
+              />
+            </div>
+            <div class="row">
+              <label for="noiseFreqU">Freq U</label>
+              <input id="noiseFreqU" type="number" min="1" max="64" step="0.5" />
+            </div>
+            <div class="row">
+              <label for="noiseFreqV">Freq V</label>
+              <input id="noiseFreqV" type="number" min="1" max="64" step="0.5" />
+            </div>
+          </fieldset>
+        </form>
+      </aside>
+
+      <main id="stage">
+        <div id="preview-wrap">
+          <canvas id="preview" width="512" height="128"></canvas>
+        </div>
+        <div id="status">Loading…</div>
+        <p class="hint">
+          Left = nozzle, right = tip. Checkerboard shows transparency. Drag
+          numbers vertically to scrub (↑ increase, ↓ decrease; Shift = fine,
+          Alt = coarse). Export writes a real PNG. Not wired into fleet trails
+          yet — authoring tool only.
+        </p>
+      </main>
+    </div>
+    <script type="module" src="dist/gpu/thruster-texture/main.js"></script>
+  </body>
+</html>

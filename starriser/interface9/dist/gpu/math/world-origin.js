@@ -12,14 +12,33 @@
  */
 import { mat4LookAt } from "./mat4.js";
 /**
+ * True when follow opts request pathEnd-centered origin (planar CIRCULATE).
+ * Pure — used by {@link chooseFrameOrigin} and unit tests.
+ */
+export function usePathEndFollowOrigin(follow) {
+    if (follow == null || follow.planarCirculate !== true)
+        return false;
+    return (Number.isFinite(follow.pathEndX) && Number.isFinite(follow.pathEndZ));
+}
+/**
  * Choose the frame floating origin for fleet model / triangle / trail draws.
  *
- * - Prefer the followed ship when actively chasing (stable hull-local frame).
- * - Else the camera eye (camera-linked; covers inter-cluster travel).
+ * - Follow + planar CIRCULATE → fleet **pathEnd** (orbit center; max precision).
+ * - Follow otherwise → followed ship pose (hull-local frame for hop / 3D).
+ * - Else camera eye (camera-linked; covers inter-cluster travel).
  *
- * Never requires a cluster or solar-system anchor.
+ * Never requires a cluster or solar-system anchor. Chase look-at stays on the
+ * ship; only this origin shifts to pathEnd in planar orbit.
  */
 export function chooseFrameOrigin(eyeX, eyeY, eyeZ, follow) {
+    if (follow != null && usePathEndFollowOrigin(follow)) {
+        const peY = follow.pathEndY;
+        return {
+            x: follow.pathEndX,
+            y: Number.isFinite(peY) ? peY : 0,
+            z: follow.pathEndZ,
+        };
+    }
     if (follow != null &&
         Number.isFinite(follow.posX) &&
         Number.isFinite(follow.posZ)) {
@@ -31,6 +50,17 @@ export function chooseFrameOrigin(eyeX, eyeY, eyeZ, follow) {
         };
     }
     return { x: eyeX, y: eyeY, z: eyeZ };
+}
+/**
+ * Origin-relative draw of a planar orbit ship when origin = pathEnd:
+ *   (pathEnd − origin) + local ≈ local
+ * Pure gold for lock tests (f32 path optional via callers).
+ */
+export function orbitFollowDrawRelative(pathEndX, pathEndZ, localX, localZ, originX, originZ) {
+    return {
+        x: pathEndX - originX + localX,
+        z: pathEndZ - originZ + localZ,
+    };
 }
 /** world − origin in f64 (JS number). */
 export function relativeToOrigin(worldX, worldY, worldZ, originX, originY, originZ) {
@@ -86,14 +116,30 @@ export function trailEndpointRelativeF32(endX, endY, endZ, originX, originY, ori
     };
 }
 /**
- * Expand-time thruster endpoint (production model-trail path):
- *   f32(f32(sample) − f32(origin)) + f32(potWorld)
+ * Expand-time thruster endpoint (production model-trail path).
  *
- * Apply the **small** pot offset after the origin subtract so mesh-scale thruster
- * offsets survive at large |world| (same family as {@link meshWorldRelativeF32}).
- * Hostile path {@link trailExpandEndpointAbsoluteF32} loses pot bits first.
+ * Production samples are **pathEnd-relative**. Expand rebuilds:
+ *   f32(f32(pathEnd) − f32(origin)) + f32(sampleRel) + f32(pot)
+ *
+ * Legacy absolute-sample form (sample = world) is still:
+ *   f32(f32(sample) − f32(origin)) + f32(pot)
+ * via {@link trailExpandEndpointFromAbsoluteSampleF32}.
+ *
+ * Apply the **small** pot offset after the small terms so mesh-scale thruster
+ * offsets survive at large |world|. Hostile path
+ * {@link trailExpandEndpointAbsoluteF32} loses pot bits first.
  */
-export function trailExpandEndpointRelativeF32(sampleX, sampleY, sampleZ, potX, potY, potZ, originX, originY, originZ) {
+export function trailExpandEndpointRelativeF32(sampleRelX, sampleRelY, sampleRelZ, potX, potY, potZ, originX, originY, originZ, pathEndX = 0, pathEndY = 0, pathEndZ = 0) {
+    // pathEnd-relative sample (default pathEnd=0 ⇒ sample treated as absolute world
+    // for legacy goldens that still pass world coords as the "sample").
+    return {
+        x: f32(f32(f32(pathEndX) - f32(originX)) + f32(sampleRelX) + f32(potX)),
+        y: f32(f32(f32(pathEndY) - f32(originY)) + f32(sampleRelY) + f32(potY)),
+        z: f32(f32(f32(pathEndZ) - f32(originZ)) + f32(sampleRelZ) + f32(potZ)),
+    };
+}
+/** Legacy absolute-sample expand (sample is world). Prefer pathEnd-relative. */
+export function trailExpandEndpointFromAbsoluteSampleF32(sampleX, sampleY, sampleZ, potX, potY, potZ, originX, originY, originZ) {
     return {
         x: f32(f32(f32(sampleX) - f32(originX)) + f32(potX)),
         y: f32(f32(f32(sampleY) - f32(originY)) + f32(potY)),

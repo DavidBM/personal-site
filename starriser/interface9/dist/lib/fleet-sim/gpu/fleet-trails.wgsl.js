@@ -19,20 +19,32 @@
  *   next:  pos.xyz  (newer neighbor; = end if none)
  *
  * Width: `mix(widthTailPx, widthHeadPx, alpha)` — head = ship (high α), tail = old.
- * Long-edge AA: MSAA + alphaToCoverage (no circular soft endcaps).
+ * Fragment samples a thruster atlas (`images/engine-trail-01.png`): U along age
+ * (head/nozzle → left of atlas, tail → right), V across ribbon. Transparent-bg
+ * texture uses **additive blend** (one/one; no alphaToCoverage — a2c dithers soft alpha badly).
  */
 import { DEFAULT_TRAIL_LAYOUT, TRAIL_LINE_FLOATS_PER_SHIP, TRAIL_LINE_FLOATS_PER_VERT, TRAIL_LINE_STRIDE, TRAIL_SEGMENT_FLOATS, TRAIL_SEGMENT_STRIDE, TRAIL_SEGS_PER_SHIP, TRAIL_VERTS_PER_SHIP, } from "../visual/fleet-trail-ref.js";
+import { TRAIL_EXPOSURE_DEFAULT } from "./trail-fragment-color.js";
+/** Default thruster atlas for production fleet ribbons (repo-root relative). */
+export const DEFAULT_TRAIL_TEXTURE_URL = "images/engine-trail-01.png";
 export { TRAIL_LINE_FLOATS_PER_SHIP, TRAIL_LINE_FLOATS_PER_VERT, TRAIL_LINE_STRIDE, TRAIL_SEGMENT_FLOATS, TRAIL_SEGMENT_STRIDE, TRAIL_SEGS_PER_SHIP as TRAIL_DRAW_SEGS, TRAIL_VERTS_PER_SHIP, };
+export { TRAIL_WIDTH_MODE_SCREEN, TRAIL_WIDTH_MODE_WORLD, TRAIL_WORLD_WIDTH_HEAD, TRAIL_WORLD_WIDTH_TAIL, trailClipWidthScale, resolveTrailDrawWidths, } from "./trail-width.js";
+export { trailAtlasUv, trailAtlasUFromAlpha, trailAtlasVFromSide, trailAtlasUvPolylineContinuity, trailPathCorrectAtlasUv, trailPathCorrectCenterlineCheck, } from "./trail-atlas-uv.js";
+export { TRAIL_EXPOSURE_DEFAULT, TRAIL_BLEND_COLOR, TRAIL_BLEND_ALPHA, trailFragmentColor, trailFragmentColorDim, solidTrailEdgeMask, compositeTrailAdditive, compositeTrailAlphaOver, } from "./trail-fragment-color.js";
 /** Game-default ring for static checks. Runtime uses layer.trailLayout. */
 export const TRAIL_DRAW_RING_SIZE = DEFAULT_TRAIL_LAYOUT.ringSize;
-/** Wide end at the ship (fresh samples, high alpha). Buffer pixels. */
-export const TRAIL_WIDTH_HEAD_PX = 3.5;
-/** Thin end at the oldest live sample. Buffer pixels. */
-export const TRAIL_WIDTH_TAIL_PX = 0.45;
+/**
+ * Strategic **2D triangle** trail widths (screen px, constant on screen).
+ * Thin solid line of ship color — 3 px head (≈ ship triangle edge scale).
+ * Model LOD uses world thruster widths ({@link TRAIL_WORLD_WIDTH_HEAD}), not these.
+ */
+export const TRAIL_WIDTH_HEAD_PX = 3;
+/** Thin end at the oldest live sample (screen px). ≤ head. */
+export const TRAIL_WIDTH_TAIL_PX = 1;
 /**
  * Uniform buffer: relative view + projection + resolution + width knobs + origin.
  * 128 (2×mat4) + 32 (res/widths/flags) + 16 (origin.xyz + pad) = 176 bytes.
- * Layout kept stable; softAA slot is unused padding (trails have no endcap AA).
+ * [36]=widthMode (0 screen / 1 world), [39]=exposure.
  */
 export const TRAIL_UNIFORM_SIZE = 176;
 export const TRAIL_UNIFORM_FLOATS = TRAIL_UNIFORM_SIZE / 4;
@@ -65,7 +77,7 @@ export function buildTrailTemplateInterleaved() {
  * `view` must be origin-relative (lookAt(eye−origin, target−origin)).
  * Matrices are column-major Mat4.
  *
- * SoftAA param is accepted but ignored (legacy call sites / layout pad at [36]).
+ * SoftAA param is accepted but ignored (legacy call sites). Slot [36] is widthMode.
  */
 export function writeTrailUniforms(out, view, projection, resolutionW, resolutionH, widthHeadPx = TRAIL_WIDTH_HEAD_PX, widthTailPx = TRAIL_WIDTH_TAIL_PX, softAAOrOriginX = 0, originXOrY = 0, originYOrZ = 0, originZMaybe) {
     // Compat: old signature (…, softAA, ox, oy, oz) or new (…, ox, oy, oz).
@@ -90,17 +102,26 @@ export function writeTrailUniforms(out, view, projection, resolutionW, resolutio
     out[33] = Math.max(resolutionH, 1);
     out[34] = widthHeadPx;
     out[35] = widthTailPx;
-    out[36] = 0; // unused (was softAA)
+    out[36] = 0; // widthMode: 0=screen px, 1=world (see trail-width.ts)
     // intensity (1 = full). 0 is treated as 1 in the shader so legacy zero-fill is safe.
     out[37] = 1;
     // minAlpha: hide expand samples below this (0 = full length). Model multi-trail sets >0.
     out[38] = 0;
-    out[39] = 0;
+    // exposure: engine overdrive (0 → shader uses TRAIL_EXPOSURE_DEFAULT)
+    out[39] = TRAIL_EXPOSURE_DEFAULT;
     // Floating origin — VS subtracts before modelView (trail sample precision).
     out[40] = originX;
     out[41] = originY;
     out[42] = originZ;
     out[43] = 0;
+}
+/** Set width mode after {@link writeTrailUniforms} (0=screen px, 1=world). */
+export function writeTrailWidthMode(out, mode) {
+    out[36] = mode;
+}
+/** Set thruster exposure after {@link writeTrailUniforms}. */
+export function writeTrailExposure(out, exposure) {
+    out[39] = Math.max(0, exposure);
 }
 /**
  * Optional multi-trail modulation for model LOD (intensity + length + widths).
@@ -418,18 +439,22 @@ struct TrailUniforms {
   resolution : vec2<f32>,
   widthHead : f32,
   widthTail : f32,
-  _padSoftAA : f32,
+  /** 0 = screen px (strategic); 1 = world units (model LOD). */
+  widthMode : f32,
   /** Multiplies fragment alpha. 0 → treated as 1 (legacy zero-fill safe). */
   intensity : f32,
   /** Drop expand samples with max(alphaStart,alphaEnd) < minAlpha (shorter trails). */
   minAlpha : f32,
-  _pad2 : f32,
+  /** Engine overexpose boost. 0 → use built-in default (~3.4). */
+  exposure : f32,
   /** Frame floating origin; endpoints subtract before modelView. */
   origin : vec3<f32>,
   _pad3 : f32,
 };
 
 @group(0) @binding(0) var<uniform> u : TrailUniforms;
+@group(0) @binding(1) var trailTex : texture_2d<f32>;
+@group(0) @binding(2) var trailSamp : sampler;
 
 struct VSIn {
   // Template quad: position.x = side (±1), position.y = along (0 start, 1 end)
@@ -447,7 +472,16 @@ struct VSIn {
 
 struct VSOut {
   @builtin(position) clip : vec4<f32>,
-  @location(0) vColor : vec4<f32>, // rgb + alpha
+  @location(0) vColor : vec4<f32>, // rgb + alpha (age still for diagnostics)
+  /** Expanded vertex in view space — FS path-correct atlas UV. */
+  @location(1) vViewPos : vec3<f32>,
+  /** Segment centerline ends in view space (older start → newer end). */
+  @location(2) vSegStart : vec3<f32>,
+  @location(3) vSegEnd : vec3<f32>,
+  /** Atlas U at start (x) and end (y); head/high-α → 0, tip → 1. */
+  @location(4) vAtlasU : vec2<f32>,
+  /** View-space half-width at start (x) and end (y). */
+  @location(5) vHalfW : vec2<f32>,
 };
 
 // Stable continuous joints — match trailMiterOffsetScreen / pure TS.
@@ -510,9 +544,59 @@ fn trailMiterScreen(
   return m * scale;
 }
 
+/**
+ * View-space half-width from full linewidth (world units or screen px).
+ */
+fn trailViewHalfWidth(fullWidth: f32, viewZ: f32) -> f32 {
+  if (u.widthMode >= 0.5) {
+    return max(fullWidth, 0.0) * 0.5;
+  }
+  let resY = max(u.resolution.y, 1.0);
+  let p11 = max(abs(u.projection[1][1]), 1e-5);
+  return (max(fullWidth, 0.0) / resY) * abs(viewZ) / p11;
+}
+
+/**
+ * Camera-facing side axis in view space (unit). Stable under follow cam.
+ *
+ * Camera is at origin looking −Z. Prefer cross(trail, toCamera) with
+ * toCamera = −normalize(center). When follow floating-origin puts the ship at
+ * the look-at, center≈0 and trail often ‖ view — never rely on fixed −Z alone
+ * (that flickered). Fall back to camera-up, then +X.
+ */
+fn trailViewSideAxis(trailDir: vec3<f32>, center: vec3<f32>) -> vec3<f32> {
+  let cLen = length(center);
+  var side: vec3<f32>;
+  if (cLen > 1e-3) {
+    let toCam = -center / cLen;
+    side = cross(trailDir, toCam);
+  } else {
+    // Near view origin (follow ship): use camera up, not optical −Z.
+    side = cross(trailDir, vec3<f32>(0.0, 1.0, 0.0));
+  }
+  var sl = length(side);
+  if (sl < 1e-4) {
+    side = cross(trailDir, vec3<f32>(0.0, 0.0, -1.0));
+    sl = length(side);
+  }
+  if (sl < 1e-4) {
+    side = cross(trailDir, vec3<f32>(1.0, 0.0, 0.0));
+    sl = length(side);
+  }
+  if (sl < 1e-4) {
+    return vec3<f32>(1.0, 0.0, 0.0);
+  }
+  return side / sl;
+}
+
 @vertex
 fn vs_main(input : VSIn) -> VSOut {
   var out : VSOut;
+  out.vViewPos = vec3<f32>(0.0);
+  out.vSegStart = vec3<f32>(0.0);
+  out.vSegEnd = vec3<f32>(0.0);
+  out.vAtlasU = vec2<f32>(0.0);
+  out.vHalfW = vec2<f32>(0.0);
 
   // Dead expand slots (MID/FAR / tombstone): bail before mat4 work.
   // Required at 10k×CAP_NEAR full high-water trail draws (~3M instances).
@@ -530,25 +614,23 @@ fn vs_main(input : VSIn) -> VSOut {
   }
 
   // Endpoint pick: position.y < 0.5 → start (older/tail), else end (newer/head)
-  let atStart = input.position.y < 0.5;
+  let along = clamp(input.position.y, 0.0, 1.0);
+  let atStart = along < 0.5;
   let col = select(input.instanceColorEnd, input.instanceColorStart, atStart);
   let alp = select(input.instanceAlphaEnd, input.instanceAlphaStart, atStart);
   out.vColor = vec4<f32>(col, alp);
 
-  // Width taper: high alpha (fresh / head) → widthHead; low → widthTail
-  let wStart = mix(u.widthTail, u.widthHead, clamp(input.instanceAlphaStart, 0.0, 1.0));
-  let wEnd = mix(u.widthTail, u.widthHead, clamp(input.instanceAlphaEnd, 0.0, 1.0));
-  let linewidth = select(wEnd, wStart, atStart);
+  // Atlas U range — FS projects viewPos onto segment (path-correct, no diagonal zigzag).
+  let u0 = 1.0 - clamp(input.instanceAlphaStart, 0.0, 1.0);
+  let u1 = 1.0 - clamp(input.instanceAlphaEnd, 0.0, 1.0);
+  out.vAtlasU = vec2<f32>(u0, u1);
 
-  let aspect = u.resolution.x / max(u.resolution.y, 1.0);
+  let wFull0 = mix(u.widthTail, u.widthHead, clamp(input.instanceAlphaStart, 0.0, 1.0));
+  let wFull1 = mix(u.widthTail, u.widthHead, clamp(input.instanceAlphaEnd, 0.0, 1.0));
 
-  // Endpoints are **already origin-relative** from integrate expand
-  // (sample − origin + pot). Optional u.origin is a residual correction when
-  // draw origin differs slightly; production writes 0 after expand-relative.
+  // Endpoints already origin-relative from integrate expand.
   var start = u.modelView * vec4<f32>(input.instanceStart - u.origin, 1.0);
   var end_ = u.modelView * vec4<f32>(input.instanceEnd - u.origin, 1.0);
-  let prevE = u.modelView * vec4<f32>(input.instancePrev - u.origin, 1.0);
-  let nextE = u.modelView * vec4<f32>(input.instanceNext - u.origin, 1.0);
 
   // Near-plane trim (cheap clip when segment crosses camera near)
   let perspective = abs(u.projection[2][3] + 1.0) < 1e-5;
@@ -562,60 +644,80 @@ fn vs_main(input : VSIn) -> VSOut {
     }
   }
 
-  let clipStart = u.projection * start;
-  let clipEnd = u.projection * end_;
-  let clipPrev = u.projection * prevE;
-  let clipNext = u.projection * nextE;
-  let ndcStart = clipStart.xy / clipStart.w;
-  let ndcEnd = clipEnd.xy / clipEnd.w;
-  let ndcPrev = clipPrev.xy / clipPrev.w;
-  let ndcNext = clipNext.xy / clipNext.w;
+  let p0 = start.xyz;
+  let p1 = end_.xyz;
+  out.vSegStart = p0;
+  out.vSegEnd = p1;
 
-  // Continuous body: stable miter from incident segment normals (screen space).
-  // Path-ordered (nIn, nOut) so both segs at a joint share the same offset.
-  let nSegL = trailSegNormalScreen(ndcStart, ndcEnd, aspect);
-  let nSeg = nSegL.xy;
-  var offScreen : vec2<f32>;
-  if (atStart) {
-    let nPrevL = trailSegNormalScreen(ndcPrev, ndcStart, aspect);
-    let hasPrev = nPrevL.z >= TRAIL_MIN_SEG_NDC && nSegL.z >= TRAIL_MIN_SEG_NDC;
-    offScreen = trailMiterScreen(nPrevL.xy, nSeg, hasPrev, nSeg);
+  var trailDir = p1 - p0;
+  let tlen = length(trailDir);
+  if (tlen > 1e-8) {
+    trailDir = trailDir / tlen;
   } else {
-    let nNextL = trailSegNormalScreen(ndcEnd, ndcNext, aspect);
-    let hasNext = nNextL.z >= TRAIL_MIN_SEG_NDC && nSegL.z >= TRAIL_MIN_SEG_NDC;
-    offScreen = trailMiterScreen(nSeg, nNextL.xy, hasNext, nSeg);
-  }
-  // Screen → NDC (aspect on x)
-  var offset = vec2<f32>(offScreen.x / aspect, offScreen.y);
-
-  if (input.position.x < 0.0) {
-    offset = -offset;
+    trailDir = vec3<f32>(0.0, 0.0, -1.0);
   }
 
-  // Variable linewidth (px) → NDC offset (body only — no along-push overlap)
-  offset = offset * linewidth;
-  offset = offset / max(u.resolution.y, 1.0);
+  // One side axis for the whole segment (midpoint) — no mid-seg left/right flip.
+  let mid = 0.5 * (p0 + p1);
+  let side = trailViewSideAxis(trailDir, mid);
+  let sideSign = input.position.x;
 
-  var clip = select(clipEnd, clipStart, atStart);
-  offset = offset * clip.w;
-  clip = vec4<f32>(clip.xy + offset, clip.z, clip.w);
-  out.clip = clip;
+  let halfW0 = trailViewHalfWidth(wFull0, p0.z);
+  let halfW1 = trailViewHalfWidth(wFull1, p1.z);
+  out.vHalfW = vec2<f32>(halfW0, halfW1);
+  let halfW = mix(halfW0, halfW1, along);
+
+  let center = mix(p0, p1, along);
+  let viewPos = center + side * sideSign * halfW;
+  out.vViewPos = viewPos;
+  out.clip = u.projection * vec4<f32>(viewPos, 1.0);
   return out;
 }
 
 @fragment
 fn fs_main(input : VSOut) -> @location(0) vec4<f32> {
-  // intensity 0 → 1 so zero-filled uniforms stay full strength.
-  let inten = select(1.0, u.intensity, u.intensity > 0.0);
-  let alpha = input.vColor.a * inten;
-  let rgb = input.vColor.rgb;
+  // Path-correct across/along coords (same for solid + thruster).
+  let trail = input.vSegEnd - input.vSegStart;
+  let len2 = max(dot(trail, trail), 1e-12);
+  let t = clamp(dot(input.vViewPos - input.vSegStart, trail) / len2, 0.0, 1.0);
+  let mid = 0.5 * (input.vSegStart + input.vSegEnd);
+  let tlen = max(sqrt(len2), 1e-8);
+  let sideAxis = trailViewSideAxis(trail / tlen, mid);
+  let center = input.vSegStart + trail * t;
+  let s = dot(input.vViewPos - center, sideAxis);
+  let halfW = mix(input.vHalfW.x, input.vHalfW.y, t);
+  let vTex = clamp(0.5 + 0.5 * (s / max(halfW, 1e-6)), 0.0, 1.0);
 
-  // Dead expand slots / fully faded segments
+  // Strategic 2D (screen widthMode): solid line in ship triangle color.
+  // Thin ≤2 px ribbons — no thruster atlas / exposure bloom.
+  if (u.widthMode < 0.5) {
+    let d = abs(vTex - 0.5);
+    var edge = 1.0;
+    if (d > 0.32) {
+      let uu = clamp((d - 0.32) / 0.18, 0.0, 1.0);
+      let sm = uu * uu * (3.0 - 2.0 * uu);
+      edge = 1.0 - sm;
+    }
+    let a = clamp(input.vColor.a, 0.0, 1.0) * edge;
+    if (a <= 0.001) {
+      discard;
+    }
+    let rgb = max(input.vColor.rgb, vec3<f32>(0.0));
+    return vec4<f32>(rgb * a, a);
+  }
+
+  // Model 3D thruster path (world widthMode): atlas × tint × exposure.
+  let inten = select(1.0, u.intensity, u.intensity > 0.0);
+  let expBoost = select(3.4, u.exposure, u.exposure > 0.0);
+  let uTex = mix(input.vAtlasU.x, input.vAtlasU.y, t);
+  let texC = textureSample(trailTex, trailSamp, vec2<f32>(uTex, vTex));
+  let alpha = texC.a;
   if (alpha <= 0.001) {
     discard;
   }
-
-  return vec4<f32>(rgb, alpha);
+  let tint = max(input.vColor.rgb, vec3<f32>(0.25));
+  let rgb = texC.rgb * tint * inten * expBoost;
+  return vec4<f32>(rgb * alpha, alpha);
 }
 `;
 //# sourceMappingURL=fleet-trails.wgsl.js.map

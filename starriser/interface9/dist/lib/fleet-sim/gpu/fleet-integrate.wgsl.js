@@ -33,9 +33,9 @@ import { FLEET_GPU_STRIDE } from "../visual/fleet-layout.js";
 import { BASE_SHIP_SIZE, BLUE_SCALE, GREEN_SCALE, ICON_SCREEN_PX, RED_SCALE, } from "../visual/fleet-lod.js";
 import { DEFAULT_TRAIL_LAYOUT, TRAIL_ALPHA_POWER, TRAIL_ALONG_POWER, TRAIL_LINE_FLOATS_PER_VERT, TRAIL_SEGMENT_FLOATS, TRAIL_SAMPLE_FLOATS, resolveTrailLayout, } from "../visual/fleet-trail-ref.js";
 import { TRAIL_TEMPLATE_INDEX_COUNT } from "./fleet-trails.wgsl.js";
-import { MODEL_TRAIL_EMITTER_COUNT, MODEL_TRAIL_EMITTERS, } from "../visual/model-trail-config.js";
+import { MODEL_TRAIL_EMITTER_COUNT, MODEL_TRAIL_EMITTERS, modelTrailExpandAlphaMul, } from "../visual/model-trail-config.js";
 import { SHIP_APPROACH_BRAKE_POWER, SHIP_BRAKE_DIST_MARGIN, SHIP_DEFAULT_BRAKE_DIST, SHIP_LAUNCH_ACCEL_MIN, SHIP_LAUNCH_SPEED_FRAC, SHIP_MAX_ACCEL, SHIP_MAX_SPEED, SHIP_MID_CRUISE_BOOST, SHIP_MIN_ALIGN, SHIP_MODE_JUMP, SHIP_MODE_ORBIT, SHIP_MODE_PAUSED, SHIP_MODE_SETTLE, SHIP_NOSE_OFFSET, CRUISE_ACCEL_SCALE, CRUISE_BRAKE_MULT, JUMP_BRAKE_MULT, V_OPEN_UNCAP, HOP_OPEN_SPEED_MUL, HOP_OPEN_SPEED_MIN, RESIDUAL_HIGH_MUL, RESIDUAL_CLEAR_MUL, RESIDUAL_FREEZE_OUT_K, } from "../visual/ship-flight-ref.js";
-import { ORBIT_CAPTURE_K, ORBIT_CAPTURE_OUT_K, ORBIT_DEFAULT_ACCEL, ORBIT_DEFAULT_OMEGA_MAX, ORBIT_ENTRANCE_EPS_TINY, ORBIT_ENTRANCE_REM_K, ORBIT_LEAD_RAD, ORBIT_NEAR_SPEED_SCALE, ORBIT_OMEGA_TURN_FRAC, ORBIT_R_EPS, ORBIT_R_MIN, ORBIT_SPRING_K, ORBIT_V_RAD_MAX_FRAC, ORBIT_V_RAD_MAX_R_MUL, ORBIT_RESIDUAL_V_MUL, ORBIT_RESIDUAL_V_ADD, ORBIT_SINGULARITY_R_MUL, ORBIT_ESCAPE_V_RAD, V_TURN_ALLOW_R_FRAC, } from "../visual/ship-orbit-ref.js";
+import { ORBIT_CAPTURE_K, ORBIT_CAPTURE_OUT_K, ORBIT_DEFAULT_ACCEL, ORBIT_DEFAULT_OMEGA_MAX, ORBIT_ENTRANCE_EPS_TINY, ORBIT_ENTRANCE_REM_K, ORBIT_LEAD_RAD, ORBIT_NEAR_SPEED_SCALE, ORBIT_OMEGA_TURN_FRAC, ORBIT_R_EPS, ORBIT_R_MIN, ORBIT_SPRING_K, ORBIT_V_RAD_MAX_FRAC, ORBIT_V_RAD_MAX_R_MUL, ORBIT_RESIDUAL_V_MUL, ORBIT_RESIDUAL_V_ADD, ORBIT_SINGULARITY_R_MUL, ORBIT_ESCAPE_V_RAD, ORBIT_SETTLED_R_FRAC, ORBIT_SETTLED_HEADING_RAD, ORBIT_HEIGHT_MAX, ORBIT_HEIGHT_BLEND_REM_K, ORBIT_HEIGHT_APPROACH_TAU_S, ORBIT_HEIGHT_CLIMB_SLOPE, ORBIT_HEIGHT_MAX_FRAME_FRAC, ORBIT_HEIGHT_MIN_RATE, V_TURN_ALLOW_R_FRAC, } from "../visual/ship-orbit-ref.js";
 import { SHIP_SIM_STRIDE } from "../visual/ship-sim-layout.js";
 import { FLEET_SHIP_DRAW_STRIDE } from "./fleet-ships.wgsl.js";
 /**
@@ -81,24 +81,32 @@ const TRAIL_APPEND_SPEED_EPS = 1e-3;
  */
 export function buildFleetIntegrateWgsl(trail = DEFAULT_TRAIL_LAYOUT) {
     const layout = trail ?? resolveTrailLayout();
-    // Bake pot emitters into WGSL (fixed 3; host config is source of truth).
+    // Bake pot emitters into WGSL (host config is source of truth).
+    // ALPHA = widthScale/maxWidthScale so ribbon width follows per-emitter scale
+    // (draw uniforms use max width; vertex α drives width mix).
+    if (MODEL_TRAIL_EMITTER_COUNT !== 3) {
+        throw new Error(`buildFleetIntegrateWgsl: expected 3 pot emitters, got ${MODEL_TRAIL_EMITTER_COUNT}`);
+    }
     const e0 = MODEL_TRAIL_EMITTERS[0];
     const e1 = MODEL_TRAIL_EMITTERS[1];
     const e2 = MODEL_TRAIL_EMITTERS[2];
+    const a0 = modelTrailExpandAlphaMul(e0);
+    const a1 = modelTrailExpandAlphaMul(e1);
+    const a2 = modelTrailExpandAlphaMul(e2);
     return /* wgsl */ `
 // Flag bits — match fleet-layout.ts
 const FLEET_FLAG_ALIVE: u32 = 1u;
 const FLEET_FLAG_JUMPING: u32 = 2u;
 // FLEET_FLAG_COOLDOWN = 4u (not used for pose)
 const FLEET_FLAG_NO_TRAIL: u32 = 8u; // W4 icon — skip trail age/append/expand
-// Model-LOD thruster pot (triangular) — match model-trail-config.ts
+// Model-LOD thruster pot — match model-trail-config.ts (viewer attach points)
 const MODEL_TRAIL_EMITTERS: u32 = ${MODEL_TRAIL_EMITTER_COUNT}u;
 const MODEL_TRAIL_E0_LOCAL: vec3<f32> = vec3<f32>(${e0.local.x}, ${e0.local.y}, ${e0.local.z});
-const MODEL_TRAIL_E0_ALPHA: f32 = ${e0.intensity};
+const MODEL_TRAIL_E0_ALPHA: f32 = ${a0};
 const MODEL_TRAIL_E1_LOCAL: vec3<f32> = vec3<f32>(${e1.local.x}, ${e1.local.y}, ${e1.local.z});
-const MODEL_TRAIL_E1_ALPHA: f32 = ${e1.intensity};
+const MODEL_TRAIL_E1_ALPHA: f32 = ${a1};
 const MODEL_TRAIL_E2_LOCAL: vec3<f32> = vec3<f32>(${e2.local.x}, ${e2.local.y}, ${e2.local.z});
-const MODEL_TRAIL_E2_ALPHA: f32 = ${e2.intensity};
+const MODEL_TRAIL_E2_ALPHA: f32 = ${a2};
 const FLEET_FLAG_SIM_PAUSED: u32 = 16u; // R3: host may still set; GPU LOD ignores for band
 const FLEET_FLAG_WARM: u32 = 32u; // R5: formation promote warm-up (sim + size 0)
 const FLEET_FLAG_SPACE3D: u32 = 64u; // bit6: sphere agent; _pad0 = pathEndY
@@ -165,6 +173,15 @@ const ORBIT_RESIDUAL_V_MUL: f32 = ${ORBIT_RESIDUAL_V_MUL};
 const ORBIT_RESIDUAL_V_ADD: f32 = ${ORBIT_RESIDUAL_V_ADD};
 const ORBIT_SINGULARITY_R_MUL: f32 = ${ORBIT_SINGULARITY_R_MUL};
 const ORBIT_ESCAPE_V_RAD: f32 = ${ORBIT_ESCAPE_V_RAD};
+const ORBIT_SETTLED_R_FRAC: f32 = ${ORBIT_SETTLED_R_FRAC};
+const ORBIT_SETTLED_HEADING_RAD: f32 = ${ORBIT_SETTLED_HEADING_RAD};
+// Planar personal height approach (match ship-orbit-ref)
+const ORBIT_HEIGHT_MAX: f32 = ${ORBIT_HEIGHT_MAX};
+const ORBIT_HEIGHT_BLEND_REM_K: f32 = ${ORBIT_HEIGHT_BLEND_REM_K};
+const ORBIT_HEIGHT_APPROACH_TAU_S: f32 = ${ORBIT_HEIGHT_APPROACH_TAU_S};
+const ORBIT_HEIGHT_CLIMB_SLOPE: f32 = ${ORBIT_HEIGHT_CLIMB_SLOPE};
+const ORBIT_HEIGHT_MAX_FRAME_FRAC: f32 = ${ORBIT_HEIGHT_MAX_FRAME_FRAC};
+const ORBIT_HEIGHT_MIN_RATE: f32 = ${ORBIT_HEIGHT_MIN_RATE};
 
 // Trail constants — from TrailLayout (game or test override at layer init)
 const TRAIL_RING_SIZE: u32 = ${layout.ringSize}u;
@@ -241,7 +258,7 @@ struct FleetGpu {
 // Match ship-sim-layout.ts stride 96 (posY + quat + heading cache)
 struct ShipSim {
   posX: f32,
-  posY: f32,         // planar production always 0
+  posY: f32,         // live height; CIRCULATE uses personal orbit height
   posZ: f32,
   speed: f32,
   qx: f32,           // orientation quaternion (yaw-only in planar)
@@ -249,7 +266,7 @@ struct ShipSim {
   qz: f32,
   qw: f32,
   slotX: f32,
-  slotY: f32,        // planar 0
+  slotY: f32,        // planar: personal orbit height offset (±ORBIT_HEIGHT_MAX)
   slotZ: f32,
   heading: f32,      // cached yaw from quat (heading 0 = +Z)
   trailWrite: u32,   // next ring index
@@ -668,6 +685,147 @@ fn orbitFloorSpeed(omega: f32, radius: f32, omegaMax: f32) -> f32 {
   return min(vOmega, turnCap);
 }
 
+/** isOrbitSettledForAnalytic — match ship-orbit-ref (phase for heading). */
+fn isOrbitSettledForAnalytic(
+  posX: f32,
+  posZ: f32,
+  centerX: f32,
+  centerZ: f32,
+  radius: f32,
+  omega: f32,
+  heading: f32,
+  speed: f32,
+  omegaMax: f32,
+  orbitPhase: f32,
+) -> bool {
+  let R = select(ORBIT_R_MIN, radius, radius > 1e-6);
+  let dx = posX - centerX;
+  let dz = posZ - centerZ;
+  let r = sqrt(dx * dx + dz * dz);
+  let rEps = max(ORBIT_R_EPS, 0.05 * R);
+  if (r < rEps) {
+    return false;
+  }
+  let vOrbit = orbitFloorSpeed(omega, R, omegaMax);
+  if (speed > RESIDUAL_CLEAR_MUL * vOrbit) {
+    return false;
+  }
+  if (abs(r - R) / R > ORBIT_SETTLED_R_FRAC) {
+    return false;
+  }
+  let side = orbitSideSign(omega);
+  // Prefer stored phase (stable) over atan2(pos−C) which thrash at large |C|.
+  let tangH = orbitTangentHeading(orbitPhase, side);
+  let headErr = abs(shortestAngleDelta(heading, tangH));
+  return headErr <= ORBIT_SETTLED_HEADING_RAD;
+}
+
+/** orbitLocalOffset — match ship-orbit-ref (pathEnd-relative, f32-safe). */
+fn orbitLocalOffset(radius: f32, phase: f32) -> vec2<f32> {
+  let R = select(ORBIT_R_MIN, radius, radius > 1e-6);
+  return vec2<f32>(R * sin(phase), R * cos(phase));
+}
+
+/** Clamp personal height to ±ORBIT_HEIGHT_MAX. */
+fn personalOrbitHeight(slotY: f32) -> f32 {
+  return clamp(slotY, -ORBIT_HEIGHT_MAX, ORBIT_HEIGHT_MAX);
+}
+
+fn orbitHeightBlendDist(radius: f32) -> f32 {
+  let R = select(ORBIT_R_MIN, radius, radius > 1e-6);
+  return max(ORBIT_HEIGHT_BLEND_REM_K * R, ORBIT_R_MIN);
+}
+
+/** Desired height along approach — match orbitApproachHeightDesired. */
+fn orbitApproachHeightDesired(
+  personalH: f32,
+  remHoriz: f32,
+  blendDist: f32,
+  near: bool,
+) -> f32 {
+  let h = personalOrbitHeight(personalH);
+  if (abs(h) < 1e-12) {
+    return 0.0;
+  }
+  if (near) {
+    return h;
+  }
+  let bd = select(1.0, blendDist, blendDist > 1e-6);
+  var t = 1.0 - clamp01(remHoriz / bd);
+  t = t * t * (3.0 - 2.0 * t);
+  return h * t;
+}
+
+/** Rate-limited posY step — match stepOrbitApproachHeight. */
+fn stepOrbitApproachHeight(
+  posY: f32,
+  yDes: f32,
+  personalH: f32,
+  dtSec: f32,
+  horizSpeed: f32,
+) -> f32 {
+  var dt = dtSec;
+  if (dt < 0.0) {
+    dt = 0.0;
+  } else if (dt > 0.05) {
+    dt = 0.05;
+  }
+  let dy = yDes - posY;
+  if (abs(dy) < 1e-12) {
+    return yDes;
+  }
+  let hAbs = max(abs(personalOrbitHeight(personalH)), 1e-6);
+  let tau = select(0.35, ORBIT_HEIGHT_APPROACH_TAU_S, ORBIT_HEIGHT_APPROACH_TAU_S > 1e-6);
+  let rateFromTau = hAbs / tau;
+  let rateFromHoriz = abs(horizSpeed) * ORBIT_HEIGHT_CLIMB_SLOPE;
+  let maxRate = max(max(rateFromTau, rateFromHoriz), ORBIT_HEIGHT_MIN_RATE);
+  let maxDy = min(maxRate * dt, ORBIT_HEIGHT_MAX_FRAME_FRAC * hAbs);
+  if (maxDy < 1e-12) {
+    return posY;
+  }
+  if (abs(dy) <= maxDy) {
+    return yDes;
+  }
+  return posY + select(-maxDy, maxDy, dy > 0.0);
+}
+
+/** integrateOrbitRingSettled — phase-primary (no re-atan2 from absolute pos). */
+fn integrateOrbitRingSettled(
+  shipIn: ShipSim,
+  centerX: f32,
+  centerZ: f32,
+  dtSec: f32,
+  omegaMax: f32,
+) -> ShipSim {
+  var ship = shipIn;
+  var dt = dtSec;
+  if (dt < 0.0) {
+    dt = 0.0;
+  } else if (dt > 0.05) {
+    dt = 0.05;
+  }
+  let R = select(ORBIT_R_MIN, ship.orbitR, ship.orbitR > 1e-6);
+  let omega = ship.orbitOmega;
+  let side = orbitSideSign(omega);
+  // Phase is source of truth — re-atan2(pos−C) thrash at large |C| in f32.
+  let phase0 = ship.orbitPhase;
+  let phase = wrapPi(phase0 + omega * dt);
+  let local = orbitLocalOffset(R, phase);
+  ship.posX = centerX + local.x;
+  ship.posZ = centerZ + local.y;
+  // Rate-limit height to personal (no one-frame snap on first settled frame).
+  {
+    let h = personalOrbitHeight(ship.slotY);
+    ship.posY = stepOrbitApproachHeight(ship.posY, h, h, dt, ship.speed);
+  }
+  ship.orbitPhase = phase;
+  ship.heading = orbitTangentHeading(phase, side);
+  ship = syncQuatFromHeading(ship);
+  let vOrbit = orbitFloorSpeed(omega, R, omegaMax);
+  ship.speed = vOrbit * ORBIT_NEAR_SPEED_SCALE;
+  return ship;
+}
+
 /**
  * Far/near aim — match ship-orbit-ref computeOrbitAimTarget.
  * Far: external tangent on side s (no chord through disk).
@@ -806,6 +964,18 @@ fn integrateOrbitSeekStep(
     let dz = ship.posZ - centerZ;
     let r = sqrt(dx * dx + dz * dz);
     let rEps = max(ORBIT_R_EPS, 0.05 * R);
+
+    // Settled CIRCULATE: analytic ring (match integrateOrbitSeekStepPlanar).
+    if (
+      near &&
+      (centerVelX * centerVelX + centerVelZ * centerVelZ) < 1e-12 &&
+      isOrbitSettledForAnalytic(
+        ship.posX, ship.posZ, centerX, centerZ, R, omega,
+        ship.heading, ship.speed, omegaMax, ship.orbitPhase,
+      )
+    ) {
+      return integrateOrbitRingSettled(ship, centerX, centerZ, dt, omegaMax);
+    }
 
     var vRelX: f32;
     var vRelZ: f32;
@@ -953,8 +1123,15 @@ fn integrateOrbitSeekStep(
     let sh = sin(ship.heading);
     let ch = cos(ship.heading);
     ship.posX = ship.posX + sh * step;
-    ship.posY = 0.0;
     ship.posZ = ship.posZ + ch * step;
+    // Continuous height ramp to personal entrance height (no near-snap).
+    {
+      let h = personalOrbitHeight(ship.slotY);
+      let yDes = orbitApproachHeightDesired(
+        h, remAim, orbitHeightBlendDist(R), near,
+      );
+      ship.posY = stepOrbitApproachHeight(ship.posY, yDes, h, dt, ship.speed);
+    }
     return ship;
   }
 
@@ -1318,7 +1495,22 @@ fn sampleAge01(birth: f32, nowRel: f32) -> f32 {
 fn ageTrailRing(_ringBase: u32, _dtMsIn: f32) {}
 
 /**
+ * Triangle aft midpoint offset in world XZ (pathEnd-relative / world delta).
+ * Unit mesh tip +X, base at x=−0.5; draw rotation π/2−heading ⇒ aft = −0.5·size·forward.
+ * Matches fleet-mesh triangleAftWorldOffset / fleet-ships VS.
+ */
+fn triangleAftWorldOffset(heading: f32, worldSize: f32) -> vec2<f32> {
+  let s = select(0.0, worldSize, worldSize > 0.0);
+  let along = -0.5 * s;
+  return vec2<f32>(sin(heading) * along, cos(heading) * along);
+}
+
+/**
  * Distance + time gated append — match tryAppendTrailSample (birth-time GPU).
+ * Samples are stored **pathEnd-relative** (O(R) / hop residual) so f32 keeps
+ * lateral bits at large |pathEnd|. Expand rebuilds: (pathEnd − origin) + sample.
+ * Strategic (expandTrails≠2): sample at **triangle aft**, not ship center.
+ * Model pot (expandTrails=2): sample at center (emitters apply pot offsets).
  * Returns ship with updated trailWrite / sinceSample.
  */
 fn tryAppendTrail(
@@ -1326,6 +1518,11 @@ fn tryAppendTrail(
   ringBase: u32,
   distMoved: f32,
   allowAppend: bool,
+  pathEndX: f32,
+  pathEndZ: f32,
+  pathEndY: f32,
+  space3d: bool,
+  shipWorldSize: f32,
 ) -> ShipSim {
   var ship = shipIn;
   if (!allowAppend) {
@@ -1335,7 +1532,7 @@ fn tryAppendTrail(
   let mask = TRAIL_RING_SIZE - 1u;
   // Fast path: minDist already satisfied → append without loading newest sample
   // (time gate only matters when still below minDist). Orbit ships almost always
-  // take this path.
+  // take this path. minDist=0 → always append when moving.
   if (dist < TRAIL_MIN_DIST) {
     let newestIdx = (ship.trailWrite - 1u) & mask;
     let newestBirth = trails[ringBase + newestIdx * TRAIL_SAMPLE_FLOATS + 2u];
@@ -1350,11 +1547,29 @@ fn tryAppendTrail(
   }
   let w = ship.trailWrite & mask;
   let base = ringBase + w * TRAIL_SAMPLE_FLOATS;
-  trails[base] = ship.posX;
-  trails[base + 1u] = ship.posZ;
+  // Triangle aft for strategic ribbons only (not model thruster pot).
+  var aft = vec2<f32>(0.0, 0.0);
+  if (u.expandTrails != 2u) {
+    let sz = select(BASE_SHIP_SIZE, shipWorldSize, shipWorldSize > 1e-6);
+    aft = triangleAftWorldOffset(ship.heading, sz);
+  }
+  // pathEnd-relative samples. Planar CIRCULATE only: phase-local orbitLocalOffset
+  // (never fl(fl(C+L)−C)). Sphere SPACE3D ORBIT must keep pos−pathEnd (incl. Y).
+  // SEEK / residual: always pos − pathEnd. Then + aft for triangle trails.
+  if (ship.mode == SHIP_MODE_ORBIT && !space3d) {
+    let R = select(ORBIT_R_MIN, ship.orbitR, ship.orbitR > 1e-6);
+    let local = orbitLocalOffset(R, ship.orbitPhase);
+    trails[base] = local.x + aft.x;
+    trails[base + 1u] = local.y + aft.y;
+    // Live posY (approach may be mid-ramp; settled equals personal height).
+    trails[base + 3u] = ship.posY;
+  } else {
+    trails[base] = ship.posX - pathEndX + aft.x;
+    trails[base + 1u] = ship.posZ - pathEndZ + aft.y;
+    trails[base + 3u] = ship.posY - pathEndY;
+  }
   // Birth timestamp (ms). age01 derived in expand / gates via sampleAge01.
   trails[base + 2u] = u.nowRel;
-  trails[base + 3u] = ship.posY; // posY (expand uses this for 3D ribbons)
   ship.trailWrite = (w + 1u) & mask;
   ship.sinceSample = 0.0;
   return ship;
@@ -1405,6 +1620,9 @@ fn expandTrailLines(
   worldOff: vec3<f32>,
   alphaMul: f32,
   maxDrawSlots: u32,
+  pathEndX: f32,
+  pathEndZ: f32,
+  pathEndY: f32,
 ) {
   // Dense pack for this frame's trail draw (no low-index bias).
   // maxDrawSlots from host (trailDrawMeta[1] = line slot capacity) or caller.
@@ -1456,19 +1674,22 @@ fn expandTrailLines(
       break;
     }
 
-    // Origin-relative expand (match meshWorldRelative / trailExpandEndpointRelativeF32):
-    //   f32(sample − origin) + pot   — pot must be applied AFTER origin subtract
-    // so thruster offsets survive at large |world| (follow origin = ship).
+    // Samples are pathEnd-relative (tryAppendTrail). Origin-relative endpoint:
+    //   f32(pathEnd − origin) + sample + pot
+    // Keeps O(R) lateral bits at large |pathEnd|; pot after small terms.
     let ox = u.origin.x;
     let oy = u.origin.y;
     let oz = u.origin.z;
-    let x0 = (trails[baseA] - ox) + worldOff.x;
-    let z0 = (trails[baseA + 1u] - oz) + worldOff.z;
-    // Sample slot 3 = posY (planar 0 → ribbons sit on baseY; space3d lifts trails).
-    let y0 = (baseY + trails[baseA + 3u] - oy) + worldOff.y;
-    let x1 = (trails[baseB] - ox) + worldOff.x;
-    let z1 = (trails[baseB + 1u] - oz) + worldOff.z;
-    let y1 = (baseY + trails[baseB + 3u] - oy) + worldOff.y;
+    let peOx = pathEndX - ox;
+    let peOy = pathEndY - oy;
+    let peOz = pathEndZ - oz;
+    let x0 = peOx + trails[baseA] + worldOff.x;
+    let z0 = peOz + trails[baseA + 1u] + worldOff.z;
+    // Sample slot 3 = posY − pathEndY (planar 0); baseY is fleet plane offset.
+    let y0 = baseY + peOy + trails[baseA + 3u] + worldOff.y;
+    let x1 = peOx + trails[baseB] + worldOff.x;
+    let z1 = peOz + trails[baseB + 1u] + worldOff.z;
+    let y1 = baseY + peOy + trails[baseB + 3u] + worldOff.y;
     // along: 0 at newest sample, 1 at oldest expand tip
     let alongB = f32(seg) / segsF;
     let alongA = f32(seg + 1u) / segsF;
@@ -1483,9 +1704,9 @@ fn expandTrailLines(
     if (nLive >= seg + 3u) {
       let idxPrev = (write - 3u - seg) & mask;
       let basePrev = ringBase + idxPrev * TRAIL_SAMPLE_FLOATS;
-      px = (trails[basePrev] - ox) + worldOff.x;
-      pz = (trails[basePrev + 1u] - oz) + worldOff.z;
-      py = (baseY + trails[basePrev + 3u] - oy) + worldOff.y;
+      px = peOx + trails[basePrev] + worldOff.x;
+      pz = peOz + trails[basePrev + 1u] + worldOff.z;
+      py = baseY + peOy + trails[basePrev + 3u] + worldOff.y;
     }
     var nx = x1;
     var ny = y1;
@@ -1494,9 +1715,9 @@ fn expandTrailLines(
     if (seg > 0u) {
       let idxNext = (write - seg) & mask;
       let baseNext = ringBase + idxNext * TRAIL_SAMPLE_FLOATS;
-      nx = (trails[baseNext] - ox) + worldOff.x;
-      nz = (trails[baseNext + 1u] - oz) + worldOff.z;
-      ny = (baseY + trails[baseNext + 3u] - oy) + worldOff.y;
+      nx = peOx + trails[baseNext] + worldOff.x;
+      nz = peOz + trails[baseNext + 1u] + worldOff.z;
+      ny = baseY + peOy + trails[baseNext + 3u] + worldOff.y;
     }
 
     trailLines[vo] = x0;
@@ -1536,6 +1757,9 @@ fn expandShipTrails(
   colorB: f32,
   baseY: f32,
   ship: ShipSim,
+  pathEndX: f32,
+  pathEndZ: f32,
+  pathEndY: f32,
 ) {
   // Capacity: host writes trailDrawMeta[1] = line slot capacity each frame.
   var maxSlots = atomicLoad(&trailDrawMeta[1]);
@@ -1546,7 +1770,7 @@ fn expandShipTrails(
   if (u.expandTrails != 2u) {
     expandTrailLines(
       simIdx, ringBase, write, colorR, colorG, colorB, baseY,
-      zeroOff, 1.0, maxSlots,
+      zeroOff, 1.0, maxSlots, pathEndX, pathEndZ, pathEndY,
     );
     return;
   }
@@ -1561,15 +1785,15 @@ fn expandShipTrails(
   let o2 = quatRotateVec3(q, MODEL_TRAIL_E2_LOCAL);
   expandTrailLines(
     simIdx, ringBase, write, colorR, colorG, colorB, baseY,
-    o0, MODEL_TRAIL_E0_ALPHA, maxSlots,
+    o0, MODEL_TRAIL_E0_ALPHA, maxSlots, pathEndX, pathEndZ, pathEndY,
   );
   expandTrailLines(
     simIdx, ringBase, write, colorR, colorG, colorB, baseY,
-    o1, MODEL_TRAIL_E1_ALPHA, maxSlots,
+    o1, MODEL_TRAIL_E1_ALPHA, maxSlots, pathEndX, pathEndZ, pathEndY,
   );
   expandTrailLines(
     simIdx, ringBase, write, colorR, colorG, colorB, baseY,
-    o2, MODEL_TRAIL_E2_ALPHA, maxSlots,
+    o2, MODEL_TRAIL_E2_ALPHA, maxSlots, pathEndX, pathEndZ, pathEndY,
   );
 }
 
@@ -1700,7 +1924,8 @@ fn writeLodProxy(
   screenSpace: f32,
 ) {
   let floatsPerInstance = ${FLEET_INTEGRATE_INSTANCE_FLOATS}u;
-  let baseY = ${Number(RENDER_PLANE_Y).toFixed(1)};
+  // posX/Z already origin-relative; y = plane − origin.y
+  let baseY = ${Number(RENDER_PLANE_Y).toFixed(1)} - u.origin.y;
   let o = base * floatsPerInstance;
   instances[o] = posX;
   instances[o + 1u] = baseY;
@@ -1772,11 +1997,12 @@ fn cs_fleets(@builtin(global_invocation_id) gid3: vec3<u32>) {
   // MID and FAR share the same screen-space icon size (ICON_SCREEN_PX, pad=1).
   // Difference is trails (MID may keep a trace; FAR has no trail) — not scale.
   if (band == LOD_BAND_FAR || band == LOD_BAND_MID) {
+    // Origin-relative proxy (triangle VS treats instance pos as origin-relative).
     writeLodProxy(
       base,
       N,
-      f.posX,
-      f.posZ,
+      f.posX - u.origin.x,
+      f.posZ - u.origin.z,
       ICON_SCREEN_PX,
       dom.y,
       dom.z,
@@ -1866,10 +2092,10 @@ fn cs_ships(@builtin(global_invocation_id) gid3: vec3<u32>) {
   if (domainWarpActive && ship._pad1 > 0.0 && u.nowRel < f.t0 + ship._pad1) {
     ship.speed = 0.0;
     shipSims[simIdx] = ship;
-    // Still write draw pose so hide/model paths see a valid base.
-    instances[o] = ship.posX;
-    instances[o + 1u] = ship.posY + baseY;
-    instances[o + 2u] = ship.posZ;
+    // Still write draw pose so hide/model paths see a valid base (origin-relative).
+    instances[o] = ship.posX - u.origin.x;
+    instances[o + 1u] = ship.posY + baseY - u.origin.y;
+    instances[o + 2u] = ship.posZ - u.origin.z;
     instances[o + 6u] = wrapPi(SHIP_NOSE_OFFSET - ship.heading);
     return;
   }
@@ -1909,16 +2135,22 @@ fn cs_ships(@builtin(global_invocation_id) gid3: vec3<u32>) {
       let iconZ = ship.posZ;
       let maskM = TRAIL_RING_SIZE - 1u;
       let newestM = (ship.trailWrite - 1u) & maskM;
-      let prevX = trails[ringBase + newestM * TRAIL_SAMPLE_FLOATS];
-      let prevZ = trails[ringBase + newestM * TRAIL_SAMPLE_FLOATS + 1u];
-      let ddxI = iconX - prevX;
-      let ddzI = iconZ - prevZ;
+      // Samples are pathEnd-relative — compare in the same frame.
+      let prevRelX = trails[ringBase + newestM * TRAIL_SAMPLE_FLOATS];
+      let prevRelZ = trails[ringBase + newestM * TRAIL_SAMPLE_FLOATS + 1u];
+      let iconRelX = iconX - f.pathEndX;
+      let iconRelZ = iconZ - f.pathEndZ;
+      let ddxI = iconRelX - prevRelX;
+      let ddzI = iconRelZ - prevRelZ;
       let distIcon = sqrt(ddxI * ddxI + ddzI * ddzI);
       let saveX = ship.posX;
       let saveZ = ship.posZ;
       ship.posX = iconX;
       ship.posZ = iconZ;
-      ship = tryAppendTrail(ship, ringBase, distIcon, distIcon > 0.05);
+      ship = tryAppendTrail(
+        ship, ringBase, distIcon, distIcon > 0.05,
+        f.pathEndX, f.pathEndZ, pathEndY, space3d, instances[o + 7u],
+      );
       ship.posX = saveX;
       ship.posZ = saveZ;
     }
@@ -1928,7 +2160,7 @@ fn cs_ships(@builtin(global_invocation_id) gid3: vec3<u32>) {
       expandShipTrails(
         simIdx, ringBase, ship.trailWrite,
         instances[o + 8u], instances[o + 9u], instances[o + 10u], baseY,
-        ship,
+        ship, f.pathEndX, f.pathEndZ, pathEndY,
       );
     }
     return;
@@ -1947,12 +2179,23 @@ fn cs_ships(@builtin(global_invocation_id) gid3: vec3<u32>) {
     );
   }
 
+  // Instance bases are **origin-relative** (triangle VS uses base as-is, no
+  // second origin subtract). Always write draw pose (not only when expandTrails).
+  // CIRCULATE: (pathEnd−origin)+local — never materialize absolute then subtract.
+  if (ship.mode == SHIP_MODE_ORBIT && !space3d) {
+    let Rdraw = select(ORBIT_R_MIN, ship.orbitR, ship.orbitR > 1e-6);
+    let local = orbitLocalOffset(Rdraw, ship.orbitPhase);
+    instances[o] = (f.pathEndX - u.origin.x) + local.x;
+    // Live posY (smooth approach + settled) — matches model reconstruct.
+    instances[o + 1u] = baseY + ship.posY - u.origin.y;
+    instances[o + 2u] = (f.pathEndZ - u.origin.z) + local.y;
+  } else {
+    instances[o] = ship.posX - u.origin.x;
+    instances[o + 1u] = ship.posY + baseY - u.origin.y;
+    instances[o + 2u] = ship.posZ - u.origin.z;
+  }
+  instances[o + 6u] = wrapPi(SHIP_NOSE_OFFSET - ship.heading);
   if (u.expandTrails != 0u) {
-    instances[o] = ship.posX;
-    // Draw base.y from sim posY (planar = 0; mesh remains XZ billboard).
-    instances[o + 1u] = ship.posY + baseY;
-    instances[o + 2u] = ship.posZ;
-    instances[o + 6u] = wrapPi(SHIP_NOSE_OFFSET - ship.heading);
     let warm = (f.flags & FLEET_FLAG_WARM) != 0u;
     if (warm) {
       instances[o + 7u] = 0.0;
@@ -1979,7 +2222,12 @@ fn cs_ships(@builtin(global_invocation_id) gid3: vec3<u32>) {
     let distMoved = sqrt(ddx * ddx + ddz * ddz);
     let trailActive =
       ship.speed > TRAIL_APPEND_SPEED_EPS || distMoved > 0.05;
-    ship = tryAppendTrail(ship, ringBase, distMoved, trailActive);
+    // Instance size = triangle world scale (formation/impostor); used for aft.
+    let shipSz = instances[o + 7u];
+    ship = tryAppendTrail(
+      ship, ringBase, distMoved, trailActive,
+      f.pathEndX, f.pathEndZ, pathEndY, space3d, shipSz,
+    );
   }
   shipSims[simIdx] = ship;
   // NEAR: expand into dense trailLines slots (atomic drawSlot). Mode 2 = model pot.
@@ -1987,7 +2235,7 @@ fn cs_ships(@builtin(global_invocation_id) gid3: vec3<u32>) {
     expandShipTrails(
       simIdx, ringBase, ship.trailWrite,
       instances[o + 8u], instances[o + 9u], instances[o + 10u], baseY,
-      ship,
+      ship, f.pathEndX, f.pathEndZ, pathEndY,
     );
   }
 }
@@ -2113,7 +2361,11 @@ fn integrateOrbitRingOn(
   let sp = sin(phase);
   let cp = cos(phase);
   ship.posX = centerX + R * sp;
-  ship.posY = 0.0;
+  // Fast path still rate-limits height (parity with full settled).
+  {
+    let h = personalOrbitHeight(ship.slotY);
+    ship.posY = stepOrbitApproachHeight(ship.posY, h, h, dtSec, abs(omega) * R);
+  }
   ship.posZ = centerZ + R * cp;
   ship.orbitPhase = phase;
   ship.heading = wrapPi(phase + side * (PI * 0.5));
@@ -2167,6 +2419,7 @@ fn cs_ships_fast(@builtin(global_invocation_id) gid3: vec3<u32>) {
   ship = integrateOrbitRingOn(ship, f.pathEndX, f.pathEndZ, dt * 0.001);
 
   // Distance-gated trail append; skip ring loads until acc ≥ minDist.
+  // minDist=0 → append every moving step (parity with tryAppendTrail).
   if (u.appendTrails != 0u) {
     let ddx = ship.posX - oldX;
     let ddz = ship.posZ - oldZ;
