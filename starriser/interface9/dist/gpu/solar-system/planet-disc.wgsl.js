@@ -1,8 +1,9 @@
 /**
  * Single-quad planet impostor — multi-map Earth + procedural others.
  *
- * Atmosphere: **only** multi-sample Rayleigh/Mie-style path integral (`in_scatter`).
- * No separate rim/shell×atmosphereSunFactor look (that was the small nested halo).
+ * Atmosphere: analytic single-scatter Rayleigh/Mie (`in_scatter`) — O’Neil-style
+ * optical depth + one midpoint air-mass eval. No nested NUM_IN×NUM_OUT density
+ * lattice. No separate rim/shell×atmosphereSunFactor look.
  *
  * Composite: premultiplied RGB (`lit * surfaceMask + atm`) with **alpha = surface
  * mask only**. Atmosphere is emissive light; raising alpha from atm luminance used
@@ -72,11 +73,10 @@ struct VSOut {
   @location(0) local : vec2<f32>,
 };
 
-// Sample counts fixed (WGSL loop bounds); intensity/thickness live in uniforms.
-// 4×2 path-integral (was briefly 2×1 — flattened Azure limb caustics / bright rim).
-// Multi-sample in_scatter retained (not a neon rim). Mild scatterBoost restores energy.
-const NUM_OUT_SCATTER : i32 = 2;
-const NUM_IN_SCATTER : i32 = 4;
+// Analytic atmosphere (no multi-sample density lattice). Mild scatterBoost
+// restores limb energy so Azure blue limb + warm long paths stay readable.
+// Marker const for smokes / CPU parity (unused in math; keeps string in code).
+const SCATTER_ANALYTIC : f32 = 1.0;
 
 // Algebraically equivalent cheaper forms for old-GPU-friendly ALU.
 // exp(x) = exp2(x * log2(e)); log2(e) = 1/ln(2). Look knobs unchanged.
@@ -197,7 +197,8 @@ fn sphereToUv(n : vec3<f32>) -> vec2<f32> {
   return vec2<f32>(u, v);
 }
 
-// --- Multi-sample atmosphere (disc-local; R_INNER matches surface limb rr=1) ---
+// --- Analytic atmosphere (disc-local; R_INNER matches surface limb rr=1) ---
+// SCATTER_ANALYTIC: O(1) OD + single midpoint in-scatter (no nested sample lattice).
 
 fn ray_vs_sphere(p : vec3<f32>, dir : vec3<f32>, r : f32) -> vec2<f32> {
   let b = dot(p, dir);
@@ -218,15 +219,33 @@ fn density(p : vec3<f32>, ph : f32) -> f32 {
   return exp_fast(-max(length(p) - rInner, 0.0) / thick / ph);
 }
 
-fn optic(p : vec3<f32>, q : vec3<f32>, ph : f32) -> f32 {
-  let s = (q - p) / f32(NUM_OUT_SCATTER);
-  var v = p + s * 0.5;
-  var sum = 0.0;
-  for (var i = 0; i < NUM_OUT_SCATTER; i = i + 1) {
-    sum = sum + density(v, ph);
-    v = v + s;
+/** O’Neil scale(cosθ) — relative optical-depth factor vs zenith angle (GPU Gems 2 §16). */
+fn oneil_scale(mu : f32) -> f32 {
+  let x = 1.0 - clamp(mu, -1.0, 1.0);
+  return 0.25 * exp_fast(-0.00287 + x * (0.459 + x * (3.83 + x * (-6.80 + x * 5.25))));
+}
+
+/**
+ * Analytic optical depth from p along dir through the exponential shell.
+ * Matches the old multi-sample sun path: integrate to the outer air sphere only
+ * (no hard planet umbra — that zeroed the face-on limb). No nested density walk.
+ */
+fn optic_depth(p : vec3<f32>, dir : vec3<f32>, ph : f32) -> f32 {
+  let rInner = body.look2.x;
+  let thick = max(body.look0.w, 0.001);
+  let rOuter = rInner + thick;
+  let hit = ray_vs_sphere(p, dir, rOuter);
+  let tEnd = hit.y;
+  if (tEnd <= 1e-5) {
+    return 0.0;
   }
-  return sum * length(s);
+  let r = max(length(p), 1e-5);
+  let h = max(r - rInner, 0.0) / thick;
+  let dens = exp_fast(-h / ph);
+  let up = p * (1.0 / r);
+  let mu = clamp(dot(dir, up), -1.0, 1.0);
+  // dens × O’Neil scale × path — closed-form stand-in for nested out-scatter samples
+  return dens * oneil_scale(mu) * max(tEnd, 0.0);
 }
 
 fn phase_ray(cc : f32) -> f32 {
@@ -243,11 +262,17 @@ fn phase_mie(g : f32, c : f32, cc : f32) -> f32 {
   return (3.0 / 8.0 / 3.14159265) * a / max(b, 1e-4);
 }
 
+// Short outer view march only (no nested NUM_OUT optic). Analytic sun OD per step.
+const VIEW_SCATTER_STEPS : i32 = 3;
+
+/**
+ * Analytic in-scatter (SCATTER_ANALYTIC).
+ * Short non-nested view steps + O’Neil sun OD + one phase pair.
+ * Same uniforms as the old multi-sample path (intensity, ext, colors, mieEmit).
+ */
 fn in_scatter(o : vec3<f32>, dir : vec3<f32>, e : vec2<f32>, l : vec3<f32>) -> vec3<f32> {
   let ph_ray = 0.05;
   let ph_mie = 0.02;
-  let rInner = body.look2.x;
-  let thick = max(body.look0.w, 0.001);
   let ext = body.look1.y;
   let intensity = body.look1.x;
   let atmCol = body.look3.xyz;
@@ -255,39 +280,37 @@ fn in_scatter(o : vec3<f32>, dir : vec3<f32>, e : vec2<f32>, l : vec3<f32>) -> v
   let k_ray = atmCol * ext;
   let k_mie = vec3<f32>(12.0) * ext;
   let k_mie_ex = 1.05;
-  var sum_ray = vec3<f32>(0.0);
-  var sum_mie = vec3<f32>(0.0);
-  var n_ray0 = 0.0;
-  var n_mie0 = 0.0;
   // Guard degenerate segment (can spike when ray barely grazes)
   let span = e.y - e.x;
   if (span <= 1e-5) {
     return vec3<f32>(0.0);
   }
-  let len = span / f32(NUM_IN_SCATTER);
-  let s = dir * len;
-  var v = o + dir * (e.x + len * 0.5);
-  for (var i = 0; i < NUM_IN_SCATTER; i = i + 1) {
-    let d_ray = density(v, ph_ray) * len;
-    let d_mie = density(v, ph_mie) * len;
+  let stepLen = span / f32(VIEW_SCATTER_STEPS);
+  let stepDir = dir * stepLen;
+  var v = o + dir * (e.x + stepLen * 0.5);
+  var sum_ray = vec3<f32>(0.0);
+  var sum_mie = vec3<f32>(0.0);
+  var n_ray0 = 0.0;
+  var n_mie0 = 0.0;
+  // Outer view march only — sun OD is closed-form (never nested out-scatter samples).
+  for (var i = 0; i < VIEW_SCATTER_STEPS; i = i + 1) {
+    let d_ray = density(v, ph_ray) * stepLen;
+    let d_mie = density(v, ph_mie) * stepLen;
     n_ray0 = n_ray0 + d_ray;
     n_mie0 = n_mie0 + d_mie;
-    let f = ray_vs_sphere(v, l, rInner + thick);
-    let u = v + l * f.y;
-    let n_ray1 = optic(v, u, ph_ray);
-    let n_mie1 = optic(v, u, ph_mie);
-    // Vector attenuation: exp(v) ≡ exp2(v * log2(e))
+    let n_ray1 = optic_depth(v, l, ph_ray);
+    let n_mie1 = optic_depth(v, l, ph_mie);
     let att = exp_fast3(-(n_ray0 + n_ray1) * k_ray - (n_mie0 + n_mie1) * k_mie * k_mie_ex);
     sum_ray = sum_ray + d_ray * att;
     sum_mie = sum_mie + d_mie * att;
-    v = v + s;
+    v = v + stepDir;
   }
   let c = clamp(dot(dir, -l), -1.0, 1.0);
   let cc = c * c;
   let scatter =
     sum_ray * atmCol * phase_ray(cc) +
     sum_mie * vec3<f32>(mieEmit) * phase_mie(-0.78, c, cc);
-  // Soft clamp path-integral blow-ups (grazing + forward Mie)
+  // Soft clamp (grazing + forward Mie) — same ceiling as multi-sample path
   return intensity * min(scatter, vec3<f32>(8.0));
 }
 
@@ -384,7 +407,7 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
   let nightAmt = body.look5.y;
   let nrmStr = body.look5.z;
   // Host packs projected limb radius in px for surface LOD only.
-  // Atmosphere always uses multi-sample in_scatter (no cheap neon look3 rim).
+  // Atmosphere always uses analytic in_scatter (no cheap neon look3 rim).
   // When shaderLayer>0 (gallery cumulative), force full-path so layers are comparable.
   var screenRpx = body.look5.w;
   if (shaderLayerRaw > 0) {
@@ -406,10 +429,9 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
     );
   }
 
-  // Shared multi-sample atmosphere (same family as close-up full path).
+  // Shared analytic atmosphere (same family as close-up full path).
   // Used by mid LOD and full path so limb energy never jumps to a neon rim.
-  // 4×2 in_scatter + same post-scale as full path (scatterBoost applied later).
-  let scatterBoostLod = 1.1;
+  let scatterBoostLod = 1.15;
   // --- Tiny-screen LOD (under ~12px limb): cheap surface, same scatter atm ---
   // Default Azure focus is ~100–130px → full multi-map path below.
   if (screenRpx > 0.0 && screenRpx < 12.0) {
@@ -444,7 +466,7 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
     return vec4<f32>(clamp(colTiny, vec3<f32>(0.0), vec3<f32>(6.0)), clamp(surfaceMask0, 0.0, 1.0));
   }
 
-  // --- Medium LOD (~12–48px): cheaper surface (no normal TBN); SAME in_scatter atm ---
+  // --- Medium LOD (~12–48px): cheaper surface (no normal TBN); SAME analytic atm ---
   // Must not use raw look3*constant rim — that was a thick neon blue halo jump.
   if (screenRpx > 0.0 && screenRpx < 48.0) {
     var surfM = albedoBase;
@@ -480,7 +502,7 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
         0.35 * dayM * body.look4.z;
     }
     litM = mix(nightM * nightAmt, litM, dayM);
-    // Multi-sample scatter — same path as close-up (no look3*rim neon shell)
+    // Analytic scatter — same path as close-up (no look3*rim neon shell)
     var atmM = vec3<f32>(0.0);
     let camPosM = vec3<f32>(0.0, 0.0, camDist);
     let pM = vec2<f32>(local.x / discR, local.y / discR);
@@ -607,7 +629,7 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
     );
   }
 
-  // --- Atmosphere: in_scatter only (layer D+ / E full) ---
+  // --- Atmosphere: analytic in_scatter only (layer D+ / E full) ---
   // Local frame: +X camRight, +Y camUp, +Z toward camera (camFwd). View rays
   // go -Z into the scene: dir = normalize(p.x, p.y, -camDist).
   let camPos = vec3<f32>(0.0, 0.0, camDist);
@@ -615,8 +637,8 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
   let dir = normalize_fast(vec3<f32>(p.x, p.y, -camDist));
   var e = ray_vs_sphere(camPos, dir, rInner + atmThick);
   var atm = vec3<f32>(0.0);
-  // 4×2 sample grid: mild boost restores limb energy without overshoot.
-  let scatterBoost = 1.1;
+  // Mild boost restores limb energy after single-eval OD (not a sample lattice).
+  let scatterBoost = 1.15;
   if (e.x < e.y && e.x > 0.0) {
     let f = ray_vs_sphere(camPos, dir, rInner);
     if (f.x < f.y && f.x > 0.0) {

@@ -1,64 +1,34 @@
 /**
- * Live-tunable atmosphere / limb params for the solar-system showcase.
+ * Live-tunable atmosphere / limb / surface params for the solar-system showcase.
  * Pure defaults + serialize for copy-paste / URL query.
- * Keep numeric defaults in sync with planet-disc.wgsl.ts initial values.
+ *
+ * Only knobs that host-pack into planet body uniforms **and** the disc shader
+ * (or host-only drawMargin / edge AA) actually consume. Dead ring/hug/spherize
+ * fields were removed after audit (packed look6/look7, unread by WGSL).
+ */
+/**
+ * Shared preset for **all** showcase planets — user’s tuned Azure paste
+ * (live knobs only; dead ring/spherize fields dropped).
+ *
+ * drawMarginMul: half-extent = body.drawMargin × mul (Azure body = 1.48 → ~1.70).
+ * atmOuter 1.07 is tight vs old 1.28; 1.15 mul still covers the shell.
  */
 export const PLANET_ATM_DEFAULTS = Object.freeze({
-    edgeInner: 0.992,
-    edgeOuter: 1.0,
-    atmOuter: 1.28,
-    atmThick: 0.18,
-    intensity: 16,
-    extScale: 0.55,
-    atmGain: 1.15,
-    camDist: 10,
-    rInner: 1.0,
-    drawMarginMul: 1.0,
-    mieEmit: 18,
-    colorR: 4.2,
-    colorG: 14.5,
-    colorB: 36.0,
-    glowMul: 1.0,
-    texIntensity: 1.15,
-    ambient: 0.06,
-    dayStrength: 0.94,
-    specStrength: 0.55,
-    specPower: 48,
-    cloudAmount: 0.55,
-    nightLights: 1.15,
-    normalStrength: 0.55,
-    edgeAaPx: 1.5,
-    atmRingInner: 0.88,
-    atmRingFull: 1.0,
-    outerGlowAmt: 0.25,
-    outerGlowWidth: 0.1,
-    limbHugScale: 0.0,
-    spherize: 1.0,
-});
-/**
- * User-tuned Azure (ocean multi-map) look — restored after 30-planet expand.
- * Paste-compatible with body=azure.
- *
- * drawMarginMul: half-extent scale = body.drawMargin × mul (Azure body = 1.48).
- * Need headroom past atmOuter (1.28) for limb scatter/caustics — old 2.23 was
- * wasteful (~3.3); 0.90 was too tight and clipped the bright rim. 1.15 → ~1.70.
- */
-export const AZURE_ATM_PRESET = Object.freeze({
     edgeInner: 0.995,
     edgeOuter: 1.0,
-    atmOuter: 1.28,
+    atmOuter: 1.07,
     atmThick: 0.18,
-    intensity: 9,
-    extScale: 0.3,
+    intensity: 6,
+    extScale: 0.08,
     atmGain: 0.65,
-    camDist: 40,
+    camDist: 8,
     rInner: 0.99,
     drawMarginMul: 1.15,
     mieEmit: 18,
     colorR: 4.2,
     colorG: 14.5,
     colorB: 36.0,
-    glowMul: 0.35,
+    glowMul: 0.3,
     texIntensity: 1.15,
     ambient: 0.06,
     dayStrength: 0.78,
@@ -68,21 +38,16 @@ export const AZURE_ATM_PRESET = Object.freeze({
     nightLights: 1.15,
     normalStrength: 0.04,
     edgeAaPx: 1.5,
-    atmRingInner: 0.9,
-    atmRingFull: 1.0,
-    outerGlowAmt: 0.3,
-    outerGlowWidth: 0.12,
-    limbHugScale: 0.0,
-    spherize: 1.0,
 });
-/** Per-body showcase presets keyed by stable body id. */
+/** Alias — same shared Azure-derived preset (all bodies). */
+export const AZURE_ATM_PRESET = PLANET_ATM_DEFAULTS;
+/** Per-body showcase presets keyed by stable body id (all share Azure look). */
 export const BODY_ATM_PRESETS = Object.freeze({
     azure: AZURE_ATM_PRESET,
 });
-/** Default atm for a body id (preset if any, else global defaults). */
-export function defaultAtmForBodyId(bodyId) {
-    const p = BODY_ATM_PRESETS[bodyId];
-    return cloneAtmParams(p ?? PLANET_ATM_DEFAULTS);
+/** Default atm for a body id — always the shared Azure-derived preset. */
+export function defaultAtmForBodyId(_bodyId) {
+    return cloneAtmParams(PLANET_ATM_DEFAULTS);
 }
 const CLAMP = {
     edgeInner: { min: 0.9, max: 1.0 },
@@ -90,7 +55,7 @@ const CLAMP = {
     atmOuter: { min: 1.02, max: 1.8 },
     atmThick: { min: 0.02, max: 0.5 },
     intensity: { min: 0.5, max: 80 },
-    extScale: { min: 0.05, max: 2 },
+    extScale: { min: 0.01, max: 2 },
     atmGain: { min: 0.1, max: 5 },
     camDist: { min: 2, max: 40 },
     rInner: { min: 0.7, max: 1.15 },
@@ -109,12 +74,6 @@ const CLAMP = {
     nightLights: { min: 0, max: 4 },
     normalStrength: { min: 0, max: 2 },
     edgeAaPx: { min: 0.25, max: 6 },
-    atmRingInner: { min: 0.5, max: 1.0 },
-    atmRingFull: { min: 0.7, max: 1.05 },
-    outerGlowAmt: { min: 0, max: 4 },
-    outerGlowWidth: { min: 0.02, max: 0.5 },
-    limbHugScale: { min: 0, max: 0.25 },
-    spherize: { min: 0, max: 1 },
 };
 export function clampAtmParams(p) {
     const o = { ...p };
@@ -131,9 +90,6 @@ export function clampAtmParams(p) {
     }
     if (o.atmOuter <= o.edgeOuter) {
         o.atmOuter = o.edgeOuter + 0.05;
-    }
-    if (o.atmRingInner > o.atmRingFull) {
-        o.atmRingInner = Math.max(CLAMP.atmRingInner.min, o.atmRingFull - 0.02);
     }
     return o;
 }
@@ -182,7 +138,7 @@ export function formatAllBodyAtmParams(bodies, paramsByIndex, selectedId) {
     }
     return parts.join("\n");
 }
-/** Parse a single body key=value block. Unknown keys ignored. */
+/** Parse a single body key=value block. Unknown keys ignored (incl. dead ring/spherize). */
 export function parseAtmParams(text, base = PLANET_ATM_DEFAULTS) {
     const out = cloneAtmParams(base);
     const keys = new Set(Object.keys(PLANET_ATM_DEFAULTS));
@@ -259,8 +215,8 @@ export function allBodyAtmToQuery(bodies, paramsByIndex, selectedId) {
 }
 /**
  * Read `atm=` JSON from the URL. Bodies missing from the JSON keep their
- * per-id preset (via `presetForId`) — never silently wipe Azure (etc.) back
- * to global defaults when the URL was saved under old body ids.
+ * per-id preset (via `presetForId`) — never silently wipe showcase bodies
+ * when the URL was saved under old body ids.
  */
 export function allBodyAtmFromQuery(search, bodies, base = PLANET_ATM_DEFAULTS, presetForId) {
     const fallback = (id) => clampAtmParams(presetForId ? presetForId(id) : { ...base });
@@ -274,8 +230,6 @@ export function allBodyAtmFromQuery(search, bodies, base = PLANET_ATM_DEFAULTS, 
             const single = parseAtmParams(q.replace(/&/g, "\n"), base);
             return {
                 params: bodies.map((b) => {
-                    // Only apply legacy flat query to the selected/focused body is unknown —
-                    // keep presets for showcase bodies so azure is not mass-overwritten.
                     if (BODY_ATM_PRESETS[b.id])
                         return fallback(b.id);
                     return cloneAtmParams(single);
@@ -294,7 +248,7 @@ export function allBodyAtmFromQuery(search, bodies, base = PLANET_ATM_DEFAULTS, 
             const p = obj[b.id];
             if (p && typeof p === "object") {
                 explicitIds.add(b.id);
-                // Merge onto that body's preset/default so missing keys stay sensible
+                // Merge onto shared defaults; unknown/dead keys on the object are ignored by clamp shape
                 return clampAtmParams({
                     ...fallback(b.id),
                     ...p,
@@ -319,19 +273,15 @@ export function atmParamsFromQuery(search, base = PLANET_ATM_DEFAULTS) {
     const q = search.startsWith("?") ? search.slice(1) : search;
     return parseAtmParams(q.replace(/&/g, "\n"), base);
 }
-/** UI metadata for building controls. */
+/** UI metadata for building controls — live knobs only. */
 export const ATM_PARAM_UI = [
     { key: "edgeOuter", label: "Planet limb (outer rr)", step: 0.001, group: "limb" },
     { key: "edgeInner", label: "Planet soft start (rr)", step: 0.001, group: "limb" },
     { key: "edgeAaPx", label: "Border AA (constant px)", step: 0.05, group: "limb" },
-    { key: "spherize", label: "Texture spherize", step: 0.02, group: "limb" },
     { key: "rInner", label: "Scatter surface radius", step: 0.001, group: "limb" },
     { key: "drawMarginMul", label: "Draw margin ×", step: 0.01, group: "limb" },
-    { key: "atmRingInner", label: "On-disc atm start (× limb)", step: 0.01, group: "rings" },
-    { key: "atmOuter", label: "Atmosphere outer cut (rr)", step: 0.01, group: "rings" },
-    { key: "atmThick", label: "Atmosphere shell thick", step: 0.01, group: "rings" },
-    { key: "outerGlowAmt", label: "Exterior shell × (at limb)", step: 0.05, group: "rings" },
-    { key: "outerGlowWidth", label: "Exterior falloff width", step: 0.01, group: "rings" },
+    { key: "atmOuter", label: "Atmosphere outer cut (rr)", step: 0.01, group: "limb" },
+    { key: "atmThick", label: "Atmosphere shell thick", step: 0.01, group: "scatter" },
     { key: "texIntensity", label: "Texture / albedo ×", step: 0.02, group: "surface" },
     { key: "ambient", label: "Ambient light", step: 0.01, group: "surface" },
     { key: "dayStrength", label: "Day lighting", step: 0.02, group: "surface" },
@@ -341,7 +291,7 @@ export const ATM_PARAM_UI = [
     { key: "nightLights", label: "Night city lights", step: 0.05, group: "surface" },
     { key: "normalStrength", label: "Normal map bump", step: 0.02, group: "surface" },
     { key: "intensity", label: "Scatter intensity", step: 0.5, group: "scatter" },
-    { key: "extScale", label: "Extinction (lower=brighter)", step: 0.02, group: "scatter" },
+    { key: "extScale", label: "Extinction (lower=brighter)", step: 0.01, group: "scatter" },
     { key: "atmGain", label: "Atmosphere gain", step: 0.05, group: "scatter" },
     { key: "glowMul", label: "Body glow ×", step: 0.05, group: "scatter" },
     { key: "camDist", label: "Scatter camera dist", step: 0.5, group: "scatter" },

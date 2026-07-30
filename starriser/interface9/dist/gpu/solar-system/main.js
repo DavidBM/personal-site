@@ -4,7 +4,7 @@
  * Entry: solar-system.html → dist/gpu/solar-system/main.js
  *
  * Planets: equirect multi-map Earth (albedo/normal/spec/night/clouds) for ocean
- * worlds, moon map for rocky, procedural gas/ice; reduced multi-sample atmosphere
+ * worlds, moon map for rocky, procedural gas/ice; analytic single-scatter atmosphere
  * on sized discs (not full-window). Sun: procedural impostor.
  */
 import { createWebGpuBootstrap } from "../device.js";
@@ -484,19 +484,17 @@ async function main() {
         }
         else {
             const groups = {};
-            for (const g of ["limb", "rings", "surface", "scatter", "color"]) {
+            for (const g of ["limb", "surface", "scatter", "color"]) {
                 const fs = document.createElement("fieldset");
                 const leg = document.createElement("legend");
                 leg.textContent =
                     g === "limb"
-                        ? "Planet limb / AA / spherize"
-                        : g === "rings"
-                            ? "Atmosphere rings / size / cut"
-                            : g === "surface"
-                                ? "Surface / texture"
-                                : g === "scatter"
-                                    ? "Scatter energy"
-                                    : "Atm color";
+                        ? "Planet limb / shell cut"
+                        : g === "surface"
+                            ? "Surface / texture"
+                            : g === "scatter"
+                                ? "Scatter energy"
+                                : "Atm color";
                 fs.appendChild(leg);
                 atmPanel.appendChild(fs);
                 groups[g] = fs;
@@ -1046,16 +1044,7 @@ async function main() {
             const worldPerPx = (2 * dist * Math.tan(FOVY / 2)) / Math.max(viewportH, 1);
             cpu[47] = pose.def.radius / Math.max(worldPerPx, 1e-9);
         }
-        // look6: atmRingInner, atmRingFull, outerGlowAmt, outerGlowWidth
-        cpu[48] = a.atmRingInner;
-        cpu[49] = a.atmRingFull;
-        cpu[50] = a.outerGlowAmt;
-        cpu[51] = a.outerGlowWidth;
-        // look7: limbHugScale, spherize, pad, pad
-        cpu[52] = a.limbHugScale;
-        cpu[53] = a.spherize;
-        cpu[54] = 0;
-        cpu[55] = 0;
+        // look6/look7 unused (dead ring/spherize knobs removed — WGSL only reads look0–look5)
     }
     function uploadPlanetBodies(eye, viewportH) {
         for (const s of planetSlots) {
