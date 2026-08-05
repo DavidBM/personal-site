@@ -15,7 +15,7 @@ import { createSolarOrbitState, solarOrbitApplyDrag, solarOrbitApplyZoom, solarO
 import { pickBodyFromScreen } from "./solar-pick.js";
 import { PLANET_BODY_UNIFORM_SIZE, PLANET_DISC_WGSL, PLANET_FRAME_UNIFORM_SIZE, } from "./planet-disc.wgsl.js";
 import { SUN_BODY_UNIFORM_SIZE, SUN_IMPOSTOR_WGSL, } from "./sun-impostor.wgsl.js";
-import { loadPlanetTexturePack } from "./planet-textures.js";
+import { bakedSourcesFromSearch, loadPlanetTexturePack, } from "./planet-textures.js";
 import { ATM_PARAM_UI, PLANET_ATM_DEFAULTS, allBodyAtmFromQuery, allBodyAtmToQuery, atmParamBounds, clampAtmParams, cloneAtmParams, defaultAtmForBodyId, formatAllBodyAtmParams, formatAtmParams, parseAllBodyAtmParams, parseAtmParams, } from "./planet-atm-params.js";
 import { SUN_LOOK_DEFAULTS, SUN_LOOK_PARAM_UI, clampSunLookParams, cloneSunLookParams, formatSunLookParams, parseSunLookParams, sunEffectiveDrawMargin, sunLookParamBounds, } from "./sun-look-params.js";
 import { DEFAULT_SUN_TYPE_ID, SUN_TYPE_PRESETS, isSunTypeId, resolveSunType, } from "./sun-types.js";
@@ -92,7 +92,14 @@ async function main() {
     });
     const { device, context, format } = boot;
     setStatus("Loading planet maps…");
-    const maps = await loadPlanetTexturePack(device);
+    // Optional offline bake consumption: ?bakedAlbedo=...&bakedNormal=...
+    const bakedSources = typeof location !== "undefined"
+        ? bakedSourcesFromSearch(location.search)
+        : {};
+    const maps = await loadPlanetTexturePack(device, bakedSources);
+    if (maps.urls.usedBakedAlbedo) {
+        console.info("[solar-system] using baked equirect albedo:", maps.urls.albedo);
+    }
     // --- Pipelines (layout:"auto" matches other gpu/* demos; minimal typings) ---
     const planetMod = device.createShaderModule({
         label: "planet-disc",

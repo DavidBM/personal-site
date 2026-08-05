@@ -393,7 +393,8 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
   nBody = rotateY(nBody, -spin);
   nBody = normalize_fast(nBody);
   let uv = sphereToUv(nBody);
-  let uvCloud = vec2<f32>(fract(uv.x + frame.timePad.x * 0.008), uv.y);
+  // Slow cloud drift over land (longitude only; ~1 full turn per ~5–6 min)
+  let uvCloud = vec2<f32>(fract(uv.x + frame.timePad.x * 0.003), uv.y);
 
   let isOcean = k == 2;
   let isRocky = k == 1;
@@ -474,10 +475,16 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
     var nightM = vec3<f32>(0.0);
     if (isOcean) {
       let dayMap = textureSampleLevel(texAlbedo, samp, uv, 0.0).rgb;
-      let cloudMap = textureSampleLevel(texCloud, samp, uvCloud, 0.0).r;
+      let cloudS = textureSampleLevel(texCloud, samp, uvCloud, 0.0);
+      // A = cover, RGB = stamp/cloud color as authored (no greyscale→white rewrite).
+      let cloudCoverM = cloudS.a * cloudAmt;
+      let cloudColM = cloudS.rgb;
       let nightMap = textureSampleLevel(texNight, samp, uv, 0.0).rgb;
-      surfM = mix(dayMap, vec3<f32>(1.0, 1.0, 1.0), cloudMap * cloudAmt);
-      nightM = nightMap;
+      let liqM = textureSampleLevel(texSpec, samp, uv, 0.0).r;
+      // Soft dark neon lava on night/shadow (dimmer + softer than day)
+      let lavaHintM = smoothstep(0.0, 0.15, dayMap.r - dayMap.b) * smoothstep(0.35, 0.85, liqM);
+      nightM = nightMap + dayMap * lavaHintM * 0.1;
+      surfM = mix(dayMap, cloudColM, cloudCoverM);
     } else if (isRocky) {
       let moonMap = textureSampleLevel(texMoon, samp, uv, 0.0).rgb;
       surfM = moonMap * albedoBase * 1.25;
@@ -495,11 +502,15 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
     let dayM = smoothstep(-0.12, 0.18, dot(nShadeM, sunDir0));
     var litM = surfM * (body.look4.x + body.look4.y * dayM);
     if (isOcean) {
+      // Water specular only — skip when R-dominant liquid (lava melt)
+      let dayMapS = textureSampleLevel(texAlbedo, samp, uv, 0.0).rgb;
+      let liqS = textureSampleLevel(texSpec, samp, uv, 0.0).r;
+      let lavaS = smoothstep(0.0, 0.12, dayMapS.r - dayMapS.b) * smoothstep(0.35, 0.85, liqS);
       let viewDirM = normalize_fast(frame.eyePos.xyz - body.centerRadius.xyz);
       let halfM = normalize_fast(sunDir0 + viewDirM);
       litM = litM + vec3<f32>(1.0, 0.94, 0.82) *
         pow_fast(max(dot(nShadeM, halfM), 0.0), max(body.look4.w, 1.0)) *
-        0.35 * dayM * body.look4.z;
+        0.35 * dayM * body.look4.z * (1.0 - lavaS);
     }
     litM = mix(nightM * nightAmt, litM, dayM);
     // Analytic scatter — same path as close-up (no look3*rim neon shell)
@@ -543,8 +554,10 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
   // Layer C+ (3..): full multi-map + TBN + night.
   if (isOcean) {
     let dayMap = textureSampleLevel(texAlbedo, samp, uv, 0.0).rgb;
-    let cloudMap = textureSampleLevel(texCloud, samp, uvCloud, 0.0).r;
-    var earthSurf = mix(dayMap, vec3<f32>(1.0, 1.0, 1.0), cloudMap * cloudAmt);
+    let cloudS = textureSampleLevel(texCloud, samp, uvCloud, 0.0);
+    let cloudCover = cloudS.a * cloudAmt;
+    let cloudCol = cloudS.rgb;
+    var earthSurf = mix(dayMap, cloudCol, cloudCover);
     surface = earthSurf;
     if (layerMax >= 3) {
       let nMap = textureSampleLevel(texNormal, samp, uv, 0.0).xyz * 2.0 - 1.0;
@@ -565,8 +578,11 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
       nEarth = rotateX(nEarth, obl);
       nEarth = normalize_fast(nEarth);
       nShade = nEarth;
-      specAmt = specMap;
-      nightCol = nightMap;
+      // Soft dark neon lava on night (dimmer + softer penumbra than day)
+      let lavaHint = smoothstep(0.0, 0.15, dayMap.r - dayMap.b) * smoothstep(0.35, 0.85, specMap);
+      nightCol = nightMap + dayMap * lavaHint * 0.1;
+      // Molten basalt: matte (no water sun glints). Water keeps wet map as gloss.
+      specAmt = specMap * (1.0 - lavaHint);
     }
   } else if (isRocky) {
     let moonMap = textureSampleLevel(texMoon, samp, uv, 0.0).rgb;

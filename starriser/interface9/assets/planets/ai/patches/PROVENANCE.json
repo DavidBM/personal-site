@@ -1,0 +1,831 @@
+{
+  "author": "Imagine (xAI image_gen/image_edit) + green-screen matte for clouds; land patches Imagine+paired normals",
+  "entries": [
+    {
+      "path": "colorized-normals/impacts/00.png",
+      "source": "imagine",
+      "kind": "colorized-normals",
+      "family": "impacts",
+      "paired_normal": "colorized-normals/impacts/00.n.png",
+      "opaqueLsd": 24.26
+    },
+    {
+      "path": "colorized-normals/impacts/01.png",
+      "source": "imagine",
+      "kind": "colorized-normals",
+      "family": "impacts",
+      "paired_normal": "colorized-normals/impacts/01.n.png",
+      "opaqueLsd": 13.1
+    },
+    {
+      "path": "colorized-normals/impacts/02.png",
+      "source": "imagine",
+      "kind": "colorized-normals",
+      "family": "impacts",
+      "paired_normal": "colorized-normals/impacts/02.n.png",
+      "opaqueLsd": 36.13
+    },
+    {
+      "path": "colorized-normals/impacts/03.png",
+      "source": "imagine",
+      "kind": "colorized-normals",
+      "family": "impacts",
+      "paired_normal": "colorized-normals/impacts/03.n.png",
+      "opaqueLsd": 42.91
+    },
+    {
+      "path": "colorized-normals/impacts/04.png",
+      "source": "imagine",
+      "kind": "colorized-normals",
+      "family": "impacts",
+      "paired_normal": "colorized-normals/impacts/04.n.png",
+      "opaqueLsd": 27.24
+    },
+    {
+      "path": "colorized-normals/impacts/05.png",
+      "source": "imagine",
+      "kind": "colorized-normals",
+      "family": "impacts",
+      "paired_normal": "colorized-normals/impacts/05.n.png",
+      "opaqueLsd": 17.54
+    },
+    {
+      "path": "colorized-normals/impacts/06.png",
+      "source": "imagine",
+      "kind": "colorized-normals",
+      "family": "impacts",
+      "paired_normal": "colorized-normals/impacts/06.n.png",
+      "opaqueLsd": 49.19
+    },
+    {
+      "path": "colorized-normals/impacts/07.png",
+      "source": "imagine",
+      "kind": "colorized-normals",
+      "family": "impacts",
+      "paired_normal": "colorized-normals/impacts/07.n.png",
+      "opaqueLsd": 14.87
+    },
+    {
+      "path": "colorized-normals/impacts/08.png",
+      "source": "imagine",
+      "kind": "colorized-normals",
+      "family": "impacts",
+      "paired_normal": "colorized-normals/impacts/08.n.png",
+      "opaqueLsd": 22.21
+    },
+    {
+      "path": "colorized-normals/impacts/09.png",
+      "source": "imagine",
+      "kind": "colorized-normals",
+      "family": "impacts",
+      "paired_normal": "colorized-normals/impacts/09.n.png",
+      "opaqueLsd": 24.87
+    },
+    {
+      "path": "colorized-normals/impacts/10.png",
+      "source": "imagine",
+      "kind": "colorized-normals",
+      "family": "impacts",
+      "paired_normal": "colorized-normals/impacts/10.n.png",
+      "opaqueLsd": 12.68
+    },
+    {
+      "path": "colorized-normals/impacts/11.png",
+      "source": "imagine",
+      "kind": "colorized-normals",
+      "family": "impacts",
+      "paired_normal": "colorized-normals/impacts/11.n.png",
+      "opaqueLsd": 25.3
+    },
+    {
+      "path": "colorized-normals/impacts/12.png",
+      "source": "imagine",
+      "kind": "colorized-normals",
+      "family": "impacts",
+      "paired_normal": "colorized-normals/impacts/12.n.png",
+      "opaqueLsd": 19.87
+    },
+    {
+      "path": "colorized-normals/impacts/13.png",
+      "source": "imagine",
+      "kind": "colorized-normals",
+      "family": "impacts",
+      "paired_normal": "colorized-normals/impacts/13.n.png",
+      "opaqueLsd": 16.41
+    },
+    {
+      "path": "colorized-normals/impacts/14.png",
+      "source": "imagine",
+      "kind": "colorized-normals",
+      "family": "impacts",
+      "paired_normal": "colorized-normals/impacts/14.n.png",
+      "opaqueLsd": 28.31
+    },
+    {
+      "path": "colorized-normals/impacts/15.png",
+      "source": "imagine",
+      "kind": "colorized-normals",
+      "family": "impacts",
+      "paired_normal": "colorized-normals/impacts/15.n.png",
+      "opaqueLsd": 35.97
+    },
+    {
+      "path": "colorized-normals/impacts/16.png",
+      "source": "imagine",
+      "kind": "colorized-normals",
+      "family": "impacts",
+      "paired_normal": "colorized-normals/impacts/16.n.png",
+      "opaqueLsd": 15.88
+    },
+    {
+      "path": "colorized-normals/impacts/17.png",
+      "source": "imagine",
+      "kind": "colorized-normals",
+      "family": "impacts",
+      "paired_normal": "colorized-normals/impacts/17.n.png",
+      "opaqueLsd": 23.42
+    },
+    {
+      "path": "colorized-normals/impacts/18.png",
+      "source": "imagine",
+      "kind": "colorized-normals",
+      "family": "impacts",
+      "paired_normal": "colorized-normals/impacts/18.n.png",
+      "opaqueLsd": 41.52
+    },
+    {
+      "path": "colorized-normals/impacts/19.png",
+      "source": "imagine",
+      "kind": "colorized-normals",
+      "family": "impacts",
+      "paired_normal": "colorized-normals/impacts/19.n.png",
+      "opaqueLsd": 13.62
+    },
+    {
+      "path": "colorized-normals/geology/00.png",
+      "source": "imagine",
+      "kind": "colorized-normals",
+      "family": "geology",
+      "paired_normal": "colorized-normals/geology/00.n.png",
+      "opaqueLsd": 38.13
+    },
+    {
+      "path": "colorized-normals/geology/01.png",
+      "source": "imagine",
+      "kind": "colorized-normals",
+      "family": "geology",
+      "paired_normal": "colorized-normals/geology/01.n.png",
+      "opaqueLsd": 31.81
+    },
+    {
+      "path": "colorized-normals/geology/02.png",
+      "source": "imagine",
+      "kind": "colorized-normals",
+      "family": "geology",
+      "paired_normal": "colorized-normals/geology/02.n.png",
+      "opaqueLsd": 35.69
+    },
+    {
+      "path": "colorized-normals/geology/03.png",
+      "source": "imagine",
+      "kind": "colorized-normals",
+      "family": "geology",
+      "paired_normal": "colorized-normals/geology/03.n.png",
+      "opaqueLsd": 49.35
+    },
+    {
+      "path": "colorized-normals/geology/04.png",
+      "source": "imagine",
+      "kind": "colorized-normals",
+      "family": "geology",
+      "paired_normal": "colorized-normals/geology/04.n.png",
+      "opaqueLsd": 22.81
+    },
+    {
+      "path": "colorized-normals/geology/05.png",
+      "source": "imagine",
+      "kind": "colorized-normals",
+      "family": "geology",
+      "paired_normal": "colorized-normals/geology/05.n.png",
+      "opaqueLsd": 32.32
+    },
+    {
+      "path": "colorized-normals/geology/06.png",
+      "source": "imagine",
+      "kind": "colorized-normals",
+      "family": "geology",
+      "paired_normal": "colorized-normals/geology/06.n.png",
+      "opaqueLsd": 29.45
+    },
+    {
+      "path": "colorized-normals/geology/07.png",
+      "source": "imagine",
+      "kind": "colorized-normals",
+      "family": "geology",
+      "paired_normal": "colorized-normals/geology/07.n.png",
+      "opaqueLsd": 37.88
+    },
+    {
+      "path": "colorized-normals/geology/08.png",
+      "source": "imagine",
+      "kind": "colorized-normals",
+      "family": "geology",
+      "paired_normal": "colorized-normals/geology/08.n.png",
+      "opaqueLsd": 34.73
+    },
+    {
+      "path": "colorized-normals/geology/09.png",
+      "source": "imagine",
+      "kind": "colorized-normals",
+      "family": "geology",
+      "paired_normal": "colorized-normals/geology/09.n.png",
+      "opaqueLsd": 35.33
+    },
+    {
+      "path": "colorized-normals/geology/10.png",
+      "source": "imagine",
+      "kind": "colorized-normals",
+      "family": "geology",
+      "paired_normal": "colorized-normals/geology/10.n.png",
+      "opaqueLsd": 34.6
+    },
+    {
+      "path": "colorized-normals/geology/11.png",
+      "source": "imagine",
+      "kind": "colorized-normals",
+      "family": "geology",
+      "paired_normal": "colorized-normals/geology/11.n.png",
+      "opaqueLsd": 27.27
+    },
+    {
+      "path": "colorized-normals/geology/12.png",
+      "source": "imagine",
+      "kind": "colorized-normals",
+      "family": "geology",
+      "paired_normal": "colorized-normals/geology/12.n.png",
+      "opaqueLsd": 19.77
+    },
+    {
+      "path": "colorized-normals/geology/13.png",
+      "source": "imagine",
+      "kind": "colorized-normals",
+      "family": "geology",
+      "paired_normal": "colorized-normals/geology/13.n.png",
+      "opaqueLsd": 31.86
+    },
+    {
+      "path": "texturization/geology/00.png",
+      "source": "imagine",
+      "kind": "texturization",
+      "family": "geology",
+      "opaqueLsd": 19.09
+    },
+    {
+      "path": "texturization/geology/01.png",
+      "source": "imagine",
+      "kind": "texturization",
+      "family": "geology",
+      "opaqueLsd": 18.7
+    },
+    {
+      "path": "texturization/geology/02.png",
+      "source": "imagine",
+      "kind": "texturization",
+      "family": "geology",
+      "opaqueLsd": 21.85
+    },
+    {
+      "path": "texturization/geology/03.png",
+      "source": "imagine",
+      "kind": "texturization",
+      "family": "geology",
+      "opaqueLsd": 57.13
+    },
+    {
+      "path": "texturization/geology/04.png",
+      "source": "imagine",
+      "kind": "texturization",
+      "family": "geology",
+      "opaqueLsd": 35.49
+    },
+    {
+      "path": "texturization/geology/05.png",
+      "source": "imagine",
+      "kind": "texturization",
+      "family": "geology",
+      "opaqueLsd": 28.9
+    },
+    {
+      "path": "texturization/geology/06.png",
+      "source": "imagine",
+      "kind": "texturization",
+      "family": "geology",
+      "opaqueLsd": 13.56
+    },
+    {
+      "path": "texturization/geology/07.png",
+      "source": "imagine",
+      "kind": "texturization",
+      "family": "geology",
+      "opaqueLsd": 27.2
+    },
+    {
+      "path": "texturization/geology/08.png",
+      "source": "imagine",
+      "kind": "texturization",
+      "family": "geology",
+      "opaqueLsd": 12.58
+    },
+    {
+      "path": "texturization/geology/09.png",
+      "source": "imagine",
+      "kind": "texturization",
+      "family": "geology",
+      "opaqueLsd": 50.08
+    },
+    {
+      "path": "texturization/geology/10.png",
+      "source": "imagine",
+      "kind": "texturization",
+      "family": "geology",
+      "opaqueLsd": 31.61
+    },
+    {
+      "path": "texturization/geology/11.png",
+      "source": "imagine",
+      "kind": "texturization",
+      "family": "geology",
+      "opaqueLsd": 22.38
+    },
+    {
+      "path": "texturization/geology/12.png",
+      "source": "imagine",
+      "kind": "texturization",
+      "family": "geology",
+      "opaqueLsd": 31.97
+    },
+    {
+      "path": "texturization/geology/13.png",
+      "source": "imagine",
+      "kind": "texturization",
+      "family": "geology",
+      "opaqueLsd": 21.15
+    },
+    {
+      "path": "texturization/gas/00.png",
+      "source": "gen-gas-flow-patches.py",
+      "kind": "texturization",
+      "family": "gas"
+    },
+    {
+      "path": "colorized-normals/gas/00.png",
+      "source": "gen-gas-flow-patches.py",
+      "kind": "colorized-normals",
+      "family": "gas"
+    },
+    {
+      "path": "texturization/gas/01.png",
+      "source": "gen-gas-flow-patches.py",
+      "kind": "texturization",
+      "family": "gas"
+    },
+    {
+      "path": "colorized-normals/gas/01.png",
+      "source": "gen-gas-flow-patches.py",
+      "kind": "colorized-normals",
+      "family": "gas"
+    },
+    {
+      "path": "texturization/gas/02.png",
+      "source": "gen-gas-flow-patches.py",
+      "kind": "texturization",
+      "family": "gas"
+    },
+    {
+      "path": "colorized-normals/gas/02.png",
+      "source": "gen-gas-flow-patches.py",
+      "kind": "colorized-normals",
+      "family": "gas"
+    },
+    {
+      "path": "texturization/gas/03.png",
+      "source": "gen-gas-flow-patches.py",
+      "kind": "texturization",
+      "family": "gas"
+    },
+    {
+      "path": "colorized-normals/gas/03.png",
+      "source": "gen-gas-flow-patches.py",
+      "kind": "colorized-normals",
+      "family": "gas"
+    },
+    {
+      "path": "texturization/gas/04.png",
+      "source": "gen-gas-flow-patches.py",
+      "kind": "texturization",
+      "family": "gas"
+    },
+    {
+      "path": "colorized-normals/gas/04.png",
+      "source": "gen-gas-flow-patches.py",
+      "kind": "colorized-normals",
+      "family": "gas"
+    },
+    {
+      "path": "texturization/gas/05.png",
+      "source": "gen-gas-flow-patches.py",
+      "kind": "texturization",
+      "family": "gas"
+    },
+    {
+      "path": "colorized-normals/gas/05.png",
+      "source": "gen-gas-flow-patches.py",
+      "kind": "colorized-normals",
+      "family": "gas"
+    },
+    {
+      "path": "texturization/gas/06.png",
+      "source": "gen-gas-flow-patches.py",
+      "kind": "texturization",
+      "family": "gas"
+    },
+    {
+      "path": "colorized-normals/gas/06.png",
+      "source": "gen-gas-flow-patches.py",
+      "kind": "colorized-normals",
+      "family": "gas"
+    },
+    {
+      "path": "texturization/gas/07.png",
+      "source": "gen-gas-flow-patches.py",
+      "kind": "texturization",
+      "family": "gas"
+    },
+    {
+      "path": "colorized-normals/gas/07.png",
+      "source": "gen-gas-flow-patches.py",
+      "kind": "colorized-normals",
+      "family": "gas"
+    },
+    {
+      "path": "texturization/gas/08.png",
+      "source": "gen-gas-flow-patches.py",
+      "kind": "texturization",
+      "family": "gas"
+    },
+    {
+      "path": "colorized-normals/gas/08.png",
+      "source": "gen-gas-flow-patches.py",
+      "kind": "colorized-normals",
+      "family": "gas"
+    },
+    {
+      "path": "texturization/gas/09.png",
+      "source": "gen-gas-flow-patches.py",
+      "kind": "texturization",
+      "family": "gas"
+    },
+    {
+      "path": "colorized-normals/gas/09.png",
+      "source": "gen-gas-flow-patches.py",
+      "kind": "colorized-normals",
+      "family": "gas"
+    },
+    {
+      "path": "texturization/gas/10.png",
+      "source": "gen-gas-flow-patches.py",
+      "kind": "texturization",
+      "family": "gas"
+    },
+    {
+      "path": "colorized-normals/gas/10.png",
+      "source": "gen-gas-flow-patches.py",
+      "kind": "colorized-normals",
+      "family": "gas"
+    },
+    {
+      "path": "texturization/gas/11.png",
+      "source": "gen-gas-flow-patches.py",
+      "kind": "texturization",
+      "family": "gas"
+    },
+    {
+      "path": "colorized-normals/gas/11.png",
+      "source": "gen-gas-flow-patches.py",
+      "kind": "colorized-normals",
+      "family": "gas"
+    },
+    {
+      "path": "clouds/light/00.png",
+      "source": "imagine+green-screen-matte",
+      "kind": "clouds",
+      "family": "light"
+    },
+    {
+      "path": "clouds/light/01.png",
+      "source": "imagine+green-screen-matte",
+      "kind": "clouds",
+      "family": "light"
+    },
+    {
+      "path": "clouds/light/02.png",
+      "source": "imagine+green-screen-matte",
+      "kind": "clouds",
+      "family": "light"
+    },
+    {
+      "path": "clouds/light/03.png",
+      "source": "imagine+green-screen-matte",
+      "kind": "clouds",
+      "family": "light"
+    },
+    {
+      "path": "clouds/light/04.png",
+      "source": "imagine+green-screen-matte",
+      "kind": "clouds",
+      "family": "light"
+    },
+    {
+      "path": "clouds/light/05.png",
+      "source": "imagine+green-screen-matte",
+      "kind": "clouds",
+      "family": "light"
+    },
+    {
+      "path": "clouds/light/06.png",
+      "source": "imagine+green-screen-matte",
+      "kind": "clouds",
+      "family": "light"
+    },
+    {
+      "path": "clouds/light/07.png",
+      "source": "imagine+green-screen-matte",
+      "kind": "clouds",
+      "family": "light"
+    },
+    {
+      "path": "clouds/light/08.png",
+      "source": "imagine+green-screen-matte",
+      "kind": "clouds",
+      "family": "light"
+    },
+    {
+      "path": "clouds/light/09.png",
+      "source": "imagine+green-screen-matte",
+      "kind": "clouds",
+      "family": "light"
+    },
+    {
+      "path": "clouds/light/10.png",
+      "source": "imagine+green-screen-matte",
+      "kind": "clouds",
+      "family": "light"
+    },
+    {
+      "path": "clouds/light/11.png",
+      "source": "imagine+green-screen-matte",
+      "kind": "clouds",
+      "family": "light"
+    },
+    {
+      "path": "clouds/light/12.png",
+      "source": "imagine+green-screen-matte",
+      "kind": "clouds",
+      "family": "light"
+    },
+    {
+      "path": "clouds/light/13.png",
+      "source": "imagine+green-screen-matte",
+      "kind": "clouds",
+      "family": "light"
+    },
+    {
+      "path": "clouds/heavy/00.png",
+      "source": "imagine+green-screen-matte",
+      "kind": "clouds",
+      "family": "heavy"
+    },
+    {
+      "path": "clouds/heavy/01.png",
+      "source": "imagine+green-screen-matte",
+      "kind": "clouds",
+      "family": "heavy"
+    },
+    {
+      "path": "clouds/heavy/02.png",
+      "source": "imagine+green-screen-matte",
+      "kind": "clouds",
+      "family": "heavy"
+    },
+    {
+      "path": "clouds/heavy/03.png",
+      "source": "imagine+green-screen-matte",
+      "kind": "clouds",
+      "family": "heavy"
+    },
+    {
+      "path": "clouds/heavy/04.png",
+      "source": "imagine+green-screen-matte",
+      "kind": "clouds",
+      "family": "heavy"
+    },
+    {
+      "path": "clouds/heavy/05.png",
+      "source": "imagine+green-screen-matte",
+      "kind": "clouds",
+      "family": "heavy"
+    },
+    {
+      "path": "clouds/heavy/06.png",
+      "source": "imagine+green-screen-matte",
+      "kind": "clouds",
+      "family": "heavy"
+    },
+    {
+      "path": "clouds/heavy/07.png",
+      "source": "imagine+green-screen-matte",
+      "kind": "clouds",
+      "family": "heavy"
+    },
+    {
+      "path": "clouds/heavy/08.png",
+      "source": "imagine+green-screen-matte",
+      "kind": "clouds",
+      "family": "heavy"
+    },
+    {
+      "path": "clouds/heavy/09.png",
+      "source": "imagine+green-screen-matte",
+      "kind": "clouds",
+      "family": "heavy"
+    },
+    {
+      "path": "clouds/heavy/10.png",
+      "source": "imagine+green-screen-matte",
+      "kind": "clouds",
+      "family": "heavy"
+    },
+    {
+      "path": "clouds/heavy/11.png",
+      "source": "imagine+green-screen-matte",
+      "kind": "clouds",
+      "family": "heavy"
+    },
+    {
+      "path": "clouds/heavy/12.png",
+      "source": "imagine+green-screen-matte",
+      "kind": "clouds",
+      "family": "heavy"
+    },
+    {
+      "path": "clouds/heavy/13.png",
+      "source": "imagine+green-screen-matte",
+      "kind": "clouds",
+      "family": "heavy"
+    },
+    {
+      "path": "clouds/storm/00.png",
+      "source": "imagine+green-screen-matte",
+      "kind": "clouds",
+      "family": "storm"
+    },
+    {
+      "path": "clouds/storm/01.png",
+      "source": "imagine+green-screen-matte",
+      "kind": "clouds",
+      "family": "storm"
+    },
+    {
+      "path": "clouds/storm/02.png",
+      "source": "imagine+green-screen-matte",
+      "kind": "clouds",
+      "family": "storm"
+    },
+    {
+      "path": "clouds/storm/03.png",
+      "source": "imagine+green-screen-matte",
+      "kind": "clouds",
+      "family": "storm"
+    },
+    {
+      "path": "clouds/storm/04.png",
+      "source": "imagine+green-screen-matte",
+      "kind": "clouds",
+      "family": "storm"
+    },
+    {
+      "path": "clouds/storm/05.png",
+      "source": "imagine+green-screen-matte",
+      "kind": "clouds",
+      "family": "storm"
+    },
+    {
+      "path": "clouds/storm/06.png",
+      "source": "imagine+green-screen-matte",
+      "kind": "clouds",
+      "family": "storm"
+    },
+    {
+      "path": "clouds/storm/07.png",
+      "source": "imagine+green-screen-matte",
+      "kind": "clouds",
+      "family": "storm"
+    },
+    {
+      "path": "clouds/storm/08.png",
+      "source": "imagine+green-screen-matte",
+      "kind": "clouds",
+      "family": "storm"
+    },
+    {
+      "path": "clouds/storm/09.png",
+      "source": "imagine+green-screen-matte",
+      "kind": "clouds",
+      "family": "storm"
+    },
+    {
+      "path": "clouds/storm/10.png",
+      "source": "imagine+green-screen-matte",
+      "kind": "clouds",
+      "family": "storm"
+    },
+    {
+      "path": "clouds/storm/11.png",
+      "source": "imagine+green-screen-matte",
+      "kind": "clouds",
+      "family": "storm"
+    },
+    {
+      "path": "clouds/cyclone/00.png",
+      "source": "imagine+green-screen-matte",
+      "kind": "clouds",
+      "family": "cyclone"
+    },
+    {
+      "path": "clouds/cyclone/01.png",
+      "source": "imagine+green-screen-matte",
+      "kind": "clouds",
+      "family": "cyclone"
+    },
+    {
+      "path": "clouds/cyclone/02.png",
+      "source": "imagine+green-screen-matte",
+      "kind": "clouds",
+      "family": "cyclone"
+    },
+    {
+      "path": "clouds/cyclone/03.png",
+      "source": "imagine+green-screen-matte",
+      "kind": "clouds",
+      "family": "cyclone"
+    },
+    {
+      "path": "clouds/cyclone/04.png",
+      "source": "imagine+green-screen-matte",
+      "kind": "clouds",
+      "family": "cyclone"
+    },
+    {
+      "path": "clouds/cyclone/05.png",
+      "source": "imagine+green-screen-matte",
+      "kind": "clouds",
+      "family": "cyclone"
+    },
+    {
+      "path": "clouds/cyclone/06.png",
+      "source": "imagine+green-screen-matte",
+      "kind": "clouds",
+      "family": "cyclone"
+    },
+    {
+      "path": "clouds/cyclone/07.png",
+      "source": "imagine+green-screen-matte",
+      "kind": "clouds",
+      "family": "cyclone"
+    },
+    {
+      "path": "clouds/cyclone/08.png",
+      "source": "imagine+green-screen-matte",
+      "kind": "clouds",
+      "family": "cyclone"
+    },
+    {
+      "path": "clouds/cyclone/09.png",
+      "source": "imagine+green-screen-matte",
+      "kind": "clouds",
+      "family": "cyclone"
+    },
+    {
+      "path": "clouds/cyclone/10.png",
+      "source": "imagine+green-screen-matte",
+      "kind": "clouds",
+      "family": "cyclone"
+    },
+    {
+      "path": "clouds/cyclone/11.png",
+      "source": "imagine+green-screen-matte",
+      "kind": "clouds",
+      "family": "cyclone"
+    }
+  ]
+}
