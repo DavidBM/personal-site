@@ -6,7 +6,7 @@
  *
  * Clip space matches {@link mat4Perspective} (OpenGL-style RH, NDC z ∈ [-1, 1]).
  */
-import { mat4Invert, mat4LookAt, mat4Perspective, mat4ViewProj, } from "./mat4.js";
+import { lookAtAxes } from "./mat4.js";
 /** CSS pixel → NDC (y flipped; origin top-left). */
 export function screenToNdc(screenX, screenY, viewportW, viewportH) {
     const w = viewportW || 1;
@@ -80,28 +80,52 @@ export function intersectRayPlaneY0(origin, direction) {
     };
 }
 /**
- * Full pick: screen → NDC → inv(view·proj) ray → y=0.
- * Returns null if view·proj is singular or the ray misses the ground plane.
- * Pass {@link GroundPickScratch} from a long-lived controller to skip mat allocs.
+ * Screen ray from look-at camera axes — **not** inv(view·proj).
+ *
+ * MAP_NEAR=0.0004 vs far=1e10 makes f32 inv(view·proj) miss y=0 at galaxy
+ * |xz|≳5e4, so pan `dragStartGround` was null and LMB did nothing. This
+ * ray is independent of clip planes. Same −Z up fallback as mat4LookAt.
  */
-export function groundPickFromScreen(opts, scratch) {
+export function rayFromLookAtCamera(opts) {
+    const a = lookAtAxes(opts.eyeX, opts.eyeY, opts.eyeZ, opts.targetX, opts.targetY, opts.targetZ);
+    const vx = opts.ndcX * opts.aspect * opts.tanHalfFov;
+    const vy = opts.ndcY * opts.tanHalfFov;
+    const vz = -1;
+    let dx = vx * a.xx + vy * a.yx + vz * a.zx;
+    let dy = vx * a.xy + vy * a.yy + vz * a.zy;
+    let dz = vx * a.xz + vy * a.yz + vz * a.zz;
+    const len = Math.hypot(dx, dy, dz) || 1;
+    dx /= len;
+    dy /= len;
+    dz /= len;
+    return {
+        origin: { x: opts.eyeX, y: opts.eyeY, z: opts.eyeZ },
+        direction: { x: dx, y: dy, z: dz },
+    };
+}
+/**
+ * Full pick: screen → camera-basis ray → y=0.
+ * Returns null if the ray misses the ground plane (parallel / behind).
+ * Scratch mats are unused (kept so the pan hot path’s call shape stays).
+ */
+export function groundPickFromScreen(opts, _scratch) {
     const fovyDeg = opts.fovyDeg ?? 60;
-    const near = opts.near ?? 10;
-    const far = opts.far ?? 1e10;
     const targetY = opts.targetY ?? 0;
     const aspect = (opts.viewportW || 1) / (opts.viewportH || 1);
-    const proj = scratch?.proj ?? new Float32Array(16);
-    const view = scratch?.view ?? new Float32Array(16);
-    const viewProj = scratch?.viewProj ?? new Float32Array(16);
-    const invViewProj = scratch?.invViewProj ?? new Float32Array(16);
-    mat4Perspective(proj, (fovyDeg * Math.PI) / 180, aspect, near, far);
-    mat4LookAt(view, opts.eyeX, opts.eyeY, opts.eyeZ, opts.targetX, targetY, opts.targetZ);
-    mat4ViewProj(viewProj, proj, view);
-    if (mat4Invert(invViewProj, viewProj) == null) {
-        return null;
-    }
+    const tanHalfFov = Math.tan(((fovyDeg * Math.PI) / 180) * 0.5);
     const ndc = screenToNdc(opts.screenX, opts.screenY, opts.viewportW, opts.viewportH);
-    const ray = rayFromNdc(ndc.x, ndc.y, invViewProj);
+    const ray = rayFromLookAtCamera({
+        ndcX: ndc.x,
+        ndcY: ndc.y,
+        aspect,
+        tanHalfFov,
+        eyeX: opts.eyeX,
+        eyeY: opts.eyeY,
+        eyeZ: opts.eyeZ,
+        targetX: opts.targetX,
+        targetY,
+        targetZ: opts.targetZ,
+    });
     const ground = intersectRayPlaneY0(ray.origin, ray.direction);
     if (ground == null) {
         return null;

@@ -11,11 +11,24 @@ export const CRACK_LAND_METHOD = "classic-parallax";
 /** methodIndex("classic-parallax") — smoke asserts alignment. */
 export const CRACK_LAND_METHOD_ID = methodIndex(CRACK_LAND_METHOD);
 /**
- * Radial indent for dig walls / floor (rSurf = 1 − (1−h)·scale).
- * Depth slider overrides live. Default matches strong dig wall read without
- * over-burying floors (slider still goes to 0.45).
+ * Radial indent scale for dig walls / floor (rSurf = 1 − (1−h)·scale).
+ * Depth slider overrides live. **Max indent is capped** ({@link CRACK_MAX_RADIAL_INDENT})
+ * so dig shell never projects as a much smaller sphere that peels off before
+ * the land limb (“parallax retracts too early”).
  */
 export const CRACK_CLASSIC_HEIGHT_SCALE = 0.2;
+/**
+ * Hard cap on radial dig indent (fraction of unit radius).
+ * Dig floor rSurf ≥ 1 − this. Uncapped scale 0.2 + deep dig → r≈0.81
+ * (dig disc ~19% smaller than land; dig rotates away before planet limb).
+ */
+export const CRACK_MAX_RADIAL_INDENT = 0.025;
+/**
+ * Near disc limb (zSphere below this), dig tunnels are forced solid.
+ * Graze dig rays miss the dig shell and open black holes that peel off
+ * before the land edge — dig looks like a smaller sphere retracting early.
+ */
+export const CRACK_DIG_LIMB_Z_SOLID = 0.45;
 /**
  * Classic linear step floor — denser than sphere-surface “mid”, near “quality”.
  * Higher → better wall/floor hits, fewer miss/step artifacts.
@@ -79,11 +92,12 @@ export function crackShadeFromHeight(h) {
 }
 /**
  * Unit-sphere surface radius after classic height indent (CPU parity of WGSL).
- * height 1 = crust, 0 = deep trench floor.
+ * height 1 = crust, 0 = deep trench floor. Indent capped so dig shell ≈ planet size.
  */
-export function classicSurfaceRadius(height, heightScale = CRACK_CLASSIC_HEIGHT_SCALE) {
+export function classicSurfaceRadius(height, heightScale = CRACK_CLASSIC_HEIGHT_SCALE, maxIndent = CRACK_MAX_RADIAL_INDENT) {
     const h = Math.min(1, Math.max(0, height));
     const s = Math.max(0, heightScale);
-    return 1 - (1 - h) * s;
+    const indent = Math.min((1 - h) * s, Math.max(0, maxIndent));
+    return 1 - indent;
 }
 //# sourceMappingURL=crack-relief.js.map

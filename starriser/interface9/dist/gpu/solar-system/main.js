@@ -3,22 +3,25 @@
  *
  * Entry: solar-system.html → dist/gpu/solar-system/main.js
  *
- * Planets: equirect multi-map Earth (albedo/normal/spec/night/clouds) for ocean
- * worlds, moon map for rocky, procedural gas/ice; analytic single-scatter atmosphere
- * on sized discs (not full-window). Sun: procedural impostor.
+ * Planets: catalog preview maps (or Earth fallback) + dual-UV pole caps;
+ * focused catalog planet upgrades to 4K + poles. Analytic single-scatter
+ * atmosphere on sized discs (not full-window). Sun: procedural impostor.
  */
 import { createWebGpuBootstrap } from "../device.js";
 import { assertWebGpuAvailable } from "../preferred-backend.js";
 import { mat4LookAt, mat4Perspective, mat4ViewProj, mat4CameraRight, mat4CameraUp, } from "../math/mat4.js";
-import { SHOWCASE_BODIES, bodyKindId, clampSelection, clampZoom, evaluateBodyPoses, zoomBoundsForBody, } from "./solar-bodies.js";
+import { SHOWCASE_BODIES, clampSelection, clampZoom, evaluateBodyPoses, zoomBoundsForBody, } from "../planet-lib/solar-bodies.js";
 import { createSolarOrbitState, solarOrbitApplyDrag, solarOrbitApplyZoom, solarOrbitEye, solarOrbitSetFocus, } from "./solar-camera.js";
-import { pickBodyFromScreen } from "./solar-pick.js";
-import { PLANET_BODY_UNIFORM_SIZE, PLANET_DISC_WGSL, PLANET_FRAME_UNIFORM_SIZE, } from "./planet-disc.wgsl.js";
-import { SUN_BODY_UNIFORM_SIZE, SUN_IMPOSTOR_WGSL, } from "./sun-impostor.wgsl.js";
-import { bakedSourcesFromSearch, loadPlanetTexturePack, } from "./planet-textures.js";
-import { ATM_PARAM_UI, PLANET_ATM_DEFAULTS, allBodyAtmFromQuery, allBodyAtmToQuery, atmParamBounds, clampAtmParams, cloneAtmParams, defaultAtmForBodyId, formatAllBodyAtmParams, formatAtmParams, parseAllBodyAtmParams, parseAtmParams, } from "./planet-atm-params.js";
-import { SUN_LOOK_DEFAULTS, SUN_LOOK_PARAM_UI, clampSunLookParams, cloneSunLookParams, formatSunLookParams, parseSunLookParams, sunEffectiveDrawMargin, sunLookParamBounds, } from "./sun-look-params.js";
-import { DEFAULT_SUN_TYPE_ID, SUN_TYPE_PRESETS, isSunTypeId, resolveSunType, } from "./sun-types.js";
+import { pickBodyFromScreen } from "../planet-lib/solar-pick.js";
+import { PLANET_BODY_UNIFORM_SIZE, PLANET_DISC_WGSL, PLANET_FRAME_UNIFORM_SIZE, } from "../planet-lib/planet-disc.wgsl.js";
+import { SUN_BODY_UNIFORM_SIZE, SUN_IMPOSTOR_WGSL, } from "../planet-lib/sun-impostor.wgsl.js";
+import { bakedSourcesFromSearch, destroyPlanetTexturePack, loadCatalogPlanetPack, loadPlanetTexturePack, } from "../planet-lib/planet-textures.js";
+import { fetchCatalogManifest } from "../planet-lib/catalog-assets.js";
+import { catalogAtmForBodyId } from "../planet-lib/catalog-atm.js";
+import { ATM_PARAM_UI, PLANET_ATM_DEFAULTS, allBodyAtmFromQuery, allBodyAtmToQuery, atmParamBounds, clampAtmParams, cloneAtmParams, formatAllBodyAtmParams, formatAtmParams, parseAllBodyAtmParams, parseAtmParams, } from "../planet-lib/planet-atm-params.js";
+import { SUN_LOOK_DEFAULTS, SUN_LOOK_PARAM_UI, clampSunLookParams, cloneSunLookParams, formatSunLookParams, parseSunLookParams, sunLookParamBounds, } from "../planet-lib/sun-look-params.js";
+import { DEFAULT_SUN_TYPE_ID, SUN_TYPE_PRESETS, isSunTypeId, resolveSunType, } from "../planet-lib/sun-types.js";
+import { LAB_ORIGIN_ZERO, LAB_PLANET_FOVY_RAD, fillPlanetBody, fillSunBody, writePlanetFrameUniforms, } from "../planet-lib/planet-frame-pack.js";
 import { createGpuFrameTimer } from "./gpu-frame-timer.js";
 import { applyVerticalScrub, decimalsFromStep, } from "../thruster-texture/number-scrub.js";
 const canvas = document.getElementById("canvas");
@@ -96,10 +99,45 @@ async function main() {
     const bakedSources = typeof location !== "undefined"
         ? bakedSourcesFromSearch(location.search)
         : {};
-    const maps = await loadPlanetTexturePack(device, bakedSources);
-    if (maps.urls.usedBakedAlbedo) {
-        console.info("[solar-system] using baked equirect albedo:", maps.urls.albedo);
+    const catalogManifest = await fetchCatalogManifest();
+    let earthFallback = null;
+    const previewByBodyIndex = new Map();
+    const ensureEarthPack = async () => {
+        if (!earthFallback) {
+            earthFallback = await loadPlanetTexturePack(device, bakedSources);
+            if (earthFallback.urls.usedBakedAlbedo) {
+                console.info("[solar-system] using baked equirect albedo:", earthFallback.urls.albedo);
+            }
+        }
+        return earthFallback;
+    };
+    if (catalogManifest) {
+        setStatus("Loading catalog preview maps…");
+        const byId = new Map(catalogManifest.planets.map((p) => [p.id, p]));
+        const jobs = [];
+        for (let bi = 0; bi < SHOWCASE_BODIES.length; bi++) {
+            const b = SHOWCASE_BODIES[bi];
+            if (b.kind === "sun")
+                continue;
+            const entry = byId.get(b.id);
+            if (!entry)
+                continue;
+            jobs.push(loadCatalogPlanetPack(device, entry.maps, "preview")
+                .then((pack) => {
+                previewByBodyIndex.set(bi, pack);
+            })
+                .catch((err) => {
+                console.warn("[solar-system] preview failed", b.id, err);
+            }));
+        }
+        await Promise.all(jobs);
     }
+    const needsEarthFallback = SHOWCASE_BODIES.some((b, i) => b.kind !== "sun" && !previewByBodyIndex.has(i));
+    if (needsEarthFallback)
+        await ensureEarthPack();
+    const packForBodyIndex = (bi) => {
+        return previewByBodyIndex.get(bi) ?? earthFallback;
+    };
     // --- Pipelines (layout:"auto" matches other gpu/* demos; minimal typings) ---
     const planetMod = device.createShaderModule({
         label: "planet-disc",
@@ -192,12 +230,12 @@ async function main() {
     let selected = 0; // sun
     // Per-body look params (left panel follows right-hand selection).
     // Azure uses its tuned preset so paste body=azure configs still match.
-    const bodyAtmParams = SHOWCASE_BODIES.map((b) => defaultAtmForBodyId(b.id));
+    const bodyAtmParams = SHOWCASE_BODIES.map((b) => catalogAtmForBodyId(b.id));
     let sunLook = cloneSunLookParams(SUN_LOOK_DEFAULTS);
     let sunTypeId = DEFAULT_SUN_TYPE_ID;
     let sunResolved = resolveSunType(DEFAULT_SUN_TYPE_ID);
     {
-        const fromUrl = allBodyAtmFromQuery(typeof location !== "undefined" ? location.search : "", SHOWCASE_BODIES, PLANET_ATM_DEFAULTS, defaultAtmForBodyId);
+        const fromUrl = allBodyAtmFromQuery(typeof location !== "undefined" ? location.search : "", SHOWCASE_BODIES, PLANET_ATM_DEFAULTS, catalogAtmForBodyId);
         if (fromUrl) {
             for (let i = 0; i < bodyAtmParams.length; i++) {
                 // Always take resolved slot (presets used when URL lacks that body id)
@@ -599,7 +637,7 @@ async function main() {
             resetBtn.textContent = "Reset this body";
             resetBtn.addEventListener("click", () => {
                 const id = SHOWCASE_BODIES[selected]?.id ?? "";
-                setActiveAtmParams(defaultAtmForBodyId(id), true);
+                setActiveAtmParams(catalogAtmForBodyId(id), true);
                 setStatus(`Reset ${SHOWCASE_BODIES[selected]?.name ?? "body"} to defaults`);
             });
             const resetAllBtn = document.createElement("button");
@@ -608,7 +646,7 @@ async function main() {
             resetAllBtn.addEventListener("click", () => {
                 for (let i = 0; i < bodyAtmParams.length; i++) {
                     const id = SHOWCASE_BODIES[i]?.id ?? "";
-                    bodyAtmParams[i] = defaultAtmForBodyId(id);
+                    bodyAtmParams[i] = catalogAtmForBodyId(id);
                 }
                 syncLookInputsFromSelection();
                 scheduleAtmUrl();
@@ -624,17 +662,32 @@ async function main() {
         syncLookInputsFromSelection();
     }
     wireLookUi();
-    const mapEntries = [
-        { binding: 2, resource: maps.sampler },
-        { binding: 3, resource: maps.albedo.createView() },
-        { binding: 4, resource: maps.normal.createView() },
-        { binding: 5, resource: maps.spec.createView() },
-        { binding: 6, resource: maps.night.createView() },
-        { binding: 7, resource: maps.cloud.createView() },
-        { binding: 8, resource: maps.moon.createView() },
+    const mapEntriesFor = (pack) => [
+        { binding: 2, resource: pack.sampler },
+        { binding: 3, resource: pack.albedo.createView() },
+        { binding: 4, resource: pack.normal.createView() },
+        { binding: 5, resource: pack.spec.createView() },
+        { binding: 6, resource: pack.night.createView() },
+        { binding: 7, resource: pack.cloud.createView() },
+        { binding: 8, resource: pack.moon.createView() },
+        { binding: 10, resource: pack.poleSampler },
+        { binding: 11, resource: pack.poleNorth.createView() },
+        { binding: 12, resource: pack.poleSouth.createView() },
+        { binding: 13, resource: pack.cloudPoleNorth.createView() },
+        { binding: 14, resource: pack.cloudPoleSouth.createView() },
     ];
     // One body uniform buffer + bind group per planet (queue-safe; tiny N).
     const planetSlots = [];
+    const bindPlanetSlot = (slot, pack) => {
+        slot.bg = device.createBindGroup({
+            layout: planetPipe.getBindGroupLayout(0),
+            entries: [
+                { binding: 0, resource: { buffer: frameBuf } },
+                { binding: 1, resource: { buffer: slot.buf } },
+                ...mapEntriesFor(pack),
+            ],
+        });
+    };
     for (let bi = 0; bi < SHOWCASE_BODIES.length; bi++) {
         const b = SHOWCASE_BODIES[bi];
         if (b.kind === "sun")
@@ -644,16 +697,67 @@ async function main() {
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         });
         const cpu = new Float32Array(PLANET_BODY_UNIFORM_SIZE / 4);
-        const bg = device.createBindGroup({
-            layout: planetPipe.getBindGroupLayout(0),
-            entries: [
-                { binding: 0, resource: { buffer: frameBuf } },
-                { binding: 1, resource: { buffer: buf } },
-                ...mapEntries,
-            ],
-        });
-        planetSlots.push({ buf, cpu, bg, bodyIndex: bi });
+        const pack = packForBodyIndex(bi);
+        const slot = { buf, cpu, bg: null, bodyIndex: bi };
+        bindPlanetSlot(slot, pack);
+        planetSlots.push(slot);
     }
+    // At most one 4K + pole pack. Preview packs stay resident for downgrade.
+    let hiBodyIndex = null;
+    let hiPack = null;
+    let focusTexSeq = 0;
+    const catalogHasHi = (maps) => {
+        const a = maps.albedo;
+        return !!(a && a.trim());
+    };
+    const downgradeHi = () => {
+        if (hiBodyIndex == null)
+            return;
+        const prev = hiBodyIndex;
+        const prevHi = hiPack;
+        hiBodyIndex = null;
+        hiPack = null;
+        const slot = planetSlots.find((s) => s.bodyIndex === prev);
+        if (slot)
+            bindPlanetSlot(slot, packForBodyIndex(prev));
+        if (prevHi && prevHi !== earthFallback)
+            destroyPlanetTexturePack(prevHi);
+    };
+    const syncFocusTextures = () => {
+        if (!catalogManifest)
+            return;
+        const seq = ++focusTexSeq;
+        const body = SHOWCASE_BODIES[selected];
+        const nextHi = body && body.kind !== "sun" ? selected : null;
+        if (hiBodyIndex != null && hiBodyIndex !== nextHi)
+            downgradeHi();
+        if (nextHi == null)
+            return;
+        if (hiBodyIndex === nextHi)
+            return;
+        const entry = catalogManifest.planets.find((p) => p.id === body.id);
+        if (!entry || !catalogHasHi(entry.maps))
+            return;
+        const bodyIndex = nextHi;
+        const maps = entry.maps;
+        void loadCatalogPlanetPack(device, maps, "hi")
+            .then((pack) => {
+            if (seq !== focusTexSeq) {
+                destroyPlanetTexturePack(pack);
+                return;
+            }
+            if (hiBodyIndex != null && hiBodyIndex !== bodyIndex)
+                downgradeHi();
+            hiBodyIndex = bodyIndex;
+            hiPack = pack;
+            const slot = planetSlots.find((s) => s.bodyIndex === bodyIndex);
+            if (slot)
+                bindPlanetSlot(slot, pack);
+        })
+            .catch((err) => {
+            console.warn("[solar-system] hi pack failed", body?.id, err);
+        });
+    };
     const sunBodyBuf = device.createBuffer({
         size: SUN_BODY_UNIFORM_SIZE,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
@@ -795,6 +899,7 @@ async function main() {
         highlightBodyList();
         // Rebuild scrub panel when switching sun ↔ planet layers
         wireLookUi();
+        syncFocusTextures();
     }
     function highlightBodyList() {
         if (!bodyList)
@@ -907,156 +1012,38 @@ async function main() {
     /** Shared camera/time only — per-body look lives on body uniforms (no last-draw flash). */
     function writeFrameUniforms(timeSec, eye) {
         viewProj.set(mat4ViewProj(viewProj, proj, view));
-        frameU.set(viewProj, 0);
-        frameU[16] = eye.eyeX;
-        frameU[17] = eye.eyeY;
-        frameU[18] = eye.eyeZ;
-        frameU[19] = 1;
-        frameU[20] = 0;
-        frameU[21] = 0;
-        frameU[22] = 0;
-        frameU[23] = 1;
-        frameU[24] = timeSec;
-        frameU[25] = 0;
-        frameU[26] = 0;
-        frameU[27] = 0;
+        // Lab: origin=0 so viewProjRel ≡ viewProj; sunRel = (0,0,0).
+        writePlanetFrameUniforms(frameU, viewProj, eye, LAB_ORIGIN_ZERO, LAB_ORIGIN_ZERO, timeSec);
         device.queue.writeBuffer(frameBuf, 0, frameU);
     }
     function writeSunBody(pose, timeSec) {
-        const L = sunLook;
-        const S = sunResolved;
-        sunBodyCpu[0] = pose.x;
-        sunBodyCpu[1] = pose.y;
-        sunBodyCpu[2] = pose.z;
-        // Runtime type overrides (Sol = baseline showcase def)
-        sunBodyCpu[3] = S.radius;
-        sunBodyCpu[4] = S.glow[0];
-        sunBodyCpu[5] = S.glow[1];
-        sunBodyCpu[6] = S.glow[2];
-        sunBodyCpu[7] = S.glowStrength;
-        sunBodyCpu[8] = pose.spin * S.spinScale;
-        sunBodyCpu[9] = sunEffectiveDrawMargin(S.drawMargin, L);
-        sunBodyCpu[10] = timeSec;
-        sunBodyCpu[11] = pose.def.obliquity; // body-frame lock (like planets)
-        sunBodyCpu[12] = camRight[0];
-        sunBodyCpu[13] = camRight[1];
-        sunBodyCpu[14] = camRight[2];
-        sunBodyCpu[15] = 0;
-        sunBodyCpu[16] = camUp[0];
-        sunBodyCpu[17] = camUp[1];
-        sunBodyCpu[18] = camUp[2];
-        sunBodyCpu[19] = 0;
-        const eye = solarOrbitEye(orbit);
-        sunBodyCpu[20] = eye.eyeX;
-        sunBodyCpu[21] = eye.eyeY;
-        sunBodyCpu[22] = eye.eyeZ;
-        sunBodyCpu[23] = 1;
-        // look0: discGain, coreLift, discWarm, limbSoft
-        sunBodyCpu[24] = L.discGain;
-        sunBodyCpu[25] = L.coreLift;
-        sunBodyCpu[26] = L.discWarm;
-        sunBodyCpu[27] = L.limbSoft;
-        // look1: chromGain, sheathGain, rayGain, veilGain
-        sunBodyCpu[28] = L.chromGain;
-        sunBodyCpu[29] = L.sheathGain;
-        sunBodyCpu[30] = L.rayGain;
-        sunBodyCpu[31] = L.veilGain;
-        // look2: shaderLayer (0=full; 1..5 A..E), outerGain, outerFalloff, glowMul
-        sunBodyCpu[32] = shaderLayer;
-        sunBodyCpu[33] = L.outerGain;
-        sunBodyCpu[34] = L.outerFalloff;
-        sunBodyCpu[35] = L.glowMul;
-        // look3: outerFadeStart, outerFadeEnd, granGain, pad
-        sunBodyCpu[36] = L.outerFadeStart;
-        sunBodyCpu[37] = L.outerFadeEnd;
-        sunBodyCpu[38] = L.granGain;
-        sunBodyCpu[39] = 0;
+        fillSunBody(sunBodyCpu, pose, {
+            timeSec,
+            look: sunLook,
+            resolved: sunResolved,
+            camRight,
+            camUp,
+            eyeRel: solarOrbitEye(orbit),
+            origin: LAB_ORIGIN_ZERO,
+            shaderLayer,
+        });
         device.queue.writeBuffer(sunBodyBuf, 0, sunBodyCpu);
     }
-    const FOVY = (50 * Math.PI) / 180;
-    /**
-     * ~N screen pixels expressed in disc `rr` units at this body (for limb AA).
-     * limbWorld = radius → rr=1; worldPerPx from perspective at camera distance.
-     */
-    function edgeAaRrForBody(pose, eye, viewportH, look) {
-        const dx = pose.x - eye.eyeX;
-        const dy = pose.y - eye.eyeY;
-        const dz = pose.z - eye.eyeZ;
-        const dist = Math.hypot(dx, dy, dz) || 1;
-        const worldPerPx = (2 * dist * Math.tan(FOVY / 2)) / Math.max(viewportH, 1);
-        const limbPx = pose.def.radius / Math.max(worldPerPx, 1e-9);
-        return Math.max(look.edgeAaPx, 0.25) / Math.max(limbPx, 1);
-    }
-    function fillPlanetBody(cpu, pose, eye, viewportH, look) {
-        const a = look;
-        const lightMul = sunResolved.planetLightMul;
-        cpu[0] = pose.x;
-        cpu[1] = pose.y;
-        cpu[2] = pose.z;
-        cpu[3] = pose.def.radius;
-        cpu[4] = pose.def.albedo[0];
-        cpu[5] = pose.def.albedo[1];
-        cpu[6] = pose.def.albedo[2];
-        cpu[7] = bodyKindId(pose.def.kind);
-        cpu[8] = pose.def.glow[0];
-        cpu[9] = pose.def.glow[1];
-        cpu[10] = pose.def.glow[2];
-        cpu[11] = pose.def.glowStrength * lightMul;
-        cpu[12] = pose.spin;
-        cpu[13] = pose.def.obliquity;
-        cpu[14] = pose.def.drawMargin * a.drawMarginMul;
-        cpu[15] = edgeAaRrForBody(pose, eye, viewportH, a);
-        cpu[16] = camRight[0];
-        cpu[17] = camRight[1];
-        cpu[18] = camRight[2];
-        cpu[19] = 0;
-        cpu[20] = camUp[0];
-        cpu[21] = camUp[1];
-        cpu[22] = camUp[2];
-        cpu[23] = 0;
-        // look0: edgeInner, edgeOuter, atmOuter, atmThick
-        cpu[24] = a.edgeInner;
-        cpu[25] = a.edgeOuter;
-        cpu[26] = a.atmOuter;
-        cpu[27] = a.atmThick;
-        // look1: intensity, extScale, atmGain, camDist
-        cpu[28] = a.intensity * lightMul;
-        cpu[29] = a.extScale;
-        cpu[30] = a.atmGain * Math.min(lightMul, 1.5);
-        cpu[31] = a.camDist;
-        // look2: rInner, glowMul, mieEmit, shaderLayer (0=full; 1..5 cumulative)
-        cpu[32] = a.rInner;
-        cpu[33] = a.glowMul * lightMul;
-        cpu[34] = a.mieEmit;
-        cpu[35] = shaderLayer;
-        // look3: colorRGB, texIntensity
-        cpu[36] = a.colorR;
-        cpu[37] = a.colorG;
-        cpu[38] = a.colorB;
-        cpu[39] = a.texIntensity;
-        // look4: ambient, dayStrength, specStrength, specPower
-        cpu[40] = a.ambient;
-        cpu[41] = a.dayStrength * lightMul;
-        cpu[42] = a.specStrength * Math.min(lightMul, 1.8);
-        cpu[43] = a.specPower;
-        // look5: cloudAmount, nightLights, normalStrength, screenRadiusPx (shader LOD)
-        cpu[44] = a.cloudAmount;
-        cpu[45] = a.nightLights;
-        cpu[46] = a.normalStrength;
-        {
-            const dx = pose.x - eye.eyeX;
-            const dy = pose.y - eye.eyeY;
-            const dz = pose.z - eye.eyeZ;
-            const dist = Math.hypot(dx, dy, dz) || 1;
-            const worldPerPx = (2 * dist * Math.tan(FOVY / 2)) / Math.max(viewportH, 1);
-            cpu[47] = pose.def.radius / Math.max(worldPerPx, 1e-9);
-        }
-        // look6/look7 unused (dead ring/spherize knobs removed — WGSL only reads look0–look5)
-    }
+    const FOVY = LAB_PLANET_FOVY_RAD;
     function uploadPlanetBodies(eye, viewportH) {
         for (const s of planetSlots) {
             const pose = poses[s.bodyIndex];
-            fillPlanetBody(s.cpu, pose, eye, viewportH, atmForBody(s.bodyIndex));
+            fillPlanetBody(s.cpu, pose, {
+                eyeRel: eye,
+                viewportH,
+                look: atmForBody(s.bodyIndex),
+                camRight,
+                camUp,
+                origin: LAB_ORIGIN_ZERO,
+                planetLightMul: sunResolved.planetLightMul,
+                shaderLayer,
+                fovyRad: FOVY,
+            });
             device.queue.writeBuffer(s.buf, 0, s.cpu);
         }
     }

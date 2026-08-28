@@ -58,8 +58,15 @@ export function trimSegmentAlpha(startZ, endZ, projection) {
  * Returns clip.xyzw — the same quantity written to `@builtin(position)`.
  */
 export function expandLine2CornerScreenSpace(params) {
-    const [sx, sy, sz] = xyz(params.start);
-    const [ex, ey, ez] = xyz(params.end);
+    const [sx0, sy0, sz0] = xyz(params.start);
+    const [ex0, ey0, ez0] = xyz(params.end);
+    const [ox, oy, oz] = params.origin ? xyz(params.origin) : [0, 0, 0];
+    const sx = sx0 - ox;
+    const sy = sy0 - oy;
+    const sz = sz0 - oz;
+    const ex = ex0 - ox;
+    const ey = ey0 - oy;
+    const ez = ez0 - oz;
     const [resX, resY] = resXY(params.resolution);
     const aspect = resX / resY;
     const posX = params.positionX;

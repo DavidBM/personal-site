@@ -33,8 +33,8 @@ function sphereToUvSimple(x, y, z) {
     const nx = x / len;
     const ny = y / len;
     const nz = z / len;
-    // Match planet-disc sphereToUv: lon=atan2(x,z), v=0.5−lat/π
-    const lon = Math.atan2(nx, nz);
+    // Match planet-disc sphereToUv / sphere-map dirToEquirect: lon=atan2(z,x)
+    const lon = Math.atan2(nz, nx);
     const lat = Math.asin(Math.min(1, Math.max(-1, ny)));
     const u = lon * (0.5 / Math.PI) + 0.5;
     const v = 0.5 - lat / Math.PI;

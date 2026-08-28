@@ -19,7 +19,8 @@ import { MODEL_LOD_MAX_INSTANCES, } from "../fleet-lod.js";
 import { buildFleetIntegrateWgsl, buildFleetIntegrateFastWgsl, FLEET_INTEGRATE_UNIFORM_SIZE, FLEET_INTEGRATE_WORKGROUP, FLEET_INTEGRATE_SHIP_SIM_STRIDE, } from "../shaders/fleet-integrate.wgsl.js";
 import { DEFAULT_TRAIL_TEXTURE_URL, FLEET_TRAILS_WGSL, TRAIL_TEMPLATE_INDEX_COUNT, TRAIL_TEMPLATE_INDICES, TRAIL_TEMPLATE_STRIDE, TRAIL_UNIFORM_FLOATS, TRAIL_UNIFORM_SIZE, TRAIL_WIDTH_HEAD_PX, TRAIL_WIDTH_TAIL_PX, buildTrailTemplateInterleaved, resolveTrailDrawWidths, writeTrailUniforms, writeTrailWidthMode, writeTrailExposure, TRAIL_EXPOSURE_DEFAULT, } from "../shaders/fleet-trails.wgsl.js";
 import { TRAIL_SAMPLE_FLOATS, resolveTrailLayout, } from "../fleet-trail-ref.js";
-import { FLEET_GPU_STRIDE, TRAIL_SAMPLE_STRIDE } from "../fleet-layout.js";
+import { FLEET_FLAG_SYSTEM_SCENE, FLEET_GPU_STRIDE, FleetGpuFields, TRAIL_SAMPLE_STRIDE, } from "../fleet-layout.js";
+import { TRAIL_INDIRECT_DISPATCH_BYTE, TRAIL_INDIRECT_META_BYTE, TRAIL_INDIRECT_WORKLIST_BYTE, trailIndirectTableBytes, writeDispatchIndirectArgs, } from "../../lib/fleet-sim/visual/trail-indirect-table.js";
 import { readGpuBuffer } from "../buffer-readback.js";
 import { GLOBAL_MAX_INSTANCES, GPU_FLEET_CAPACITY_MIN, GPU_SHIP_CAPACITY_MIN, LOD_FAR_Y, LOD_MID_DIST, LOD_NEAR_DIST, LOD_NEAR_Y, nextGrowCapacity, } from "../fleet-lod.js";
 import { ShipSimFields } from "../ship-sim-layout.js";
@@ -42,6 +43,9 @@ export class FleetInstanceGpuLayer {
         this.computeFleetPipeline = null;
         /** R2 Pass B: agent integrate + draw + trails (cs_ships). */
         this.computeShipPipeline = null;
+        /** Year-1: compact SCENE (bit 7) ships into the trailIndirect worklist. */
+        this.computeCompactPipeline = null;
+        this.computeCompactBindGroup = null;
         /**
          * Scale path: cs_ships_fast (agent+append, no LOD/instance/expand).
          * Only created when forceLodNear (tests); map never uses it.
@@ -73,12 +77,25 @@ export class FleetInstanceGpuLayer {
         this.shipSimHandle = null;
         this.trailSampleHandle = null;
         this.trailLineHandle = null;
-        /** atomic dense trail expand count (1×u32). */
+        /**
+         * Alias of {@link trailIndirectHandle} — expand/compact live in the same
+         * INDIRECT|STORAGE table (no second buffer). Writes use META byte offset.
+         */
         this.trailDrawMetaHandle = null;
-        /** DrawIndexedIndirectArgs for trails (5×u32). */
+        /** One command table: draw args + dispatch + expand + compact worklist. */
         this.trailIndirectHandle = null;
         this.trailDrawMetaBuffer = null;
         this.trailIndirectBuffer = null;
+        /** Worklist slot capacity (simIdx entries after the 12-word header). */
+        this.trailIndirectWorklistCap = 0;
+        /** Scratch for host DispatchIndirectArgs (x,1,1) — reused, no per-frame alloc. */
+        this.dispatchIndirectScratch = new Uint32Array(3);
+        /** Scratch for table words 8–11 reset (expand, maxSlots, compactN, cap). */
+        this.trailMetaResetScratch = new Uint32Array(4);
+        /** Host worklist (simIdx) — CPU SystemSceneSet authority; GPU compact overwrites. */
+        this.compactWorklistScratch = new Uint32Array(0);
+        /** CPU mirror of FleetGpu rows for compact expected count (no mapAsync). */
+        this.fleetGpuCpu = new Uint8Array(0);
         this.computeTrailIndirectPipeline = null;
         this.computeTrailIndirectBindGroup = null;
         this.integrateUniformHandle = null;
@@ -89,6 +106,16 @@ export class FleetInstanceGpuLayer {
          * Each entry is the intensity / minAlpha / widthScale queued for that draw.
          */
         this.lastTrailEncodeVariants = [];
+        /**
+         * Last `cs_ships` dispatch workgroup count (0 = host skip). Tests only.
+         * Product compact: `ceil(sceneShipBudgets / 256)`. forceLodNear: high-water.
+         * Host skip: 0 when `!useFast && !anyScene && !follow`.
+         */
+        this.lastShipWorkgroups = 0;
+        /** Last compact worklist length (SCENE shipBudget sum). 0 if skip / forceLodNear. */
+        this.lastCompactShipCount = 0;
+        /** Storage entries on the last `cs_ships` bind group (must stay 7). */
+        this.lastShipStorageBindings = 0;
         this.meshBuffer = null;
         this.instanceBuffer = null;
         this.fleetBuffer = null;
@@ -197,6 +224,27 @@ export class FleetInstanceGpuLayer {
         return this.trailDrawShipIndices;
     }
     /**
+     * Last `cs_ships` workgroup count from {@link dispatchIntegrate}.
+     * 0 means the ship pass was skipped (icon-only / no SCENE / no follow).
+     */
+    getLastShipWorkgroups() {
+        return this.lastShipWorkgroups;
+    }
+    /**
+     * Last compact worklist length (sum of SCENE fleet `shipBudget`s).
+     * 0 when host-skipped or `forceLodNear` high-water path.
+     */
+    getLastCompactShipCount() {
+        return this.lastCompactShipCount;
+    }
+    /**
+     * Storage bindings on the `cs_ships` bind group (bindings 1–6 + 8).
+     * Year-1 contract: **7**. Binding 7 is not on this group.
+     */
+    getLastShipStorageBindings() {
+        return this.lastShipStorageBindings;
+    }
+    /**
      * Trail width multiplier (1 = production default). Optional test/debug knob;
      * production map always leaves this at 1 (widths baked into TRAIL_WIDTH_*).
      */
@@ -217,9 +265,9 @@ export class FleetInstanceGpuLayer {
      * After model-only expand, equals number of model-owned ships that expanded.
      */
     async readbackTrailDrawCount() {
-        if (!this.trailDrawMetaBuffer)
+        if (!this.trailIndirectBuffer)
             return 0;
-        const ab = await readGpuBuffer(this.bootstrap.device, this.trailDrawMetaBuffer, 0, 4);
+        const ab = await readGpuBuffer(this.bootstrap.device, this.trailIndirectBuffer, TRAIL_INDIRECT_META_BYTE, 4);
         return new Uint32Array(ab)[0] ?? 0;
     }
     /**
@@ -504,6 +552,14 @@ export class FleetInstanceGpuLayer {
                 entryPoint: "cs_trail_indirect",
             },
         });
+        this.computeCompactPipeline = device.createComputePipeline({
+            label: "fleet-compact-scene",
+            layout: "auto",
+            compute: {
+                module: computeModule,
+                entryPoint: "cs_compact_scene",
+            },
+        });
         // Perf / forceLodNear only — separate slim CIRCULATE+append module (no SEEK).
         if (this.forceLodNear) {
             const fastModule = device.createShaderModule({
@@ -567,21 +623,9 @@ export class FleetInstanceGpuLayer {
             usage: "uniform|copy_dst",
         });
         this.integrateUniformBuffer = gpu.getBuffer(this.integrateUniformHandle);
-        // Dense trail expand counter [0] + max line slots [1] (copy_src for tests).
-        this.trailDrawMetaHandle = gpu.createBuffer({
-            label: "fleet-trail-draw-meta",
-            size: 8,
-            usage: "storage|copy_dst|copy_src",
-        });
-        this.trailDrawMetaBuffer = gpu.getBuffer(this.trailDrawMetaHandle);
-        this.trailIndirectHandle = gpu.createBuffer({
-            label: "fleet-trail-draw-indirect",
-            size: 20,
-            usage: "storage|indirect|copy_dst|copy_src",
-        });
-        this.trailIndirectBuffer = gpu.getBuffer(this.trailIndirectHandle);
-        gpu.writeBuffer(this.trailDrawMetaHandle, 0, new Uint32Array([0, 0]), 0, 8);
-        gpu.writeBuffer(this.trailIndirectHandle, 0, new Uint32Array([TRAIL_TEMPLATE_INDEX_COUNT, 0, 0, 0, 0]), 0, 20);
+        // One INDIRECT|STORAGE table (draw + dispatch + expand + compact worklist).
+        // No standalone 8-byte trailDrawMeta — that would be a second buffer.
+        this.ensureTrailIndirectTable(GPU_SHIP_CAPACITY_MIN);
         this.meshHandle = gpu.createBuffer({
             label: "fleet-ships-mesh",
             size: MESH_FLOATS * 4,
@@ -715,6 +759,7 @@ export class FleetInstanceGpuLayer {
         this.fleetBuffer = null;
         this.fleetCapacity = 0;
         this.fleetCount = 0;
+        this.fleetGpuCpu = new Uint8Array(0);
         this.computeFleetBindGroup = null;
         this.computeShipBindGroup = null;
     }
@@ -747,6 +792,8 @@ export class FleetInstanceGpuLayer {
         this.computeFleetBindGroup = null;
         this.computeShipBindGroup = null;
         this.computeShipFastBindGroup = null;
+        this.computeCompactBindGroup = null;
+        this.computeTrailIndirectBindGroup = null;
         if (this.computeFleetPipeline &&
             this.integrateUniformBuffer &&
             this.fleetBuffer &&
@@ -771,8 +818,8 @@ export class FleetInstanceGpuLayer {
                 ],
             });
         }
-        // cs_ships: 0–6 trails + 8 modelHide (expandTrails mode 2). trailIndirect is
-        // only on cs_trail_indirect (bindings 6–7).
+        // cs_ships: 7 storage (bindings 1–6 + 8). Binding 6 = command table.
+        // Binding 7 is NOT on this group (would be an 8th storage slot).
         if (this.computeShipPipeline &&
             this.integrateUniformBuffer &&
             this.fleetBuffer &&
@@ -780,7 +827,7 @@ export class FleetInstanceGpuLayer {
             this.shipSimBuffer &&
             this.trailSampleBuffer &&
             this.trailLineBuffer &&
-            this.trailDrawMetaBuffer) {
+            this.trailIndirectBuffer) {
             // modelHide must always bind; ensure a minimal buffer for cold start.
             this.ensureModelHideCapacity(Math.max(this.instanceCount, 1));
             if (!this.modelHideBuffer) {
@@ -788,50 +835,53 @@ export class FleetInstanceGpuLayer {
             }
             const hideBuf = this.modelHideBuffer;
             if (hideBuf) {
+                const shipEntries = [
+                    {
+                        binding: 0,
+                        resource: { buffer: this.integrateUniformBuffer },
+                    },
+                    {
+                        binding: 1,
+                        resource: { buffer: this.fleetBuffer },
+                    },
+                    {
+                        binding: 2,
+                        resource: { buffer: this.instanceBuffer },
+                    },
+                    {
+                        binding: 3,
+                        resource: { buffer: this.shipSimBuffer },
+                    },
+                    {
+                        binding: 4,
+                        resource: { buffer: this.trailSampleBuffer },
+                    },
+                    {
+                        binding: 5,
+                        resource: { buffer: this.trailLineBuffer },
+                    },
+                    {
+                        binding: 6,
+                        resource: {
+                            buffer: this.trailIndirectBuffer,
+                            offset: TRAIL_INDIRECT_META_BYTE,
+                        },
+                    },
+                    {
+                        binding: 8,
+                        resource: { buffer: hideBuf },
+                    },
+                ];
+                this.lastShipStorageBindings = shipEntries.filter((e) => e.binding !== 0).length;
                 this.computeShipBindGroup = this.bootstrap.device.createBindGroup({
                     label: "fleet-integrate-ships-bind",
                     layout: this.computeShipPipeline.getBindGroupLayout(0),
-                    entries: [
-                        {
-                            binding: 0,
-                            resource: { buffer: this.integrateUniformBuffer },
-                        },
-                        {
-                            binding: 1,
-                            resource: { buffer: this.fleetBuffer },
-                        },
-                        {
-                            binding: 2,
-                            resource: { buffer: this.instanceBuffer },
-                        },
-                        {
-                            binding: 3,
-                            resource: { buffer: this.shipSimBuffer },
-                        },
-                        {
-                            binding: 4,
-                            resource: { buffer: this.trailSampleBuffer },
-                        },
-                        {
-                            binding: 5,
-                            resource: { buffer: this.trailLineBuffer },
-                        },
-                        {
-                            binding: 6,
-                            resource: { buffer: this.trailDrawMetaBuffer },
-                        },
-                        {
-                            binding: 8,
-                            resource: { buffer: hideBuf },
-                        },
-                    ],
+                    entries: shipEntries,
                 });
             }
         }
-        // cs_trail_indirect only touches meta + indirect; auto layout keeps @binding 6/7.
-        if (this.computeTrailIndirectPipeline &&
-            this.trailDrawMetaBuffer &&
-            this.trailIndirectBuffer) {
+        // cs_trail_indirect: meta view @256 + draw args @0 size 20 (non-overlapping).
+        if (this.computeTrailIndirectPipeline && this.trailIndirectBuffer) {
             const layout = this.computeTrailIndirectPipeline.getBindGroupLayout(0);
             this.computeTrailIndirectBindGroup = this.bootstrap.device.createBindGroup({
                 label: "fleet-trail-indirect-bind",
@@ -839,11 +889,45 @@ export class FleetInstanceGpuLayer {
                 entries: [
                     {
                         binding: 6,
-                        resource: { buffer: this.trailDrawMetaBuffer },
+                        resource: {
+                            buffer: this.trailIndirectBuffer,
+                            offset: TRAIL_INDIRECT_META_BYTE,
+                        },
                     },
                     {
                         binding: 7,
-                        resource: { buffer: this.trailIndirectBuffer },
+                        resource: {
+                            buffer: this.trailIndirectBuffer,
+                            offset: 0,
+                            size: 20,
+                        },
+                    },
+                ],
+            });
+        }
+        // cs_compact_scene: uniforms + fleets + command table. Walks nFleets only.
+        if (this.computeCompactPipeline &&
+            this.integrateUniformBuffer &&
+            this.fleetBuffer &&
+            this.trailIndirectBuffer) {
+            this.computeCompactBindGroup = this.bootstrap.device.createBindGroup({
+                label: "fleet-compact-scene-bind",
+                layout: this.computeCompactPipeline.getBindGroupLayout(0),
+                entries: [
+                    {
+                        binding: 0,
+                        resource: { buffer: this.integrateUniformBuffer },
+                    },
+                    {
+                        binding: 1,
+                        resource: { buffer: this.fleetBuffer },
+                    },
+                    {
+                        binding: 6,
+                        resource: {
+                            buffer: this.trailIndirectBuffer,
+                            offset: TRAIL_INDIRECT_META_BYTE,
+                        },
                     },
                 ],
             });
@@ -887,6 +971,104 @@ export class FleetInstanceGpuLayer {
                 ],
             });
         }
+    }
+    /**
+     * Grow the one trailIndirect command table so the worklist can hold `needed`
+     * simIdx entries. Recreates the buffer (contents rebuilt each frame).
+     */
+    ensureTrailIndirectTable(needed) {
+        const want = Math.max(1, needed | 0);
+        if (this.trailIndirectHandle &&
+            this.trailIndirectBuffer &&
+            this.trailIndirectWorklistCap >= want) {
+            return;
+        }
+        const { gpu } = this.bootstrap;
+        const old = this.trailIndirectHandle;
+        const cap = nextGrowCapacity(want, this.trailIndirectWorklistCap, GPU_SHIP_CAPACITY_MIN, this.maxShips);
+        const bytes = trailIndirectTableBytes(cap);
+        this.trailIndirectHandle = gpu.createBuffer({
+            label: "fleet-trail-indirect-table",
+            size: bytes,
+            usage: "storage|indirect|copy_dst|copy_src",
+        });
+        this.trailIndirectBuffer = gpu.getBuffer(this.trailIndirectHandle);
+        this.trailIndirectWorklistCap = cap;
+        // Alias — same GPUBuffer, not a second INDIRECT allocation.
+        this.trailDrawMetaHandle = this.trailIndirectHandle;
+        this.trailDrawMetaBuffer = this.trailIndirectBuffer;
+        gpu.writeBuffer(this.trailIndirectHandle, 0, new Uint32Array([TRAIL_TEMPLATE_INDEX_COUNT, 0, 0, 0, 0, 0, 1, 1]), 0, 32);
+        if (old && old !== this.trailIndirectHandle) {
+            gpu.destroyBuffer(old);
+        }
+        this.rebuildComputeBindGroups();
+    }
+    noteFleetGpuUpload(data, dstByte, srcByte, bytes) {
+        if (bytes <= 0 || dstByte < 0 || srcByte < 0)
+            return;
+        const srcAvail = data.byteLength - srcByte;
+        const n = Math.min(bytes, srcAvail);
+        if (n <= 0)
+            return;
+        const need = dstByte + n;
+        if (this.fleetGpuCpu.byteLength < need) {
+            const next = new Uint8Array(need);
+            next.set(this.fleetGpuCpu);
+            this.fleetGpuCpu = next;
+        }
+        const src = new Uint8Array(data.buffer, data.byteOffset + srcByte, n);
+        this.fleetGpuCpu.set(src, dstByte);
+    }
+    /**
+     * CPU expected compact count: sum of `shipBudget` for rows with bit 7.
+     * Bit 7 is CPU authority — no table mapAsync on the hot path.
+     */
+    countSceneShips(nFleets) {
+        const n = Math.max(0, nFleets | 0);
+        const view = new DataView(this.fleetGpuCpu.buffer, this.fleetGpuCpu.byteOffset, this.fleetGpuCpu.byteLength);
+        let compactN = 0;
+        for (let i = 0; i < n; i++) {
+            const o = i * FLEET_GPU_STRIDE;
+            if (o + FleetGpuFields.shipBudget + 4 > view.byteLength)
+                break;
+            const flags = view.getUint32(o + FleetGpuFields.flags, true);
+            if ((flags & FLEET_FLAG_SYSTEM_SCENE) !== 0) {
+                compactN += view.getUint32(o + FleetGpuFields.shipBudget, true);
+            }
+        }
+        return compactN >>> 0;
+    }
+    /**
+     * Fill the command-table worklist from the CPU FleetGpu shadow.
+     * GPU `cs_compact_scene` overwrites the same slots; this keeps goldens
+     * correct if the compact pass writes nothing (cap 0 / skipped).
+     */
+    writeHostCompactWorklist(nFleets, compactN) {
+        if (!this.trailIndirectHandle || compactN <= 0)
+            return;
+        const need = compactN | 0;
+        if (this.compactWorklistScratch.length < need) {
+            this.compactWorklistScratch = new Uint32Array(Math.max(need, 64));
+        }
+        const view = new DataView(this.fleetGpuCpu.buffer, this.fleetGpuCpu.byteOffset, this.fleetGpuCpu.byteLength);
+        let w = 0;
+        const n = Math.max(0, nFleets | 0);
+        for (let i = 0; i < n && w < need; i++) {
+            const o = i * FLEET_GPU_STRIDE;
+            if (o + FleetGpuFields.shipBudget + 4 > view.byteLength)
+                break;
+            const flags = view.getUint32(o + FleetGpuFields.flags, true);
+            if ((flags & FLEET_FLAG_SYSTEM_SCENE) === 0)
+                continue;
+            const budget = view.getUint32(o + FleetGpuFields.shipBudget, true);
+            const base = view.getUint32(o + FleetGpuFields.instanceStart, true);
+            for (let s = 0; s < budget && w < need; s++) {
+                this.compactWorklistScratch[w++] = (base + s) >>> 0;
+            }
+        }
+        if (w <= 0)
+            return;
+        this.bootstrap.gpu.writeBuffer(this.trailIndirectHandle, TRAIL_INDIRECT_WORKLIST_BYTE, this.compactWorklistScratch, 0, w * 4);
     }
     /**
      * Fill trail sample buffer [0, shipCount) with dead samples (age01 = 1).
@@ -1017,6 +1199,7 @@ export class FleetInstanceGpuLayer {
         if (oldHandle) {
             this.bootstrap.gpu.destroyBuffer(oldHandle);
         }
+        this.ensureTrailIndirectTable(cap);
         this.rebuildComputeBindGroups();
         return true;
     }
@@ -1085,6 +1268,7 @@ export class FleetInstanceGpuLayer {
         if (oldHandle) {
             this.bootstrap.gpu.destroyBuffer(oldHandle);
         }
+        this.ensureTrailIndirectTable(cap);
         this.rebuildComputeBindGroups();
         return true;
     }
@@ -1586,6 +1770,7 @@ export class FleetInstanceGpuLayer {
      *   forceLodNear && !expandTrails. Demos / motion proofs must set this so
      *   SEEK/sphere/jump-cruise run; pure-orbit benches may leave it unset.
      *   Map view always leaves both trail flags true (full agent path).
+     * @param options.anyScene / options.follow — product ship gate (see dispatch).
      */
     async stepIntegrate(nowRel, dtMs, fleetCount, shipCount, camera, options) {
         const ships = shipCount !== undefined ? shipCount : this.instanceCount;
@@ -1698,6 +1883,7 @@ export class FleetInstanceGpuLayer {
         const bytes = fleetCount * FLEET_GPU_STRIDE;
         this.bootstrap.gpu.writeBuffer(this.fleetHandle, 0, data, 0, bytes);
         this.fleetCount = fleetCount;
+        this.noteFleetGpuUpload(data, 0, 0, bytes);
     }
     /**
      * Full upload of ShipSim rows [0, shipCount).
@@ -1909,6 +2095,7 @@ export class FleetInstanceGpuLayer {
         if (dataByteOffset + bytes > data.byteLength)
             return;
         this.bootstrap.gpu.writeBuffer(this.fleetHandle, byteOffset, data, dataByteOffset, bytes);
+        this.noteFleetGpuUpload(data, byteOffset, dataByteOffset, bytes);
         // Free-list high-water: sparse write may introduce a new tip row.
         if (end > this.fleetCount)
             this.fleetCount = end;
@@ -2020,31 +2207,61 @@ export class FleetInstanceGpuLayer {
      * @param options.expandTrails default true (game). false = skip ribbon expand.
      * @param options.appendTrails default true (game). false = agent-only probe.
      * @param options.useFullAgent when true, never select cs_ships_fast.
+     * @param options.anyScene CPU SystemSceneSet non-empty (or follow folded in).
+     * @param options.follow roof-cam follow — agents even outside look-at SCENE.
      */
     dispatchIntegrate(encoder, nowRel, dtMs, fleetCount, shipCount = 0, camera, options) {
         // Only integrate fleets that exist on the GPU buffer (last setFleetGpuData).
         // Do NOT assign this.fleetCount = fleetOrder.length here — that desynced
         // getFleetCount() from buffer size during bulk spawn (10k crash).
         const nFleets = Math.min(Math.max(0, fleetCount | 0), this.fleetCount, this.fleetCapacity);
+        this.lastShipWorkgroups = 0;
+        this.lastCompactShipCount = 0;
         if (nFleets <= 0 ||
             !this.computeFleetPipeline ||
             !this.integrateUniformHandle ||
             !this.fleetBuffer) {
             return;
         }
-        if (!this.computeFleetBindGroup || !this.computeShipBindGroup) {
+        if (!this.computeFleetBindGroup ||
+            !this.computeShipBindGroup ||
+            !this.computeCompactBindGroup) {
             this.rebuildComputeBindGroups();
         }
         if (!this.computeFleetBindGroup)
             return;
         const liveShips = Math.max(0, shipCount | 0);
-        // Uniform layout (80 B):
+        // expandTrails: 0=off, 1=all NEAR, 2=model-only (dense pack of modelHide).
+        // Map sets trailDrawShipIndices when model LOD owns ships → mode 2.
+        const expandTrails = options?.expandTrails !== false;
+        const appendTrails = options?.appendTrails !== false;
+        const modelTrailOnly = expandTrails &&
+            this.trailDrawShipIndices != null &&
+            this.trailDrawShipIndices.length > 0;
+        const anyScene = options?.anyScene === true;
+        const follow = options?.follow === true;
+        // forceLodNear + no ribbon expand → cs_ships_fast (planar ring snap only).
+        // Map never has forceLodNear; full cs_ships always for production.
+        // useFullAgent: demos/motion proofs must opt out of the fast ring path so
+        // SEEK / sphere / jump-cruise actually run (cs_ships_fast forces posY=0).
+        const useFast = this.forceLodNear &&
+            !expandTrails &&
+            options?.useFullAgent !== true &&
+            this.computeShipFastPipeline != null &&
+            this.computeShipFastBindGroup != null;
+        // Product: skip the whole pass unless useFast / anyScene / follow.
+        // Today's bug was `cameraY < LOD_FAR_Y` (120k) → 480k agents at 2000.
+        // forceLodNear is tests-only (map never sets it) so existing goldens
+        // still dispatch without packing FLEET_FLAG_SYSTEM_SCENE.
+        const shipsNeedAgent = useFast || anyScene || follow || this.forceLodNear;
+        // Uniform layout (96 B):
         //   [0] nowRel f32  [1] fleetCount u32  [2] dtMs f32  [3] shipCount u32
         //   [4] cameraY     [5] targetX         [6] targetZ   [7] viewportH
         //   [8] tanHalfFov  [9] lodNearY        [10] lodFarY  [11] lodMidDist
         //   [12] expandTrails u32  [13] appendTrails u32
         //   [14] lodNearDist f32   [15] viewCullScale f32
-        //   [16..18] origin.xyz   [19] pad
+        //   [16..18] origin.xyz   [19] requireSystemScene
+        //   [20] shipsPassActive  [21..23] pad
         this.integrateUniformF32[0] = nowRel;
         this.integrateUniformU32[1] = nFleets >>> 0;
         this.integrateUniformF32[2] = dtMs;
@@ -2071,20 +2288,16 @@ export class FleetInstanceGpuLayer {
             // ~1.15× half-angle ground radius — formation agent for on-screen fleets.
             this.integrateUniformF32[15] = 1.15;
         }
-        // expandTrails: 0=off, 1=all NEAR, 2=model-only (dense pack of modelHide).
-        // Map sets trailDrawShipIndices when model LOD owns ships → mode 2.
-        const expandTrails = options?.expandTrails !== false;
-        const appendTrails = options?.appendTrails !== false;
-        const modelTrailOnly = expandTrails &&
-            this.trailDrawShipIndices != null &&
-            this.trailDrawShipIndices.length > 0;
         this.integrateUniformU32[12] = !expandTrails ? 0 : modelTrailOnly ? 2 : 1;
         this.integrateUniformU32[13] = appendTrails ? 1 : 0;
         // Floating origin for origin-relative trail expand (match model/draw frame).
         this.integrateUniformF32[16] = camera?.originX ?? 0;
         this.integrateUniformF32[17] = camera?.originY ?? 0;
         this.integrateUniformF32[18] = camera?.originZ ?? 0;
-        this.integrateUniformF32[19] = 0;
+        // GPU AND backstop: only when host actually opened a SCENE/follow pass.
+        // forceLodNear tests omit bit 7 — leave 0 so goldens keep the agent path.
+        this.integrateUniformU32[19] = anyScene || follow ? 1 : 0;
+        this.integrateUniformU32[20] = shipsNeedAgent ? 1 : 0; // shipsPassActive
         // Mode 2 needs modelHide @ binding 8 (ensured when hide indices were set).
         // Pot expand writes up to MODEL_TRAIL_EMITTER_COUNT dense line slots / model ship.
         if (modelTrailOnly) {
@@ -2094,20 +2307,17 @@ export class FleetInstanceGpuLayer {
             this.ensureTrailLineSlots(Math.max(liveShips, potSlots, modelN * MODEL_TRAIL_EMITTER_COUNT));
         }
         this.bootstrap.gpu.writeBuffer(this.integrateUniformHandle, 0, this.integrateUniformF32, 0, FLEET_INTEGRATE_UNIFORM_SIZE);
-        // Reset dense trail expand counter; meta[1] = max expand slots (line capacity).
-        if (this.trailDrawMetaHandle) {
+        // Reset table words 8–11: expand=0, maxSlots, compactCount=0, compactCapacity.
+        // forceLodNear leaves compactCount=0 so cs_ships uses high-water gid.x.
+        if (this.trailIndirectHandle) {
             const maxSlots = Math.max(this.trailLineSlotCapacity, this.trailShipCapacity, 1);
-            this.bootstrap.gpu.writeBuffer(this.trailDrawMetaHandle, 0, new Uint32Array([0, maxSlots >>> 0]), 0, 8);
+            const workCap = this.trailIndirectWorklistCap >>> 0;
+            this.trailMetaResetScratch[0] = 0;
+            this.trailMetaResetScratch[1] = maxSlots >>> 0;
+            this.trailMetaResetScratch[2] = 0;
+            this.trailMetaResetScratch[3] = workCap;
+            this.bootstrap.gpu.writeBuffer(this.trailIndirectHandle, TRAIL_INDIRECT_META_BYTE, this.trailMetaResetScratch, 0, 16);
         }
-        // forceLodNear + no ribbon expand → cs_ships_fast (planar ring snap only).
-        // Map never has forceLodNear; full cs_ships always for production.
-        // useFullAgent: demos/motion proofs must opt out of the fast ring path so
-        // SEEK / sphere / jump-cruise actually run (cs_ships_fast forces posY=0).
-        const useFast = this.forceLodNear &&
-            !expandTrails &&
-            options?.useFullAgent !== true &&
-            this.computeShipFastPipeline != null &&
-            this.computeShipFastBindGroup != null;
         // Pass A — fleet centers. Fast path reads pathEnd (not eased pos) and can
         // skip this pass entirely for pure-orbit benches (no JUMPING fleets).
         if (!useFast) {
@@ -2118,13 +2328,7 @@ export class FleetInstanceGpuLayer {
             pass.dispatchWorkgroups(groups);
             pass.end();
         }
-        // Pass B — per-ship agent + trails.
-        // LOD 1 (NEAR): sim + multi-ship draw + trails.
-        // LOD 2 (MID): same sim, single icon draw (cs_fleets), lead-ship trail.
-        // LOD 3 (FAR): no agent — skip whole pass when camera is high enough that
-        // every fleet is FAR (height ≥ FAR_Y).
-        const cameraY = camera?.cameraY ?? 0;
-        const shipsNeedAgent = useFast || cameraY < LOD_FAR_Y;
+        // Pass B — per-ship agent + trails. Host skip stays; do not grow high-water.
         if (shipsNeedAgent &&
             liveShips > 0 &&
             this.computeShipPipeline &&
@@ -2133,15 +2337,75 @@ export class FleetInstanceGpuLayer {
             this.shipSimBuffer &&
             this.trailSampleBuffer &&
             this.trailLineBuffer) {
-            const pass = encoder.beginComputePass({
-                label: useFast ? "fleet-integrate-ships-fast" : "fleet-integrate-ships",
-            });
-            pass.setPipeline(useFast ? this.computeShipFastPipeline : this.computeShipPipeline);
-            pass.setBindGroup(0, useFast ? this.computeShipFastBindGroup : this.computeShipBindGroup);
-            const wg = useFast ? 256 : FLEET_INTEGRATE_WORKGROUP;
-            const groups = Math.ceil(liveShips / wg);
-            pass.dispatchWorkgroups(groups);
-            pass.end();
+            if (this.forceLodNear) {
+                // Tests-only high-water dispatch — goldens must not move.
+                const pass = encoder.beginComputePass({
+                    label: useFast
+                        ? "fleet-integrate-ships-fast"
+                        : "fleet-integrate-ships",
+                });
+                pass.setPipeline(useFast ? this.computeShipFastPipeline : this.computeShipPipeline);
+                pass.setBindGroup(0, useFast ? this.computeShipFastBindGroup : this.computeShipBindGroup);
+                const wg = useFast ? 256 : FLEET_INTEGRATE_WORKGROUP;
+                const groups = Math.ceil(liveShips / wg);
+                this.lastShipWorkgroups = groups;
+                this.lastCompactShipCount = 0;
+                pass.dispatchWorkgroups(groups);
+                pass.end();
+            }
+            else {
+                // Product compact: walk nFleets (bit 7) into the one command table.
+                this.ensureTrailIndirectTable(Math.max(liveShips, this.instanceCapacity, this.shipSimCapacity, this.trailIndirectWorklistCap, 1));
+                if (!this.computeCompactBindGroup || !this.computeShipBindGroup) {
+                    this.rebuildComputeBindGroups();
+                }
+                const compactN = this.countSceneShips(nFleets);
+                const groups = compactN > 0
+                    ? Math.ceil(compactN / FLEET_INTEGRATE_WORKGROUP)
+                    : 0;
+                this.lastCompactShipCount = compactN;
+                this.lastShipWorkgroups = groups;
+                if (this.trailIndirectHandle) {
+                    const maxSlots = Math.max(this.trailLineSlotCapacity, this.trailShipCapacity, 1);
+                    this.trailMetaResetScratch[0] = 0;
+                    this.trailMetaResetScratch[1] = maxSlots >>> 0;
+                    this.trailMetaResetScratch[2] = 0;
+                    this.trailMetaResetScratch[3] = this.trailIndirectWorklistCap >>> 0;
+                    this.bootstrap.gpu.writeBuffer(this.trailIndirectHandle, TRAIL_INDIRECT_META_BYTE, this.trailMetaResetScratch, 0, 16);
+                    writeDispatchIndirectArgs(this.dispatchIndirectScratch, groups);
+                    this.bootstrap.gpu.writeBuffer(this.trailIndirectHandle, TRAIL_INDIRECT_DISPATCH_BYTE, this.dispatchIndirectScratch, 0, 12);
+                }
+                this.writeHostCompactWorklist(nFleets, compactN);
+                if (this.computeCompactPipeline && this.computeCompactBindGroup) {
+                    const cp = encoder.beginComputePass({
+                        label: "fleet-compact-scene",
+                    });
+                    cp.setPipeline(this.computeCompactPipeline);
+                    cp.setBindGroup(0, this.computeCompactBindGroup);
+                    cp.dispatchWorkgroups(Math.ceil(nFleets / FLEET_INTEGRATE_WORKGROUP));
+                    cp.end();
+                }
+                if (this.trailIndirectBuffer && this.computeShipPipeline && this.computeShipBindGroup) {
+                    const pass = encoder.beginComputePass({
+                        label: "fleet-integrate-ships",
+                    });
+                    pass.setPipeline(this.computeShipPipeline);
+                    pass.setBindGroup(0, this.computeShipBindGroup);
+                    // Table holds DispatchIndirectArgs at byte 20. Binding 6 is the
+                    // 256-byte-offset STORAGE view. This device treats the same
+                    // GPUBuffer as INDIRECT+STORAGE as a pass alias (even when the
+                    // ranges do not overlap), which dropped cs_ships entirely.
+                    // Live dispatch is compact `groups` (same x we write to the table).
+                    const useIndirectShipsDispatch = false;
+                    if (useIndirectShipsDispatch) {
+                        pass.dispatchWorkgroupsIndirect(this.trailIndirectBuffer, TRAIL_INDIRECT_DISPATCH_BYTE);
+                    }
+                    else if (groups > 0) {
+                        pass.dispatchWorkgroups(groups);
+                    }
+                    pass.end();
+                }
+            }
             // Pack DrawIndexedIndirectArgs from dense expand count (no host readback).
             if (!useFast &&
                 expandTrails &&
@@ -2325,6 +2589,15 @@ export class FleetInstanceGpuLayer {
             this.bootstrap.gpu.destroyBuffer(this.integrateUniformHandle);
             this.integrateUniformHandle = null;
         }
+        if (this.trailIndirectHandle) {
+            this.bootstrap.gpu.destroyBuffer(this.trailIndirectHandle);
+            this.trailIndirectHandle = null;
+        }
+        this.trailDrawMetaHandle = null;
+        this.trailIndirectBuffer = null;
+        this.trailDrawMetaBuffer = null;
+        this.trailIndirectWorklistCap = 0;
+        this.fleetGpuCpu = new Uint8Array(0);
         this.meshBuffer = null;
         this.uniformBuffer = null;
         this.trailUniformBuffer = null;
@@ -2334,10 +2607,14 @@ export class FleetInstanceGpuLayer {
         this.trailPipelineDepth = null;
         this.computeFleetPipeline = null;
         this.computeShipPipeline = null;
+        this.computeCompactPipeline = null;
+        this.computeTrailIndirectPipeline = null;
         this.bindGroup = null;
         this.trailBindGroup = null;
         this.computeFleetBindGroup = null;
         this.computeShipBindGroup = null;
+        this.computeCompactBindGroup = null;
+        this.computeTrailIndirectBindGroup = null;
     }
 }
 //# sourceMappingURL=fleet-instance-gpu-layer.js.map

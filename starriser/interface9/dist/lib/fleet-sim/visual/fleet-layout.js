@@ -49,7 +49,8 @@ export const FLEET_GPU_STRIDE = 64;
  * 36  f32 durationMs
  * 40  u32 flags               // bit0 alive, bit1 jumping, bit2 cooldown, bit3 no-trail (icon),
  *                             // bit4 sim-paused (R3 impostor/icon), bit5 warm (R5 promote),
- *                             // bit6 SPACE3D (sphere agent + pathEndY in _pad0)
+ *                             // bit6 SPACE3D (sphere agent + pathEndY in _pad0),
+ *                             // bit7 SYSTEM_SCENE (CPU SystemSceneSet / inbound / follow)
  * 44  u32 shipBudget          // visual scatter count after L4 LOD (instanceCount)
  * 48  u32 countsPacked        // domain truth: red | blue<<10 | green<<20 (10 bits each)
  * 52  u32 instanceStart       // draw + ShipSim + trail-ring base index (ring cursor = ShipSim.trailWrite)
@@ -102,6 +103,12 @@ export const FLEET_FLAG_WARM = 1 << 5;
  * Planar production leaves this clear and _pad0 = 0.
  */
 export const FLEET_FLAG_SPACE3D = 1 << 6;
+/**
+ * CPU SystemSceneSet / whole inbound hop (`endNode`) / follow.
+ * Re-OR on every flags rebuild (`writeFleetGpuFromState` / parked scatter).
+ * `writeFleetGpu` zeros `_pad1` — never stash this bit there. Stride stays 64.
+ */
+export const FLEET_FLAG_SYSTEM_SCENE = 1 << 7; // 128
 /**
  * Ship instance for instanced draw (vertex-step-mode instance). Stride 48.
  *
@@ -299,6 +306,9 @@ export function assertFleetLayoutInvariants() {
     // Last field + 4 = stride
     if (FleetGpuFields._pad1 + 4 !== FLEET_GPU_STRIDE) {
         throw new Error("FleetGpu last field does not end at FLEET_GPU_STRIDE");
+    }
+    if (FLEET_FLAG_SYSTEM_SCENE !== 128) {
+        throw new Error(`FLEET_FLAG_SYSTEM_SCENE ${FLEET_FLAG_SYSTEM_SCENE} !== 128`);
     }
     // ShipInstance field offsets (tight scalar packing)
     assertOffset(ShipInstanceFields.localCenterX, 0, "ShipInstance.localCenterX");

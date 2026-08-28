@@ -2,6 +2,10 @@
  * M2 — topology connection edges (cluster jump gates + solar links).
  * Draws via fat screen-space Line2 ribbons (not GPU line-list).
  * CPU store layout is already segment pairs: 6 pos floats + 6 color floats/edge.
+ *
+ * GPU instance positions stay **absolute**. The frame origin is a Line2 uniform
+ * (VS: instanceStart/End − origin, then viewRel). Upload only when the store
+ * is dirty — never rewrite the full topology from the color pass.
  */
 import { CONNECTION_FLOATS_PER_SLOT, } from "../connection-line-store.js";
 import { MAP_MSAA_SAMPLES } from "../map-msaa.js";
@@ -48,6 +52,7 @@ export class ConnectionLineGpuLayer {
     /**
      * Upload store → Line2 when dirty. Positions and colors are always
      * co-uploaded so a grow does not leave white vertex colors.
+     * Positions are absolute world coords (origin is a per-frame uniform).
      */
     syncFromStore(store) {
         if (!this.line2) {
@@ -73,10 +78,13 @@ export class ConnectionLineGpuLayer {
     /**
      * Encode fat connection ribbons. Requires separate view + projection
      * (Line2 expands in screen space; fused viewProj is wrong).
+     * Pass `origin` with `viewRel` — subtracted in the VS, not on the CPU.
+     * Must not rewrite instance buffers (full-store rewrite is the 8 ms cliff).
      */
-    encode(pass, view, projection) {
+    encode(pass, view, projection, origin) {
         if (!this.line2 || this.segmentCount <= 0)
             return;
+        this.line2.setOrigin(origin?.x ?? 0, origin?.y ?? 0, origin?.z ?? 0);
         this.line2.writeViewProjection(view, projection);
         this.line2.encode(pass);
     }

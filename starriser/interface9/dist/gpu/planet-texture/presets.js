@@ -134,17 +134,19 @@ preservePoleSize) {
             return {
                 ...base,
                 planetClass: "ice",
-                // More land / less open water (frozen crust dominates)
-                liquidLevel: 0.14,
+                // Frozen temperate: Earth-like continents + frozen lakes/seas
+                liquidLevel: 0.48,
                 liquidKind: "water",
-                cloudCover: 0.8,
-                colorBoost: 0.42,
+                cloudCover: 0.68,
+                colorBoost: 0.38,
                 atmTint: { r: 0.4, g: 0.6, b: 1 },
-                continentScale: 1.35,
-                mountainScale: 1.25,
-                heightFreq: 1.85,
+                continentScale: 1.06,
+                mountainScale: 1.02,
+                heightFreq: 1.42,
+                heightOctaves: 8,
+                warp: 0.55,
                 thermalIters: 10,
-                wetness: 0.35,
+                wetness: 0.32,
             };
         case "gas-jupiter":
             return {
@@ -194,29 +196,34 @@ preservePoleSize) {
             return {
                 ...base,
                 planetClass: "exotic",
-                liquidLevel: 0.5,
+                // Much less open acid — more land / crust
+                liquidLevel: 0.08,
                 liquidKind: "acid",
                 cloudCover: 0.8,
-                colorBoost: 0.85,
-                atmTint: { r: 0.4, g: 0.7, b: 0.3 },
+                // Lower colorBoost so residual purple/green stay muted
+                colorBoost: 0.45,
+                atmTint: { r: 0.38, g: 0.48, b: 0.32 },
+                continentScale: 1.4,
+                mountainScale: 1.05,
                 warp: 0.7,
                 thermalIters: 12,
+                wetness: 0.35,
             };
         case "lava-world":
             return {
                 ...base,
                 planetClass: "exotic",
-                // Multi-basin lakes (barriers split seas) + drainage channels
-                liquidLevel: 0.18,
+                // Many small melt pockets, not a few mega-seas
+                liquidLevel: 0.09,
                 liquidKind: "lava",
                 cloudCover: 0.06,
                 colorBoost: 0.9,
                 atmTint: { r: 1, g: 0.4, b: 0.12 },
-                mountainScale: 1.15,
-                heightFreq: 2.2,
+                mountainScale: 1.18,
+                heightFreq: 2.45,
                 heightOctaves: 6,
-                continentScale: 1.05,
-                warp: 0.55,
+                continentScale: 1.12,
+                warp: 0.58,
                 thermalIters: 4,
                 wetness: 0.15,
             };

@@ -36,11 +36,13 @@ export {
 
 export {
   LINE2_UNIFORM_FLOATS,
+  LINE2_UNIFORM_ORIGIN_FLOAT,
   LINE2_UNIFORM_SIZE,
   applyMaterialParams,
   createDefaultMaterialState,
   writeMaterialUniforms,
   writeMat4,
+  writeOriginUniforms,
   type Line2MaterialState,
 } from "./line2-material.js";
 

@@ -210,9 +210,51 @@ export function packAxisLinesLine2(cx, cz, layout, colorX = OVERLAY_COLOR_AXIS_X
     return { positions, colors, segmentCount };
 }
 /**
- * Closed ring as Line2 segment pairs (N segments).
- * Default 48 segments — matches map overlay budget.
+ * Subtract frame origin from a Line2 pack (f64 then store f32).
+ * Use with viewRel so thickness stays screen-px at |xz| ≳ 1e5.
  */
+export function shiftLine2PackByOrigin(pack, originX, originY, originZ, out) {
+    const n = pack.segmentCount;
+    const need = n * LP;
+    const positions = out && out.positions.length >= need
+        ? out.positions
+        : new Float32Array(need);
+    const colors = out && out.colors.length >= need ? out.colors : new Float32Array(need);
+    const src = pack.positions;
+    for (let i = 0; i < need; i += 3) {
+        positions[i] = src[i] - originX;
+        positions[i + 1] = src[i + 1] - originY;
+        positions[i + 2] = src[i + 2] - originZ;
+    }
+    colors.set(pack.colors.subarray(0, need));
+    return { positions, colors, segmentCount: n };
+}
+/**
+ * Kepler orbit rings in **origin-relative** space (sun at centerRel).
+ * Radii are already `k * showcaseOrbit`. `endcaps: false` at encode.
+ */
+export function packKeplerOrbitRingsViewRel(centerRelX, centerRelY, centerRelZ, radii, segments = 48, color = OVERLAY_COLOR_RING) {
+    const nRing = radii.length;
+    const segs = Math.max(3, segments | 0);
+    const segmentCount = nRing * segs;
+    const positions = new Float32Array(segmentCount * LP);
+    const colors = new Float32Array(segmentCount * LC);
+    let s = 0;
+    for (let r = 0; r < nRing; r++) {
+        const radius = radii[r];
+        if (!(radius > 0))
+            continue;
+        const ring = packRingLine2(centerRelX, centerRelZ, radius, segs, color, centerRelY);
+        positions.set(ring.positions, s * LP);
+        colors.set(ring.colors, s * LC);
+        s += ring.segmentCount;
+    }
+    return {
+        positions: positions.subarray(0, s * LP),
+        colors: colors.subarray(0, s * LC),
+        segmentCount: s,
+    };
+}
 export function packRingLine2(cx, cz, radius, segments = 48, color = OVERLAY_COLOR_RING, y = RENDER_PLANE_Y) {
     const n = Math.max(3, segments | 0);
     const positions = new Float32Array(n * LP);

@@ -4,15 +4,25 @@
  * Two entry points (same module):
  *   cs_fleets — one thread / fleet: FleetGpu.pos via ease01;
  *               GPU LOD band from cameraY + distXZ(target):
- *                 NEAR: multi-ship draw owned by cs_ships (no fleet write)
- *                 MID:  write instance base as world impostor; zero rest
- *                 FAR:  write instance base as screen icon; zero rest
+ *                 NEAR + shipsPassActive + (no SCENE req | bit 7):
+ *                   cs_ships owns multi-ship draw (no fleet write)
+ *                 else: writeLodProxy icon — never leave stale NEAR tris
+ *                 MID/FAR: writeLodProxy screen icon; zero rest of budget
  *   cs_ships  — one thread / ship: integrateShipAgent + draw scatter + trails;
  *               seek center = pathEnd (hop destination), centerVel = 0
  *               MID/FAR: size 0 (non-base) + skip agent (cs_fleets owns draw)
  *               NEAR: agent + trails for localIndex < shipBudget
  *               mode==PAUSED early-returns (tombstone ships)
  *               FLEET_FLAG_WARM → still sim, write draw size=0 (no pop)
+ *               FLEET_FLAG_SYSTEM_SCENE (bit7): AND for agent + trail append.
+ *               Missing SCENE + requireSystemScene → FAR-equivalent skip.
+ *               SCENE_AGENT_SCALE (KEPLER_SCALE = 0.1/56) local orbitR, slotY, NEAR size; never
+ *               write scaled orbitR/slotY back to ShipSim. Galaxy-scale posY
+ *               snaps once on SCENE enter. cs_fleets NEAR-handoff uses bit 7
+ *               only when shipsPassActive (else galaxy-wide icon).
+ *   cs_compact_scene — walk nFleets (bit 7); append simIdx worklist into the
+ *               one trailIndirect table. Product cs_ships reads worklist[gid].
+ *               forceLodNear leaves compactCount=0 (high-water gid.x).
  *
  * Host dispatches fleets first, then ships (same encoder; storage barrier auto).
  * Ship physics matches ship-flight-ref / ship-orbit-ref EXACTLY.
@@ -35,19 +45,24 @@ import { DEFAULT_TRAIL_LAYOUT, TRAIL_ALPHA_POWER, TRAIL_ALONG_POWER, TRAIL_LINE_
 import { TRAIL_TEMPLATE_INDEX_COUNT } from "./fleet-trails.wgsl.js";
 import { MODEL_TRAIL_EMITTER_COUNT, MODEL_TRAIL_EMITTERS, modelTrailExpandAlphaMul, } from "../visual/model-trail-config.js";
 import { SHIP_APPROACH_BRAKE_POWER, SHIP_BRAKE_DIST_MARGIN, SHIP_DEFAULT_BRAKE_DIST, SHIP_LAUNCH_ACCEL_MIN, SHIP_LAUNCH_SPEED_FRAC, SHIP_MAX_ACCEL, SHIP_MAX_SPEED, SHIP_MID_CRUISE_BOOST, SHIP_MIN_ALIGN, SHIP_MODE_JUMP, SHIP_MODE_ORBIT, SHIP_MODE_PAUSED, SHIP_MODE_SETTLE, SHIP_NOSE_OFFSET, CRUISE_ACCEL_SCALE, CRUISE_BRAKE_MULT, JUMP_BRAKE_MULT, V_OPEN_UNCAP, HOP_OPEN_SPEED_MUL, HOP_OPEN_SPEED_MIN, RESIDUAL_HIGH_MUL, RESIDUAL_CLEAR_MUL, RESIDUAL_FREEZE_OUT_K, } from "../visual/ship-flight-ref.js";
-import { ORBIT_CAPTURE_K, ORBIT_CAPTURE_OUT_K, ORBIT_DEFAULT_ACCEL, ORBIT_DEFAULT_OMEGA_MAX, ORBIT_ENTRANCE_EPS_TINY, ORBIT_ENTRANCE_REM_K, ORBIT_LEAD_RAD, ORBIT_NEAR_SPEED_SCALE, ORBIT_OMEGA_TURN_FRAC, ORBIT_R_EPS, ORBIT_R_MIN, ORBIT_SPRING_K, ORBIT_V_RAD_MAX_FRAC, ORBIT_V_RAD_MAX_R_MUL, ORBIT_RESIDUAL_V_MUL, ORBIT_RESIDUAL_V_ADD, ORBIT_SINGULARITY_R_MUL, ORBIT_ESCAPE_V_RAD, ORBIT_SETTLED_R_FRAC, ORBIT_SETTLED_HEADING_RAD, ORBIT_HEIGHT_MAX, ORBIT_HEIGHT_BLEND_REM_K, ORBIT_HEIGHT_APPROACH_TAU_S, ORBIT_HEIGHT_CLIMB_SLOPE, ORBIT_HEIGHT_MAX_FRAME_FRAC, ORBIT_HEIGHT_MIN_RATE, V_TURN_ALLOW_R_FRAC, } from "../visual/ship-orbit-ref.js";
+import { ORBIT_CAPTURE_K, ORBIT_CAPTURE_OUT_K, ORBIT_DEFAULT_ACCEL, ORBIT_DEFAULT_OMEGA_MAX, ORBIT_ENTRANCE_EPS_TINY, ORBIT_ENTRANCE_REM_K, ORBIT_LEAD_RAD, ORBIT_NEAR_SPEED_SCALE, ORBIT_OMEGA_TURN_FRAC, ORBIT_R_EPS, ORBIT_R_MIN, SCENE_AGENT_SCALE, ORBIT_SPRING_K, ORBIT_V_RAD_MAX_FRAC, ORBIT_V_RAD_MAX_R_MUL, ORBIT_RESIDUAL_V_MUL, ORBIT_RESIDUAL_V_ADD, ORBIT_SINGULARITY_R_MUL, ORBIT_ESCAPE_V_RAD, ORBIT_SETTLED_R_FRAC, ORBIT_SETTLED_HEADING_RAD, ORBIT_HEIGHT_MAX, ORBIT_HEIGHT_BLEND_REM_K, ORBIT_HEIGHT_APPROACH_TAU_S, ORBIT_HEIGHT_CLIMB_SLOPE, ORBIT_HEIGHT_MAX_FRAME_FRAC, ORBIT_HEIGHT_MIN_RATE, V_TURN_ALLOW_R_FRAC, } from "../visual/ship-orbit-ref.js";
 import { SHIP_SIM_STRIDE } from "../visual/ship-sim-layout.js";
+import { TRAIL_META_WORD as META } from "../visual/trail-indirect-table.js";
 import { FLEET_SHIP_DRAW_STRIDE } from "./fleet-ships.wgsl.js";
 /**
- * Uniforms (80 bytes, 16-byte aligned):
+ * Uniforms (96 bytes, 16-byte aligned):
  *   nowRel f32, fleetCount u32, dtMs f32, shipCount u32,
  *   cameraY f32, targetX f32, targetZ f32, viewportH f32,
  *   tanHalfFov f32, lodNearY f32, lodFarY f32, lodMidDist f32,
  *   expandTrails u32, appendTrails u32, lodNearDist f32, viewCullScale f32,
- *   originX f32, originY f32, originZ f32, _pad f32
+ *   originX f32, originY f32, originZ f32, requireSystemScene u32,
+ *   shipsPassActive u32, _pad0 u32, _pad1 u32, _pad2 u32
  *
  * `origin` = frame floating origin (same as model/trail draw). Expand writes
  * **origin-relative** trail endpoints so pot offsets stay mesh-scale at large |world|.
+ *
+ * `shipsPassActive` = 1 iff this dispatch will run `cs_ships` (`shipsNeedAgent`).
+ * `cs_fleets` NEAR-handoffs only when this is set; otherwise writeLodProxy.
  *
  * `expandTrails`:
  *   0 = skip ribbon expand
@@ -58,7 +73,7 @@ import { FLEET_SHIP_DRAW_STRIDE } from "./fleet-ships.wgsl.js";
  *       Each model ship expands the triangular pot (1 large + 2 small).
  * Age runs always. Pure sim benches may set 0.
  */
-export const FLEET_INTEGRATE_UNIFORM_SIZE = 80;
+export const FLEET_INTEGRATE_UNIFORM_SIZE = 96;
 /**
  * Compute workgroup size for cs_fleets / cs_ships.
  * 128 balances occupancy vs register pressure on the heavy cs_ships agent
@@ -110,6 +125,7 @@ const MODEL_TRAIL_E2_ALPHA: f32 = ${a2};
 const FLEET_FLAG_SIM_PAUSED: u32 = 16u; // R3: host may still set; GPU LOD ignores for band
 const FLEET_FLAG_WARM: u32 = 32u; // R5: formation promote warm-up (sim + size 0)
 const FLEET_FLAG_SPACE3D: u32 = 64u; // bit6: sphere agent; _pad0 = pathEndY
+const FLEET_FLAG_SYSTEM_SCENE: u32 = 128u; // bit7: CPU SystemSceneSet / inbound / follow
 
 // GPU LOD bands — match fleet-lod.ts classifyFleetLodBandRaw
 const LOD_BAND_NEAR: u32 = 0u;
@@ -155,6 +171,7 @@ const ICON_SCREEN_PX: f32 = ${ICON_SCREEN_PX};
 
 // Orbit constants — match ship-orbit-ref.ts (unified controller)
 const ORBIT_R_MIN: f32 = ${ORBIT_R_MIN};
+const SCENE_AGENT_SCALE: f32 = ${SCENE_AGENT_SCALE};
 const ORBIT_SPRING_K: f32 = ${ORBIT_SPRING_K};
 const ORBIT_DEFAULT_OMEGA_MAX: f32 = ${ORBIT_DEFAULT_OMEGA_MAX};
 const ORBIT_DEFAULT_ACCEL: f32 = ${ORBIT_DEFAULT_ACCEL};
@@ -231,7 +248,20 @@ struct IntegrateUniforms {
    * (sample − origin) + pot so thruster offsets stay precise at large |world|.
    */
   origin: vec3<f32>,
-  _originPad: f32,
+  /**
+   * 1 = AND FLEET_FLAG_SYSTEM_SCENE in cs_ships (FAR-equivalent skip if clear).
+   * 0 = tests / forceLodNear: do not require bit 7 (packs omit it).
+   * Host skip (shipsNeedAgent) is the real 480k save — this is a backstop.
+   */
+  requireSystemScene: u32,
+  /**
+   * 1 = this dispatch will run cs_ships (shipsNeedAgent).
+   * cs_fleets NEAR-handoffs only then; else writeLodProxy (no stale tris).
+   */
+  shipsPassActive: u32,
+  _padPass0: u32,
+  _padPass1: u32,
+  _padPass2: u32,
 };
 
 // Scalar fields match writeFleetGpu DataView packing (stride 64).
@@ -294,9 +324,12 @@ struct ShipSim {
 // Trail ribbons: **dense pack for draw** this frame (slot 0..trailDrawCount-1).
 // Samples stay at simIdx; expand atomically claims a dense draw slot.
 @group(0) @binding(5) var<storage, read_write> trailLines: array<f32>;
-// trailDrawMeta[0] = atomic dense expand count (reset host-side each frame)
+// Binding 6 = offset-256 view of the one command table (see trail-indirect-table.ts).
+//   [0] expand  [1] maxSlots  [2] compactCount  [3] compactCapacity  [4+] worklist
+// Binding 7 is DrawIndexedIndirectArgs at table byte 0 — cs_trail_indirect only.
+// cs_ships must not declare a use of binding 7 (stays 7 storage: 1–6 + 8).
 @group(0) @binding(6) var<storage, read_write> trailDrawMeta: array<atomic<u32>>;
-// DrawIndexedIndirectArgs (20 B) written after cs_ships for trail pass
+// DrawIndexedIndirectArgs (20 B) at table word 0 — not statically used by cs_ships.
 @group(0) @binding(7) var<storage, read_write> trailIndirect: array<u32>;
 // Model-owned ship mask (1 = textured model draws this simIdx). Used when expandTrails==2.
 @group(0) @binding(8) var<storage, read> modelHide: array<u32>;
@@ -676,6 +709,18 @@ fn rotPerpSide(ux: f32, uz: f32, side: f32) -> vec2<f32> {
   return vec2<f32>(s * uz, -s * ux);
 }
 
+/**
+ * Local orbit R for this cs_ships step. Never write the scaled value back
+ * to ship.orbitR (would compound every frame).
+ */
+fn sceneScaleOrbitR(orbitR: f32, flags: u32) -> f32 {
+  var R = select(ORBIT_R_MIN, orbitR, orbitR > 1e-6);
+  if ((flags & FLEET_FLAG_SYSTEM_SCENE) != 0u) {
+    R = R * SCENE_AGENT_SCALE;
+  }
+  return R;
+}
+
 /** orbitFloorSpeed — match ship-orbit-ref. */
 fn orbitFloorSpeed(omega: f32, radius: f32, omegaMax: f32) -> f32 {
   let R = select(ORBIT_R_MIN, radius, radius > 1e-6);
@@ -732,8 +777,10 @@ fn personalOrbitHeight(slotY: f32) -> f32 {
 }
 
 fn orbitHeightBlendDist(radius: f32) -> f32 {
+  // R is already select(ORBIT_R_MIN, …) at callers; do not floor rem at
+  // unscaled ORBIT_R_MIN=2 (swallows a span-1 Kepler field).
   let R = select(ORBIT_R_MIN, radius, radius > 1e-6);
-  return max(ORBIT_HEIGHT_BLEND_REM_K * R, ORBIT_R_MIN);
+  return max(ORBIT_HEIGHT_BLEND_REM_K * R, 1e-4);
 }
 
 /** Desired height along approach — match orbitApproachHeightDesired. */
@@ -1325,6 +1372,7 @@ fn integrateShipAgent(
   pathStartX: f32,
   pathStartZ: f32,
   durationMs: f32,
+  flags: u32,
 ) -> ShipSim {
   var ship = shipIn;
 
@@ -1339,6 +1387,20 @@ fn integrateShipAgent(
   if (ship.mode == SHIP_MODE_PAUSED) {
     ship.speed = 0.0;
     return ship;
+  }
+  // Scale orbitR + slotY locally for this step; restore before writeback.
+  let orbitRCanon = ship.orbitR;
+  let slotYCanon = ship.slotY;
+  ship.orbitR = sceneScaleOrbitR(ship.orbitR, flags);
+  if ((flags & FLEET_FLAG_SYSTEM_SCENE) != 0u) {
+    ship.slotY = ship.slotY * SCENE_AGENT_SCALE;
+    let h = personalOrbitHeight(ship.slotY);
+    let hAbs = abs(h);
+    // Galaxy pack height (±0.7) vs compact planets (~0.015): snap so ships
+    // do not rain in from y=0.7 over ~1s (ORBIT_HEIGHT_MIN_RATE).
+    if (abs(ship.posY) > max(4.0 * hAbs, 0.05)) {
+      ship.posY = select(0.0, h, hAbs > 1e-8);
+    }
   }
 
   if (!(ship.accel > 0.0)) {
@@ -1451,7 +1513,7 @@ fn integrateShipAgent(
     softLaunch = !near;
   }
 
-  return integrateOrbitSeekStep(
+  var out = integrateOrbitSeekStep(
     ship,
     centerX,
     centerZ,
@@ -1468,6 +1530,9 @@ fn integrateShipAgent(
     softLaunch,
     space3d,
   );
+  out.orbitR = orbitRCanon;
+  out.slotY = slotYCanon;
+  return out;
 }
 
 /**
@@ -1523,6 +1588,7 @@ fn tryAppendTrail(
   pathEndY: f32,
   space3d: bool,
   shipWorldSize: f32,
+  flags: u32,
 ) -> ShipSim {
   var ship = shipIn;
   if (!allowAppend) {
@@ -1557,7 +1623,7 @@ fn tryAppendTrail(
   // (never fl(fl(C+L)−C)). Sphere SPACE3D ORBIT must keep pos−pathEnd (incl. Y).
   // SEEK / residual: always pos − pathEnd. Then + aft for triangle trails.
   if (ship.mode == SHIP_MODE_ORBIT && !space3d) {
-    let R = select(ORBIT_R_MIN, ship.orbitR, ship.orbitR > 1e-6);
+    let R = sceneScaleOrbitR(ship.orbitR, flags);
     let local = orbitLocalOffset(R, ship.orbitPhase);
     trails[base] = local.x + aft.x;
     trails[base + 1u] = local.y + aft.y;
@@ -1625,8 +1691,8 @@ fn expandTrailLines(
   pathEndY: f32,
 ) {
   // Dense pack for this frame's trail draw (no low-index bias).
-  // maxDrawSlots from host (trailDrawMeta[1] = line slot capacity) or caller.
-  let drawSlot = atomicAdd(&trailDrawMeta[0], 1u);
+  // maxDrawSlots from host (table word 9 = line slot capacity) or caller.
+  let drawSlot = atomicAdd(&trailDrawMeta[${META.EXPAND_COUNT}u], 1u);
   if (drawSlot >= maxDrawSlots) {
     return;
   }
@@ -1761,8 +1827,8 @@ fn expandShipTrails(
   pathEndZ: f32,
   pathEndY: f32,
 ) {
-  // Capacity: host writes trailDrawMeta[1] = line slot capacity each frame.
-  var maxSlots = atomicLoad(&trailDrawMeta[1]);
+  // Capacity: host writes table word 9 = line slot capacity each frame.
+  var maxSlots = atomicLoad(&trailDrawMeta[${META.MAX_LINE_SLOTS}u]);
   if (maxSlots == 0u) {
     maxSlots = u.shipCount;
   }
@@ -1807,6 +1873,10 @@ fn expandShipTrails(
  *
  * Plus view-cull: if outside ground-view radius, demote NEAR→MID so off-screen
  * fleets do not run CAP_NEAR multi-ship agent (formation resumes when in view).
+ *
+ * SCENE bit 7 is **not** applied here — cs_fleets uses this for galaxy-wide
+ * icons. cs_ships applies {@link agentLodBand} so missing SCENE is FAR for
+ * the agent only.
  */
 fn classifyLodBand(cameraY: f32, posX: f32, posZ: f32) -> u32 {
   if (cameraY >= u.lodFarY) {
@@ -1832,6 +1902,17 @@ fn classifyLodBand(cameraY: f32, posX: f32, posZ: f32) -> u32 {
     return LOD_BAND_MID;
   }
   return LOD_BAND_NEAR;
+}
+
+/**
+ * Agent band: missing SYSTEM_SCENE (when requireSystemScene) is FAR-equivalent
+ * so trail append / integrateShipAgent skip. Icon draw stays in cs_fleets.
+ */
+fn agentLodBand(band: u32, flags: u32) -> u32 {
+  if (u.requireSystemScene != 0u && (flags & FLEET_FLAG_SYSTEM_SCENE) == 0u) {
+    return LOD_BAND_FAR;
+  }
+  return band;
 }
 
 /** Dominant type from countsPacked (red | blue<<10 | green<<20). */
@@ -1947,10 +2028,11 @@ fn writeLodProxy(
 }
 
 /**
- * Pass A — one thread per fleet: ease FleetGpu.pos + GPU LOD draw for MID/FAR.
+ * Pass A — one thread per fleet: ease FleetGpu.pos + GPU LOD draw.
  * Heading left untouched (formation formH).
- * NEAR: multi-ship draw owned by cs_ships.
- * MID/FAR: single impostor/icon at instanceStart; hide rest of shipBudget.
+ * NEAR + shipsPassActive + (no SCENE req | bit 7): cs_ships owns draw.
+ * Otherwise writeLodProxy (MID/FAR icon, or NEAR when cs_ships will not
+ * touch this fleet) so origin-relative icons never stick to the screen.
  */
 @compute @workgroup_size(${FLEET_INTEGRATE_WORKGROUP})
 fn cs_fleets(@builtin(global_invocation_id) gid3: vec3<u32>) {
@@ -1988,43 +2070,52 @@ fn cs_fleets(@builtin(global_invocation_id) gid3: vec3<u32>) {
   let base = f.instanceStart;
   let band = classifyLodBand(u.cameraY, f.posX, f.posZ);
 
-  // NEAR: cs_ships owns multi-ship draw.
-  if (band == LOD_BAND_NEAR) {
-    return;
+  // NEAR: cs_ships owns multi-ship draw only when this dispatch runs it
+  // for this fleet. Missing SCENE / host skip → icon path (no stale tris).
+  if (band == LOD_BAND_NEAR && u.shipsPassActive != 0u) {
+    if (u.requireSystemScene == 0u || (f.flags & FLEET_FLAG_SYSTEM_SCENE) != 0u) {
+      return;
+    }
   }
 
   let dom = dominantFromPacked(f.countsPacked);
-  // MID and FAR share the same screen-space icon size (ICON_SCREEN_PX, pad=1).
-  // Difference is trails (MID may keep a trace; FAR has no trail) — not scale.
-  if (band == LOD_BAND_FAR || band == LOD_BAND_MID) {
-    // Origin-relative proxy (triangle VS treats instance pos as origin-relative).
-    writeLodProxy(
-      base,
-      N,
-      f.posX - u.origin.x,
-      f.posZ - u.origin.z,
-      ICON_SCREEN_PX,
-      dom.y,
-      dom.z,
-      dom.w,
-      1.0,
-    );
-    return;
-  }
+  // MID/FAR (and NEAR without a ships pass) share ICON_SCREEN_PX + pad=1.
+  writeLodProxy(
+    base,
+    N,
+    f.posX - u.origin.x,
+    f.posZ - u.origin.z,
+    ICON_SCREEN_PX,
+    dom.y,
+    dom.z,
+    dom.w,
+    1.0,
+  );
 }
 
 /**
- * Pass B — one thread per ship index 0..shipCount-1.
+ * Pass B — one thread per ship (high-water gid.x, or compact worklist[gid]).
  * Fleet pass must run first. GPU LOD:
  *   NEAR — agent + multi-ship draw + trails
  *   MID  — lead-only agent + lead trail (non-leads freeze, size 0)
  *   FAR  — no agent; icon from cs_fleets
  * Off-screen / soft nearDist demote to MID via classifyLodBand.
+ * Product compact: compactCount>0 → simIdx = worklist[gid] (SCENE bit 7).
+ * forceLodNear: compactCount stays 0 → high-water gid.x.
  */
 @compute @workgroup_size(${FLEET_INTEGRATE_WORKGROUP})
 fn cs_ships(@builtin(global_invocation_id) gid3: vec3<u32>) {
-  let simIdx = gid3.x;
-  if (simIdx >= u.shipCount) {
+  var simIdx = gid3.x;
+  let compactN = atomicLoad(&trailDrawMeta[${META.COMPACT_COUNT}u]);
+  if (compactN > 0u) {
+    if (gid3.x >= compactN) {
+      return;
+    }
+    simIdx = atomicLoad(&trailDrawMeta[${META.WORKLIST}u + gid3.x]);
+    if (simIdx >= u.shipCount) {
+      return;
+    }
+  } else if (simIdx >= u.shipCount) {
     return;
   }
 
@@ -2051,6 +2142,11 @@ fn cs_ships(@builtin(global_invocation_id) gid3: vec3<u32>) {
     shipSims[simIdx] = ship;
     return;
   }
+  // WARM hides draw in every band (not only NEAR) so compact / LOD skip
+  // cannot leave the packed formation size visible for 4 frames.
+  if ((f.flags & FLEET_FLAG_WARM) != 0u) {
+    zeroDrawSize(simIdx);
+  }
 
   if (simIdx < f.instanceStart) {
     zeroDrawSize(simIdx);
@@ -2059,7 +2155,7 @@ fn cs_ships(@builtin(global_invocation_id) gid3: vec3<u32>) {
     return;
   }
   let localIndex = simIdx - f.instanceStart;
-  let band = classifyLodBand(u.cameraY, f.posX, f.posZ);
+  let band = agentLodBand(classifyLodBand(u.cameraY, f.posX, f.posZ), f.flags);
 
   if (band == LOD_BAND_FAR) {
     if (localIndex != 0u) {
@@ -2120,7 +2216,7 @@ fn cs_ships(@builtin(global_invocation_id) gid3: vec3<u32>) {
       ship = integrateShipAgent(
         ship, f.pathEndX, f.pathEndZ, pathEndY,
         0.0, 0.0, 0.0, u.dtMs, domainWarpActive, space3d,
-        f.pathStartX, f.pathStartZ, f.durationMs,
+        f.pathStartX, f.pathStartZ, f.durationMs, f.flags,
       );
     }
     if (noTrail) {
@@ -2149,7 +2245,7 @@ fn cs_ships(@builtin(global_invocation_id) gid3: vec3<u32>) {
       ship.posZ = iconZ;
       ship = tryAppendTrail(
         ship, ringBase, distIcon, distIcon > 0.05,
-        f.pathEndX, f.pathEndZ, pathEndY, space3d, instances[o + 7u],
+        f.pathEndX, f.pathEndZ, pathEndY, space3d, instances[o + 7u], f.flags,
       );
       ship.posX = saveX;
       ship.posZ = saveZ;
@@ -2175,7 +2271,7 @@ fn cs_ships(@builtin(global_invocation_id) gid3: vec3<u32>) {
     ship = integrateShipAgent(
       ship, f.pathEndX, f.pathEndZ, pathEndY,
       0.0, 0.0, 0.0, u.dtMs, domainWarpActive, space3d,
-      f.pathStartX, f.pathStartZ, f.durationMs,
+      f.pathStartX, f.pathStartZ, f.durationMs, f.flags,
     );
   }
 
@@ -2183,7 +2279,7 @@ fn cs_ships(@builtin(global_invocation_id) gid3: vec3<u32>) {
   // second origin subtract). Always write draw pose (not only when expandTrails).
   // CIRCULATE: (pathEnd−origin)+local — never materialize absolute then subtract.
   if (ship.mode == SHIP_MODE_ORBIT && !space3d) {
-    let Rdraw = select(ORBIT_R_MIN, ship.orbitR, ship.orbitR > 1e-6);
+    let Rdraw = sceneScaleOrbitR(ship.orbitR, f.flags);
     let local = orbitLocalOffset(Rdraw, ship.orbitPhase);
     instances[o] = (f.pathEndX - u.origin.x) + local.x;
     // Live posY (smooth approach + settled) — matches model reconstruct.
@@ -2200,14 +2296,15 @@ fn cs_ships(@builtin(global_invocation_id) gid3: vec3<u32>) {
     if (warm) {
       instances[o + 7u] = 0.0;
     } else {
-      let pad = instances[o + 11u];
-      let sz = instances[o + 7u];
-      if (pad > 0.5 || sz <= 0.0) {
-        instances[o + 7u] = sizeFromDrawColor(
-          instances[o + 8u], instances[o + 9u], instances[o + 10u],
-        );
-        instances[o + 11u] = 0.0;
+      // Canonical size every NEAR write — never multiply instances[o+7] in place.
+      var sz = sizeFromDrawColor(
+        instances[o + 8u], instances[o + 9u], instances[o + 10u],
+      );
+      if ((f.flags & FLEET_FLAG_SYSTEM_SCENE) != 0u) {
+        sz = sz * SCENE_AGENT_SCALE;
       }
+      instances[o + 7u] = sz;
+      instances[o + 11u] = 0.0;
     }
   }
 
@@ -2226,7 +2323,7 @@ fn cs_ships(@builtin(global_invocation_id) gid3: vec3<u32>) {
     let shipSz = instances[o + 7u];
     ship = tryAppendTrail(
       ship, ringBase, distMoved, trailActive,
-      f.pathEndX, f.pathEndZ, pathEndY, space3d, shipSz,
+      f.pathEndX, f.pathEndZ, pathEndY, space3d, shipSz, f.flags,
     );
   }
   shipSims[simIdx] = ship;
@@ -2241,21 +2338,59 @@ fn cs_ships(@builtin(global_invocation_id) gid3: vec3<u32>) {
 }
 
 /**
- * After cs_ships: pack DrawIndexedIndirectArgs for trail ribbons.
+ * After cs_ships: pack DrawIndexedIndirectArgs for trail ribbons into the
+ * same command table (words 0–4). No binding 7 — write via binding 6.
  * indexCount = TRAIL_TEMPLATE_INDEX_COUNT (body quad: 2 tris), instanceCount = dense * TRAIL_SEGS.
  */
 @compute @workgroup_size(1)
 fn cs_trail_indirect(@builtin(global_invocation_id) gid3: vec3<u32>) {
   if (gid3.x != 0u) { return; }
-  let n = atomicLoad(&trailDrawMeta[0]);
+  let n = atomicLoad(&trailDrawMeta[${META.EXPAND_COUNT}u]);
   let segs = TRAIL_SEGS;
-  // GPUBuffer DrawIndexedIndirect:
+  // GPUBuffer DrawIndexedIndirect at table words 0–4 (binding 7, offset 0):
   //   indexCount, instanceCount, firstIndex, baseVertex, firstInstance
   trailIndirect[0] = ${TRAIL_TEMPLATE_INDEX_COUNT}u; // body-only 2-tri quad
   trailIndirect[1] = n * segs;
   trailIndirect[2] = 0u;
   trailIndirect[3] = 0u; // baseVertex as u32 bitcast of i32 0
   trailIndirect[4] = 0u;
+}
+
+/**
+ * Compact SCENE (bit 7) ships into the command-table worklist.
+ * Walks nFleets only — never a per-system classify array.
+ * Host skip (anyScene==false) must not run this pass.
+ */
+@compute @workgroup_size(${FLEET_INTEGRATE_WORKGROUP})
+fn cs_compact_scene(@builtin(global_invocation_id) gid3: vec3<u32>) {
+  let gid = gid3.x;
+  if (gid >= u.fleetCount) {
+    return;
+  }
+  let f = fleets[gid];
+  if ((f.flags & FLEET_FLAG_SYSTEM_SCENE) == 0u) {
+    return;
+  }
+  let base = f.instanceStart;
+  if (base >= u.shipCount) {
+    return;
+  }
+  var n = f.shipBudget;
+  if (n == 0u) {
+    return;
+  }
+  let maxN = u.shipCount - base;
+  if (n > maxN) {
+    n = maxN;
+  }
+  let cap = atomicLoad(&trailDrawMeta[${META.COMPACT_CAPACITY}u]);
+  let start = atomicAdd(&trailDrawMeta[${META.COMPACT_COUNT}u], n);
+  for (var i = 0u; i < n; i++) {
+    let slot = start + i;
+    if (slot < cap) {
+      atomicStore(&trailDrawMeta[${META.WORKLIST}u + slot], base + i);
+    }
+  }
 }
 
 `;
@@ -2309,7 +2444,11 @@ struct IntegrateUniforms {
   lodNearDist: f32,
   viewCullScale: f32,
   origin: vec3<f32>,
-  _originPad: f32,
+  requireSystemScene: u32,
+  shipsPassActive: u32,
+  _padPass0: u32,
+  _padPass1: u32,
+  _padPass2: u32,
 };
 
 struct FleetGpu {

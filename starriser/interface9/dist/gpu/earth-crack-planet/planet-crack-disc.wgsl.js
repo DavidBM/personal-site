@@ -11,7 +11,7 @@
  */
 import { PLANET_DISC_WGSL } from "../solar-system/planet-disc.wgsl.js";
 import { DIG_HOLE_H_MAX, DIG_UV_H_MAX, DIG_UV_MAX_OFFSET, } from "./crack-ray-math.js";
-import { CRACK_BIN_REFINE, CRACK_CLASSIC_HEIGHT_SCALE, CRACK_CLASSIC_STEPS, CRACK_DEPTH_ALBEDO_FLOOR, CRACK_DEPTH_H_MIN, CRACK_RAY_LOOP_CEIL, CRACK_RAY_STEP, isClassicRayHeightfieldLand, } from "./crack-relief.js";
+import { CRACK_BIN_REFINE, CRACK_CLASSIC_HEIGHT_SCALE, CRACK_CLASSIC_STEPS, CRACK_DIG_LIMB_Z_SOLID, CRACK_MAX_RADIAL_INDENT, CRACK_DEPTH_ALBEDO_FLOOR, CRACK_DEPTH_H_MIN, CRACK_RAY_LOOP_CEIL, CRACK_RAY_STEP, isClassicRayHeightfieldLand, } from "./crack-relief.js";
 export { PLANET_FRAME_UNIFORM_SIZE, PLANET_BODY_UNIFORM_SIZE, PLANET_BODY_UNIFORM_ALIGN, PLANET_KIND_OCEAN, PLANET_EDGE_INNER, PLANET_EDGE_OUTER, ATM_OUTER, } from "../solar-system/planet-disc.wgsl.js";
 /** Markers for smoke — classic land walk + hit/miss transparency + unwarped clouds. */
 export const PLANET_CRACK_DISC_MARKERS = [
@@ -34,6 +34,9 @@ export const PLANET_CRACK_DISC_MARKERS = [
     "CRACK_NO_LIMB_LAND_FILL",
     "CRACK_DIG_ONLY_TRANSPARENCY",
     "CRACK_AZURE_COMPOSITE",
+    "CRACK_DIG_SHELL_CAP",
+    "CRACK_DIG_LIMB_HOLD",
+    "digLimbHold",
     "CRACK_ATM_AZURE",
     "CRACK_ATM_DIG_MUTE",
     "CRACK_LAYER_SEPARATE",
@@ -97,13 +100,19 @@ const CRACK_HEIGHT_SCALE_DEFAULT: f32 = ${CRACK_CLASSIC_HEIGHT_SCALE};
 const CRACK_RAY_STEP: f32 = ${CRACK_RAY_STEP};
 const CRACK_CLASSIC_STEPS: i32 = ${CRACK_CLASSIC_STEPS};
 const CRACK_BIN_REFINE: i32 = ${CRACK_BIN_REFINE};
+// Dig shell never more than this inset — dig stays planet-sized (not nested mini-sphere)
+const CRACK_MAX_RADIAL_INDENT: f32 = ${CRACK_MAX_RADIAL_INDENT};
+const CRACK_DIG_LIMB_Z_SOLID: f32 = ${CRACK_DIG_LIMB_Z_SOLID};
 
 fn crack_sample_h(uv: vec2<f32>) -> f32 {
   return textureSampleLevel(texHeight, samp, uv, 0.0).r;
 }
 
+// CRACK_DIG_SHELL_CAP: dig floor rSurf ≥ 1−maxIndent so dig does not retract
+// before the land limb (uncapped scale made dig disc ~0.8× planet size).
 fn crack_surface_radius(h: f32, heightScale: f32) -> f32 {
-  return 1.0 - (1.0 - h) * heightScale;
+  let indent = (1.0 - h) * heightScale;
+  return 1.0 - min(indent, CRACK_MAX_RADIAL_INDENT);
 }
 
 fn crack_inside_shell_r2(r2: f32, rSurf: f32) -> bool {
@@ -249,18 +258,20 @@ fn ray_heightfield_classic(
     CRACK_CLASSIC_STEPS,
   );
   // CRACK_NO_LIMB_LAND_FILL + CRACK_DIG_ONLY_TRANSPARENCY + CRACK_DIG_FULL_FOOTPRINT:
-  // Dig hole + dig UV use the SAME height band (h < ${digHoleH}) as dig soft on
-  // the land atlas so dig parallax is planet-sized, not a nested smaller sphere.
-  // Pure crust h=1 → solid + geom UV (no inverted limb strip).
+  // Dig hole + dig UV share dig soft band (h < ${digHoleH}). Pure crust h=1 solid.
+  // CRACK_DIG_LIMB_HOLD: near land limb (low zSphere), dig tunnels OFF — graze dig
+  // miss was opening black dig holes that peeled off before the planet edge
+  // (dig looked like a smaller sphere retracting early). Face dig holes stay.
   let digMask = select(0.0, 1.0, hGeom < ${digHoleH});
-  let digHole = digMask;
-  let digUv = digMask;
+  let digLimbHold = select(0.0, 1.0, zSphere < CRACK_DIG_LIMB_Z_SOLID);
+  let digHole = digMask * (1.0 - digLimbHold);
+  let digUv = digMask * (1.0 - digLimbHold);
   let surfHitLand = select(
     1.0,
     select(1.0, rhLand.z, digHole > 0.5),
     uiParallax > 0.5,
   );
-  // CRACK_HIT_LAND_UV + CRACK_GEOM_UV_NON_DIG: hit UV on digMask; geom on crust
+  // CRACK_HIT_LAND_UV + CRACK_GEOM_UV_NON_DIG: hit UV on face dig; geom near limb/crust
   let useHitUv = select(0.0, 1.0, uiParallax > 0.5 && digUv > 0.5 && rhLand.z > 0.5);
   var dUv = rhLand.xy - uvGeom;
   dUv.x = dUv.x - floor(dUv.x + 0.5);

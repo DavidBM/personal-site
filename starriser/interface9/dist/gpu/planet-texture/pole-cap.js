@@ -85,12 +85,15 @@ export function poleProductSide(equirectWidth, _poleSize) {
     return clampPoleCapSide(S);
 }
 /**
- * Build pole RGBA by sampling equirect albedo at the sphere directions
+ * Build pole RGBA by sampling equirect belly at the sphere directions
  * corresponding to each pole-cap texel (with radial alpha).
  * Product side = poleProductSide(bellyW) — poleSize is ignored for size
  * (kept in the signature for call-site compatibility / ice control context).
+ *
+ * Alpha = radial pole mask × belly alpha (opaque albedo A=255 unchanged;
+ * clouds keep coverage A so polar cloud caps soft-fade correctly).
  */
-export function rasterizePoleCap(bellyAlbedo, bellyW, bellyH, poleSize, north, capAngleRad) {
+export function rasterizePoleCap(bellyRgba, bellyW, bellyH, poleSize, north, capAngleRad) {
     // Product always res-scaled (ice footprint is painted on the belly albedo)
     const S = poleProductSide(bellyW, poleSize);
     const angle = capAngleRad != null && Number.isFinite(capAngleRad)
@@ -126,13 +129,28 @@ export function rasterizePoleCap(bellyAlbedo, bellyW, bellyH, poleSize, north, c
             const ex = Math.min(bellyW - 1, Math.max(0, (eu * bellyW) | 0));
             const ey = Math.min(bellyH - 1, Math.max(0, (ev * bellyH) | 0));
             const bi = (ey * bellyW + ex) * 4;
-            rgba[o] = bellyAlbedo[bi];
-            rgba[o + 1] = bellyAlbedo[bi + 1];
-            rgba[o + 2] = bellyAlbedo[bi + 2];
-            rgba[o + 3] = (a * 255 + 0.5) | 0;
+            rgba[o] = bellyRgba[bi];
+            rgba[o + 1] = bellyRgba[bi + 1];
+            rgba[o + 2] = bellyRgba[bi + 2];
+            // Multiply radial fade by belly alpha (cloud coverage / albedo A)
+            const bellyA = (bellyRgba[bi + 3] ?? 255) / 255;
+            rgba[o + 3] = (a * bellyA * 255 + 0.5) | 0;
         }
     }
     return { width: S, height: S, rgba };
+}
+/**
+ * North/south dual-UV cloud caps from equirect cloud belly (A = coverage).
+ * Same geometry as albedo poles so runtime dual-UV stays consistent.
+ */
+export function rasterizeCloudPoleCaps(clouds, poleSize) {
+    if (!clouds || !clouds.rgba || clouds.width < 2 || clouds.height < 1) {
+        return { poleNorth: null, poleSouth: null };
+    }
+    return {
+        poleNorth: rasterizePoleCap(clouds.rgba, clouds.width, clouds.height, poleSize, true),
+        poleSouth: rasterizePoleCap(clouds.rgba, clouds.width, clouds.height, poleSize, false),
+    };
 }
 /**
  * Optional: sample height on pole for consistency checks.

@@ -22,7 +22,7 @@ import { runHydraulicErosion, runThermalErosion } from "./erosion.js";
 import { buildUpliftField, runStreamPowerErosion, } from "./stream-power.js";
 import { generateGasField } from "./gas-flow.js";
 import { carveLavaRiverHeight, generateClouds, liquidKindForClass, paintSurface, softOceanAlbedo, } from "./materials.js";
-import { clampPoleCapSide, rasterizePoleCap } from "./pole-cap.js";
+import { clampPoleCapSide, rasterizePoleCap, rasterizeCloudPoleCaps, } from "./pole-cap.js";
 import { buildPlanetStructure } from "./structure.js";
 import { countLandLocalMaxima, effectiveLayerTally, } from "./density.js";
 import { equirectToDir } from "./sphere-map.js";
@@ -187,6 +187,10 @@ priorStageMs) {
     report("poles", 0.92);
     const poleNorth = rasterizePoleCap(mats.albedo, W, H, params.poleSize, true);
     const poleSouth = rasterizePoleCap(mats.albedo, W, H, params.poleSize, false);
+    const cloudsBuf = cloudRgba
+        ? { width: W, height: H, rgba: cloudRgba }
+        : null;
+    const cloudPoles = rasterizeCloudPoleCaps(cloudsBuf, params.poleSize);
     finish("poles", 0.96);
     const hs = heightStats(height);
     const landPeaks = params.planetClass === "gas"
@@ -204,11 +208,11 @@ priorStageMs) {
         height: { width: W, height: H, rgba: heightRgba },
         normal: { width: W, height: H, rgba: normalRgba },
         liquidMask: { width: W, height: H, rgba: mats.liquidMask },
-        clouds: cloudRgba
-            ? { width: W, height: H, rgba: cloudRgba }
-            : null,
+        clouds: cloudsBuf,
         poleNorth,
         poleSouth,
+        cloudsPoleNorth: cloudPoles.poleNorth,
+        cloudsPoleSouth: cloudPoles.poleSouth,
         stats: {
             liquidFraction: mats.liquidFraction,
             albedoVariance: albedoVariance(mats.albedo),

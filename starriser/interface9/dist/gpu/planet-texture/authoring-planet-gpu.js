@@ -10,7 +10,8 @@ import { mat4CameraRight, mat4CameraUp, mat4LookAt, mat4Perspective, mat4ViewPro
 import { quatFromAxisAngle, quatMul, quatNormalize, quatRotateVec3, } from "../quat.js";
 import { PLANET_ATM_DEFAULTS, } from "../solar-system/planet-atm-params.js";
 import { PLANET_BODY_UNIFORM_SIZE, PLANET_DISC_WGSL, PLANET_FRAME_UNIFORM_SIZE, PLANET_KIND_OCEAN, } from "../solar-system/planet-disc.wgsl.js";
-import { uploadRgbaEquirect, } from "../solar-system/planet-textures.js";
+import { createDummyPoleTexture, createPoleSampler, uploadRgbaEquirect, } from "../solar-system/planet-textures.js";
+import { buildTemperateCityNightRgba } from "./city-lights.js";
 /** Zoom: 1 = default framing; higher = closer (zoom in). Range ~0.35–6. */
 export const AUTHORING_ZOOM_MIN = 0.35;
 export const AUTHORING_ZOOM_MAX = 6;
@@ -89,46 +90,61 @@ export function packBakeCloudsForDiscShader(bakeCloudRgba) {
 }
 /**
  * Night-side emissive equirect for disc shader (texNight × nightAmt).
- * Lava rivers: liquid mask + bright R-dominant albedo → orange/red glow.
- * Non-lava: black (no city lights in authoring preview).
+ * - Lava rivers: liquid mask + bright R-dominant albedo → orange/red glow.
+ * - Temperate: land-only megacity / settlement lights (coast + lowland bias).
+ * - Other classes: black.
  * Pure — callable from smoke without WebGPU.
  */
 export function buildNightEmissiveRgba(set) {
     const W = set.albedo.width;
     const H = set.albedo.height;
-    const out = new Uint8ClampedArray(W * H * 4);
-    if (set.params.liquidKind !== "lava") {
-        // Opaque black (A=255) so sample is defined
-        for (let i = 3; i < out.length; i += 4)
-            out[i] = 255;
+    // Lava keeps dedicated melt emissive (even if class were temperate)
+    if (set.params.liquidKind === "lava") {
+        const out = new Uint8ClampedArray(W * H * 4);
+        const alb = set.albedo.rgba;
+        const liq = set.liquidMask.rgba;
+        for (let i = 0; i < W * H; i++) {
+            const o = i * 4;
+            out[o + 3] = 255;
+            const L = liq[o] / 255;
+            if (L < 0.35)
+                continue;
+            const r = alb[o];
+            const g = alb[o + 1];
+            const b = alb[o + 2];
+            // R-dominant liquid = lava
+            if (r < 80 || r < b + 15)
+                continue;
+            // Soft dark neon in shadow: dimmer + softer than day (not full-bright under night)
+            const k = 0.08 + L * 0.06;
+            out[o] = Math.min(95, Math.round(r * k + 10));
+            out[o + 1] = Math.min(36, Math.round(g * k * 0.35 + 2));
+            out[o + 2] = Math.min(22, Math.round(b * k * 0.18 + 1));
+        }
         return out;
     }
-    const alb = set.albedo.rgba;
-    const liq = set.liquidMask.rgba;
-    for (let i = 0; i < W * H; i++) {
-        const o = i * 4;
-        out[o + 3] = 255;
-        const L = liq[o] / 255;
-        if (L < 0.35)
-            continue;
-        const r = alb[o];
-        const g = alb[o + 1];
-        const b = alb[o + 2];
-        // R-dominant liquid = lava
-        if (r < 80 || r < b + 15)
-            continue;
-        // Soft dark neon in shadow: dimmer + softer than day (not full-bright under night)
-        const k = 0.08 + L * 0.06;
-        out[o] = Math.min(95, Math.round(r * k + 10));
-        out[o + 1] = Math.min(36, Math.round(g * k * 0.35 + 2));
-        out[o + 2] = Math.min(22, Math.round(b * k * 0.18 + 1));
-    }
+    // Temperate city lights (Black Marble–style coastal/lowland settlements)
+    const city = buildTemperateCityNightRgba(set);
+    if (city)
+        return city;
+    // Opaque black (A=255) so sample is defined
+    const out = new Uint8ClampedArray(W * H * 4);
+    for (let i = 3; i < out.length; i += 4)
+        out[i] = 255;
     return out;
+}
+/** Classify night map for upload / nightAmt gating. */
+export function nightEmissiveKind(set) {
+    if (set.params.liquidKind === "lava")
+        return "lava";
+    if (set.params.planetClass === "temperate")
+        return "city";
+    return "black";
 }
 /**
  * In-memory bake → planet disc texture pack (no network).
  * liquidMask → texSpec (ocean/wet); missing clouds → transparent;
- * night = lava emissive map (or black) for night-side rivers.
+ * night = lava emissive or temperate city lights (or black).
  */
 export function uploadBakeTexturePack(device, set) {
     const W = set.albedo.width;
@@ -146,11 +162,18 @@ export function uploadBakeTexturePack(device, set) {
     else {
         cloud = uploadSolid(device, 0, 0, 0, 0, "authoring-cloud-empty");
     }
+    const nightKind = nightEmissiveKind(set);
     const nightRgba = buildNightEmissiveRgba(set);
-    const isLavaNight = set.params.liquidKind === "lava";
-    const night = isLavaNight
-        ? uploadRgbaEquirect(device, W, H, nightRgba, "authoring-night-lava")
-        : uploadSolid(device, 0, 0, 0, 255, "authoring-night-black");
+    const night = nightKind === "black"
+        ? uploadSolid(device, 0, 0, 0, 255, "authoring-night-black")
+        : uploadRgbaEquirect(device, W, H, nightRgba, nightKind === "lava"
+            ? "authoring-night-lava"
+            : "authoring-night-city");
+    const nightUrl = nightKind === "lava"
+        ? "memory:lava-emissive"
+        : nightKind === "city"
+            ? "memory:city-lights"
+            : "memory:black";
     const moon = uploadSolid(device, 80, 80, 80, 255, "authoring-moon-placeholder");
     const sampler = device.createSampler({
         label: "authoring-planet-equirect",
@@ -160,6 +183,20 @@ export function uploadBakeTexturePack(device, set) {
         minFilter: "linear",
         mipmapFilter: "nearest",
     });
+    const poleSampler = createPoleSampler(device, "authoring-pole-clamp");
+    const dummyPole = createDummyPoleTexture(device, "authoring-pole-dummy");
+    const poleNorth = set.poleNorth && set.poleNorth.rgba.length >= 4
+        ? uploadRgbaEquirect(device, set.poleNorth.width, set.poleNorth.height, set.poleNorth.rgba, "authoring-pole-n")
+        : dummyPole;
+    const poleSouth = set.poleSouth && set.poleSouth.rgba.length >= 4
+        ? uploadRgbaEquirect(device, set.poleSouth.width, set.poleSouth.height, set.poleSouth.rgba, "authoring-pole-s")
+        : dummyPole;
+    const cloudPoleNorth = set.cloudsPoleNorth && set.cloudsPoleNorth.rgba.length >= 4
+        ? uploadRgbaEquirect(device, set.cloudsPoleNorth.width, set.cloudsPoleNorth.height, set.cloudsPoleNorth.rgba, "authoring-cloud-pole-n")
+        : dummyPole;
+    const cloudPoleSouth = set.cloudsPoleSouth && set.cloudsPoleSouth.rgba.length >= 4
+        ? uploadRgbaEquirect(device, set.cloudsPoleSouth.width, set.cloudsPoleSouth.height, set.cloudsPoleSouth.rgba, "authoring-cloud-pole-s")
+        : dummyPole;
     return {
         albedo,
         normal,
@@ -168,11 +205,16 @@ export function uploadBakeTexturePack(device, set) {
         cloud,
         moon,
         sampler,
+        poleSampler,
+        poleNorth,
+        poleSouth,
+        cloudPoleNorth,
+        cloudPoleSouth,
         urls: {
             albedo: "memory:bake-albedo",
             normal: "memory:bake-normal",
             spec: "memory:bake-liquid",
-            night: isLavaNight ? "memory:lava-emissive" : "memory:black",
+            night: nightUrl,
             cloud: set.clouds ? "memory:bake-cloud" : "memory:empty",
             moon: "memory:placeholder",
             usedBakedAlbedo: true,
@@ -182,6 +224,7 @@ export function uploadBakeTexturePack(device, set) {
 function destroyPack(pack) {
     if (!pack)
         return;
+    const seen = new Set();
     for (const t of [
         pack.albedo,
         pack.normal,
@@ -189,7 +232,14 @@ function destroyPack(pack) {
         pack.night,
         pack.cloud,
         pack.moon,
+        pack.poleNorth,
+        pack.poleSouth,
+        pack.cloudPoleNorth,
+        pack.cloudPoleSouth,
     ]) {
+        if (seen.has(t))
+            continue;
+        seen.add(t);
         try {
             t.destroy();
         }
@@ -379,6 +429,11 @@ export async function createAuthoringPlanetGpu(canvas, opts) {
             { binding: 6, resource: pack.night.createView() },
             { binding: 7, resource: pack.cloud.createView() },
             { binding: 8, resource: pack.moon.createView() },
+            { binding: 10, resource: pack.poleSampler },
+            { binding: 11, resource: pack.poleNorth.createView() },
+            { binding: 12, resource: pack.poleSouth.createView() },
+            { binding: 13, resource: pack.cloudPoleNorth.createView() },
+            { binding: 14, resource: pack.cloudPoleSouth.createView() },
         ];
         bindGroup = device.createBindGroup({
             label: "authoring-planet-bg",
@@ -479,14 +534,17 @@ export async function createAuthoringPlanetGpu(canvas, opts) {
         bodyCpu[43] = atm.specPower;
         // Bake stamps already store coverage in A — full amount, no dimming filter
         bodyCpu[44] = 1;
-        // nightAmt: 1 when night map has lava emissive (or any night content);
+        // nightAmt: 1 when night map has lava / city lights (or any night content);
         // 0 would force night-side black even with a non-zero night texture.
+        // Disc mixes: lit = mix(nightCol * nightAmt, dayLit, day) — lights only in shadow.
         bodyCpu[45] =
             pack && pack.urls.night && pack.urls.night.includes("lava")
                 ? 1.0
-                : pack && pack.urls.night && pack.urls.night !== "memory:black"
-                    ? 0.85
-                    : 0;
+                : pack && pack.urls.night && pack.urls.night.includes("city")
+                    ? 1.15
+                    : pack && pack.urls.night && pack.urls.night !== "memory:black"
+                        ? 0.85
+                        : 0;
         bodyCpu[46] = atm.normalStrength;
         bodyCpu[47] = screenRpx;
         device.queue.writeBuffer(bodyBuf, 0, bodyCpu);

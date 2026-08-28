@@ -9,8 +9,8 @@
  */
 import { MAP_MSAA_SAMPLES } from "../map-msaa.js";
 import { SOLAR_POINTS_BILLBOARD_WGSL } from "../shaders/solar-points.wgsl.js";
-/** mat4 (64) + 4 f32 (16) + cameraRight vec3+pad (16) + cameraUp vec3+pad (16) */
-const UNIFORM_SIZE = 112;
+/** mat4 (64) + 4 f32 (16) + right (16) + up (16) + origin (16) */
+const UNIFORM_SIZE = 128;
 const FLOATS_PER_INSTANCE = 6; // pos.xyz + color.rgb
 const BYTES_PER_INSTANCE = FLOATS_PER_INSTANCE * 4;
 export class SolarPointGpuLayer {
@@ -174,7 +174,7 @@ export class SolarPointGpuLayer {
      * @param cameraRight world-space unit right (from view matrix row 0)
      * @param cameraUp world-space unit up (from view matrix row 1)
      */
-    encode(pass, viewProj, worldScale, instanceCount, cameraRight, cameraUp) {
+    encode(pass, viewProj, worldScale, instanceCount, cameraRight, cameraUp, origin) {
         if (!this.pipeline || !this.bindGroup || !this.uniformBuffer)
             return;
         if (instanceCount <= 0 || !this.instanceBuffer)
@@ -200,6 +200,10 @@ export class SolarPointGpuLayer {
         this.uniformData[25] = uy;
         this.uniformData[26] = uz;
         this.uniformData[27] = 0;
+        this.uniformData[28] = origin?.x ?? 0;
+        this.uniformData[29] = origin?.y ?? 0;
+        this.uniformData[30] = origin?.z ?? 0;
+        this.uniformData[31] = 0;
         if (!this.uniformHandle) {
             throw new Error("SolarPointGpuLayer: missing uniform buffer handle");
         }

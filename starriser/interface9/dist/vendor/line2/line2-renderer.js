@@ -12,7 +12,7 @@
  */
 import { assertHasPositionsForColors, assertPackedColorLength, assertPackedDistanceLength, clearGeometryFlags, distanceUploadMode, growInstanceCapacity, } from "./line2-attr-state.js";
 import { buildTemplateInterleaved, computeLineDistances, LINE2_COLOR_FLOATS, LINE2_DIST_FLOATS, LINE2_POS_FLOATS, LINE2_TEMPLATE_INDEX_COUNT, LINE2_TEMPLATE_INDICES, packSegmentColors, packSegmentPositions, polylineColorsToSegments, polylineToSegments, } from "./line-geometry.js";
-import { applyMaterialParams, createDefaultMaterialState, LINE2_UNIFORM_FLOATS, LINE2_UNIFORM_SIZE, writeMaterialUniforms, writeMat4, } from "./line2-material.js";
+import { applyMaterialParams, createDefaultMaterialState, LINE2_UNIFORM_FLOATS, LINE2_UNIFORM_SIZE, writeMaterialUniforms, writeMat4, writeOriginUniforms, } from "./line2-material.js";
 import { createLine2Pipeline, } from "./line2-pipeline.js";
 /** Re-export capacity helper (also on `line2-attr-state` / package index). */
 export { ensureSize } from "./line2-attr-state.js";
@@ -50,6 +50,9 @@ export class Line2Renderer {
         this.hasDistances = false;
         this.disposed = false;
         this.uniformsDirty = true;
+        this.originX = 0;
+        this.originY = 0;
+        this.originZ = 0;
         this.device = device;
         this.pipelineOpts = options;
         this.material = createDefaultMaterialState(options.material);
@@ -85,6 +88,7 @@ export class Line2Renderer {
         writeMat4(this.uniformData, 0, IDENTITY16);
         writeMat4(this.uniformData, 16, IDENTITY16);
         writeMaterialUniforms(this.uniformData, this.material);
+        writeOriginUniforms(this.uniformData, 0, 0, 0);
         // Seed empty instance buffers (1 dummy segment) so layout always binds.
         // ensureInstanceBuffers → seedColorsOnly / seedDistancesOnly (hasDistances).
         this.ensureInstanceBuffers(1);
@@ -275,6 +279,23 @@ export class Line2Renderer {
         this.hasDistances = bag.hasDistances;
     }
     /**
+     * Floating origin subtracted in the VS (`instanceStart/End − origin`).
+     * GPU instance positions stay absolute. Default (0,0,0).
+     */
+    setOrigin(x, y, z) {
+        this.assertLive();
+        if (this.originX === x && this.originY === y && this.originZ === z)
+            return;
+        this.originX = x;
+        this.originY = y;
+        this.originZ = z;
+        this.uniformsDirty = true;
+    }
+    /** Last origin written via {@link setOrigin} / {@link writeCamera}. */
+    getOrigin() {
+        return { x: this.originX, y: this.originY, z: this.originZ };
+    }
+    /**
      * Write model-view + projection matrices (column-major).
      * Call once per frame before `encode` (or whenever the camera moves).
      */
@@ -282,15 +303,24 @@ export class Line2Renderer {
         this.assertLive();
         writeMat4(this.uniformData, 0, camera.modelView);
         writeMat4(this.uniformData, 16, camera.projection);
+        if (camera.origin) {
+            this.originX = camera.origin.x;
+            this.originY = camera.origin.y;
+            this.originZ = camera.origin.z;
+        }
         this.uniformsDirty = true;
     }
     /**
      * Convenience: model is identity, `view` is camera view matrix.
      * Equivalent to `writeCamera({ modelView: view, projection })`.
      */
-    writeViewProjection(view, projection) {
+    writeViewProjection(view, projection, origin) {
         this.assertLive();
-        this.writeCamera({ modelView: view, projection: projection });
+        this.writeCamera({
+            modelView: view,
+            projection: projection,
+            origin,
+        });
     }
     /**
      * Upload uniforms if dirty and issue the draw.
@@ -302,6 +332,7 @@ export class Line2Renderer {
             return;
         if (this.uniformsDirty) {
             writeMaterialUniforms(this.uniformData, this.material);
+            writeOriginUniforms(this.uniformData, this.originX, this.originY, this.originZ);
             this.device.queue.writeBuffer(this.uniformBuffer, 0, this.uniformData.buffer, this.uniformData.byteOffset, LINE2_UNIFORM_SIZE);
             this.uniformsDirty = false;
         }

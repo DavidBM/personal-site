@@ -18,14 +18,13 @@ export function mat4Perspective(out, fovyRad, aspect, near, far) {
     return out;
 }
 /**
- * Look-at RH, Y-up — camera at `eye`, looking at `center`.
+ * Camera axes for a RH Y-up look-at (same basis as {@link mat4LookAt}).
+ * `z` is camera back (eye − center); `x` right; `y` camera-up.
  *
- * When the view direction is nearly parallel to world +Y (pure top-down map
- * camera), world-up is unusable and the right-axis cross product vanishes.
- * In that case we fall back to world −Z as the “up” hint so billboard axes
- * stay finite (stable map “north” along −Z).
+ * Pure top-down: |back · worldUp| ≈ 1 → world-up becomes −Z so the
+ * right-axis cross product stays finite (map “north” along −Z).
  */
-export function mat4LookAt(out, eyeX, eyeY, eyeZ, centerX, centerY, centerZ, upX = 0, upY = 1, upZ = 0) {
+export function lookAtAxes(eyeX, eyeY, eyeZ, centerX, centerY, centerZ, upX = 0, upY = 1, upZ = 0) {
     let zx = eyeX - centerX;
     let zy = eyeY - centerY;
     let zz = eyeZ - centerZ;
@@ -33,7 +32,6 @@ export function mat4LookAt(out, eyeX, eyeY, eyeZ, centerX, centerY, centerZ, upX
     zx /= len;
     zy /= len;
     zz /= len;
-    // Pure top-down / bottom-up: |forward · worldUp| ≈ 1 → pick alternate up.
     let ux = upX;
     let uy = upY;
     let uz = upZ;
@@ -52,21 +50,33 @@ export function mat4LookAt(out, eyeX, eyeY, eyeZ, centerX, centerY, centerZ, upX
     const yx = zy * xz - zz * xy;
     const yy = zz * xx - zx * xz;
     const yz = zx * xy - zy * xx;
-    out[0] = xx;
-    out[1] = yx;
-    out[2] = zx;
+    return { xx, xy, xz, yx, yy, yz, zx, zy, zz };
+}
+/**
+ * Look-at RH, Y-up — camera at `eye`, looking at `center`.
+ *
+ * When the view direction is nearly parallel to world +Y (pure top-down map
+ * camera), world-up is unusable and the right-axis cross product vanishes.
+ * In that case we fall back to world −Z as the “up” hint so billboard axes
+ * stay finite (stable map “north” along −Z).
+ */
+export function mat4LookAt(out, eyeX, eyeY, eyeZ, centerX, centerY, centerZ, upX = 0, upY = 1, upZ = 0) {
+    const a = lookAtAxes(eyeX, eyeY, eyeZ, centerX, centerY, centerZ, upX, upY, upZ);
+    out[0] = a.xx;
+    out[1] = a.yx;
+    out[2] = a.zx;
     out[3] = 0;
-    out[4] = xy;
-    out[5] = yy;
-    out[6] = zy;
+    out[4] = a.xy;
+    out[5] = a.yy;
+    out[6] = a.zy;
     out[7] = 0;
-    out[8] = xz;
-    out[9] = yz;
-    out[10] = zz;
+    out[8] = a.xz;
+    out[9] = a.yz;
+    out[10] = a.zz;
     out[11] = 0;
-    out[12] = -(xx * eyeX + xy * eyeY + xz * eyeZ);
-    out[13] = -(yx * eyeX + yy * eyeY + yz * eyeZ);
-    out[14] = -(zx * eyeX + zy * eyeY + zz * eyeZ);
+    out[12] = -(a.xx * eyeX + a.xy * eyeY + a.xz * eyeZ);
+    out[13] = -(a.yx * eyeX + a.yy * eyeY + a.yz * eyeZ);
+    out[14] = -(a.zx * eyeX + a.zy * eyeY + a.zz * eyeZ);
     out[15] = 1;
     return out;
 }

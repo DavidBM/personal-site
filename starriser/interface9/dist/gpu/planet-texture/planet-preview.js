@@ -54,6 +54,7 @@ export function rasterizePlanetPreview(mapsOrAlbedo, opts = {}) {
     // Bake cloud map already holds stamp alpha; use full amount (no extra whitening filter)
     const cloudAmt = opts.cloudAmount ?? 1;
     const cloudUOff = opts.cloudUOffset ?? 0;
+    const nightAmt = opts.nightAmount ?? 1;
     const atmP = { ...PLANET_ATM_DEFAULTS, ...opts.atm };
     const camDist = atmP.camDist;
     const rInner = atmP.rInner;
@@ -79,11 +80,13 @@ export function rasterizePlanetPreview(mapsOrAlbedo, opts = {}) {
     const normal = maps.normal ?? null;
     const liquid = maps.liquidMask ?? null;
     const clouds = maps.clouds ?? null;
+    const nightMap = maps.night ?? null;
     const rgba = new Uint8ClampedArray(size * size * 4);
     const sample = [0, 0, 0, 0];
     const nSample = [0, 0, 0, 0];
     const lSample = [0, 0, 0, 0];
     const cSample = [0, 0, 0, 0];
+    const nightSample = [0, 0, 0, 0];
     let discCount = 0;
     let minL = Infinity;
     let maxL = -Infinity;
@@ -234,18 +237,18 @@ export function rasterizePlanetPreview(mapsOrAlbedo, opts = {}) {
             let r;
             let g;
             let b;
+            // dayAmt ∈ [0,1] — used for night-map mix (city lights only in shadow)
+            let dayAmt = (dayTerm - ambient) / Math.max(1e-4, day);
+            if (dayAmt < 0)
+                dayAmt = 0;
+            if (dayAmt > 1)
+                dayAmt = 1;
+            dayAmt = dayAmt * dayAmt * (3 - 2 * dayAmt);
             if (isLavaLiq) {
                 const sr = sample[0] / 255;
                 const sg = sample[1] / 255;
                 const sb = sample[2] / 255;
-                // dayTerm ∈ ~[ambient, ambient+day]; smooth penumbra (not hard on/off)
-                let dayAmt = (dayTerm - ambient) / Math.max(1e-4, day);
-                if (dayAmt < 0)
-                    dayAmt = 0;
-                if (dayAmt > 1)
-                    dayAmt = 1;
                 // Smoothstep softens terminator; night floor ~0.10 of albedo
-                dayAmt = dayAmt * dayAmt * (3 - 2 * dayAmt);
                 const nightFloor = 0.1;
                 const term = nightFloor + dayAmt * (1 - nightFloor);
                 r = sr * texI * term;
@@ -260,6 +263,19 @@ export function rasterizePlanetPreview(mapsOrAlbedo, opts = {}) {
                 r += spec;
                 g += spec;
                 b += spec;
+            }
+            // Night emissive (city lights / extra lava map): only on night side
+            // disc-style: lit = mix(night * nightAmt, dayLit, day)
+            if (nightMap && nightAmt > 0.01) {
+                sampleEquirectRgba(nightMap.rgba, nightMap.width, nightMap.height, u, v, nightSample);
+                const nr = (nightSample[0] / 255) * nightAmt;
+                const ng = (nightSample[1] / 255) * nightAmt;
+                const nb = (nightSample[2] / 255) * nightAmt;
+                if (nr + ng + nb > 0.002) {
+                    r = nr * (1 - dayAmt) + r * dayAmt;
+                    g = ng * (1 - dayAmt) + g * dayAmt;
+                    b = nb * (1 - dayAmt) + b * dayAmt;
+                }
             }
             // Clouds: straight-alpha over with stamp RGB; optional U drift over land.
             if (clouds && cloudAmt > 0.01) {

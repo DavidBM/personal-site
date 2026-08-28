@@ -34,11 +34,13 @@ import {
 
 import {
   LINE2_UNIFORM_FLOATS,
+  LINE2_UNIFORM_ORIGIN_FLOAT,
   LINE2_UNIFORM_SIZE,
   applyMaterialParams,
   createDefaultMaterialState,
   writeMaterialUniforms,
   writeMat4,
+  writeOriginUniforms,
 } from "../../../../dist/vendor/line2/line2-material.js";
 
 import { ensureSize } from "../../../../dist/vendor/line2/line2-attr-state.js";
@@ -410,10 +412,14 @@ export function runGeometryMaterialTests(opts = {}) {
 
   // ── Uniform layout constants (float 38 = linewidth, …) ───────────────────
   {
-    assert(LINE2_UNIFORM_SIZE === 192, "LINE2_UNIFORM_SIZE === 192 bytes");
+    assert(LINE2_UNIFORM_SIZE === 208, "LINE2_UNIFORM_SIZE === 208 bytes");
     assert(
-      LINE2_UNIFORM_FLOATS === 48,
-      "LINE2_UNIFORM_FLOATS === 48 (192/4)",
+      LINE2_UNIFORM_FLOATS === 52,
+      "LINE2_UNIFORM_FLOATS === 52 (208/4)",
+    );
+    assert(
+      LINE2_UNIFORM_ORIGIN_FLOAT === 48,
+      "LINE2_UNIFORM_ORIGIN_FLOAT === 48 (byte 192)",
     );
     assert(
       LINE2_UNIFORM_SIZE % 16 === 0,
@@ -468,6 +474,22 @@ export function runGeometryMaterialTests(opts = {}) {
     const dstOff = new Float32Array(LINE2_UNIFORM_FLOATS);
     writeMaterialUniforms(dstOff, noCap);
     assert(dstOff[47] === 0, "uniform[47] endcaps = 0 when disabled");
+
+    // Origin slot is not material — writeMaterialUniforms must not clobber it
+    dst[LINE2_UNIFORM_ORIGIN_FLOAT] = -999;
+    dst[LINE2_UNIFORM_ORIGIN_FLOAT + 1] = -999;
+    dst[LINE2_UNIFORM_ORIGIN_FLOAT + 2] = -999;
+    writeMaterialUniforms(dst, state);
+    assert(
+      dst[LINE2_UNIFORM_ORIGIN_FLOAT] === -999 &&
+        dst[LINE2_UNIFORM_ORIGIN_FLOAT + 2] === -999,
+      "writeMaterialUniforms does not clobber origin slot",
+    );
+    writeOriginUniforms(dst, 1e5, 40, -2e5);
+    assert(
+      dst[48] === 1e5 && dst[49] === 40 && dst[50] === -2e5 && dst[51] === 0,
+      "writeOriginUniforms writes floats 48–50, pad 51",
+    );
 
     // Defaults
     const def = createDefaultMaterialState();

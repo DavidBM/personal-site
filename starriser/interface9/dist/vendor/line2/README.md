@@ -200,11 +200,13 @@ Zero-length segments still draw a stable stub rather than disappearing.
 
 Draw: `drawIndexed(18, segmentCount)`.
 
-### Uniforms (192 bytes)
+### Uniforms (208 bytes)
 
-`modelView`, `projection`, `color.rgba`, `resolution`, `linewidth`, dash fields, feature flags (`worldUnits`, `dashed`, `softAA`, `vertexColors`).
+`modelView`, `projection`, `color.rgba`, `resolution`, `linewidth`, dash fields, feature flags (`worldUnits`, `dashed`, `softAA`, `vertexColors`, `endcaps`), **`origin.xyz`** (VS subtract; GPU instance positions stay absolute).
 
 Matrices are **column-major** `mat4x4<f32>` — compatible with `js/gpu/math/mat4.ts`.
+
+Topology connections pass `viewRel` + `origin` each frame (`Line2Renderer.setOrigin` / `writeViewProjection`). Overlay Line2 (dozens of segs) may still CPU-shift and leave origin at 0.
 
 ---
 
@@ -229,7 +231,7 @@ Low-level pieces (`createLine2Pipeline`, `LINE2_WGSL`, packing helpers) are expo
 
 - Prefer this for **screen-space thick** rings, handles, selection outlines — **not** high-N fleet trails (those stay GPU line-list).
 - **Overlay budgets:** ~48 segs/ring, few polylines, total ~≤256 segs common-case; do not Line2 fleet trails at any scale (see §3 and [`VISUAL-REVIEW.md`](./VISUAL-REVIEW.md#recommended-budgets-for-galaxy)).
-- Topology connections are wired via `ConnectionLineGpuLayer` (Line2); fleet trails stay thin `line-list`.
+- Topology connections are wired via `ConnectionLineGpuLayer` (Line2, absolute GPU pos + origin uniform); fleet trails stay thin `line-list`.
 - Keep workers free of this module (GPU main-thread only).
 - Build: files live under `js/**/*.ts` and compile with `./build.sh`.
 

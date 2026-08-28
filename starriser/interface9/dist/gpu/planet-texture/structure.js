@@ -79,7 +79,10 @@ export function targetLandFractionForParams(params) {
         t = Math.min(Math.max(t, 0.28), 0.55);
     }
     else if (cls === "ice") {
-        t = Math.max(t, 0.36);
+        // Frozen temperate: same land-share band as Earth-like continents
+        const nudge = (0.5 - params.liquidLevel) * 0.28;
+        t = 0.45 + nudge;
+        t = Math.min(Math.max(t, 0.34), 0.56);
     }
     else if (cls === "exotic") {
         t = clamp01(t * 0.95);
@@ -1034,7 +1037,9 @@ export function buildPlanetStructure(params, width, height) {
     // Temperate: a few closed inland lakes (not rivers). Ocean/rocky fill all.
     const keepLakes = cls === "temperate" ? 6 : 0;
     const { landMask, continentId } = buildLandMask(W, H, contSeeds, targetLand, seed, params.continentScale, params.warp, keepLakes);
-    // Plate-boundary mountain mask
+    // Plate-boundary mountain mask (nearest-plate Voronoi edges on the sphere).
+    // Raw edges look like straight cell walls in height/normals — keep edge cue
+    // softer and multi-blur so chains read as ridges, not wireframe plates.
     const mountain = new Float32Array(n);
     for (let y = 1; y < H - 1; y++) {
         for (let x = 0; x < W; x++) {
@@ -1051,15 +1056,26 @@ export function buildPlanetStructure(params, width, height) {
                 edge++;
             if (plateId[(y + 1) * W + x] !== p)
                 edge++;
-            // Continent interior ridges: secondary field from seed hash
+            // Diagonal neighbors: thicker, less “pixel wire” plate boundaries
+            if (plateId[(y - 1) * W + xl] !== p)
+                edge += 0.5;
+            if (plateId[(y - 1) * W + xr] !== p)
+                edge += 0.5;
+            if (plateId[(y + 1) * W + xl] !== p)
+                edge += 0.5;
+            if (plateId[(y + 1) * W + xr] !== p)
+                edge += 0.5;
+            // Continent interior ridges: organic FBM (not only plate walls)
             const d = equirectToDir((x + 0.5) / W, (y + 0.5) / H);
-            const ridge = Math.abs(Math.sin(d.x * 5.5 + d.z * 3.2 + seed * 0.0007) *
-                Math.cos(d.y * 6.1 - d.x * 2.4)) *
-                Math.abs(Math.sin(d.z * 9.0 + d.y * 4.0));
-            let m = clamp01(edge * 0.35 + ridge * 0.55);
+            const ridge = ridged3(d.x, d.y, d.z, seed + 703, 4, 3.2) * 0.55 +
+                ridged3(d.x, d.y, d.z, seed + 713, 3, 6.5) * 0.35 +
+                Math.abs(Math.sin(d.x * 5.5 + d.z * 3.2 + seed * 0.0007) *
+                    Math.cos(d.y * 6.1 - d.x * 2.4)) *
+                    0.25;
+            // Weaker edge weight so Voronoi lines don't dominate height/normals
+            let m = clamp01(edge * 0.12 + ridge * 0.72);
             if (landMask[i]) {
-                // Stronger mountains on land plate edges
-                m = clamp01(m + edge * 0.25);
+                m = clamp01(m + edge * 0.1);
             }
             else {
                 m *= 0.35; // mid-ocean ridges lighter
@@ -1067,22 +1083,31 @@ export function buildPlanetStructure(params, width, height) {
             mountain[i] = m;
         }
     }
-    // Blur mountain slightly
+    // Multi-pass blur — dissolves sharp plate-edge polylines into mountain belts
     const mtnBlur = new Float32Array(n);
-    for (let y = 1; y < H - 1; y++) {
-        for (let x = 0; x < W; x++) {
-            const i = y * W + x;
-            const xl = (x - 1 + W) % W;
-            const xr = (x + 1) % W;
-            mtnBlur[i] =
-                (mountain[i] +
-                    mountain[y * W + xl] +
-                    mountain[y * W + xr] +
-                    mountain[(y - 1) * W + x] +
-                    mountain[(y + 1) * W + x]) /
-                    5;
+    const blurPass = (src, dst) => {
+        for (let y = 1; y < H - 1; y++) {
+            for (let x = 0; x < W; x++) {
+                const i = y * W + x;
+                const xl = (x - 1 + W) % W;
+                const xr = (x + 1) % W;
+                dst[i] =
+                    (src[i] * 4 +
+                        src[y * W + xl] +
+                        src[y * W + xr] +
+                        src[(y - 1) * W + x] +
+                        src[(y + 1) * W + x] +
+                        src[(y - 1) * W + xl] +
+                        src[(y - 1) * W + xr] +
+                        src[(y + 1) * W + xl] +
+                        src[(y + 1) * W + xr]) /
+                        12;
+            }
         }
-    }
+    };
+    blurPass(mountain, mtnBlur);
+    blurPass(mtnBlur, mountain);
+    blurPass(mountain, mtnBlur);
     mountain.set(mtnBlur);
     // Distance fields
     const distToOcean = equirectDistanceField(landMask, W, H, false); // 0 on land? wait

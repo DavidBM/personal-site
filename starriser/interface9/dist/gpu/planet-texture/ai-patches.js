@@ -13,7 +13,7 @@
  * Planner defaults: each sourceIndex ≤1 per plan; same-role stamps pack without
  * substantial angular overlap; count is capped by bank size (no silent reuse).
  */
-import { rasterizePoleCap } from "./pole-cap.js";
+import { rasterizePoleCap, rasterizeCloudPoleCaps } from "./pole-cap.js";
 import { fbm3, ridged3 } from "./noise.js";
 import { dirToEquirect, equirectToDir } from "./sphere-map.js";
 function clamp01(x) {
@@ -22,6 +22,14 @@ function clamp01(x) {
 /** Relative luminance (Rec. 709), channels in [0,1]. */
 function luma01(r, g, b) {
     return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+/** Desaturate toward luma (sat=1 full color, sat=0 grey). */
+export function desaturateStampRgb(r, g, b, sat) {
+    const s = clamp01(sat);
+    if (s >= 0.999)
+        return [r, g, b];
+    const y = luma01(r, g, b);
+    return [y + (r - y) * s, y + (g - y) * s, y + (b - y) * s];
 }
 /**
  * Pull cool/blue stamp RGB into warm basalt / ash / ejecta range for lava worlds.
@@ -336,6 +344,50 @@ export const GAS_STAMP_MAX_ABS_Y = 0.8192; // sin(55°)
 export const STAMP_OVERLAP_MARGIN = 1.05;
 /** Land texture/feature soft packing — a little overlap, not full stack. */
 export const LAND_SOFT_OVERLAP_MARGIN = 0.88;
+function clamp01Local(x) {
+    return x < 0 ? 0 : x > 1 ? 1 : x;
+}
+function smoothstepLocal(e0, e1, x) {
+    const t = Math.max(0, Math.min(1, (x - e0) / Math.max(1e-8, e1 - e0)));
+    return t * t * (3 - 2 * t);
+}
+/**
+ * Land elev above sea ∈ [0,1], or −1 if ocean / missing height.
+ * Pure sampler for plan elevPrefer + stamp elevWeight.
+ */
+export function sampleLandElevAboveSea(u, v, heightRgba, width, height, seaLevel) {
+    if (width < 1 || height < 1)
+        return -1;
+    let uu = u - Math.floor(u);
+    if (uu < 0)
+        uu += 1;
+    const vv = clamp01Local(v);
+    const x = Math.min(width - 1, Math.max(0, Math.floor(uu * width)));
+    const y = Math.min(height - 1, Math.max(0, Math.floor(vv * height)));
+    const h = (heightRgba[(y * width + x) * 4] ?? 0) / 255;
+    const sea = clamp01Local(seaLevel);
+    if (h <= sea)
+        return -1;
+    return clamp01Local((h - sea) / Math.max(1e-4, 1 - sea));
+}
+/** Accept probability for elevPrefer at a land elev [0,1]. */
+export function elevPreferAccept(elev, prefer) {
+    const e = clamp01Local(elev);
+    if (prefer === "high") {
+        // Peaks/plateaus: weak on lowland, strong on high elev
+        return 0.06 + 0.94 * smoothstepLocal(0.22, 0.72, e);
+    }
+    // Low-mid land (green/desert belts): strong on lowland, weak on peaks
+    return 0.06 + 0.94 * (1 - smoothstepLocal(0.18, 0.58, e));
+}
+/** Per-pixel stamp strength scale for elevWeight. */
+export function elevWeightAt(elev, weight) {
+    const e = clamp01Local(elev);
+    if (weight === "high") {
+        return 0.1 + 0.9 * smoothstepLocal(0.2, 0.68, e);
+    }
+    return 0.1 + 0.9 * (1 - smoothstepLocal(0.2, 0.55, e));
+}
 /**
  * Seeded multi-source clusters: each cluster places 2–N stamps of different
  * bank plates that intentionally overlap so they composite into larger terrain
@@ -367,6 +419,11 @@ export function planCompositeAiPatches(seed, clusterCount, sourceCount, opts = {
         nonOverlap: opts.nonOverlap !== false,
         overlapMargin: opts.overlapMargin,
         occupiedStamps: opts.occupiedStamps,
+        elevPrefer: opts.elevPrefer,
+        heightRgba: opts.heightRgba,
+        heightWidth: opts.heightWidth,
+        heightHeight: opts.heightHeight,
+        seaLevel: opts.seaLevel,
     });
     if (!anchors.length)
         return [];
@@ -512,9 +569,19 @@ export function planAiPatches(seed, count, sourceCount, opts = {}) {
         angRadii.push(Math.max(0.008, o.radiusFrac * Math.PI));
     }
     const occCount = centers.length;
-    // Extra attempts when packing rejects (non-overlap + polar gate + occupied)
+    // Elev bias (terrain-features → high; colorized geology → low)
+    const elevPrefer = opts.elevPrefer;
+    const hRgba = opts.heightRgba;
+    const hW = opts.heightWidth ?? 0;
+    const hH = opts.heightHeight ?? 0;
+    const sea = opts.seaLevel ?? 0.5;
+    const useElev = (elevPrefer === "high" || elevPrefer === "low") &&
+        hRgba &&
+        hW > 0 &&
+        hH > 0;
+    // Extra attempts when packing rejects (non-overlap + polar + elev + occupied)
     // Dense land packs (texture×3+) need a large candidate pool
-    const maxAttempts = Math.max(128, n * 128 + occCount * 16);
+    const maxAttempts = Math.max(160, n * (useElev ? 200 : 128) + occCount * 16);
     let attempts = 0;
     while (out.length < n && attempts < maxAttempts) {
         attempts++;
@@ -547,6 +614,14 @@ export function planAiPatches(seed, count, sourceCount, opts = {}) {
         }
         else {
             sourceIndex = Math.floor(rnd() * nSrc) % nSrc;
+        }
+        // Elev preference: reject ocean; bias high vs low land
+        if (useElev && elevPrefer && hRgba) {
+            const elev = sampleLandElevAboveSea(u, v, hRgba, hW, hH, sea);
+            if (elev < 0)
+                continue;
+            if (rnd() > elevPreferAccept(elev, elevPrefer))
+                continue;
         }
         const angR = Math.max(0.008, radiusFrac * Math.PI);
         const center = equirectToDir(u, v);
@@ -768,11 +843,18 @@ export function stampAiPatches(set, sources, stamps, opts = {}) {
         : -1; // sentinel → kind default
     const protectSnow = opts.protectSnow !== false;
     const warmOnly = opts.warmOnly === true;
+    const stampSat = opts.stampSaturation !== undefined && Number.isFinite(opts.stampSaturation)
+        ? clamp01(opts.stampSaturation)
+        : 1;
+    const elevWeight = opts.elevWeight;
+    const useElevW = elevWeight === "high" || elevWeight === "low";
+    const sea = clamp01(set.params.liquidLevel);
     const W = set.albedo.width;
     const H = set.albedo.height;
     const rgba = set.albedo.rgba;
     const nrm = set.normal.rgba;
     const liq = set.liquidMask.rgba;
+    const heightRgba = set.height.rgba;
     const used = new Set();
     const sample = [0, 0, 0, 0];
     const pn = [0, 0, 1];
@@ -835,9 +917,16 @@ export function stampAiPatches(set, sources, stamps, opts = {}) {
                 const srcA = sample[3] < 0.98 ? sample[3] : 1;
                 if (srcA < 0.02)
                     continue;
+                // Elev weight: TF stronger on peaks; colorized geology on low-mid land
+                let elevW = 1;
+                if (useElevW && elevWeight) {
+                    const hh = (heightRgba[o] ?? 0) / 255;
+                    const elev = hh <= sea ? 0 : clamp01((hh - sea) / Math.max(1e-4, 1 - sea));
+                    elevW = elevWeightAt(elev, elevWeight);
+                }
                 // Full cover weight (no extra 0.9) for normals — albedo keeps 0.9 so
                 // color stamps stay slightly softer than relief (visibility priority).
-                const cover = edgeA * st.strength * baseStr * srcA;
+                const cover = edgeA * st.strength * baseStr * srcA * elevW;
                 if (cover <= 1e-5)
                     continue;
                 // Full cover for albedo structure (was *0.9 soft attenuation that washed stamps)
@@ -854,6 +943,12 @@ export function stampAiPatches(set, sources, stamps, opts = {}) {
                             sr = w[0];
                             sg = w[1];
                             sb = w[2];
+                        }
+                        if (stampSat < 0.999) {
+                            const d = desaturateStampRgb(sr, sg, sb, stampSat);
+                            sr = d[0];
+                            sg = d[1];
+                            sb = d[2];
                         }
                         const tint = tintOpt >= 0
                             ? tintOpt
@@ -956,6 +1051,10 @@ export function refreshPolesFromAlbedo(set) {
     const H = set.albedo.height;
     set.poleNorth = rasterizePoleCap(set.albedo.rgba, W, H, set.params.poleSize, true);
     set.poleSouth = rasterizePoleCap(set.albedo.rgba, W, H, set.params.poleSize, false);
+    // Keep cloud dual-UV poles in sync when clouds exist
+    const cp = rasterizeCloudPoleCaps(set.clouds, set.params.poleSize);
+    set.cloudsPoleNorth = cp.poleNorth;
+    set.cloudsPoleSouth = cp.poleSouth;
 }
 /**
  * Scale stamp counts for resolution so high-res bakes stay interactive.

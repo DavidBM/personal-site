@@ -151,7 +151,8 @@ export function maxAdjacentHeightJump(u0, v0, u1, v1, steps = 128, widthScale = 
 }
 /**
  * Planet-disc `sphereToUv` inverse: equirect UV → unit direction.
- * Must match `planet-disc.wgsl.ts` sphereToUv (lon=atan2(x,z), v=0.5−lat/π).
+ * Must match `planet-disc.wgsl.ts` sphereToUv / sphere-map dirToEquirect
+ * (lon=atan2(z,x), v=0.5−lat/π).
  */
 export function planetDiscUvToDir(u, v, out = new Float32Array(3)) {
     const uu = ((u % 1) + 1) % 1;
@@ -159,9 +160,9 @@ export function planetDiscUvToDir(u, v, out = new Float32Array(3)) {
     const lon = (uu - 0.5) * Math.PI * 2;
     const lat = (0.5 - vv) * Math.PI;
     const cl = Math.cos(lat);
-    out[0] = cl * Math.sin(lon);
+    out[0] = cl * Math.cos(lon);
     out[1] = Math.sin(lat);
-    out[2] = cl * Math.cos(lon);
+    out[2] = cl * Math.sin(lon);
     return out;
 }
 /**

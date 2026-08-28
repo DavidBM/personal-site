@@ -14,13 +14,14 @@ export { equirectToDir, dirToEquirect, poleUvToDir, poleAlpha, sampleEquirectRgb
 export { encodePngRgba, isPngMagic, PNG_MAGIC_HEX } from "./encode-png.js";
 export { analyzeAlbedoQuality, analyzeMinimapAntiPatterns, meanRgbDistance, } from "./quality.js";
 export { rasterizePlanetPreview, hashPreviewRgba, previewLightDir, } from "./planet-preview.js";
-export { createAuthoringPlanetGpu, isAuthoringPlanetGpuAvailable, uploadBakeTexturePack, packBakeCloudsForDiscShader, buildNightEmissiveRgba, clampAuthoringZoom, AUTHORING_ZOOM_MIN, AUTHORING_ZOOM_MAX, trackballOrient, trackballLightDir, orientationFromYawPitch, lightDirFromAngles, defaultAuthoringOrientation, defaultAuthoringLightDir, } from "./authoring-planet-gpu.js";
+export { createAuthoringPlanetGpu, isAuthoringPlanetGpuAvailable, uploadBakeTexturePack, packBakeCloudsForDiscShader, buildNightEmissiveRgba, nightEmissiveKind, clampAuthoringZoom, AUTHORING_ZOOM_MIN, AUTHORING_ZOOM_MAX, trackballOrient, trackballLightDir, orientationFromYawPitch, lightDirFromAngles, defaultAuthoringOrientation, defaultAuthoringLightDir, } from "./authoring-planet-gpu.js";
+export { buildTemperateSettlementIntensity, buildTemperateCityNightRgba, colorizeCityNightRgba, } from "./city-lights.js";
 export { countLandLocalMaxima, countLandLocalMaximaRgba, effectiveLayerTally, layerStackDescription, } from "./density.js";
 export { PLANET_HEIGHT_LAYER_STACK, generateBaseHeight, reinjectPeakDetail, sampleTectonicControls, sampleHeightAtDir, sampleMicroReliefAtDir, } from "./heightfield.js";
 export { generateGasField, generateGasVelocityField, advectAlbedoByGasVelocity, } from "./gas-flow.js";
 export { buildPlanetStructure, buildStructureMapsForBake, structureBakeResolution, upsampleLandMask, upsampleLandMaskSmooth, upsampleLandMaskNearest, upsampleFloatField, structureMetrics, continentTopologyMetrics, continentShapeMetrics, isoperimetricCircularity, targetLandFractionForParams, farthestPointSphereSeeds, absorbTrappedSeas, countLandComponents, removeMicroLandComponents, morphologyCloseLand, equirectDistanceField, } from "./structure.js";
 export { priorityFloodFill, accumulateFlowD8, runPriorityFloodDrainage, measureMaxLandFlow, carveWithFlow, } from "./drainage.js";
-export { sampleClimateDrivers, classifyClimate, climateClassColor, softBiomeColor, scalePoleLatThresh, ClimateClass, CLIMATE_CLASS_COUNT, PureBiome, PURE_BIOME_DEBUG_RGB, PURE_BIOME_LABELS, renderPureBiomeSplitMap, } from "./climate.js";
+export { sampleClimateDrivers, classifyClimate, climateClassColor, softBiomeColor, scalePoleLatThresh, ClimateClass, CLIMATE_CLASS_COUNT, PureBiome, PURE_BIOME_DEBUG_RGB, PURE_BIOME_LABELS, renderPureBiomeSplitMap, renderLandHeightHeatmap, } from "./climate.js";
 export { validateEquirectAlbedo, applyImportedAlbedo, applyImportedHeight, syntheticSeamlessEquirect, syntheticBrokenSeamEquirect, } from "./equirect-import.js";
 export { streamPowerPass, runStreamPowerErosion, runStreamPowerErosionLegacy, buildUpliftField, } from "./stream-power.js";
 export { hybridMixAlbedo, hybridReplaceAlbedo, prepareAiEquirect, softFixEquirectSeam, resizeRgbaNearest, } from "./hybrid-mix.js";
@@ -31,8 +32,9 @@ export { buildLandWindField, sampleWindField, pickCloudCategoryFromWind, longSta
 export { softCoastFilter, pullCoastHeightsTowardSea, coastSpikeRatio, heightToNormalMap, flattenLiquidNormals, enforceStructureLandMask, } from "./heightfield.js";
 export { softOceanAlbedo, oceanNeighborAbs, } from "./materials.js";
 export { sampleOceanBathymetry3d, oceanHeightFromShallow, oceanPaintDepth, polarSafeShelfCue, } from "./ocean-bathymetry.js";
-export { rasterizePoleCap, defaultPoleSizeForResolution, clampPoleCapSide, poleIceExtentScale, poleCapAngleRad, poleProductSide, POLE_CAP_MAX_SIDE, POLE_CAP_MIN_SIDE, DEFAULT_POLE_SIZE, DEFAULT_POLE_CAP_ANGLE_RAD, } from "./pole-cap.js";
+export { rasterizePoleCap, rasterizeCloudPoleCaps, defaultPoleSizeForResolution, clampPoleCapSide, poleIceExtentScale, poleCapAngleRad, poleProductSide, POLE_CAP_MAX_SIDE, POLE_CAP_MIN_SIDE, DEFAULT_POLE_SIZE, DEFAULT_POLE_CAP_ANGLE_RAD, } from "./pole-cap.js";
 export { paramsToQuery, paramsFromQuery } from "./url-state.js";
+export { loadImageRgba, loadProductFinishBanks, finishPlanetProduct, attachBiomeIntermediates, rasterizeExtraPoleProducts, downsampleRgba, } from "./product-finish.js";
 export const LIGHTBOX_SCALE_MIN = 0.5;
 export const LIGHTBOX_SCALE_MAX = 24;
 export function clampLightboxScale(s) {

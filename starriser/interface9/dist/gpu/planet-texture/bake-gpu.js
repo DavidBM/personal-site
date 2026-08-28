@@ -28,7 +28,7 @@ import { PLANET_FULL_HEIGHT_WGSL } from "./shaders/planet-full-height.wgsl.js";
 import { PLANET_FULL_BAKE_TERRAIN_WGSL, PLANET_FULL_BAKE_PRODUCT_WGSL, PLANET_FULL_BAKE_HYDRO_WGSL, } from "./shaders/planet-full-bake.wgsl.js";
 import { readGpuBuffer } from "../buffer-readback.js";
 import { buildSphereLuts } from "./gpu-bake-math.js";
-import { clampPoleCapSide, poleIceExtentScale, rasterizePoleCap, } from "./pole-cap.js";
+import { clampPoleCapSide, poleIceExtentScale, rasterizePoleCap, rasterizeCloudPoleCaps, } from "./pole-cap.js";
 import { countLandLocalMaxima, effectiveLayerTally, } from "./density.js";
 export { bakePlanetTexturesGpuCpuRef };
 function clampParams(p) {
@@ -976,6 +976,10 @@ export async function gpuBakeFull(device, input, onProgress, signal) {
         // Pole product side scales with equirect res (poleProductSide inside rasterize)
         const poleNorth = rasterizePoleCap(albedoOut, W, H, params.poleSize, true);
         const poleSouth = rasterizePoleCap(albedoOut, W, H, params.poleSize, false);
+        const cloudsBuf = hasClouds
+            ? { width: W, height: H, rgba: cloudRgba }
+            : null;
+        const cloudPoles = rasterizeCloudPoleCaps(cloudsBuf, params.poleSize);
         meter.wall("poles", 0.96);
         const hs = heightStats(heightData);
         const landPeaks = countLandLocalMaxima(heightMap, params.liquidLevel);
@@ -988,11 +992,11 @@ export async function gpuBakeFull(device, input, onProgress, signal) {
             height: { width: W, height: H, rgba: heightRgbaOut },
             normal: { width: W, height: H, rgba: normalOut },
             liquidMask: { width: W, height: H, rgba: liquidOut },
-            clouds: hasClouds
-                ? { width: W, height: H, rgba: cloudRgba }
-                : null,
+            clouds: cloudsBuf,
             poleNorth,
             poleSouth,
+            cloudsPoleNorth: cloudPoles.poleNorth,
+            cloudsPoleSouth: cloudPoles.poleSouth,
             stats: {
                 liquidFraction: liquidCount / nPix,
                 albedoVariance: albedoVariance(albedoOut),

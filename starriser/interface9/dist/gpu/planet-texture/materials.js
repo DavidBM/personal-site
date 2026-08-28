@@ -124,26 +124,28 @@ export const PALETTE_EXOTIC_METHANE = {
     gasStorm: rgb(0.35, 0.4, 0.3),
 };
 export const PALETTE_EXOTIC_ACID = {
-    liquidDeep: rgb(0.05, 0.26, 0.04),
-    liquidMid: rgb(0.12, 0.4, 0.08),
-    liquidShelf: rgb(0.24, 0.52, 0.14),
-    liquidShallow: rgb(0.32, 0.58, 0.18),
-    beach: rgb(0.42, 0.48, 0.22),
-    arid: rgb(0.48, 0.28, 0.52),
-    aridHot: rgb(0.55, 0.32, 0.55),
-    grassland: rgb(0.4, 0.35, 0.42),
-    forest: rgb(0.26, 0.16, 0.38),
-    forestDeep: rgb(0.18, 0.1, 0.28),
-    lowland: rgb(0.38, 0.22, 0.48),
-    highland: rgb(0.48, 0.3, 0.52),
-    mountain: rgb(0.36, 0.32, 0.36),
-    rockDark: rgb(0.25, 0.22, 0.25),
-    snow: rgb(0.7, 0.65, 0.82),
-    tundra: rgb(0.45, 0.4, 0.5),
-    gasA: rgb(0.3, 0.5, 0.25),
-    gasB: rgb(0.45, 0.55, 0.3),
-    gasC: rgb(0.55, 0.4, 0.6),
-    gasStorm: rgb(0.6, 0.2, 0.5),
+    // Acid seas: muted olive-green (not neon / high-sat green)
+    liquidDeep: rgb(0.08, 0.16, 0.09),
+    liquidMid: rgb(0.12, 0.24, 0.12),
+    liquidShelf: rgb(0.18, 0.32, 0.16),
+    liquidShallow: rgb(0.24, 0.36, 0.2),
+    beach: rgb(0.4, 0.4, 0.32),
+    // Land: dusty mauve / ash-purple (weird but desaturated)
+    arid: rgb(0.4, 0.32, 0.38),
+    aridHot: rgb(0.45, 0.34, 0.4),
+    grassland: rgb(0.36, 0.34, 0.36),
+    forest: rgb(0.28, 0.24, 0.3),
+    forestDeep: rgb(0.22, 0.18, 0.24),
+    lowland: rgb(0.34, 0.28, 0.34),
+    highland: rgb(0.4, 0.34, 0.4),
+    mountain: rgb(0.34, 0.32, 0.34),
+    rockDark: rgb(0.24, 0.22, 0.24),
+    snow: rgb(0.72, 0.7, 0.76),
+    tundra: rgb(0.42, 0.4, 0.44),
+    gasA: rgb(0.32, 0.4, 0.3),
+    gasB: rgb(0.4, 0.42, 0.34),
+    gasC: rgb(0.42, 0.36, 0.44),
+    gasStorm: rgb(0.45, 0.28, 0.4),
 };
 /**
  * Molten basalt world: dark low-albedo crust + blackbody-glow liquid.
@@ -428,16 +430,17 @@ export function lavaBasinBarrier(x, y, z, seed) {
     nx /= len;
     ny /= len;
     nz /= len;
-    // Low–mid freqs — splits seas into ~handful of lakes, not fleck salt
-    const b1 = ridged3(nx, ny, nz, seed + 901, 4, 1.15);
-    const b2 = ridged3(nx, ny, nz, seed + 911, 3, 2.1);
-    const b3 = ridged3(nx, ny, nz, seed + 921, 3, 3.6);
-    const ridge = Math.max(b1, b2 * 0.92, b3 * 0.7);
-    // Large-scale province walls (extra splits without tiny noise)
-    const plate = fbm3(nx * 0.85, ny * 0.4, nz * 0.85, seed + 777, 4) * 0.5 + 0.5;
-    const plateWall = Math.pow(Math.abs(plate * 2 - 1), 1.1); // high near 0.5 isolines
-    const raw = Math.max(ridge, plateWall * 0.85);
-    return clamp01(Math.pow(Math.max(0, raw), 1.25));
+    // Mid–high freqs — many pocket lakes instead of a handful of seas
+    const b1 = ridged3(nx, ny, nz, seed + 901, 4, 1.85);
+    const b2 = ridged3(nx, ny, nz, seed + 911, 3, 3.4);
+    const b3 = ridged3(nx, ny, nz, seed + 921, 3, 5.6);
+    const b4 = ridged3(nx, ny, nz, seed + 933, 3, 8.2);
+    const ridge = Math.max(b1, b2 * 0.95, b3 * 0.85, b4 * 0.7);
+    // Province walls still split leftover basins
+    const plate = fbm3(nx * 1.35, ny * 0.55, nz * 1.35, seed + 777, 4) * 0.5 + 0.5;
+    const plateWall = Math.pow(Math.abs(plate * 2 - 1), 0.95);
+    const raw = Math.max(ridge, plateWall * 0.8);
+    return clamp01(Math.pow(Math.max(0, raw), 1.05));
 }
 /**
  * @deprecated Ridged fleck rivers removed. Kept for export stability.
@@ -466,7 +469,7 @@ export function cullSmallLavaRivers(_albedo, liquidMask, height, _params, _minAr
  * comparable: topShare ≲ 0.42 and top/second ≲ 2.5 (when a second exists).
  * Mutates albedo + liquidMask.
  */
-export function splitMegaLavaSeas(albedo, liquidMask, height, params, maxTopShare = 0.42, maxTopRatio = 2.5) {
+export function splitMegaLavaSeas(albedo, liquidMask, height, params, maxTopShare = 0.16, maxTopRatio = 1.8) {
     const W = height.width;
     const H = height.height;
     const data = height.data;
@@ -541,7 +544,7 @@ export function splitMegaLavaSeas(albedo, liquidMask, height, params, maxTopShar
         liquidMask[o + 3] = 255;
     }
     // Progressively lower barrier cut until lakes are comparable
-    const cuts = [0.48, 0.4, 0.32, 0.25, 0.18, 0.12, 0.08];
+    const cuts = [0.55, 0.48, 0.4, 0.32, 0.25, 0.18, 0.12, 0.08, 0.05];
     for (const barrierCut of cuts) {
         const comps = listComps();
         if (!comps.length)
@@ -557,7 +560,7 @@ export function splitMegaLavaSeas(albedo, liquidMask, height, params, maxTopShar
         const topRatio = second > 0 ? top.length / second : 99;
         if (topShare <= maxTopShare && topRatio <= maxTopRatio)
             break;
-        if (topShare <= maxTopShare && comps.length >= 5)
+        if (topShare <= maxTopShare && comps.length >= 10)
             break;
         // Cut high-barrier / shallow pixels in the dominant component
         let cutN = 0;
@@ -833,25 +836,33 @@ function landBiomeColor(pal, elev, absLat, cls, liquidKind, x, y, z, seed, poleI
             climateClass: ClimateClass.Rock,
         };
     }
-    // ── Ice world: global ice/cold rock (not Earth biomes + polar disk) ──
+    // ── Ice world: frozen temperate land (white snow / pale tundra, not soot) ──
     if (cls === "ice") {
-        // Structured ice (cracks / ridges) without loud global grit amp
         const iceN = fbm3(x * 1.15, y * 0.45, z * 1.15, seed + 50, 4) * 0.5 + 0.5;
         const iceN2 = fbm3(x * 2.8, y * 0.7, z * 2.8, seed + 61, 3) * 0.5 + 0.5;
         const iceN3 = ridged3(x, y, z, seed + 72, 4, 9) * 0.5 + 0.5;
-        let col = lerpRgb(pal.tundra, pal.snow, 0.48 + iceN * 0.38);
-        col = lerpRgb(col, pal.highland, elev * 0.28);
-        col = lerpRgb(col, pal.rockDark, elev * elev * 0.22);
-        col = lerpRgb(col, { r: 0.92, g: 0.95, b: 0.98 }, 0.22 + iceN * 0.18);
-        // Crack/ridge structure for orbit fine-var floor + stamp readability
-        const ridge = (iceN2 - 0.5) * 0.14 + (iceN3 - 0.5) * 0.12;
-        const micro = valueNoise3(x * 48, y * 48, z * 48, seed + 88) * 0.05 - 0.025;
+        // Stay in the snow family — no rockDark wash (stamps used to dirtied this)
+        let col = lerpRgb({ r: 0.86, g: 0.91, b: 0.95 }, pal.snow, 0.42 + iceN * 0.4);
+        col = lerpRgb(col, { r: 0.94, g: 0.97, b: 0.99 }, 0.28 + iceN * 0.2);
+        col = lerpRgb(col, pal.tundra, (1 - elev) * 0.12);
+        const ridge = (iceN2 - 0.5) * 0.045 + (iceN3 - 0.5) * 0.035;
+        const micro = valueNoise3(x * 48, y * 48, z * 48, seed + 88) * 0.02 - 0.008;
         col = {
-            r: clamp01(col.r + ridge + micro),
-            g: clamp01(col.g + ridge * 0.95 + micro * 0.9),
-            b: clamp01(col.b + ridge * 0.9 + micro * 0.85),
+            r: clamp01(col.r + ridge * 0.7 + micro),
+            g: clamp01(col.g + ridge * 0.75 + micro * 0.9),
+            b: clamp01(col.b + ridge * 0.8 + micro * 0.85),
         };
-        return { col, mat: 9, spec: 0.28, climateClass: ClimateClass.EF };
+        // Hard white floor so later stamps cannot read as carbon dirt
+        const L = (col.r + col.g + col.b) / 3;
+        if (L < 0.78) {
+            const lift = 0.78 - L;
+            col = {
+                r: clamp01(col.r + lift * 0.9),
+                g: clamp01(col.g + lift * 0.95),
+                b: clamp01(col.b + lift),
+            };
+        }
+        return { col, mat: 9, spec: 0.32, climateClass: ClimateClass.EF };
     }
     // ── Lava world basalt crust (channels painted in paintSurface) ──
     if (liquidKind === "lava") {
@@ -1379,7 +1390,7 @@ export function paintSurface(height, params, storms = null) {
                 const flow = lavaFlow ? lavaFlow[i] : 0;
                 // Barriers + min depth: split mega-seas into several pocket lakes
                 const barrier = lavaBasinBarrier(d.x, d.y, d.z, seed);
-                const hLiq = h + barrier * 0.28;
+                const hLiq = h + barrier * 0.42;
                 // Local valley cue for channel paint
                 let nSum = h;
                 let nC = 1;
@@ -1401,7 +1412,7 @@ export function paintSurface(height, params, storms = null) {
                 const inValley = h <= nMean + 0.01;
                 // Only true basin pockets (not shallow connected shelves)
                 const depthBelow = sea - h;
-                const isSea = hLiq < sea && depthBelow > 0.012 + barrier * 0.04;
+                const isSea = hLiq < sea && depthBelow > 0.018 + barrier * 0.06;
                 // Valley ponds / short channels (dilate grows them to ~2–10px)
                 const isRiver = !isSea &&
                     inValley &&
@@ -1479,9 +1490,10 @@ export function paintSurface(height, params, storms = null) {
     // Split mega-sea; seed micro ponds; grow only small comps into ~2–10px
     if (liquidKind === "lava") {
         liquidCount = splitMegaLavaSeas(albedo, liquidMask, height, params);
-        liquidCount = seedMicroLavaPonds(albedo, liquidMask, height, params, lavaFlow);
-        // One light dilate of small blobs only (2×2 seeds → ~5–10px)
-        liquidCount = dilateLavaLakes(albedo, liquidMask, height, params, 0.05, 6);
+        const pondTarget = Math.max(80, Math.round(40 * Math.pow(height.width / 256, 1.35)));
+        liquidCount = seedMicroLavaPonds(albedo, liquidMask, height, params, lavaFlow, pondTarget);
+        // Grow only the tiniest seeds — do not fatten primary pockets
+        liquidCount = dilateLavaLakes(albedo, liquidMask, height, params, 0.04, 4);
         // Near-1px hard shore: hot liquid + dark basalt lip on land
         hardenLavaShores(albedo, liquidMask, height, params);
     }

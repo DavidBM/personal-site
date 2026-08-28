@@ -10,11 +10,16 @@ const TAP_TIME_MS = 200;
  * Canvas-only listeners miss mouseup when the cursor leaves the canvas
  * onto overlay panels — classic “keeps dragging when I return” bug.
  */
-export function createPointerEventRouter({ canvas, cameraController, controlsManager, editHandlePointer, getContextMenuController, publishPointerEvent, }) {
+export function createPointerEventRouter({ canvas, cameraController, controlsManager, editHandlePointer, getContextMenuController, publishPointerEvent, tryPickBody, clearFocus, }) {
     const cleanup = [];
     /** Active primary map-drag (or edit-handle) owned by document listeners. */
     let mapDragSession = false;
     let editDragSession = false;
+    /**
+     * Document capture mouseup ends a drag session before the canvas bubble
+     * mouseup. Skip a second body pick on that same up.
+     */
+    let bodyPickConsumed = false;
     const addCanvasListener = (type, handler) => {
         canvas.addEventListener(type, handler);
         cleanup.push(() => {
@@ -25,6 +30,18 @@ export function createPointerEventRouter({ canvas, cameraController, controlsMan
         x: 0,
         y: 0,
         z: 0,
+    };
+    const maybeLockBodyOnMouseUp = (event) => {
+        if (bodyPickConsumed || !tryPickBody)
+            return;
+        if (event.button !== 0 || event.detail !== 1)
+            return;
+        if (controlsManager.pointerMovedDistanceSq() >= CLICK_DIST2)
+            return;
+        bodyPickConsumed = true;
+        if (tryPickBody(event.clientX, event.clientY)) {
+            event.preventDefault();
+        }
     };
     const publishScreenEvent = (type, screenX, screenY, extras = {}) => {
         const ground = getGroundPoint(screenX, screenY);
@@ -71,6 +88,7 @@ export function createPointerEventRouter({ canvas, cameraController, controlsMan
         mapDragSession = false;
         detachDocumentDrag();
         if (wasEdit) {
+            bodyPickConsumed = true;
             if (event) {
                 editHandlePointer.handleUp(event);
             }
@@ -97,6 +115,10 @@ export function createPointerEventRouter({ canvas, cameraController, controlsMan
             // Camera has already cleared isDragging in onMouseUp — use pre-check via wasMap.
             // Only treat as tap if the camera never entered a real drag (short click).
             const stillDragging = cameraController.isDragging;
+            if (button === 0 && !stillDragging && movedDist < CLICK_DIST2) {
+                maybeLockBodyOnMouseUp(event);
+            }
+            bodyPickConsumed = true;
             if (button === 0 &&
                 movedDist < CLICK_DIST2 &&
                 dur < TAP_TIME_MS &&
@@ -153,6 +175,10 @@ export function createPointerEventRouter({ canvas, cameraController, controlsMan
             return;
         }
         getContextMenuController()?.hide();
+        bodyPickConsumed = false;
+        // Do not lock on mousedown — first click of a dblclick would boom,
+        // then onDoubleClick dives 350/2500 and locked tick slams back.
+        // Lock on mouseup detail===1 (single click). Touch stays immediate.
         // Edit handles are highest-priority and bypass camera/selection routing.
         if (editHandlePointer.handleDown(event)) {
             event.preventDefault();
@@ -213,6 +239,9 @@ export function createPointerEventRouter({ canvas, cameraController, controlsMan
         const dur = upTime - pointerDownTime;
         const movedDist = controlsManager.pointerMovedDistanceSq();
         const isDragging = cameraController.isDragging;
+        if (event.button === 0 && !isDragging && movedDist < CLICK_DIST2) {
+            maybeLockBodyOnMouseUp(event);
+        }
         if (event.button === 0 &&
             movedDist < CLICK_DIST2 &&
             dur < TAP_TIME_MS &&
@@ -231,6 +260,13 @@ export function createPointerEventRouter({ canvas, cameraController, controlsMan
     });
     addCanvasListener("touchstart", (event) => {
         getContextMenuController()?.hide();
+        if (event.touches && event.touches.length > 0 && tryPickBody) {
+            const t = event.touches[0];
+            if (tryPickBody(t.clientX, t.clientY)) {
+                event.preventDefault();
+                return;
+            }
+        }
         // Mirror mouse: edit handles take priority when gizmo is active.
         if (editHandlePointer.handleDown(event)) {
             event.preventDefault();
@@ -308,6 +344,11 @@ export function createPointerEventRouter({ canvas, cameraController, controlsMan
     };
     addCanvasListener("touchend", handleTouchEndOrCancel);
     addCanvasListener("touchcancel", handleTouchEndOrCancel);
+    addCanvasListener("dblclick", () => {
+        // Product lock: planet click locks; double-click stays 350/2500 map dive.
+        // WebGpuCameraController.onDoubleClick is self-bound — do not retarget.
+        clearFocus?.();
+    });
     addCanvasListener("contextmenu", (event) => {
         const contextMenuController = getContextMenuController();
         if (!contextMenuController)

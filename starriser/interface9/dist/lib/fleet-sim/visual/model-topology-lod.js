@@ -207,6 +207,16 @@ export function fleetTopologyLocFromState(state) {
         solarSystemId: node.solarSystemId,
     };
 }
+/**
+ * True when this fleet's discrete loc is in the CPU SystemSceneSet.
+ * Jumping uses {@link fleetTopologyLocFromState} → `endNode` (whole inbound hop).
+ * `"parked"` is only the loc mode — do not invent a domain `"parked"` FleetState.
+ */
+export function fleetLocInSystemScene(state, sceneIds) {
+    if (sceneIds == null || sceneIds.size === 0)
+        return false;
+    return sceneIds.has(fleetTopologyLocFromState(state).solarSystemId);
+}
 function nodeKey(n) {
     return fleetSystemKey(n.clusterId, n.solarSystemId);
 }

@@ -32,6 +32,9 @@ struct Line2Uniforms {
   vertexColors : f32,
   /** 1 = round endcap skirts; 0 = body-only (discard |vUv.y| > 1). */
   endcaps : f32,
+  /** Floating origin — VS forms (instanceStart/End − origin) then modelView (= viewRel). */
+  origin : vec3<f32>,
+  _padO : f32,
 };
 
 @group(0) @binding(0) var<uniform> u : Line2Uniforms;
@@ -107,9 +110,12 @@ fn vs_main(input : VSIn) -> VSOut {
 
   let aspect = u.resolution.x / u.resolution.y;
 
-  // Camera / view space
-  var start = u.modelView * vec4<f32>(input.instanceStart, 1.0);
-  var end_ = u.modelView * vec4<f32>(input.instanceEnd, 1.0);
+  // Camera / view space. Positions stay absolute on the GPU; subtract the
+  // frame origin here so modelView can be viewRel (same pattern as solar-points).
+  let startRel = input.instanceStart - u.origin;
+  let endRel = input.instanceEnd - u.origin;
+  var start = u.modelView * vec4<f32>(startRel, 1.0);
+  var end_ = u.modelView * vec4<f32>(endRel, 1.0);
 
   var lineDistanceStart = u.dashScale * input.instanceDistanceStart;
   var lineDistanceEnd = u.dashScale * input.instanceDistanceEnd;

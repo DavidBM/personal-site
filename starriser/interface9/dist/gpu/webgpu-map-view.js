@@ -9,8 +9,15 @@
  * M4: map overlay — fat Line2 rings/axes + triangle-list plane fills (pack on dirty).
  */
 import { createWebGpuBootstrap, } from "./device.js";
+import { readGpuTextureRgba8 } from "./buffer-readback.js";
 import { SolarPointStore } from "./solar-point-store.js";
 import { SolarPointGpuLayer } from "./layers/solar-point-gpu-layer.js";
+import { SolarBodyStore } from "./solar-body-store.js";
+import { SolarBodyGpuLayer } from "./layers/solar-body-gpu-layer.js";
+import { SolarCatalogResidency } from "./solar-catalog-residency.js";
+import { catalogIdFromSystemId } from "./solar-catalog-id.js";
+import { buildCompactKepler } from "./compact-kepler.js";
+import { KEPLER_SCALE, composeCompactBodyWorld, fillSceneCandidatesForCluster, oneSceneWithHysteresis, pickLookAtClusterId, pickSceneParkBodyIndex, } from "./solar-system-lod.js";
 import { ConnectionLineStore } from "./connection-line-store.js";
 import { ConnectionLineGpuLayer } from "./layers/connection-line-gpu-layer.js";
 import { FleetInstanceGpuLayer } from "./layers/fleet-instance-gpu-layer.js";
@@ -19,36 +26,71 @@ import { MapOverlayGpuLayer } from "./layers/map-overlay-gpu-layer.js";
 import { MAP_MSAA_SAMPLES } from "./map-msaa.js";
 import { Line2Renderer } from "../vendor/line2/index.js";
 import { hashStringSeed, FLEET_SHIP_DRAW_FLOATS, } from "./fleet-ship-pack.js";
-import { CAP_NEAR, GLOBAL_MAX_INSTANCES, GPU_FLEET_CAPACITY_MIN, GPU_SHIP_CAPACITY_MIN, MODEL_LOD_DEFAULT_SCALE, MODEL_LOD_MAX_INSTANCES, WARM_FRAMES, buildModelTopologyContext, countShips, fleetTopologyLocFromState, isFleetModelTopologyEligible, isModelLodActiveSticky, modelLodFleetCullPos, nextGrowCapacity, parseInterClusterConnectionKey, resolveModelFocusClusterId, scaleCountsToBudget, selectModelShipIndices, shouldForceIncludeFollowedFleet, shouldResetFleetTrails, } from "./fleet-lod.js";
+import { CAP_NEAR, GLOBAL_MAX_INSTANCES, GPU_FLEET_CAPACITY_MIN, GPU_SHIP_CAPACITY_MIN, MODEL_LOD_DEFAULT_SCALE, MODEL_LOD_MAX_INSTANCES, WARM_FRAMES, buildModelTopologyContext, countShips, fleetLocInSystemScene, fleetTopologyLocFromState, isFleetModelTopologyEligible, isModelLodActiveSticky, modelLodFleetCullPos, nextGrowCapacity, parseInterClusterConnectionKey, resolveModelFocusClusterId, scaleCountsToBudget, selectModelShipIndices, shouldForceIncludeFollowedFleet, shouldResetFleetTrails, } from "./fleet-lod.js";
 import { createFleetSlotAllocator } from "./fleet-slot-allocator.js";
 import { SYSTEM_POINT_DIAMETER_PX, billboardScaleForDiameterPx, cameraDistanceToTarget, clusterImpostorWithHysteresis, } from "./galaxy-point-lod.js";
-import { FLEET_GPU_STRIDE, FLEET_FLAG_ALIVE, FLEET_FLAG_JUMPING, FLEET_FLAG_COOLDOWN, FLEET_FLAG_WARM, FLEET_FLAG_SPACE3D, FleetGpuFields, hashFleetId, } from "./fleet-layout.js";
+import { MAP_NEAR } from "./camera-zoom.js";
+import { FLEET_GPU_STRIDE, FLEET_FLAG_ALIVE, FLEET_FLAG_JUMPING, FLEET_FLAG_COOLDOWN, FLEET_FLAG_WARM, FLEET_FLAG_SPACE3D, FLEET_FLAG_SYSTEM_SCENE, FleetGpuFields, hashFleetId, } from "./fleet-layout.js";
 import { SHIP_SIM_STRIDE, ShipSimFields, readShipSim, writeShipSim, } from "./ship-sim-layout.js";
 import { SHIP_MODE_ORBIT, SHIP_MODE_PAUSED } from "./ship-flight-ref.js";
 import { followPoseFromAgent, stepFollowShipAgent, } from "./follow-cam-pose.js";
 import { fleetCenter, initShipsFromFormation, packFormation, writePathCommand, } from "./fleet-motion-api.js";
 import { mat4CameraRight, mat4CameraUp, mat4Identity, mat4Invert, mat4LookAt, mat4Perspective, mat4ViewProj, } from "./math/mat4.js";
-import { chooseFrameOrigin, ensureShipIndexInList, mat4LookAtRelative, } from "./math/world-origin.js";
+import { chooseFrameOrigin, discWorldRelativeF32, ensureShipIndexInList, mat4LookAtRelative, } from "./math/world-origin.js";
 import { frameDebugBegin, frameDebugFrameTotal, frameDebugTime, } from "./frame-debug.js";
 import { hitEditHandleAtGround, layoutFromRadius, } from "./math/edit-handle-hit.js";
 import { intersectRayPlaneY0, rayFromNdc, } from "./math/ground-pick.js";
-import { LINE2_OVERLAY_COLOR_FLOATS, LINE2_OVERLAY_POS_FLOATS, OVERLAY_COLOR_HOVER, OVERLAY_COLOR_SELECT, packEditHandleGizmoLine2, packRingLine2, } from "./map-overlay-pack.js";
+import { LINE2_OVERLAY_COLOR_FLOATS, LINE2_OVERLAY_POS_FLOATS, OVERLAY_COLOR_HOVER, OVERLAY_COLOR_SELECT, packEditHandleGizmoLine2, packKeplerOrbitRingsViewRel, packRingLine2, shiftLine2PackByOrigin, } from "./map-overlay-pack.js";
 import { MAP_OVERLAY_FLOATS_PER_VERT } from "./shaders/map-overlay.wgsl.js";
 import { RENDER_PLANE_Y } from "../contracts/render-constants.js";
 import { solarConnectionClusterId } from "../contracts/connection-key.js";
 import { resolveFleetVisualPosition, } from "./fleet-motion-ref.js";
 import { rebuildWebGpuConnectionsFromGalaxy } from "../main/webgpu-view-bridge.js";
+import { createPassSetFlags, fillPassSetFlags, hashPassSet, solarStoreHasDisc, solarStoreHasSun, } from "./pass-set.js";
 /** Max concurrent fleet GPU rows (free-list high-water cap). */
 const MAX_FLEET_SLOTS = 100000;
 /** Screen-space overlay stroke width (buffer pixels; Line2 `worldUnits=false`). */
 /** Fat selection/hover/edit rings (screen px). Slightly wider so select is obvious. */
 const OVERLAY_LINEWIDTH_PX = 3.5;
+const EMPTY_SYSTEM_IDS = [];
+const EMPTY_PREVIEW_KEEP = new Set();
 /**
  * Owns canvas + WebGPU device + map layers. Call {@link WebGpuMapView.create}.
  */
 export class WebGpuMapView {
-    constructor(canvas, bootstrap, fovyDeg) {
+    constructor(canvas, bootstrap, fovyDeg, skipShipModel = false) {
         this.fleets = new Map();
+        /**
+         * CPU SystemSceneSet (topology SolarSystem.id). S2 writes 0–1 look-at winner.
+         * S3B ORs FLEET_FLAG_SYSTEM_SCENE from this set.
+         */
+        this.systemSceneIds = new Set();
+        /** Scratch world pose for SCENE planet parking (no per-fleet alloc). */
+        this.parkWorldScratch = { x: 0, y: 0, z: 0 };
+        /** Topology systems for Band B pick (id → xz + 5px slot). */
+        this.sceneSystems = new Map();
+        this.sceneHysteresis = {
+            sceneId: null,
+            holdStartMs: 0,
+        };
+        this.sceneHiddenBufferIndex = null;
+        this.lastSceneSpanPx = 0;
+        /** Band C focused compact-body slot (null = none). */
+        this.focusedBodyIndex = null;
+        this.lastOverlayWorld = null;
+        this.lastPassResolveHadDepth = false;
+        this.lastOrbitRingSegments = 0;
+        /**
+         * Year-1 hashed sticky pass-set. One reused flags object + a number.
+         * Skip unused encode; do not allocate PassData / a plan per rAF.
+         */
+        this.passSetFlags = createPassSetFlags();
+        this.passSetHash = 0;
+        /** Last owned resolve color (same texels that were blitted to the swapchain). */
+        this.lastResolveW = 0;
+        this.lastResolveH = 0;
+        this.orbitRings = null;
+        this.overlayRelScratch = null;
         /**
          * Fleets still in R5 warm-up (`warmFramesLeft > 0`). tickWarmFleets only
          * walks this set — O(warming), not O(all fleets). Scanning 10k fleets every
@@ -140,8 +182,8 @@ export class WebGpuMapView {
         this.cssWidth = 1;
         this.cssHeight = 1;
         /** Projection clip planes — single source for resize + pick. */
-        /** Near clip — must stay below MIN_ZOOM so deep chase/zoom isn't truncated. */
-        this.near = 0.15;
+        /** Near clip — below compact-planet boom at SPAN=0.1 (not MIN_ZOOM). */
+        this.near = MAP_NEAR;
         this.far = 1e10;
         this.raf = 0;
         this.disposed = false;
@@ -163,6 +205,12 @@ export class WebGpuMapView {
         this.lastPointLodD = -1;
         this.lastPointLodViewportH = -1;
         this.lastPointLodFovy = -1;
+        /** Last look-at xz used for Band B re-pick (NaN = never applied). */
+        this.lastSceneLookAtX = Number.NaN;
+        this.lastSceneLookAtZ = Number.NaN;
+        this.lastSceneBufferH = -1;
+        /** Reused Band B candidate list (one cluster ≤80 + prev sceneId). */
+        this.sceneCandidateScratch = [];
         /** Current billboard half-extent for systems + impostors (5px diameter). */
         this.pointWorldScale = 1;
         // --- M4 edit handles + selection/hover rings ---
@@ -181,6 +229,15 @@ export class WebGpuMapView {
          */
         this.msaaColor = null;
         this.msaaColorView = null;
+        /**
+         * Offscreen 1-sample resolve (RENDER_ATTACHMENT | COPY_SRC) used only by
+         * {@link readbackColorOnce}. Never the canvas — swapchain COPY_SRC/COPY_DST
+         * destroys this Chromium SharedImage.
+         */
+        this.resolveColor = null;
+        this.resolveColorView = null;
+        /** When true, this frame resolves MSAA into {@link resolveColor}. */
+        this.resolveReadback = false;
         /** MSAA depth for opaque ship models (exterior wins over back faces). */
         this.msaaDepth = null;
         this.msaaDepthView = null;
@@ -217,9 +274,12 @@ export class WebGpuMapView {
         this.timeOriginMs = Date.now();
         this.store = new SolarPointStore();
         this.impostorStore = new SolarPointStore();
+        this.solarBodies = new SolarBodyStore();
         this.lineStore = new ConnectionLineStore();
         this.points = new SolarPointGpuLayer(bootstrap);
         this.impostorPoints = new SolarPointGpuLayer(bootstrap);
+        this.solarBodyLayer = new SolarBodyGpuLayer(bootstrap);
+        this.catalogResidency = new SolarCatalogResidency(bootstrap.device);
         this.lines = new ConnectionLineGpuLayer(bootstrap);
         this.fleetsLayer = new FleetInstanceGpuLayer(bootstrap);
         this.modelLayer = new FleetModelGpuLayer(bootstrap, {
@@ -246,14 +306,19 @@ export class WebGpuMapView {
         });
         this.points.init(msaa);
         this.impostorPoints.init(msaa);
+        this.solarBodyLayer.init(msaa);
         this.lines.init(msaa);
         this.fleetsLayer.init(msaa);
         this.modelLayer.init(msaa);
         this.overlay.init(msaa);
         // Best-effort ship model for near LOD (no-op if asset missing).
-        void this.loadShipModel("models/spaceship_fighter__-_version_1_meshy_6.glb").catch(() => {
-            /* optional asset — triangle LOD remains the fallback */
-        });
+        // Tests that MAP_READ on this device skip the fetch — concurrent glTF
+        // upload + mapAsync destroys the device on this Chromium.
+        if (!skipShipModel) {
+            void this.loadShipModel("models/spaceship_fighter__-_version_1_meshy_6.glb").catch(() => {
+                /* optional asset — triangle LOD remains the fallback */
+            });
+        }
     }
     /**
      * Load a glTF/GLB ship mesh for the model LOD band.
@@ -299,6 +364,29 @@ export class WebGpuMapView {
         this.msaaDepthView = this.msaaDepth.createView();
         this.msaaW = w;
         this.msaaH = h;
+        if (this.resolveColor && (this.lastResolveW !== w || this.lastResolveH !== h)) {
+            this.resolveColor.destroy();
+            this.resolveColor = null;
+            this.resolveColorView = null;
+        }
+    }
+    /** Offscreen COPY_SRC resolve target for {@link readbackColorOnce}. */
+    ensureResolveColor(width, height) {
+        const w = Math.max(1, width | 0);
+        const h = Math.max(1, height | 0);
+        if (this.resolveColor && this.lastResolveW === w && this.lastResolveH === h) {
+            return;
+        }
+        this.resolveColor?.destroy();
+        this.resolveColor = this.bootstrap.device.createTexture({
+            label: "map-resolve-color",
+            size: { width: w, height: h },
+            format: this.bootstrap.format,
+            usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
+        });
+        this.resolveColorView = this.resolveColor.createView();
+        this.lastResolveW = w;
+        this.lastResolveH = h;
     }
     static async create(options) {
         const canvas = document.createElement("canvas");
@@ -319,7 +407,7 @@ export class WebGpuMapView {
                 viewRef?.stopLoop();
             },
         });
-        const view = new WebGpuMapView(canvas, bootstrap, options.fovyDeg ?? 60);
+        const view = new WebGpuMapView(canvas, bootstrap, options.fovyDeg ?? 60, options.skipShipModel === true);
         viewRef = view;
         view.resize(window.innerWidth, window.innerHeight);
         // Do not start rAF here — concurrent first frames + Worker launch can
@@ -349,12 +437,23 @@ export class WebGpuMapView {
             eyeY: this.cameraY,
             eyeZ: this.cameraZ,
             targetX: this.targetX,
+            targetY: this.targetY,
             targetZ: this.targetZ,
             fovyDeg: this.fovyDeg,
             near: this.near,
             far: this.far,
             viewportW: this.cssWidth,
             viewportH: this.cssHeight,
+            bufferW: this.canvas.width,
+            bufferH: this.canvas.height,
+        };
+    }
+    /** Last {@link chooseFrameOrigin} (eye / ship / pathEnd — never star). */
+    getFrameOrigin() {
+        return {
+            x: this.frameOrigin.x,
+            y: this.frameOrigin.y,
+            z: this.frameOrigin.z,
         };
     }
     resize(width, height) {
@@ -373,12 +472,290 @@ export class WebGpuMapView {
         this.ensureMsaaColor(bufW, bufH);
     }
     setCameraLookAt(eyeX, eyeY, eyeZ, targetX, targetZ, targetY = 0) {
+        if (this.cameraX === eyeX &&
+            this.cameraY === eyeY &&
+            this.cameraZ === eyeZ &&
+            this.targetX === targetX &&
+            this.targetY === targetY &&
+            this.targetZ === targetZ) {
+            return;
+        }
         this.cameraX = eyeX;
         this.cameraY = eyeY;
         this.cameraZ = eyeZ;
         this.targetX = targetX;
         this.targetY = targetY;
         this.targetZ = targetZ;
+    }
+    /**
+     * CPU authority. Ids are topology SolarSystem.id. At most one catalog SCENE.
+     * S2 writes the look-at winner (0 or 1 id). S3B ORs bit 7 from this set.
+     * Re-applies FleetGpu flags only when the set actually changes (hysteresis edge).
+     */
+    setSystemScene(ids) {
+        let changed = ids.size !== this.systemSceneIds.size;
+        if (!changed) {
+            for (const id of ids) {
+                if (!this.systemSceneIds.has(id)) {
+                    changed = true;
+                    break;
+                }
+            }
+        }
+        this.systemSceneIds.clear();
+        for (const id of ids) {
+            this.systemSceneIds.add(id);
+        }
+        if (changed)
+            this.reapplySystemSceneFlags();
+    }
+    /** Current SCENE set (0 or 1 topology id). */
+    getSystemSceneIds() {
+        return this.systemSceneIds;
+    }
+    /**
+     * CPU FleetGpu row after {@link writeFleetGpuFromState} / parked scatter.
+     * Tests-only read of the host mirror — no MAP_READ (avoids a second device
+     * mapping while the map-view glTF load / 4096-ship first alloc is in flight).
+     */
+    readFleetGpuSlot(id) {
+        const f = this.fleets.get(id);
+        if (!f)
+            return null;
+        const o = f.fleetSlot * FLEET_GPU_STRIDE;
+        if (o + FLEET_GPU_STRIDE > this.fleetGpuBytes.byteLength)
+            return null;
+        return {
+            flags: this.fleetGpuView.getUint32(o + FleetGpuFields.flags, true),
+            shipBudget: this.fleetGpuView.getUint32(o + FleetGpuFields.shipBudget, true),
+            instanceStart: this.fleetGpuView.getUint32(o + FleetGpuFields.instanceStart, true),
+            pad1: this.fleetGpuView.getUint32(o + FleetGpuFields._pad1, true),
+            posX: this.fleetGpuView.getFloat32(o + FleetGpuFields.posX, true),
+            posZ: this.fleetGpuView.getFloat32(o + FleetGpuFields.posZ, true),
+            pathEndX: this.fleetGpuView.getFloat32(o + FleetGpuFields.pathEndX, true),
+            pathEndZ: this.fleetGpuView.getFloat32(o + FleetGpuFields.pathEndZ, true),
+            fleetSlot: f.fleetSlot,
+        };
+    }
+    /**
+     * Whole-hop inbound uses endNode via {@link fleetTopologyLocFromState}.
+     * Followed fleet is force-included for agents only (no second Kepler set).
+     */
+    fleetInSystemScene(state, visual) {
+        if (fleetLocInSystemScene(state, this.systemSceneIds))
+            return true;
+        return shouldForceIncludeFollowedFleet(this.isFollowedVisual(visual), true);
+    }
+    isFollowedVisual(visual) {
+        const idx = this.followShipIndex;
+        if (idx == null)
+            return false;
+        const n = visual.instanceCapacity | 0;
+        return n > 0 && idx >= visual.instanceStart && idx < visual.instanceStart + n;
+    }
+    /**
+     * Re-OR bit 7 after a flags rebuild. 0→1 on a live visual starts WARM_FRAMES.
+     * Formation capacity is not touched.
+     */
+    orSystemSceneFlag(visual, state, flags, prevFlags) {
+        if (!this.fleetInSystemScene(state, visual))
+            return flags;
+        let next = flags;
+        if ((prevFlags & FLEET_FLAG_SYSTEM_SCENE) === 0 &&
+            visual.instanceCapacity > 0) {
+            visual.warmFramesLeft = WARM_FRAMES;
+            this.warmingFleetIds.add(visual.id);
+            next |= FLEET_FLAG_WARM;
+        }
+        return next | FLEET_FLAG_SYSTEM_SCENE;
+    }
+    /**
+     * Sparse flag write on SCENE/follow edge. Formation (instanceStart / shipBudget)
+     * stays put — never a host re-pack.
+     */
+    reapplySystemSceneFlags() {
+        if (this.fleets.size === 0)
+            return;
+        for (const f of this.fleets.values()) {
+            const slot = f.fleetSlot;
+            const o = slot * FLEET_GPU_STRIDE;
+            if (o + 4 > this.fleetGpuBytes.byteLength)
+                continue;
+            const flags = this.fleetGpuView.getUint32(o + FleetGpuFields.flags, true);
+            const next = this.fleetInSystemScene(f.state, f)
+                ? this.orSystemSceneFlag(f, f.state, flags, flags)
+                : (flags & ~FLEET_FLAG_SYSTEM_SCENE) >>> 0;
+            if (next !== flags) {
+                this.fleetGpuView.setUint32(o + FleetGpuFields.flags, next >>> 0, true);
+                if ((flags & FLEET_FLAG_SYSTEM_SCENE) !== 0 &&
+                    (next & FLEET_FLAG_SYSTEM_SCENE) === 0) {
+                    this.restoreTopologyPathEnd(f);
+                }
+                this.markFleetDirty(slot);
+            }
+        }
+    }
+    /** Topology dest xz (system node). Jumping uses endNode. */
+    topologyPathEndXZ(state) {
+        const lookup = this.positionLookup;
+        if (!lookup)
+            return null;
+        if (state.state === "jumping") {
+            const end = lookup(state.endNode);
+            return end ? { x: end.x, z: end.z } : null;
+        }
+        if (state.state === "cooldown" || state.state === "awaiting") {
+            const node = lookup(state.node);
+            return node ? { x: node.x, z: node.z } : null;
+        }
+        return null;
+    }
+    restoreTopologyPathEnd(visual) {
+        const pos = this.topologyPathEndXZ(visual.state);
+        if (!pos)
+            return;
+        const o = visual.fleetSlot * FLEET_GPU_STRIDE;
+        if (o + FLEET_GPU_STRIDE > this.fleetGpuBytes.byteLength)
+            return;
+        this.fleetGpuView.setFloat32(o + FleetGpuFields.pathEndX, pos.x, true);
+        this.fleetGpuView.setFloat32(o + FleetGpuFields.pathEndZ, pos.z, true);
+    }
+    /**
+     * Visual-only: SCENE fleets CIRCULATE a hashed compact planet, not the
+     * system node. Topology dest stays SolarSystem.position. Formation
+     * (instanceStart / shipBudget) is not touched. Jumping still overwrites
+     * pathEnd (galaxy hop ≫ 0.5) so they arrive at the planet.
+     */
+    writeParkedPathEnd(visual, timeSec) {
+        const store = this.solarBodies;
+        if (store.systemId == null || store.currentCount <= 0)
+            return;
+        const slot = visual.fleetSlot;
+        const o = slot * FLEET_GPU_STRIDE;
+        if (o + FLEET_GPU_STRIDE > this.fleetGpuBytes.byteLength)
+            return;
+        const hash = this.fleetGpuView.getUint32(o + FleetGpuFields.fleetIdHash, true);
+        const idx = pickSceneParkBodyIndex(hash, store);
+        const world = composeCompactBodyWorld(store, idx, timeSec, this.parkWorldScratch);
+        if (!world)
+            return;
+        const prevX = this.fleetGpuView.getFloat32(o + FleetGpuFields.pathEndX, true);
+        const prevZ = this.fleetGpuView.getFloat32(o + FleetGpuFields.pathEndZ, true);
+        if (prevX === world.x && prevZ === world.z)
+            return;
+        this.fleetGpuView.setFloat32(o + FleetGpuFields.pathEndX, world.x, true);
+        this.fleetGpuView.setFloat32(o + FleetGpuFields.pathEndZ, world.z, true);
+        this.markFleetDirty(slot);
+    }
+    /**
+     * Every frame while Kepler is live: park SCENE-loc fleets on a hashed planet.
+     * Followed fleets outside the SCENE keep galaxy pathEnd (bit 7 is agents only).
+     */
+    applyScenePlanetParking() {
+        if (this.fleets.size === 0)
+            return;
+        const store = this.solarBodies;
+        if (store.systemId == null ||
+            store.currentCount <= 0 ||
+            !this.systemSceneIds.has(store.systemId)) {
+            return;
+        }
+        const timeSec = this.getSceneTimeSec();
+        for (const f of this.fleets.values()) {
+            if (!fleetLocInSystemScene(f.state, this.systemSceneIds))
+                continue;
+            this.writeParkedPathEnd(f, timeSec);
+        }
+    }
+    /** Last Band B encode draw count (sun + discs issued). */
+    getBandBLastDrawCount() {
+        return this.solarBodyLayer.getLastDrawCount();
+    }
+    /** Last host-composed sun centerRel (origin-relative, y = 0 − origin.y). */
+    getLastBandBSunCenterRel() {
+        return this.solarBodyLayer.getLastSunCenterRel();
+    }
+    /** Last projected SYSTEM_LOCAL_SPAN in drawing-buffer px. */
+    getSceneSpanPx() {
+        return this.lastSceneSpanPx;
+    }
+    getSceneHysteresis() {
+        return {
+            sceneId: this.sceneHysteresis.sceneId,
+            holdStartMs: this.sceneHysteresis.holdStartMs,
+        };
+    }
+    /** Wall-relative seconds used for Kepler phase (same clock as disc encode). */
+    getSceneTimeSec() {
+        return this.toGpuTime(Date.now()) / 1000;
+    }
+    getViewProj() {
+        mat4LookAt(this.view, this.cameraX, this.cameraY, this.cameraZ, this.targetX, this.targetY, this.targetZ);
+        mat4ViewProj(this.viewProj, this.proj, this.view);
+        return this.viewProj;
+    }
+    setFocusedBodyIndex(index) {
+        this.focusedBodyIndex = index == null ? null : index | 0;
+    }
+    getFocusedBodyIndex() {
+        return this.focusedBodyIndex;
+    }
+    getLastBandCDrawCount() {
+        return this.solarBodyLayer.getLastBandCDrawCount();
+    }
+    /** Last consulted Year-1 pass-set hash (`{discs,sun,atm,models,integrate-split}`). */
+    getLastPassSetHash() {
+        return this.passSetHash;
+    }
+    /**
+     * Last Band-C FOCUS atmosphere: `"hillaire"` when the LUT was sampled,
+     * `"oneil"` RecurseDraw (oneil-fallback) otherwise.
+     */
+    getLastFocusAtmMode() {
+        return this.solarBodyLayer.getLastFocusAtmMode();
+    }
+    /**
+     * Bake the FOCUS LUT after submit / on promote. One in-flight.
+     * Never from encode / renderFrame — startLoop and tests call this.
+     */
+    pumpLutBake() {
+        this.solarBodyLayer.pumpLutBake();
+    }
+    wasPassResolveDepthAttached() {
+        return this.lastPassResolveHadDepth;
+    }
+    getLastOrbitRingSegments() {
+        return this.lastOrbitRingSegments;
+    }
+    /**
+     * Resolve the next {@link renderOnce} into an owned COPY_SRC color instead of
+     * the swapchain. Call before the boom encode; {@link readbackColorOnce} then
+     * MAP_READs that target (no second encode, no canvas copy).
+     */
+    enableColorReadback() {
+        this.resolveReadback = true;
+        this.ensureResolveColor(Math.max(1, this.canvas.width | 0), Math.max(1, this.canvas.height | 0));
+    }
+    /**
+     * Copy the last owned resolve (full buffer). Same Band C encode as
+     * {@link renderOnce} after {@link enableColorReadback}. Uses buffer-readback.
+     */
+    async readbackColorOnce() {
+        if (this.disposed || this.bootstrap.isLost) {
+            throw new Error("readbackColorOnce: device lost or view disposed");
+        }
+        const src = this.resolveColor;
+        if (!src || this.lastResolveW <= 0 || this.lastResolveH <= 0) {
+            throw new Error("readbackColorOnce: no resolve target (enableColorReadback + renderOnce first)");
+        }
+        const device = this.bootstrap.device;
+        const texW = this.lastResolveW;
+        const texH = this.lastResolveH;
+        return readGpuTextureRgba8(device, src, {
+            width: texW,
+            height: texH,
+            format: this.bootstrap.format,
+        });
     }
     /**
      * Run once per rAF before look-at / LOD / draw (e.g. damped camera update).
@@ -410,8 +787,16 @@ export class WebGpuMapView {
         });
         solarSystem._bufferIndex = idx;
         this.storeDirty = true;
+        this.sceneSystems.set(solarSystem.id, {
+            id: solarSystem.id,
+            bufferIndex: idx,
+            x: solarSystem.position.x,
+            z: solarSystem.position.z,
+            clusterId: cluster.id,
+        });
         const meta = this.ensureClusterLodMeta(cluster, clusterColor);
         meta.systemIndices.push(idx);
+        meta.systemIds.push(solarSystem.id);
         meta.x = cluster.position.x;
         meta.z = cluster.position.z;
         meta.radius = cluster.radius || meta.radius;
@@ -430,12 +815,19 @@ export class WebGpuMapView {
             return;
         this.store.hide(idx);
         this.storeDirty = true;
+        this.sceneSystems.delete(solarSystem.id);
+        if (this.sceneHiddenBufferIndex === idx) {
+            this.sceneHiddenBufferIndex = null;
+        }
         const meta = this.clusterLodMeta.get(cluster.id);
         if (!meta)
             return;
         const i = meta.systemIndices.indexOf(idx);
         if (i !== -1)
             meta.systemIndices.splice(i, 1);
+        const si = meta.systemIds.indexOf(solarSystem.id);
+        if (si !== -1)
+            meta.systemIds.splice(si, 1);
         if (meta.systemIndices.length === 0) {
             // Hide impostor when cluster has no systems left
             this.impostorStore.hide(meta.impostorIndex);
@@ -456,6 +848,14 @@ export class WebGpuMapView {
             if (typeof idx !== "number")
                 continue;
             this.store.updatePosition(idx, s.position.x, s.position.z);
+            const rec = this.sceneSystems.get(s.id);
+            if (rec) {
+                rec.x = s.position.x;
+                rec.z = s.position.z;
+            }
+            if (this.solarBodies.systemId === s.id) {
+                this.solarBodies.setSystemPosition(s.position.x, s.position.z);
+            }
             const cluster = s.cluster;
             if (cluster) {
                 const meta = this.clusterLodMeta.get(cluster.id);
@@ -545,6 +945,7 @@ export class WebGpuMapView {
             const clusterColor = cluster.color || 0xffffff;
             const meta = this.ensureClusterLodMeta(cluster, clusterColor);
             meta.systemIndices.length = 0;
+            meta.systemIds.length = 0;
             for (const solarSystem of cluster.solarSystems) {
                 const idx = writes.length;
                 writes.push({
@@ -557,6 +958,7 @@ export class WebGpuMapView {
                 });
                 solarSystem._bufferIndex = idx;
                 meta.systemIndices.push(idx);
+                meta.systemIds.push(solarSystem.id);
             }
             meta.x = cluster.position.x;
             meta.z = cluster.position.z;
@@ -567,6 +969,22 @@ export class WebGpuMapView {
             this.writeImpostorPoint(meta, false);
         }
         this.store.rebuild(writes);
+        this.sceneSystems.clear();
+        for (const cluster of galaxy.clusters) {
+            for (const solarSystem of cluster.solarSystems) {
+                const idx = solarSystem._bufferIndex;
+                if (typeof idx !== "number")
+                    continue;
+                this.sceneSystems.set(solarSystem.id, {
+                    id: solarSystem.id,
+                    bufferIndex: idx,
+                    x: solarSystem.position.x,
+                    z: solarSystem.position.z,
+                    clusterId: cluster.id,
+                });
+            }
+        }
+        this.resetSystemSceneLod();
         this.storeDirty = true;
         this.impostorStoreDirty = true;
         this.linesDirty = true;
@@ -581,6 +999,8 @@ export class WebGpuMapView {
         this.store.clear();
         this.impostorStore.clear();
         this.clusterLodMeta.clear();
+        this.sceneSystems.clear();
+        this.resetSystemSceneLod();
         this.storeDirty = true;
         this.impostorStoreDirty = true;
         this.lastPointLodD = -1;
@@ -614,11 +1034,17 @@ export class WebGpuMapView {
      */
     setOverlayLine2(pack) {
         if (pack.segmentCount <= 0) {
+            this.lastOverlayWorld = null;
             this.overlayLines.clearGeometry();
             return;
         }
-        this.overlayLines.setPositions(pack.positions.subarray(0, pack.segmentCount * LINE2_OVERLAY_POS_FLOATS));
-        this.overlayLines.setColors(pack.colors.subarray(0, pack.segmentCount * LINE2_OVERLAY_COLOR_FLOATS));
+        this.lastOverlayWorld = {
+            positions: pack.positions.slice(0, pack.segmentCount * LINE2_OVERLAY_POS_FLOATS),
+            colors: pack.colors.slice(0, pack.segmentCount * LINE2_OVERLAY_COLOR_FLOATS),
+            segmentCount: pack.segmentCount,
+        };
+        this.overlayLines.setPositions(this.lastOverlayWorld.positions);
+        this.overlayLines.setColors(this.lastOverlayWorld.colors);
     }
     /** Upload triangle-list overlay verts (pos.xyz + rgba). count = vertices. */
     setOverlayFills(data, vertexCount) {
@@ -626,6 +1052,7 @@ export class WebGpuMapView {
     }
     /** Clear overlay fat lines + fill streams. */
     clearOverlay() {
+        this.lastOverlayWorld = null;
         this.overlayLines.clearGeometry();
         this.overlay.clear();
     }
@@ -729,6 +1156,61 @@ export class WebGpuMapView {
         if (!ground)
             return null;
         return hitEditHandleAtGround(ground.x, ground.z, this.activeHandles, this.editLayout);
+    }
+    ensureOrbitRings() {
+        if (this.orbitRings)
+            return this.orbitRings;
+        this.orbitRings = new Line2Renderer(this.bootstrap.device, {
+            format: this.bootstrap.format,
+            sampleCount: MAP_MSAA_SAMPLES,
+            alphaToCoverage: false,
+            material: {
+                color: [0.75, 0.82, 1, 0.55],
+                linewidth: 1.25,
+                worldUnits: false,
+                endcaps: false,
+                softAA: false,
+                vertexColors: true,
+                depthTest: false,
+                depthWrite: false,
+            },
+        });
+        this.orbitRings.setResolution(this.canvas.width, this.canvas.height);
+        return this.orbitRings;
+    }
+    /** Origin-relative Kepler rings (never abs viewProj). */
+    encodeOrbitRingsViewRel(pass, origin) {
+        this.lastOrbitRingSegments = 0;
+        const store = this.solarBodies;
+        if (store.currentCount <= 0 || store.systemId == null) {
+            this.orbitRings?.clearGeometry();
+            return;
+        }
+        const radii = [];
+        for (let i = 0; i < store.currentCount; i++) {
+            if (store.isSun[i])
+                continue;
+            const r = KEPLER_SCALE * store.orbitRadius[i];
+            if (r > 0)
+                radii.push(r);
+        }
+        if (radii.length === 0) {
+            this.orbitRings?.clearGeometry();
+            return;
+        }
+        const sunRel = discWorldRelativeF32(store.systemX, store.systemZ, 0, 0, origin.x, origin.y, origin.z);
+        const pack = packKeplerOrbitRingsViewRel(sunRel.x, sunRel.y, sunRel.z, radii, 48);
+        const rings = this.ensureOrbitRings();
+        rings.setResolution(this.canvas.width, this.canvas.height);
+        if (pack.segmentCount <= 0) {
+            rings.clearGeometry();
+            return;
+        }
+        rings.setPositions(pack.positions);
+        rings.setColors(pack.colors);
+        rings.writeViewProjection(this.viewRel, this.proj);
+        rings.encode(pass);
+        this.lastOrbitRingSegments = pack.segmentCount;
     }
     /**
      * Pack gizmo + rings into overlay GPU buffers when dirty.
@@ -936,6 +1418,8 @@ export class WebGpuMapView {
             // One-shot seed so shadow starts near live GPU agent (not pack-time).
             this.refreshFollowPoseFromGpu(shipIndex);
         }
+        // Follow force-includes bit 7 (agents only). Re-OR on the edge, not every rAF.
+        this.reapplySystemSceneFlags();
     }
     /**
      * Same-frame follow shadow: step the tracked ship on CPU with the same path
@@ -1530,6 +2014,11 @@ export class WebGpuMapView {
         // R5: spawn warm-up (cs_ships sims + size 0). Shader LOD owns MID/FAR proxy.
         if (visual.warmFramesLeft > 0)
             flags |= FLEET_FLAG_WARM;
+        // Flags rebuilt from scratch — SCENE must be re-OR'd every write (not _pad1).
+        const prevFlags = o + FLEET_GPU_STRIDE <= this.fleetGpuBytes.byteLength
+            ? this.fleetGpuView.getUint32(o + FleetGpuFields.flags, true)
+            : 0;
+        flags = this.orSystemSceneFlag(visual, state, flags, prevFlags);
         const cmd = {
             from: { x: pathStartX, z: pathStartZ },
             target: { x: pathEndX, z: pathEndZ },
@@ -1551,6 +2040,9 @@ export class WebGpuMapView {
             instanceStart: visual.instanceStart,
             fleetIdHash: hashFleetId(visual.id),
         });
+        if (fleetLocInSystemScene(state, this.systemSceneIds)) {
+            this.writeParkedPathEnd(visual, this.getSceneTimeSec());
+        }
         return true;
     }
     /**
@@ -1575,6 +2067,10 @@ export class WebGpuMapView {
         let flags = FLEET_FLAG_ALIVE;
         if (visual.warmFramesLeft > 0)
             flags |= FLEET_FLAG_WARM;
+        const prevFlags = o + FLEET_GPU_STRIDE <= this.fleetGpuBytes.byteLength
+            ? this.fleetGpuView.getUint32(o + FleetGpuFields.flags, true)
+            : 0;
+        flags = this.orSystemSceneFlag(visual, visual.state, flags, prevFlags);
         const cmd = {
             from: { x: posX, z: posZ },
             target: { x: posX, z: posZ },
@@ -1595,6 +2091,9 @@ export class WebGpuMapView {
             instanceStart: visual.instanceStart,
             fleetIdHash: hashFleetId(visual.id),
         });
+        if (fleetLocInSystemScene(visual.state, this.systemSceneIds)) {
+            this.writeParkedPathEnd(visual, this.getSceneTimeSec());
+        }
     }
     /** Path endpoints from the FleetGpu row (stable fleetSlot). */
     fleetGpuPath(visual) {
@@ -1700,6 +2199,7 @@ export class WebGpuMapView {
             z: cluster.position.z,
             color: clusterColor,
             systemIndices: [],
+            systemIds: [],
             lineKeys: [],
             impostorIndex,
             wasImpostor: false,
@@ -1731,6 +2231,9 @@ export class WebGpuMapView {
     /**
      * O(clusters) point LOD: constant ~5px billboards; cluster impostors with hysteresis.
      * Runs when camera distance / viewport / fovy change (not every frame if stable).
+     * Band B (one SCENE) uses drawing-buffer height and the same d/H/fovy cadence
+     * plus look-at xz and a hold-pending tick (`holdStartMs > 0` only) so 2500 ms
+     * exit can fire without a camera nudge.
      */
     applyGalaxyPointLod() {
         const d = cameraDistanceToTarget({ x: this.cameraX, y: this.cameraY, z: this.cameraZ }, { x: this.targetX, z: this.targetZ });
@@ -1741,41 +2244,147 @@ export class WebGpuMapView {
             viewportH !== this.lastPointLodViewportH ||
             fovy !== this.lastPointLodFovy;
         this.pointWorldScale = billboardScaleForDiameterPx(SYSTEM_POINT_DIAMETER_PX, d, fovy, viewportH);
-        if (!dChanged && this.lastPointLodD >= 0) {
+        const forceLod = this.lastPointLodD < 0;
+        const holdPending = this.sceneHysteresis.holdStartMs > 0;
+        const lookAtChanged = Math.abs(this.targetX - this.lastSceneLookAtX) > 1e-3 ||
+            Math.abs(this.targetZ - this.lastSceneLookAtZ) > 1e-3;
+        const bufferH = this.canvas.height;
+        const bufferHChanged = bufferH !== this.lastSceneBufferH;
+        if (dChanged || forceLod) {
+            this.lastPointLodD = d;
+            this.lastPointLodViewportH = viewportH;
+            this.lastPointLodFovy = fovy;
+            for (const meta of this.clusterLodMeta.values()) {
+                if (meta.systemIndices.length === 0)
+                    continue;
+                const wantImpostor = clusterImpostorWithHysteresis(d, meta.radius, meta.wasImpostor, fovy, viewportH);
+                if (wantImpostor === meta.wasImpostor)
+                    continue;
+                meta.wasImpostor = wantImpostor;
+                if (wantImpostor) {
+                    for (let i = 0; i < meta.systemIndices.length; i++) {
+                        this.store.setLodHidden(meta.systemIndices[i], true);
+                    }
+                    for (let i = 0; i < meta.lineKeys.length; i++) {
+                        this.lineStore.setLodHidden(meta.lineKeys[i], true);
+                    }
+                    this.writeImpostorPoint(meta, true);
+                }
+                else {
+                    for (let i = 0; i < meta.systemIndices.length; i++) {
+                        // Internal lodRestore cache (kept current by updatePosition while hidden)
+                        this.store.setLodHidden(meta.systemIndices[i], false);
+                    }
+                    for (let i = 0; i < meta.lineKeys.length; i++) {
+                        this.lineStore.setLodHidden(meta.lineKeys[i], false);
+                    }
+                    this.writeImpostorPoint(meta, false);
+                }
+                this.storeDirty = true;
+                this.impostorStoreDirty = true;
+                this.linesDirty = true;
+            }
+        }
+        if (dChanged || forceLod || holdPending || lookAtChanged || bufferHChanged) {
+            this.applySystemSceneLod(d, fovy);
+            this.lastSceneLookAtX = this.targetX;
+            this.lastSceneLookAtZ = this.targetZ;
+            this.lastSceneBufferH = bufferH;
+        }
+    }
+    resetSystemSceneLod() {
+        this.sceneHysteresis = { sceneId: null, holdStartMs: 0 };
+        this.sceneHiddenBufferIndex = null;
+        this.lastSceneSpanPx = 0;
+        this.solarBodies.clear();
+        this.catalogResidency.retainPreviews(EMPTY_PREVIEW_KEEP);
+        this.setSystemScene(new Set());
+    }
+    /**
+     * One sticky compact Kepler SCENE. Parks the winner's 5px slot.
+     * Neighbors stay 5px (no extra catalog bind).
+     *
+     * Pick is O(clusters) + O(systems in the look-at cluster) — never a
+     * full-galaxy `sceneSystems` walk (default 15000×80).
+     */
+    applySystemSceneLod(d, fovy) {
+        const bufferH = this.canvas.height;
+        const lookAtX = this.targetX;
+        const lookAtZ = this.targetZ;
+        const clusterId = pickLookAtClusterId((visit) => {
+            for (const meta of this.clusterLodMeta.values()) {
+                if (meta.systemIds.length === 0)
+                    continue;
+                visit(meta.clusterId, meta.x, meta.z);
+            }
+        }, lookAtX, lookAtZ);
+        const clusterMeta = clusterId != null ? this.clusterLodMeta.get(clusterId) : undefined;
+        const prevSceneId = this.sceneHysteresis.sceneId;
+        const candidates = fillSceneCandidatesForCluster(this.sceneCandidateScratch, clusterMeta ? clusterMeta.systemIds : EMPTY_SYSTEM_IDS, this.sceneSystems, prevSceneId);
+        const next = oneSceneWithHysteresis({
+            candidates,
+            lookAtX,
+            lookAtZ,
+            d,
+            viewportH: bufferH,
+            fovyDeg: fovy,
+            nowMs: Date.now(),
+            prev: this.sceneHysteresis,
+        });
+        this.sceneHysteresis = {
+            sceneId: next.sceneId,
+            holdStartMs: next.holdStartMs,
+        };
+        this.lastSceneSpanPx = next.spanPx;
+        const sceneId = next.sceneId;
+        const rec = sceneId != null ? this.sceneSystems.get(sceneId) : undefined;
+        const nextHidden = rec ? rec.bufferIndex : null;
+        if (this.sceneHiddenBufferIndex !== nextHidden) {
+            const prevIdx = this.sceneHiddenBufferIndex;
+            if (prevIdx != null) {
+                const prevRec = prevSceneId != null ? this.sceneSystems.get(prevSceneId) : undefined;
+                const impostor = prevRec != null &&
+                    this.clusterLodMeta.get(prevRec.clusterId)?.wasImpostor === true;
+                if (!impostor) {
+                    this.store.setLodHidden(prevIdx, false);
+                    this.storeDirty = true;
+                }
+            }
+            if (nextHidden != null) {
+                this.store.setLodHidden(nextHidden, true);
+                this.storeDirty = true;
+            }
+            this.sceneHiddenBufferIndex = nextHidden;
+        }
+        else if (nextHidden != null && !this.store.lodHidden[nextHidden]) {
+            // Cluster impostor just un-hid everyone — re-park the SCENE 5px slot.
+            this.store.setLodHidden(nextHidden, true);
+            this.storeDirty = true;
+        }
+        if (sceneId == null || !rec) {
+            if (this.solarBodies.systemId != null) {
+                this.solarBodies.clear();
+            }
+            this.catalogResidency.retainPreviews(EMPTY_PREVIEW_KEEP);
+            this.setSystemScene(new Set());
             return;
         }
-        this.lastPointLodD = d;
-        this.lastPointLodViewportH = viewportH;
-        this.lastPointLodFovy = fovy;
-        for (const meta of this.clusterLodMeta.values()) {
-            if (meta.systemIndices.length === 0)
-                continue;
-            const wantImpostor = clusterImpostorWithHysteresis(d, meta.radius, meta.wasImpostor, fovy, viewportH);
-            if (wantImpostor === meta.wasImpostor)
-                continue;
-            meta.wasImpostor = wantImpostor;
-            if (wantImpostor) {
-                for (let i = 0; i < meta.systemIndices.length; i++) {
-                    this.store.setLodHidden(meta.systemIndices[i], true);
-                }
-                for (let i = 0; i < meta.lineKeys.length; i++) {
-                    this.lineStore.setLodHidden(meta.lineKeys[i], true);
-                }
-                this.writeImpostorPoint(meta, true);
+        this.setSystemScene(new Set([sceneId]));
+        if (this.solarBodies.systemId !== sceneId) {
+            const catalogId = catalogIdFromSystemId(sceneId);
+            const kepler = buildCompactKepler(catalogId);
+            this.solarBodies.rebuild(kepler, sceneId, rec.x, rec.z);
+            const keep = new Set();
+            for (let i = 0; i < kepler.planets.length; i++) {
+                keep.add(kepler.planets[i].id);
             }
-            else {
-                for (let i = 0; i < meta.systemIndices.length; i++) {
-                    // Internal lodRestore cache (kept current by updatePosition while hidden)
-                    this.store.setLodHidden(meta.systemIndices[i], false);
-                }
-                for (let i = 0; i < meta.lineKeys.length; i++) {
-                    this.lineStore.setLodHidden(meta.lineKeys[i], false);
-                }
-                this.writeImpostorPoint(meta, false);
+            this.catalogResidency.retainPreviews(keep);
+            for (const id of keep) {
+                this.catalogResidency.requestPreview(id);
             }
-            this.storeDirty = true;
-            this.impostorStoreDirty = true;
-            this.linesDirty = true;
+        }
+        else {
+            this.solarBodies.setSystemPosition(rec.x, rec.z);
         }
     }
     getLastFrameCpuMs() {
@@ -1811,6 +2420,19 @@ export class WebGpuMapView {
      * Not polluted by multi-frame backlog (unlike bare submit→done on a busy queue).
      * Stops rAF for the duration; caller may restart.
      */
+    /**
+     * One renderFrame without waiting onSubmittedWorkDone (tests / scripted camera).
+     * Does not start rAF.
+     */
+    renderOnce() {
+        if (this.disposed || this.bootstrap.isLost)
+            return;
+        this.renderFrame();
+    }
+    /** CPU Band B / 5px LOD only (no encode). Safe if the device was lost. */
+    tickSceneLod() {
+        this.applyGalaxyPointLod();
+    }
     async measureOneGpuFrameMs() {
         if (this.disposed || this.bootstrap.isLost)
             return 0;
@@ -1844,6 +2466,9 @@ export class WebGpuMapView {
             }
             const t0 = performance.now();
             this.renderFrame();
+            this.catalogResidency.pumpPreviewLoads();
+            this.catalogResidency.pumpHiLoad();
+            this.solarBodyLayer.pumpLutBake();
             this.lastFrameCpuMs = performance.now() - t0;
             this.frameCpuSampleSum += this.lastFrameCpuMs;
             this.frameCpuSampleCount++;
@@ -1913,6 +2538,8 @@ export class WebGpuMapView {
         });
         // Galaxy point LOD: O(clusters) on camera/viewport change (hysteresis sticky).
         frameDebugTime("applyGalaxyPointLod", () => this.applyGalaxyPointLod());
+        // Kepler pathEnd for SCENE loc fleets — after store rebuild, before integrate.
+        frameDebugTime("applyScenePlanetParking", () => this.applyScenePlanetParking());
         if (this.storeDirty) {
             frameDebugTime("points.syncFromStore", () => {
                 this.points.syncFromStore(this.store);
@@ -1944,11 +2571,18 @@ export class WebGpuMapView {
         // recompute focus from that look-at + followed fleet domain (never freeze).
         const fovyRad = (this.fovyDeg * Math.PI) / 180;
         const tanHalfFov = Math.tan(fovyRad * 0.5);
+        // View distance, not raw eyeY — orbit eyeY≈0.05 would mark the cluster NEAR.
+        const lodCameraY = cameraDistanceToTarget({ x: this.cameraX, y: this.cameraY, z: this.cameraZ }, { x: this.targetX, y: this.targetY, z: this.targetZ });
         let modelIndices = [];
         frameDebugTime("selectModelLod", () => {
-            this.modelLodGlobalSticky = isModelLodActiveSticky(this.cameraY, this.cssHeight, tanHalfFov, this.modelLodGlobalSticky);
+            this.modelLodGlobalSticky = isModelLodActiveSticky(lodCameraY, this.cssHeight, tanHalfFov, this.modelLodGlobalSticky);
             const followIdx = this.followShipIndex;
-            if (this.modelLayer.isReady() && this.modelLodGlobalSticky) {
+            const followingModels = followIdx != null;
+            const anySceneModels = this.systemSceneIds.size > 0;
+            // Models require sticky height AND (SCENE or follow) — no galaxy-wide hulls.
+            if (this.modelLayer.isReady() &&
+                this.modelLodGlobalSticky &&
+                (anySceneModels || followingModels)) {
                 const clusterCenters = [];
                 for (const meta of this.clusterLodMeta.values()) {
                     clusterCenters.push({
@@ -1996,6 +2630,9 @@ export class WebGpuMapView {
                         if (!isFleetModelTopologyEligible(loc, topoCtx))
                             continue;
                     }
+                    // AND SCENE or follow (bit 7 consult) — icons stay triangles/impostors.
+                    if (!this.fleetInSystemScene(f.state, f))
+                        continue;
                     const o = f.fleetSlot * FLEET_GPU_STRIDE;
                     // Marker ease pos vs pathEnd (ships orbit pathEnd).
                     const markerX = this.fleetGpuView.getFloat32(o + FleetGpuFields.posX, true);
@@ -2026,7 +2663,7 @@ export class WebGpuMapView {
                     // Live chase look-at — same values as setCameraLookAt this frame.
                     targetX: lookX,
                     targetZ: lookZ,
-                    cameraY: this.cameraY,
+                    cameraY: cameraDistanceToTarget({ x: this.cameraX, y: this.cameraY, z: this.cameraZ }, { x: lookX, y: this.targetY, z: lookZ }),
                     tanHalfFov,
                     eyeX: this.cameraX,
                     eyeY: this.cameraY,
@@ -2066,7 +2703,13 @@ export class WebGpuMapView {
             }
         });
         try {
-            const texture = frameDebugTime("getCurrentTexture", () => this.bootstrap.context.getCurrentTexture());
+            // Readback frames skip the swapchain — COPY_* on the canvas texture
+            // destroys SharedImage on this Chromium. MSAA still matches the buffer.
+            const texture = this.resolveReadback
+                ? null
+                : frameDebugTime("getCurrentTexture", () => this.bootstrap.context.getCurrentTexture());
+            const colorW = texture?.width ?? this.canvas.width;
+            const colorH = texture?.height ?? this.canvas.height;
             // L5 continuous pose: reuse the same nowRel/dt as the follow shadow step.
             const nowRel = nowRelEarly;
             const simDtMs = simDtMsEarly;
@@ -2075,7 +2718,7 @@ export class WebGpuMapView {
             const shipHw = this.instanceLiveCount;
             const fovyRadIntegrate = (this.fovyDeg * Math.PI) / 180;
             const integrateCamera = {
-                cameraY: this.cameraY,
+                cameraY: lodCameraY,
                 targetX: this.targetX,
                 targetZ: this.targetZ,
                 viewportH: this.cssHeight,
@@ -2087,6 +2730,10 @@ export class WebGpuMapView {
                 originZ: this.frameOrigin.z,
             };
             const following = this.followShipIndex != null;
+            const integrateOpts = {
+                anyScene: this.systemSceneIds.size > 0 || following,
+                follow: following,
+            };
             // Follow lockstep: integrate must *finish* on the GPU before we overwrite
             // the tracked ship with the camera shadow. queue.writeBuffer before a single
             // submit(encoder) runs *before* that encoder's compute — so the GPU would
@@ -2095,7 +2742,7 @@ export class WebGpuMapView {
                 const encI = this.bootstrap.device.createCommandEncoder({
                     label: "webgpu-map-integrate",
                 });
-                frameDebugTime("dispatchIntegrate (encode)", () => this.fleetsLayer.dispatchIntegrate(encI, nowRel, simDtMs, fleetHw, shipHw, integrateCamera), `fleets=${fleetHw} ships=${shipHw}`);
+                frameDebugTime("dispatchIntegrate (encode)", () => this.fleetsLayer.dispatchIntegrate(encI, nowRel, simDtMs, fleetHw, shipHw, integrateCamera, integrateOpts), `fleets=${fleetHw} ships=${shipHw}`);
                 frameDebugTime("queue.submit.integrate", () => this.bootstrap.device.queue.submit([encI.finish()]));
                 frameDebugTime("tickWarmFleets", () => this.tickWarmFleets());
                 // Exact camera pose → ShipSim for draw (matches stepFollow above).
@@ -2105,7 +2752,7 @@ export class WebGpuMapView {
                 label: "webgpu-map-frame",
             });
             if (!following) {
-                frameDebugTime("dispatchIntegrate (encode)", () => this.fleetsLayer.dispatchIntegrate(encoder, nowRel, simDtMs, fleetHw, shipHw, integrateCamera), `fleets=${fleetHw} ships=${shipHw}`);
+                frameDebugTime("dispatchIntegrate (encode)", () => this.fleetsLayer.dispatchIntegrate(encoder, nowRel, simDtMs, fleetHw, shipHw, integrateCamera, integrateOpts), `fleets=${fleetHw} ships=${shipHw}`);
                 frameDebugTime("tickWarmFleets", () => this.tickWarmFleets());
             }
             const modelN = modelIndices.length;
@@ -2116,9 +2763,43 @@ export class WebGpuMapView {
             // 2) Depth-bearing pass — opaque models, then model pot trails
             //    (depth test on, write off), then resolve.
             // See vendor/line2 I01 "Galaxy color-only pipeline".
-            this.ensureMsaaColor(texture.width, texture.height);
-            const swapView = texture.createView();
+            this.ensureMsaaColor(colorW, colorH);
+            if (this.resolveReadback) {
+                this.ensureResolveColor(this.msaaW, this.msaaH);
+            }
+            const resolveView = this.resolveReadback && this.resolveColorView
+                ? this.resolveColorView
+                : texture.createView();
             const origin = this.frameOrigin;
+            const bandC = this.focusedBodyIndex != null &&
+                this.focusedBodyIndex >= 0 &&
+                this.solarBodies.currentCount > 0 &&
+                this.solarBodies.isSun[this.focusedBodyIndex] !== 1;
+            // Band B UBOs must land before the pass (no mid-pass writeBuffer).
+            this.solarBodyLayer.prepare({
+                store: this.solarBodies,
+                residency: this.catalogResidency,
+                viewProjRel: this.viewProjRel,
+                frameOrigin: origin,
+                eyeX: this.cameraX,
+                eyeY: this.cameraY,
+                eyeZ: this.cameraZ,
+                cameraRight: this.cameraRight,
+                cameraUp: this.cameraUp,
+                viewportH: this.canvas.height,
+                fovyDeg: this.fovyDeg,
+                timeSec: this.toGpuTime(Date.now()) / 1000,
+                focusedBodyIndex: this.focusedBodyIndex,
+                bandC,
+            });
+            // Hashed sticky pass-set: fill reused flags, skip unused encode.
+            // Rebuild the number when flags change — no PassData / plan object.
+            const sceneOpen = this.systemSceneIds.size > 0 || this.solarBodies.systemId != null;
+            const nBodies = this.solarBodies.currentCount;
+            const hasSun = solarStoreHasSun(this.solarBodies.isSun, nBodies);
+            const hasDisc = solarStoreHasDisc(this.solarBodies.isSun, nBodies);
+            fillPassSetFlags(this.passSetFlags, sceneOpen && hasDisc, sceneOpen && hasSun, (sceneOpen && hasDisc) || bandC, modelOn && modelN > 0, following);
+            this.passSetHash = hashPassSet(this.passSetFlags);
             const passColor = encoder.beginRenderPass({
                 colorAttachments: [
                     {
@@ -2130,19 +2811,24 @@ export class WebGpuMapView {
                     },
                 ],
             });
-            // Topology connections: fat Line2 (separate view + proj, not viewProj).
-            frameDebugTime("encode.lines", () => this.lines.encode(passColor, this.view, this.proj));
+            // Topology connections: origin-relative view + same proj (screen-px width).
+            frameDebugTime("encode.lines", () => this.lines.encode(passColor, this.viewRel, this.proj, origin));
             // Systems then cluster impostors — same worldScale (~5px diameter).
-            frameDebugTime("encode.points", () => this.points.encode(passColor, this.viewProj, this.pointWorldScale, this.store.currentCount, this.cameraRight, this.cameraUp));
-            frameDebugTime("encode.impostors", () => this.impostorPoints.encode(passColor, this.viewProj, this.pointWorldScale, this.impostorStore.currentCount, this.cameraRight, this.cameraUp));
+            frameDebugTime("encode.points", () => this.points.encode(passColor, this.viewProjRel, this.pointWorldScale, this.store.currentCount, this.cameraRight, this.cameraUp, origin));
+            frameDebugTime("encode.impostors", () => this.impostorPoints.encode(passColor, this.viewProjRel, this.pointWorldScale, this.impostorStore.currentCount, this.cameraRight, this.cameraUp, origin));
+            // Band B: compact Kepler after 5px hide is visible. Color-only (no frag_depth).
+            // Skip unused: do not record encode.solarBodies when discs+sun are off.
+            if (this.passSetFlags.discs || this.passSetFlags.sun) {
+                frameDebugTime("encode.solarBodies", () => this.solarBodyLayer.encode(passColor));
+            }
             // Strategic trails only in the color-only pass (no depth). When model LOD
             // owns ships, pot trails draw after models in the depth pass instead.
             if (!(modelOn && modelN > 0)) {
-                frameDebugTime("encode.trails", () => this.fleetsLayer.encodeTrails(passColor, this.viewRel, this.proj, this.canvas.width, this.canvas.height, this.cameraY, origin));
+                frameDebugTime("encode.trails", () => this.fleetsLayer.encodeTrails(passColor, this.viewRel, this.proj, this.canvas.width, this.canvas.height, lodCameraY, origin));
             }
             // W4: cameraY / viewportH / tanHalfFov + floating origin for ship VS.
             frameDebugTime("encode.fleets", () => this.fleetsLayer.encode(passColor, this.viewProjRel, 0.95, {
-                cameraY: this.cameraY,
+                cameraY: cameraDistanceToTarget({ x: this.cameraX, y: this.cameraY, z: this.cameraZ }, { x: this.targetX, y: this.targetY, z: this.targetZ }),
                 viewportH: this.cssHeight,
                 tanHalfFov,
                 originX: origin.x,
@@ -2155,21 +2841,31 @@ export class WebGpuMapView {
             frameDebugTime("encode.overlay", () => {
                 this.overlay.encode(passColor, this.viewProj);
                 this.overlayLines.setResolution(this.canvas.width, this.canvas.height);
-                this.overlayLines.writeViewProjection(this.view, this.proj);
+                if (this.lastOverlayWorld && this.lastOverlayWorld.segmentCount > 0) {
+                    const shifted = shiftLine2PackByOrigin(this.lastOverlayWorld, origin.x, origin.y, origin.z, this.overlayRelScratch ?? undefined);
+                    this.overlayRelScratch = shifted;
+                    this.overlayLines.setPositions(shifted.positions);
+                    this.overlayLines.setColors(shifted.colors);
+                }
+                this.overlayLines.writeViewProjection(this.viewRel, this.proj);
                 this.overlayLines.encode(passColor);
+                this.encodeOrbitRingsViewRel(passColor, origin);
             });
             passColor.end();
-            // Pass 2: optional depth for models + always resolve MSAA → swapchain.
+            // Pass 2: depth when models OR Band C; resolve MSAA → swapchain
+            // (or owned COPY_SRC target when {@link enableColorReadback}).
+            const wantDepth = (modelOn && modelN > 0) || bandC;
+            this.lastPassResolveHadDepth = !!(wantDepth && this.msaaDepthView);
             const passResolve = encoder.beginRenderPass({
                 colorAttachments: [
                     {
                         view: this.msaaColorView,
-                        resolveTarget: swapView,
+                        resolveTarget: resolveView,
                         loadOp: "load",
                         storeOp: "discard",
                     },
                 ],
-                depthStencilAttachment: modelOn && modelN > 0 && this.msaaDepthView
+                depthStencilAttachment: wantDepth && this.msaaDepthView
                     ? {
                         view: this.msaaDepthView,
                         depthClearValue: 1,
@@ -2178,19 +2874,24 @@ export class WebGpuMapView {
                     }
                     : undefined,
             });
+            if (bandC && this.msaaDepthView && this.passSetFlags.atm) {
+                frameDebugTime("encode.bandC", () => this.solarBodyLayer.encodeDepth(passResolve));
+            }
             if (modelOn && modelN > 0) {
                 // eyeWorld = true camera (rim only). Key light is fleet pathEnd in VS.
                 // Follow floating origin may be the ship — do not use origin as light.
-                frameDebugTime("encode.models", () => this.modelLayer.encode(passResolve, this.viewProjRel, modelIndices, origin, {
-                    x: this.cameraX,
-                    y: this.cameraY,
-                    z: this.cameraZ,
-                }, 
-                // Aft thruster pulse — same wall clock as trail glow feel.
-                this.toGpuTime(Date.now()) / 1000));
+                if (this.passSetFlags.models) {
+                    frameDebugTime("encode.models", () => this.modelLayer.encode(passResolve, this.viewProjRel, modelIndices, origin, {
+                        x: this.cameraX,
+                        y: this.cameraY,
+                        z: this.cameraZ,
+                    }, 
+                    // Aft thruster pulse — same wall clock as trail glow feel.
+                    this.toGpuTime(Date.now()) / 1000));
+                }
                 // Model pot trails after opaque hull. Depth write off; compare less-equal
                 // so nearer hulls occlude far thruster ribbons (not always-on-top).
-                frameDebugTime("encode.modelTrails", () => this.fleetsLayer.encodeTrails(passResolve, this.viewRel, this.proj, this.canvas.width, this.canvas.height, this.cameraY, origin, { depthAware: true }));
+                frameDebugTime("encode.modelTrails", () => this.fleetsLayer.encodeTrails(passResolve, this.viewRel, this.proj, this.canvas.width, this.canvas.height, lodCameraY, origin, { depthAware: true }));
             }
             passResolve.end();
             frameDebugTime("queue.submit", () => this.bootstrap.device.queue.submit([encoder.finish()]));
@@ -2208,6 +2909,10 @@ export class WebGpuMapView {
         window.removeEventListener("resize", this.onResize);
         this.points.dispose();
         this.impostorPoints.dispose();
+        this.solarBodyLayer.dispose();
+        this.orbitRings?.dispose();
+        this.orbitRings = null;
+        this.catalogResidency.dispose();
         this.lines.dispose();
         this.modelLayer.dispose();
         this.fleetsLayer.dispose();
@@ -2216,6 +2921,9 @@ export class WebGpuMapView {
         this.msaaColor?.destroy();
         this.msaaColor = null;
         this.msaaColorView = null;
+        this.resolveColor?.destroy();
+        this.resolveColor = null;
+        this.resolveColorView = null;
         this.msaaDepth?.destroy();
         this.msaaDepth = null;
         this.msaaDepthView = null;

@@ -10,6 +10,7 @@
  * Not tied to cluster/system centers — mid-jump fleets stay precise when the
  * camera is near them.
  */
+import { RENDER_PLANE_Y } from "../../contracts/render-constants.js";
 import { mat4LookAt } from "./mat4.js";
 /**
  * True when follow opts request pathEnd-centered origin (planar CIRCULATE).
@@ -178,6 +179,43 @@ export function ensureShipIndexInList(indices, shipIndex) {
  */
 export function trailEndpointAbsoluteF32(endX, endY, endZ) {
     return { x: f32(endX), y: f32(endY), z: f32(endZ) };
+}
+/**
+ * Phase-local Kepler offset on the gameplay plane (y = 0):
+ *   k · R · (sin φ, cos φ)  →  (x, z)
+ *
+ * Host applies {@link discWorldRelativeF32} to add the system center − origin.
+ * Do not change {@link chooseFrameOrigin} to a star/cluster.
+ */
+export function keplerPhaseLocalF32(k, orbitRadius, phase) {
+    const r = k * orbitRadius;
+    return {
+        x: f32(r * Math.sin(phase)),
+        y: 0,
+        z: f32(r * Math.cos(phase)),
+    };
+}
+/**
+ * Disc / Kepler center relative to the frame floating origin.
+ *
+ *   centerRel.xz = f32(f64(system.xz − origin.xz) + local.xz)
+ *   centerRel.y  = f32(RENDER_PLANE_Y − origin.y)   // 0 − origin.y
+ *
+ * World gameplay y is always {@link RENDER_PLANE_Y} (0). Relative Y must be
+ * `worldY − originY`, not a forced 0. When origin is the camera eye (typical
+ * dive), viewRel is built with eyeRel = 0; forcing centerRel.y = 0 parks the
+ * sun at the eye and clips at near (0.0004). viewProjRel · centerRel then places
+ * bodies on the look-at plane.
+ *
+ * Compose in f64 (JS number) then one f32 cast so meter-scale Kepler offsets
+ * survive at galaxy |xz| ≳ 1e5. Never store abs-f32 composed centers.
+ */
+export function discWorldRelativeF32(systemX, systemZ, localX, localZ, originX, originY, originZ) {
+    return {
+        x: f32(systemX - originX + localX),
+        y: f32(RENDER_PLANE_Y - originY),
+        z: f32(systemZ - originZ + localZ),
+    };
 }
 /**
  * True relative mesh offset recovered from absolute world verts (f64 truth).

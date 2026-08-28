@@ -7,12 +7,18 @@
  * - Zoom-in: cursor pivot; zoom-out: screen-center pivot.
  */
 /**
- * Closest map camera height (world units). Deep enough for close model
- * inspection (~ship-scale framing at model LOD with DEFAULT_SCALE 0.25).
- * Kept above the map near-clip so zoom-in is never frustum-culled.
+ * Closest **galaxy-pan** camera height (world units). Map-mode floor only —
+ * do not clamp system-orbit radius with this. Orbit / Band C limb fill use
+ * {@link MAP_NEAR} × 3 (or boom) instead. Still one camera object
+ * (no solar-camera.ts).
  */
-export const MIN_ZOOM = 1;
+export const MIN_ZOOM = 0.02;
 export const MAX_ZOOM = 1000000;
+/**
+ * Map perspective near clip. Must stay below compact-planet boom at
+ * SPAN=0.1 (azure boom ~0.003) so limb fill is not frustum-culled.
+ */
+export const MAP_NEAR = 0.0004;
 /**
  * Max |pitch| for map CTRL free-look orbit (rad). Just shy of ±90° so the
  * eye can go fully under the y=0 plane without a pole singularity.

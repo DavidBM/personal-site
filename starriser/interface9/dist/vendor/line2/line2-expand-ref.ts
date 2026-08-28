@@ -53,6 +53,11 @@ export interface Line2ExpandScreenParams {
    * (Line2 / three.js pill). Matches material `endcaps` uniform.
    */
   endcaps?: boolean;
+  /**
+   * Floating origin subtracted from start/end before modelView.
+   * Matches WGSL `instanceStart/End − u.origin`. Default (0,0,0).
+   */
+  origin?: Vec3Like;
 }
 
 function xyz(v: Vec3Like): [number, number, number] {
@@ -132,8 +137,15 @@ export function trimSegmentAlpha(
 export function expandLine2CornerScreenSpace(
   params: Line2ExpandScreenParams,
 ): ClipVec4 {
-  const [sx, sy, sz] = xyz(params.start);
-  const [ex, ey, ez] = xyz(params.end);
+  const [sx0, sy0, sz0] = xyz(params.start);
+  const [ex0, ey0, ez0] = xyz(params.end);
+  const [ox, oy, oz] = params.origin ? xyz(params.origin) : [0, 0, 0];
+  const sx = sx0 - ox;
+  const sy = sy0 - oy;
+  const sz = sz0 - oz;
+  const ex = ex0 - ox;
+  const ey = ey0 - oy;
+  const ez = ez0 - oz;
   const [resX, resY] = resXY(params.resolution);
   const aspect = resX / resY;
   const posX = params.positionX;

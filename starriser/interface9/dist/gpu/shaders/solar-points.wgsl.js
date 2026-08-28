@@ -27,6 +27,9 @@ struct Uniforms {
   /** Camera up axis in world space (unit). */
   cameraUp : vec3<f32>,
   _padU : f32,
+  /** Floating origin — VS forms (center − origin) then viewProjRel. */
+  origin : vec3<f32>,
+  _padO : f32,
 };
 
 @group(0) @binding(0) var<uniform> u : Uniforms;
@@ -60,8 +63,9 @@ fn vs_main(
   let corner = vid % 6u;
   let off = corner_offset(corner);
   let scale = u.worldScale;
-  // Camera-facing billboard (right/up from view matrix)
-  let world = center
+  // Camera-facing billboard (right/up from view matrix). Origin-relative
+  // so viewProj may be viewProjRel at galaxy |xz| ≳ 1e5.
+  let world = (center - u.origin)
     + u.cameraRight * (off.x * scale)
     + u.cameraUp * (off.y * scale);
   out.clip = u.viewProj * vec4<f32>(world, 1.0);

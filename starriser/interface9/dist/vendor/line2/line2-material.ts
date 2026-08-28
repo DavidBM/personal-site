@@ -5,10 +5,16 @@
 
 import type { Line2MaterialParams, Rgba } from "./types.js";
 
-/** Bytes of the GPU uniform buffer (multiple of 16). */
-export const LINE2_UNIFORM_SIZE = 192;
+/**
+ * Bytes of the GPU uniform buffer (multiple of 16).
+ * 192 was packed full (endcaps at float 47); origin.xyz occupies the next
+ * 16-byte slot so topology Line2 can stay absolute on the GPU.
+ */
+export const LINE2_UNIFORM_SIZE = 208;
 /** Float count in the uniform staging array. */
 export const LINE2_UNIFORM_FLOATS = LINE2_UNIFORM_SIZE / 4;
+/** Float offset of `origin.xyz` (byte 192). Pad float 51 unused. */
+export const LINE2_UNIFORM_ORIGIN_FLOAT = 48;
 
 const DEFAULT_COLOR: Rgba = [1, 1, 1, 1];
 
@@ -94,6 +100,8 @@ export function applyMaterialParams(
  *  45     softAA (0|1)
  *  46     vertexColors (0|1)
  *  47     endcaps (0|1) — was pad; body-only when 0
+ *  48–50  origin.xyz (VS subtract; GPU instance pos stay absolute)
+ *  51     pad
  */
 export function writeMaterialUniforms(
   dst: Float32Array,
@@ -115,6 +123,22 @@ export function writeMaterialUniforms(
   dst[45] = state.softAA ? 1 : 0;
   dst[46] = state.vertexColors ? 1 : 0;
   dst[47] = state.endcaps ? 1 : 0;
+}
+
+/**
+ * Write floating origin into the uniform staging buffer (floats 48–50).
+ * Does not touch material or matrix slots.
+ */
+export function writeOriginUniforms(
+  dst: Float32Array,
+  x: number,
+  y: number,
+  z: number,
+): void {
+  dst[LINE2_UNIFORM_ORIGIN_FLOAT] = x;
+  dst[LINE2_UNIFORM_ORIGIN_FLOAT + 1] = y;
+  dst[LINE2_UNIFORM_ORIGIN_FLOAT + 2] = z;
+  dst[LINE2_UNIFORM_ORIGIN_FLOAT + 3] = 0;
 }
 
 /** Copy a column-major mat4 into `dst` at float offset `base`. */

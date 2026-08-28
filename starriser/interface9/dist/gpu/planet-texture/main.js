@@ -6,8 +6,9 @@
  * solar-system planet-disc WebGPU path (runtime map layering, full res drag).
  * CPU rasterizePlanetPreview remains for Node/tests and no-WebGPU fallback.
  */
-import { AI_PATCH_CATALOG, AI_CLOUD_CLASSES, AI_CLOUD_CATALOG, GEOLOGY_COLORIZED_BANK, aiPatchPath, aiPatchNormalPath, aiCloudPath, applyImportedAlbedo, bakePlanetTextures, clampLightboxScale, cloneParams, defaultLightboxView, encodePngRgba, freshPresetSeed, generateGasVelocityField, advectAlbedoByGasVelocity, generateOrbitVegetationPatch, generateClouds, hashTextureSet, hybridMixAlbedo, lightboxPan, lightboxPointerWasPan, lightboxShouldDismissOnClick, lightboxZoomAt, mergeAiGallery, paramsForPreset, planAiPatches, planCompositeAiPatches, planPatchDensity, GAS_STAMP_MAX_ABS_Y, LAND_SOFT_OVERLAP_MARGIN, textureFamilyForClass, featureFamilyForClass, classUsesImpactStamps, rasterizePlanetPreview, refreshPolesFromAlbedo, scaleStampCount, stampAiPatches, PureBiome, PURE_BIOME_DEBUG_RGB, PURE_BIOME_LABELS, renderPureBiomeSplitMap, usesVegetationOverlay, validateEquirectAlbedo, PRESET_NAMES, RESOLUTION_OPTIONS, } from "./generator.js";
-import { clampAuthoringZoom, createAuthoringPlanetGpu, defaultAuthoringLightDir, defaultAuthoringOrientation, isAuthoringPlanetGpuAvailable, lightDirFromAngles, orientationFromYawPitch, trackballLightDir, trackballOrient, yawPitchFromOrientation, } from "./authoring-planet-gpu.js";
+import { applyImportedAlbedo, bakePlanetTextures, clampLightboxScale, cloneParams, defaultLightboxView, encodePngRgba, freshPresetSeed, hashTextureSet, hybridMixAlbedo, lightboxPan, lightboxPointerWasPan, lightboxShouldDismissOnClick, lightboxZoomAt, paramsForPreset, rasterizePlanetPreview, PureBiome, PURE_BIOME_DEBUG_RGB, PURE_BIOME_LABELS, validateEquirectAlbedo, PRESET_NAMES, RESOLUTION_OPTIONS, } from "./generator.js";
+import { attachBiomeIntermediates, finishPlanetProduct, } from "./product-finish.js";
+import { buildNightEmissiveRgba, clampAuthoringZoom, createAuthoringPlanetGpu, defaultAuthoringLightDir, defaultAuthoringOrientation, isAuthoringPlanetGpuAvailable, lightDirFromAngles, nightEmissiveKind, orientationFromYawPitch, trackballLightDir, trackballOrient, yawPitchFromOrientation, } from "./authoring-planet-gpu.js";
 import { DEFAULT_POLE_SIZE, defaultPoleSizeForResolution, poleIceExtentScale, poleProductSide, rasterizePoleCap, } from "./pole-cap.js";
 import { paramsFromQuery, paramsToQuery } from "./url-state.js";
 const statusEl = document.getElementById("status");
@@ -16,11 +17,15 @@ const albedoCanvas = document.getElementById("albedo");
 const normalCanvas = document.getElementById("normal");
 const heightCanvas = document.getElementById("height");
 const liquidCanvas = document.getElementById("liquid");
+const nightCanvas = document.getElementById("night");
 const poleNCanvas = document.getElementById("poleN");
 const poleSCanvas = document.getElementById("poleS");
 const cloudsCanvas = document.getElementById("clouds");
+const cloudsPoleNCanvas = document.getElementById("cloudsPoleN");
+const cloudsPoleSCanvas = document.getElementById("cloudsPoleS");
 const biomeSplitCanvas = document.getElementById("biomeSplit");
 const biomeLegendEl = document.getElementById("biome-legend");
+const heightHeatCanvas = document.getElementById("heightHeat");
 const planetPreviewCanvas = document.getElementById("planetPreview");
 let params = paramsFromQuery(typeof location !== "undefined" ? location.search : "", paramsForPreset("azure-ocean", 512, 42));
 let lastSet = null;
@@ -41,6 +46,11 @@ let dragLastY = 0;
 let lastHybridNote = "";
 /** AI bank images actually used in last hybrid/patch step (gallery). */
 let lastAiGallery = [];
+/** Session AI library — lazy-filled per family so UI I/O matches the old path. */
+let productFinishBanks = {
+    clouds: [],
+    patches: new Map(),
+};
 /** Solar-system-style WebGPU disc (null = CPU fallback). */
 let planetGpu = null;
 let planetGpuInit = null;
@@ -301,11 +311,21 @@ function paintPlanetPreviewCpu(set) {
     // Square disc using full smaller side of wrap (fills panel when square-ish)
     const size = Math.max(128, Math.floor(Math.min(cssW, cssH) * dpr * Math.min(previewZoom, 2)));
     const eu = currentEulerForCpu();
+    // Temperate city lights / lava night map for CPU disc fallback
+    const nightKind = nightEmissiveKind(set);
+    const nightRgba = nightKind === "black" ? null : buildNightEmissiveRgba(set);
     const preview = rasterizePlanetPreview({
         albedo: set.albedo,
         normal: set.normal,
         liquidMask: set.liquidMask,
         clouds: set.clouds,
+        night: nightRgba != null
+            ? {
+                width: set.albedo.width,
+                height: set.albedo.height,
+                rgba: nightRgba,
+            }
+            : null,
     }, {
         size,
         yaw: eu.yaw,
@@ -313,6 +333,7 @@ function paintPlanetPreviewCpu(set) {
         lightYaw: eu.lightYaw,
         lightPitch: eu.lightPitch,
         atmosphere: true,
+        nightAmount: nightKind === "city" ? 1.15 : 1,
     });
     planetPreviewCanvas.width = preview.width;
     planetPreviewCanvas.height = preview.height;
@@ -650,36 +671,30 @@ function showBiomeLegend(counts, mapW, mapH) {
 }
 /** Build pure biome intermediate map (capped res) and attach to set. */
 function fillPureBiomeIntermediate(set) {
-    // Gas / non-earth: skip (biome split is for ocean/temperate land paint)
-    const cls = set.params.planetClass;
-    if (cls === "gas" || cls === "rocky" || cls === "exotic") {
-        set.intermediates = {
-            pureBiomeSplit: undefined,
-            pureBiomeCounts: undefined,
-        };
-        return;
-    }
-    const iceScale = poleIceExtentScale(set.params.poleSize);
-    const map = renderPureBiomeSplitMap(set.height.rgba, set.height.width, set.height.height, set.params.liquidLevel, set.params.seed, iceScale, 1024);
-    const counts = {};
-    for (const [k, v] of Object.entries(map.counts)) {
-        if (v)
-            counts[k] = v;
-    }
-    set.intermediates = {
-        pureBiomeSplit: {
-            width: map.width,
-            height: map.height,
-            rgba: map.rgba,
-        },
-        pureBiomeCounts: counts,
-    };
+    attachBiomeIntermediates(set);
 }
 function showSet(set) {
     drawBuffer(albedoCanvas, set.albedo, undefined, "Albedo (equirect)");
     drawBuffer(normalCanvas, set.normal, undefined, "Normal");
     drawBuffer(heightCanvas, set.height, undefined, "Height");
     drawBuffer(liquidCanvas, set.liquidMask, undefined, "Liquid / material");
+    // Night lights equirect (same builder as disc texNight) — temperate cities / lava
+    if (nightCanvas) {
+        const nightRgba = buildNightEmissiveRgba(set);
+        const nightKind = nightEmissiveKind(set);
+        if (nightKind === "black") {
+            drawBuffer(nightCanvas, null, "no night lights", "Night lights");
+        }
+        else {
+            drawBuffer(nightCanvas, {
+                width: set.albedo.width,
+                height: set.albedo.height,
+                rgba: nightRgba,
+            }, undefined, nightKind === "lava"
+                ? "Night lights (lava emissive)"
+                : "Night lights (city)");
+        }
+    }
     const pn = set.poleNorth;
     const ps = set.poleSouth;
     drawBuffer(poleNCanvas, pn, undefined, `Pole north (${pn.width}×${pn.height})`);
@@ -699,8 +714,40 @@ function showSet(set) {
     poleSCanvas.style.width = "auto";
     poleSCanvas.style.maxWidth = "100%";
     drawBuffer(cloudsCanvas, set.clouds, "no clouds", "Clouds");
-    // Intermediate: pure biome class after FBM (no soft blend / stamps / grain)
-    if (!set.intermediates?.pureBiomeSplit) {
+    if (cloudsPoleNCanvas) {
+        drawBuffer(cloudsPoleNCanvas, set.cloudsPoleNorth ?? null, "no cloud poles", "Clouds pole north");
+        cloudsPoleNCanvas.style.width = "auto";
+        cloudsPoleNCanvas.style.maxWidth = "100%";
+    }
+    if (cloudsPoleSCanvas) {
+        drawBuffer(cloudsPoleSCanvas, set.cloudsPoleSouth ?? null, "no cloud poles", "Clouds pole south");
+        cloudsPoleSCanvas.style.width = "auto";
+        cloudsPoleSCanvas.style.maxWidth = "100%";
+    }
+    {
+        const cpn = set.cloudsPoleNorth;
+        const cps = set.cloudsPoleSouth;
+        const cpnH = document
+            .querySelector("#cloudsPoleN")
+            ?.closest(".card")
+            ?.querySelector("h2");
+        const cpsH = document
+            .querySelector("#cloudsPoleS")
+            ?.closest(".card")
+            ?.querySelector("h2");
+        if (cpnH) {
+            cpnH.textContent = cpn
+                ? `Clouds pole north ${cpn.width}×${cpn.height} (α)`
+                : "Clouds pole north";
+        }
+        if (cpsH) {
+            cpsH.textContent = cps
+                ? `Clouds pole south ${cps.width}×${cps.height} (α)`
+                : "Clouds pole south";
+        }
+    }
+    // Intermediate: pure biome class + land height heat
+    if (!set.intermediates?.heightHeat) {
         fillPureBiomeIntermediate(set);
     }
     const pure = set.intermediates?.pureBiomeSplit ?? null;
@@ -708,506 +755,21 @@ function showSet(set) {
         drawBuffer(biomeSplitCanvas, pure, "n/a for this planet class", "Pure biome split (hard class)");
     }
     showBiomeLegend(set.intermediates?.pureBiomeCounts, pure?.width ?? 0, pure?.height ?? 0);
+    if (heightHeatCanvas) {
+        drawBuffer(heightHeatCanvas, set.intermediates?.heightHeat ?? null, "no height", "Continent height (heat)");
+    }
     showPlanetPreview(set);
-}
-async function loadImageRgba(url) {
-    const res = await fetch(url);
-    if (!res.ok)
-        throw new Error(`fetch ${url} ${res.status}`);
-    const blob = await res.blob();
-    const bmp = await createImageBitmap(blob);
-    const c = document.createElement("canvas");
-    c.width = bmp.width;
-    c.height = bmp.height;
-    const ctx = c.getContext("2d");
-    ctx.drawImage(bmp, 0, 0);
-    const id = ctx.getImageData(0, 0, c.width, c.height);
-    bmp.close();
-    return { width: c.width, height: c.height, rgba: id.data };
-}
-/** Load offline cloud stamp bank (all categories) for bake compose. */
-async function loadCloudBankSources() {
-    const out = [];
-    for (const cls of AI_CLOUD_CLASSES) {
-        const n = AI_CLOUD_CATALOG[cls] ?? 0;
-        for (let i = 0; i < n; i++) {
-            const path = aiCloudPath(cls, i);
-            try {
-                const img = await loadImageRgba(path);
-                out.push({
-                    width: img.width,
-                    height: img.height,
-                    rgba: img.rgba,
-                    strength: 1,
-                    category: cls,
-                });
-            }
-            catch {
-                /* skip missing */
-            }
-        }
-    }
-    return out;
-}
-/**
- * Load kind×family patch sources in ascending library index order.
- * Skips missing files so partial libraries still bake.
- * colorized-normals also load paired `…/<idx>.n.png` true normals.
- * Dense array: each source is a unique path (planner uniqueSources → unique paths).
- */
-async function loadPatchLibrarySources(kind, family, _seed, count, _salt, signal) {
-    // texturization/geology catalog is the cull floor (19); colorized-normals
-    // geology still has a fuller bank — scan further for more feature stamps.
-    const catalog = AI_PATCH_CATALOG[family] ?? 14;
-    const bankSize = kind === "colorized-normals" && family === "geology"
-        ? Math.max(catalog, 40)
-        : catalog;
-    const n = Math.max(0, Math.min(bankSize, Math.max(0, Math.floor(count))));
-    const sources = [];
-    for (let idx = 0; idx < bankSize && sources.length < n; idx++) {
-        if (signal?.aborted) {
-            const { throwIfBakeAborted } = await import("./bake.js");
-            throwIfBakeAborted(signal);
-        }
-        const path = aiPatchPath(kind, family, idx);
-        try {
-            const img = await loadImageRgba(path);
-            const src = {
-                width: img.width,
-                height: img.height,
-                rgba: img.rgba,
-                path,
-                kind,
-            };
-            if (kind === "colorized-normals") {
-                const nPath = aiPatchNormalPath(family, idx);
-                try {
-                    const nImg = await loadImageRgba(nPath);
-                    src.normalRgba = nImg.rgba;
-                    src.normalWidth = nImg.width;
-                    src.normalHeight = nImg.height;
-                }
-                catch {
-                    /* gas storms may be albedo-only */
-                }
-            }
-            sources.push(src);
-        }
-        catch {
-            /* skip missing */
-        }
-    }
-    return sources;
-}
-/**
- * Always-on AI: stamp patch-native library (not legacy full-planet class banks).
- * - Land: geology texturization + colorized features + normals + impacts
- * - Gas: gas band/vortex texturization + storm features (no land geology/impacts)
- * - temperate/ocean: optional procedural vegetation grit
- */
-/**
- * Bake-time gas flow warp: precompute UV velocity at sim res, advect albedo.
- * Strength/steps scale mildly with bake width (cheap at preview, richer at 2K+).
- */
-function advectGasAlbedoInPlace(set) {
-    const W = set.albedo.width;
-    const H = set.albedo.height;
-    const p = set.params;
-    // Sim res: full width capped for cost (8K → 1024×512 class still OK)
-    const simW = Math.min(W, 1024);
-    const simH = Math.max(4, Math.round((simW * H) / W / 2) * 2);
-    // Stronger advection so base gas bands move visibly (stamps secondary)
-    const steps = W >= 2048 ? 22 : W >= 1024 ? 16 : 12;
-    const strength = 1.55;
-    const vel = generateGasVelocityField(p.seed, simW, simH, p.bandStrength, p.stormDensity, p.warp);
-    const meanDelta = advectAlbedoByGasVelocity(set.albedo.rgba, W, H, vel, steps, strength);
-    return { meanDelta, steps };
 }
 async function applyAlwaysOnHybrid(set, signal) {
     lastHybridNote = "";
     lastAiGallery = [];
-    const { throwIfBakeAborted } = await import("./bake.js");
-    throwIfBakeAborted(signal);
-    const cls = set.params.planetClass;
-    const seed = set.params.seed;
-    const gallery = [];
-    const resW = set.albedo.width;
-    const density = planPatchDensity(cls);
-    const texFam = textureFamilyForClass(cls);
-    const featFam = featureFamilyForClass(cls);
-    const lavaWorld = set.params.liquidKind === "lava";
-    const iceWorld = cls === "ice";
-    const landS = set.params.hybridLandDetail ??
-        // Gas: lighter stamps; ice: stronger so structure reads on bright ice
-        (cls === "gas"
-            ? 0.32
-            : iceWorld
-                ? 0.72
-                : cls === "ocean" || cls === "temperate"
-                    ? 0.52
-                    : 0.5);
-    const oceanS = set.params.hybridOceanDetail ??
-        (cls === "gas" ? 0.28 : iceWorld ? 0.08 : 0.02);
-    try {
-        let noteParts = [];
-        let totalStamps = 0;
-        // Global used paths this planet: each library path ≤1 stamp
-        const usedPaths = new Set();
-        // 1) Large texturization (geology land / gas bands) — denser coverage
-        // Rocky: terrain-features only (skip geology texture bank)
-        {
-            const nTex = scaleStampCount(density.textureLarge, resW);
-            const bankN = AI_PATCH_CATALOG[texFam] ?? 12;
-            throwIfBakeAborted(signal);
-            const sources = await loadPatchLibrarySources("texturization", texFam, seed, bankN, 3, signal);
-            if (sources.length && nTex > 0) {
-                const stamps = planAiPatches(seed, nTex, sources.length, {
-                    salt: 11,
-                    // Texturization = soft layer; compact radii + soft margin for dense pack
-                    minRadiusFrac: cls === "gas" ? 0.12 : 0.042,
-                    maxRadiusFrac: cls === "gas" ? 0.28 : 0.1,
-                    rotationMode: cls === "gas" ? "bandAligned" : "free",
-                    maxAbsY: cls === "gas" ? GAS_STAMP_MAX_ABS_Y : undefined,
-                    // Allow reuse when request > bank so land gets more stamps
-                    uniqueSources: nTex <= sources.length,
-                    nonOverlap: true,
-                    // Texture decks edge-overlap more so ~3× counts can place
-                    overlapMargin: cls === "gas" ? 1.0 : 0.72,
-                });
-                const r = stampAiPatches(set, sources, stamps, {
-                    kind: "texturization",
-                    landStrength: landS,
-                    oceanStrength: oceanS,
-                    // Ice: stamp all non-deep liquid (frozen crust is "land")
-                    landOnly: cls !== "gas",
-                    refreshPoles: false,
-                    // Grit once after all stamp rounds (see reinjectLandGrit below)
-                    skipGrit: true,
-                    albedoBlend: iceWorld ? "lerp" : "luminosity",
-                    stampColorTint: cls === "gas" ? 0.4 : iceWorld ? 0.22 : 0.08,
-                    // Ice: protectSnow still on for mid-luma floors but lerp shows relief
-                    protectSnow: !iceWorld,
-                    warmOnly: lavaWorld,
-                });
-                for (const p of r.usedPaths) {
-                    gallery.push({ path: p, role: "primary" });
-                    usedPaths.add(p);
-                }
-                totalStamps += r.stampCount;
-                noteParts.push(`tex×${r.stampCount}/${texFam}`);
-            }
-        }
-        // 1b) Terrain-features (green-screen mattes): structure/contrast on land,
-        // very low residual color so biomes keep palette.
-        // Two-pass: composite massifs (2–5 plates mixed per cluster) + dense scatter
-        // fill. Bank reuse allowed — catalog is small vs stamp demand.
-        {
-            const nTf = scaleStampCount(density.terrainFeatures, resW);
-            if (nTf > 0 && cls !== "gas") {
-                const bankN = AI_PATCH_CATALOG["terrain-features"] ?? 40;
-                throwIfBakeAborted(signal);
-                const sources = await loadPatchLibrarySources("texturization", "terrain-features", seed, bankN, 19, signal);
-                if (sources.length && nTf > 0) {
-                    const tfBlendRaw = set.params.terrainFeatureBlend ?? "linear";
-                    const tfBlend = tfBlendRaw === "lerp" ||
-                        tfBlendRaw === "multiply" ||
-                        tfBlendRaw === "softLight" ||
-                        tfBlendRaw === "overlay" ||
-                        tfBlendRaw === "screen" ||
-                        tfBlendRaw === "linear" ||
-                        tfBlendRaw === "luminosity"
-                        ? tfBlendRaw
-                        : "linear";
-                    const tfStr = set.params.terrainFeatureStrength !== undefined &&
-                        Number.isFinite(set.params.terrainFeatureStrength)
-                        ? Math.max(0, Math.min(1, set.params.terrainFeatureStrength))
-                        : 1;
-                    // Strength is absolute cover for TF (not stacked on hybridLandDetail)
-                    const tfLand = tfStr;
-                    const tfOpts = {
-                        kind: "texturization",
-                        landStrength: tfLand,
-                        oceanStrength: 0,
-                        landOnly: true,
-                        refreshPoles: false,
-                        skipGrit: true,
-                        albedoBlend: tfBlend,
-                        stampColorTint: tfBlend === "lerp" ? 0.12 : 0.04,
-                        protectSnow: !iceWorld,
-                        warmOnly: lavaWorld,
-                    };
-                    // Massifs: multi-plate clusters — normal-to-large, varied size
-                    const nClusters = Math.max(10, Math.min(Math.floor(nTf * 0.2), Math.floor(nTf / 2.8)));
-                    const compositeStamps = planCompositeAiPatches(seed, nClusters, sources.length, {
-                        salt: 53,
-                        minMembers: 2,
-                        maxMembers: 5,
-                        minRadiusFrac: 0.07,
-                        maxRadiusFrac: 0.18,
-                        memberSpreadFrac: 0.55,
-                        memberRadiusScale: 0.82,
-                        uniqueSources: false,
-                        nonOverlap: true,
-                        overlapMargin: 0.7,
-                    });
-                    let tfCount = 0;
-                    if (compositeStamps.length && tfLand > 1e-4) {
-                        const rC = stampAiPatches(set, sources, compositeStamps, {
-                            ...tfOpts,
-                            // Slightly stronger on composites so the massif reads as one unit
-                            landStrength: Math.min(1, tfLand * 1.12),
-                        });
-                        for (const p of rC.usedPaths) {
-                            gallery.push({ path: p, role: "detail" });
-                            usedPaths.add(p);
-                        }
-                        tfCount += rC.stampCount;
-                    }
-                    // Mid scatter: medium plates filling land between massifs
-                    const nScatter = Math.max(Math.floor(nTf * 0.7), nTf - Math.floor(compositeStamps.length * 0.25));
-                    let scatterPlaced = 0;
-                    if (nScatter > 0 && tfLand > 1e-4) {
-                        // Varied mid-size stamps (normal → large)
-                        const scatterStamps = planAiPatches(seed, nScatter, sources.length, {
-                            salt: 59,
-                            minRadiusFrac: 0.035,
-                            maxRadiusFrac: 0.11,
-                            uniqueSources: false,
-                            nonOverlap: true,
-                            overlapMargin: 0.52,
-                            occupiedStamps: compositeStamps,
-                        });
-                        if (scatterStamps.length) {
-                            const rS = stampAiPatches(set, sources, scatterStamps, tfOpts);
-                            for (const p of rS.usedPaths) {
-                                gallery.push({ path: p, role: "detail" });
-                                usedPaths.add(p);
-                            }
-                            scatterPlaced = rS.stampCount;
-                            tfCount += rS.stampCount;
-                        }
-                    }
-                    // Smaller fillers (still readable, not micro-speckles)
-                    const nMicro = Math.max(20, Math.floor(nTf * 0.35));
-                    if (nMicro > 0 && tfLand > 1e-4) {
-                        const microStamps = planAiPatches(seed, nMicro, sources.length, {
-                            salt: 61,
-                            minRadiusFrac: 0.022,
-                            maxRadiusFrac: 0.055,
-                            uniqueSources: false,
-                            nonOverlap: true,
-                            overlapMargin: 0.45,
-                        });
-                        if (microStamps.length) {
-                            const rM = stampAiPatches(set, sources, microStamps, {
-                                ...tfOpts,
-                                landStrength: Math.min(1, tfLand * 0.85),
-                            });
-                            for (const p of rM.usedPaths) {
-                                gallery.push({ path: p, role: "detail" });
-                                usedPaths.add(p);
-                            }
-                            tfCount += rM.stampCount;
-                        }
-                    }
-                    totalStamps += tfCount;
-                    noteParts.push(`tf×${tfCount}/terrain-features` +
-                        (compositeStamps.length
-                            ? `(${nClusters} massifs+scatter${scatterPlaced ? `×${scatterPlaced}` : ""})`
-                            : "") +
-                        `@${tfBlend}×${tfStr.toFixed(2)}`);
-                }
-            }
-        }
-        // Major features share one packing space (geology features + impacts):
-        // no major-on-major overlap across sequential plan rounds.
-        const majorOccupied = [];
-        // 2) Prominent colorized features (geology land / gas storms) — normals+color
-        {
-            const nFeat = scaleStampCount(density.features, resW);
-            // Geology colorized bank is fuller than texturization catalog floor
-            const bankN = featFam === "geology"
-                ? GEOLOGY_COLORIZED_BANK
-                : (AI_PATCH_CATALOG[featFam] ?? 10);
-            throwIfBakeAborted(signal);
-            const sources = await loadPatchLibrarySources("colorized-normals", featFam, seed, bankN, 41, signal);
-            if (sources.length && nFeat > 0) {
-                const stamps = planAiPatches(seed, nFeat, sources.length, {
-                    salt: 29,
-                    minRadiusFrac: cls === "gas" ? 0.04 : 0.024,
-                    maxRadiusFrac: cls === "gas" ? 0.09 : 0.08,
-                    rotationMode: cls === "gas" ? "bandAligned" : "free",
-                    maxAbsY: cls === "gas" ? GAS_STAMP_MAX_ABS_Y : undefined,
-                    uniqueSources: nFeat <= sources.length,
-                    nonOverlap: true,
-                    // Slight edge overlap among features; still pack vs impacts
-                    overlapMargin: cls === "gas" ? 1.0 : Math.min(0.82, LAND_SOFT_OVERLAP_MARGIN),
-                    occupiedStamps: majorOccupied,
-                });
-                for (const st of stamps) {
-                    majorOccupied.push({
-                        u: st.u,
-                        v: st.v,
-                        radiusFrac: st.radiusFrac,
-                    });
-                }
-                const r = stampAiPatches(set, sources, stamps, {
-                    kind: "colorized-normals",
-                    landStrength: cls === "gas" ? landS : Math.min(0.88, landS + 0.18),
-                    oceanStrength: cls === "gas" ? oceanS : iceWorld ? 0.05 : 0,
-                    landOnly: cls !== "gas",
-                    refreshPoles: false,
-                    skipGrit: true,
-                    normalStrength: iceWorld ? 0.98 : 0.93,
-                    normalLateralBoost: iceWorld ? 1.85 : 1.6,
-                    colorOpacity: cls === "gas" ? 0.42 : iceWorld ? 0.85 : 0.72,
-                    albedoBlend: iceWorld ? "lerp" : "luminosity",
-                    stampColorTint: cls === "gas" ? 0.32 : iceWorld ? 0.28 : 0.14,
-                    protectSnow: !iceWorld,
-                    warmOnly: lavaWorld,
-                });
-                for (const p of r.usedPaths) {
-                    gallery.push({ path: p, role: "detail" });
-                    usedPaths.add(p);
-                }
-                totalStamps += r.stampCount;
-                noteParts.push(`feat×${r.stampCount}/${featFam}`);
-            }
-        }
-        // 3) Asteroid impacts — paired color+normal; avoid major-on-major vs features
-        {
-            const nImp = scaleStampCount(density.impacts, resW);
-            if (nImp > 0 && classUsesImpactStamps(cls)) {
-                throwIfBakeAborted(signal);
-                const colSrc = await loadPatchLibrarySources("colorized-normals", "impacts", seed, AI_PATCH_CATALOG.impacts, 67, signal);
-                if (colSrc.length && nImp > 0) {
-                    const stamps = planAiPatches(seed, nImp, colSrc.length, {
-                        salt: 73,
-                        minRadiusFrac: 0.012,
-                        maxRadiusFrac: cls === "rocky" ? 0.05 : iceWorld ? 0.048 : 0.038,
-                        uniqueSources: true,
-                        nonOverlap: true,
-                        // Prefer clear of geology features; slight edge OK with denser majors
-                        overlapMargin: 0.95,
-                        // Pack around already-placed geology features (shared major space)
-                        occupiedStamps: majorOccupied,
-                    });
-                    for (const st of stamps) {
-                        majorOccupied.push({
-                            u: st.u,
-                            v: st.v,
-                            radiusFrac: st.radiusFrac,
-                        });
-                    }
-                    const r = stampAiPatches(set, colSrc, stamps, {
-                        kind: "colorized-normals",
-                        landStrength: iceWorld ? 0.9 : 0.82,
-                        oceanStrength: iceWorld ? 0.04 : 0,
-                        landOnly: true,
-                        refreshPoles: false,
-                        skipGrit: true,
-                        normalStrength: iceWorld ? 0.99 : 0.94,
-                        normalLateralBoost: iceWorld ? 1.9 : 1.7,
-                        colorOpacity: iceWorld ? 0.88 : 0.72,
-                        albedoBlend: iceWorld ? "lerp" : "luminosity",
-                        stampColorTint: lavaWorld ? 0.22 : iceWorld ? 0.26 : 0.14,
-                        protectSnow: !iceWorld,
-                        warmOnly: lavaWorld,
-                    });
-                    for (const p of r.usedPaths) {
-                        gallery.push({ path: p, role: "detail" });
-                        usedPaths.add(p);
-                    }
-                    totalStamps += r.stampCount;
-                    noteParts.push(`imp×${r.stampCount}`);
-                }
-            }
-        }
-        // 4) Procedural orbit vegetation on temperate/ocean land (no legacy veg bank)
-        if (usesVegetationOverlay(cls)) {
-            const synth = generateOrbitVegetationPatch(seed ^ 0x0eaf00d, 512, 256);
-            const vegSources = [
-                {
-                    width: synth.width,
-                    height: synth.height,
-                    rgba: synth.rgba,
-                    path: "procedural:orbit-vegetation",
-                    kind: "texturization",
-                },
-            ];
-            // Vegetation is synthetic single source — allow multi-stamp (uniqueSources off)
-            const vStamps = planAiPatches(seed, scaleStampCount(12, resW), 1, {
-                salt: 99,
-                minRadiusFrac: 0.05,
-                maxRadiusFrac: 0.11,
-                uniqueSources: false,
-                nonOverlap: true,
-            });
-            const vr = stampAiPatches(set, vegSources, vStamps, {
-                kind: "texturization",
-                landStrength: 0.32,
-                oceanStrength: 0,
-                landOnly: true,
-                refreshPoles: false,
-                skipGrit: true,
-                protectSnow: true,
-            });
-            gallery.push({ path: "procedural:orbit-vegetation", role: "vegetation" });
-            totalStamps += vr.stampCount;
-            noteParts.push(`veg×${vr.stampCount}`);
-        }
-        // One land grit pass after all stamp rounds (half legacy amp; no stacking)
-        if (cls !== "gas" && totalStamps > 0) {
-            // Direct import — generator barrel can lag types in some tsc runs
-            const { reinjectLandGrit: grit } = await import("./ai-patches.js");
-            grit(set, 7);
-        }
-        // Gas: advect baseline albedo (materials + stamps) by sphere flow so
-        // currents/vortices carry painted color — not only overlay stamp RGB.
-        if (cls === "gas") {
-            const { meanDelta, steps } = advectGasAlbedoInPlace(set);
-            noteParts.push(`flowWarp Δ${meanDelta.toFixed(2)}×${steps}`);
-        }
-        // Cloud bank: temperate only (azure-ocean preset is temperate)
-        if (cls === "temperate" && set.params.cloudCover > 0.01) {
-            const cloudSrc = await loadCloudBankSources();
-            if (cloudSrc.length >= 4) {
-                const rgba = generateClouds(set.params, set.albedo.width, set.albedo.height, cloudSrc, {
-                    liquidRgba: set.liquidMask.rgba,
-                    liquidW: set.liquidMask.width,
-                    liquidH: set.liquidMask.height,
-                    heightRgba: set.height.rgba,
-                    heightW: set.height.width,
-                    heightH: set.height.height,
-                });
-                if (rgba) {
-                    set.clouds = {
-                        width: set.albedo.width,
-                        height: set.albedo.height,
-                        rgba,
-                    };
-                    noteParts.push(`cloudsBank×${cloudSrc.length}`);
-                }
-            }
-        }
-        // Always rebuild poles after all stamp rounds so N/S inherit seam-safe belly
-        refreshPolesFromAlbedo(set);
-        if (!noteParts.length) {
-            lastHybridNote = "AI patches: library empty";
-            lastAiGallery = [];
-            renderAiGallery([]);
-            return;
-        }
-        lastAiGallery = mergeAiGallery(gallery);
-        lastHybridNote = `AI patches ${cls} Σ${totalStamps} (${noteParts.join(" ")})`;
-        renderAiGallery(lastAiGallery);
-        void usedPaths;
-    }
-    catch (e) {
-        lastHybridNote = `AI patch failed: ${e instanceof Error ? e.message : String(e)}`;
-        lastAiGallery = [];
-        renderAiGallery([]);
-    }
+    const result = await finishPlanetProduct(set, {
+        signal,
+        banks: productFinishBanks,
+    });
+    lastHybridNote = result.note;
+    lastAiGallery = result.gallery;
+    renderAiGallery(lastAiGallery);
 }
 function renderAiGallery(entries) {
     const root = document.getElementById("ai-gallery");
@@ -1372,6 +934,12 @@ function exportAll() {
     downloadBuf(`planet_${tag}_pole_s.png`, s.poleSouth);
     if (s.clouds)
         downloadBuf(`planet_${tag}_clouds.png`, s.clouds);
+    if (s.cloudsPoleNorth) {
+        downloadBuf(`planet_${tag}_clouds_pole_n.png`, s.cloudsPoleNorth);
+    }
+    if (s.cloudsPoleSouth) {
+        downloadBuf(`planet_${tag}_clouds_pole_s.png`, s.cloudsPoleSouth);
+    }
     setStatus(`Exported multi-map set (${tag}).`);
 }
 function applyPreset() {

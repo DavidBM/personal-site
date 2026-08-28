@@ -10,6 +10,7 @@
 import { SHIP_SIM_STRIDE } from "../visual/ship-sim-layout.js";
 import { MODEL_LOD_MAX_INSTANCES } from "../visual/fleet-lod.js";
 import { FLEET_GPU_STRIDE } from "../visual/fleet-layout.js";
+import { SCENE_AGENT_SCALE } from "../visual/ship-motion-config.js";
 export const FLEET_MODEL_VERTEX_STRIDE = 32; // 8 × f32
 /**
  * mat4 viewProjRel + origin.xyz + modelScale + fallbackLight.xyz + ambient +
@@ -116,6 +117,8 @@ const SHIP_MODE_PAUSED: u32 = 0u;
 const SHIP_MODE_ORBIT: u32 = 3u;
 /** FleetGpu bit6 — sphere agent; pathEndY in _pad0. Match fleet-layout. */
 const FLEET_FLAG_SPACE3D: u32 = 64u;
+const FLEET_FLAG_SYSTEM_SCENE: u32 = 128u;
+const SCENE_AGENT_SCALE: f32 = ${SCENE_AGENT_SCALE};
 const LIGHT_CENTER_EPS: f32 = ${FLEET_MODEL_LIGHT_CENTER_EPS};
 
 struct VSIn {
@@ -183,26 +186,35 @@ fn vs_main(input : VSIn) -> VSOut {
     q = vec4<f32>(0.0, sin(half), 0.0, cos(half));
   }
   let meshFix = vec4<f32>(0.0, sin(u.meshYawHalf), 0.0, cos(u.meshYawHalf));
-  let localMesh = quatRotate(meshFix, input.meshPos) * u.modelScale;
+  let fi = ship.fleetIndex;
+  var pathEnd = vec3<f32>(ship.posX, ship.posY, ship.posZ);
+  var space3d = false;
+  var inScene = false;
+  if (fi < arrayLength(&fleets)) {
+    let f = fleets[fi];
+    pathEnd = vec3<f32>(f.pathEndX, f.pathEndY, f.pathEndZ);
+    space3d = (f.flags & FLEET_FLAG_SPACE3D) != 0u;
+    inScene = (f.flags & FLEET_FLAG_SYSTEM_SCENE) != 0u;
+  }
+  var hullScale = u.modelScale;
+  if (inScene) {
+    hullScale = hullScale * SCENE_AGENT_SCALE;
+  }
+  let localMesh = quatRotate(meshFix, input.meshPos) * hullScale;
   let nMesh = quatRotate(meshFix, input.meshNrm);
   let worldOff = quatRotate(q, localMesh);
 
   // PathEnd + orbit phase for planar CIRCULATE: origin-relative without abs thrash.
   // SPACE3D CIRCULATE stays on shipPos−origin (sphere agent; planar phase would snap).
-  let fi = ship.fleetIndex;
-  var pathEnd = vec3<f32>(ship.posX, ship.posY, ship.posZ);
-  var space3d = false;
-  if (fi < arrayLength(&fleets)) {
-    let f = fleets[fi];
-    pathEnd = vec3<f32>(f.pathEndX, f.pathEndY, f.pathEndZ);
-    space3d = (f.flags & FLEET_FLAG_SPACE3D) != 0u;
-  }
   var shipPos = vec3<f32>(ship.posX, ship.posY, ship.posZ);
   var rel: vec3<f32>;
   // Planar CIRCULATE only: reconstruct from phase (match triangle scatter gate).
   // localOrb.y = live posY (approach ramp + settled personal height).
   if (ship.mode == SHIP_MODE_ORBIT && !space3d) {
-    let R = select(2.0, ship.orbitR, ship.orbitR > 1e-6);
+    var R = select(2.0, ship.orbitR, ship.orbitR > 1e-6);
+    if (inScene) {
+      R = R * SCENE_AGENT_SCALE;
+    }
     let sp = sin(ship.orbitPhase);
     let cp = cos(ship.orbitPhase);
     let localOrb = vec3<f32>(R * sp, ship.posY, R * cp);

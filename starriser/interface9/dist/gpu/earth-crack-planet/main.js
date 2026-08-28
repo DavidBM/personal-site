@@ -152,6 +152,11 @@ async function main() {
             { binding: 7, resource: maps.cloud.createView() },
             { binding: 8, resource: maps.moon.createView() },
             { binding: 9, resource: heightTex.createView() },
+            { binding: 10, resource: maps.poleSampler },
+            { binding: 11, resource: maps.poleNorth.createView() },
+            { binding: 12, resource: maps.poleSouth.createView() },
+            { binding: 13, resource: maps.cloudPoleNorth.createView() },
+            { binding: 14, resource: maps.cloudPoleSouth.createView() },
         ],
     });
     let yaw = 0.55;

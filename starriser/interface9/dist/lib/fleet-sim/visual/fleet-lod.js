@@ -6,9 +6,14 @@
  *
  * Bands (height-first):
  *   0 FORMATION — cameraY < nearY (7k): multi-ship scatter + full agent + trails
- *   1 IMPOSTOR  — nearY ≤ cameraY < farY (120k): full agent (same as 0), single
- *                 screen-space icon draw + lead-ship trail (no multi-ship render)
+ *   1 IMPOSTOR  — nearY ≤ cameraY < farY (120k): **lead-only** agent + single
+ *                 screen-space icon draw + lead-ship trail (not full formation)
  *   2 ICON      — cameraY ≥ farY: single icon, no agent, no trail
+ *
+ * Product ship gate (map-view): expensive `cs_ships` only when
+ * `useFast || anyScene || follow`. Model LOD (`isModelLodActive*` /
+ * `selectModelShipIndices`) is height/view/neighbor policy only — the map
+ * `selectModelLod` block must also require SYSTEM_SCENE or follow.
  *
  * Tests may force NEAR via FleetInstanceGpuLayer option `forceLodNear` only —
  * never a global product flag.
@@ -134,6 +139,7 @@ export function eyeToShipDistance(eyeX, eyeY, eyeZ, shipX, shipZ, shipY = 0) {
  * Height-only form (global enter gate). Use {@link isModelLodActiveSticky}
  * across frames so pure pan does not thrash at the 100px knife-edge.
  *
+ * Product: map-view must AND SYSTEM_SCENE or follow on top of this gate.
  * Does **not** alter classifyHeightBand / classifyFleetLodBand (0/1/2).
  */
 export function isModelLodActive(cameraY, viewportH, tanHalfFov, options) {
@@ -211,6 +217,10 @@ export function isInModelLodView(fx, fz, cameraTargetX, cameraTargetZ, cameraY, 
  * 3. **Neighbor share** — fleets within {@link MODEL_LOD_NEIGHBOR_RADIUS} share
  *    the max nadir-based band of the group (no per-fleet eye-distance split).
  * 4. Budget fill nearest look-at first.
+ *
+ * This helper is height/view/neighbor only. Map-view `selectModelLod` must
+ * also require SYSTEM_SCENE or follow before calling (do not draw models
+ * for galaxy-wide icon fleets).
  *
  * Pure — no GPU. Optional `sticky` map persists fleet on/off across frames.
  *
@@ -365,7 +375,7 @@ export function selectModelShipIndices(fleets, camera, maxInstances = MODEL_LOD_
 /** Product default model world scale (10× smaller than first model-LOD default 2.5). */
 export const MODEL_LOD_DEFAULT_SCALE = 0.25;
 // Topology-scoped model eligibility (focus cluster + jump-gate neighbors).
-export { buildModelTopologyContext, chooseFocusClusterId, fleetSystemKey, fleetTopologyLocFromState, isFleetModelTopologyEligible, modelLodFleetCullPos, parseInterClusterConnectionKey, resolveModelFocusClusterId, shouldForceIncludeFollowedFleet, shouldResetFleetTrails, } from "./model-topology-lod.js";
+export { buildModelTopologyContext, chooseFocusClusterId, fleetSystemKey, fleetLocInSystemScene, fleetTopologyLocFromState, isFleetModelTopologyEligible, modelLodFleetCullPos, parseInterClusterConnectionKey, resolveModelFocusClusterId, shouldForceIncludeFollowedFleet, shouldResetFleetTrails, } from "./model-topology-lod.js";
 // Per-ship model point light at hop/orbit pathEnd.
 export { lightDirFromOrbitCenter, modelNdotL, MODEL_LIGHT_CENTER_EPS, MODEL_LIGHT_FALLBACK_DIR, } from "./model-point-light.js";
 /** Max per-ship jump start desync (ms) — visual only. */

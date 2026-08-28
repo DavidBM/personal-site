@@ -996,6 +996,53 @@ export function runExpandRefTests(opts = {}) {
     }
   }
 
+  // Origin uniform: abs endpoints − origin ≡ pre-shifted endpoints (VS contract)
+  {
+    const modelView = mat4Identity16();
+    const projection = mat4Ortho16(-100, 100, -100, 100, 0.1, 1000);
+    const resolution = [1920, 1080];
+    const linewidth = 1.75;
+    const origin = { x: 1e5, y: 40, z: -2e5 };
+    const absStart = [1e5 - 4, 0, -2e5];
+    const absEnd = [1e5 + 4, 0, -2e5];
+    const relStart = [absStart[0] - origin.x, absStart[1] - origin.y, absStart[2] - origin.z];
+    const relEnd = [absEnd[0] - origin.x, absEnd[1] - origin.y, absEnd[2] - origin.z];
+    const withOrigin = expandLine2CornerScreenSpace({
+      start: absStart,
+      end: absEnd,
+      origin,
+      modelView,
+      projection,
+      resolution,
+      linewidth,
+      positionX: 1,
+      positionY: 0.25,
+      endcaps: false,
+    });
+    const preShifted = expandLine2CornerScreenSpace({
+      start: relStart,
+      end: relEnd,
+      modelView,
+      projection,
+      resolution,
+      linewidth,
+      positionX: 1,
+      positionY: 0.25,
+      endcaps: false,
+    });
+    assert(
+      isFiniteClip(withOrigin) && isFiniteClip(preShifted),
+      "origin expand: both clips finite",
+    );
+    assert(
+      approxEq(withOrigin.x, preShifted.x) &&
+        approxEq(withOrigin.y, preShifted.y) &&
+        approxEq(withOrigin.z, preShifted.z) &&
+        approxEq(withOrigin.w, preShifted.w),
+      "origin expand: abs−origin ≡ pre-shifted (VS contract)",
+    );
+  }
+
   return { failed, passed };
 }
 

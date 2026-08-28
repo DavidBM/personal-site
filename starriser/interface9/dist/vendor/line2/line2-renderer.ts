@@ -40,6 +40,7 @@ import {
   type Line2MaterialState,
   writeMaterialUniforms,
   writeMat4,
+  writeOriginUniforms,
 } from "./line2-material.js";
 import {
   createLine2Pipeline,
@@ -105,6 +106,9 @@ export class Line2Renderer {
 
   private disposed = false;
   private uniformsDirty = true;
+  private originX = 0;
+  private originY = 0;
+  private originZ = 0;
 
   constructor(device: GPUDevice, options: Line2RendererOptions) {
     this.device = device;
@@ -157,6 +161,7 @@ export class Line2Renderer {
     writeMat4(this.uniformData, 0, IDENTITY16);
     writeMat4(this.uniformData, 16, IDENTITY16);
     writeMaterialUniforms(this.uniformData, this.material);
+    writeOriginUniforms(this.uniformData, 0, 0, 0);
 
     // Seed empty instance buffers (1 dummy segment) so layout always binds.
     // ensureInstanceBuffers → seedColorsOnly / seedDistancesOnly (hasDistances).
@@ -380,6 +385,24 @@ export class Line2Renderer {
   }
 
   /**
+   * Floating origin subtracted in the VS (`instanceStart/End − origin`).
+   * GPU instance positions stay absolute. Default (0,0,0).
+   */
+  setOrigin(x: number, y: number, z: number): void {
+    this.assertLive();
+    if (this.originX === x && this.originY === y && this.originZ === z) return;
+    this.originX = x;
+    this.originY = y;
+    this.originZ = z;
+    this.uniformsDirty = true;
+  }
+
+  /** Last origin written via {@link setOrigin} / {@link writeCamera}. */
+  getOrigin(): { x: number; y: number; z: number } {
+    return { x: this.originX, y: this.originY, z: this.originZ };
+  }
+
+  /**
    * Write model-view + projection matrices (column-major).
    * Call once per frame before `encode` (or whenever the camera moves).
    */
@@ -387,6 +410,11 @@ export class Line2Renderer {
     this.assertLive();
     writeMat4(this.uniformData, 0, camera.modelView);
     writeMat4(this.uniformData, 16, camera.projection);
+    if (camera.origin) {
+      this.originX = camera.origin.x;
+      this.originY = camera.origin.y;
+      this.originZ = camera.origin.z;
+    }
     this.uniformsDirty = true;
   }
 
@@ -394,9 +422,17 @@ export class Line2Renderer {
    * Convenience: model is identity, `view` is camera view matrix.
    * Equivalent to `writeCamera({ modelView: view, projection })`.
    */
-  writeViewProjection(view: ArrayLike<number>, projection: ArrayLike<number>): void {
+  writeViewProjection(
+    view: ArrayLike<number>,
+    projection: ArrayLike<number>,
+    origin?: { readonly x: number; readonly y: number; readonly z: number },
+  ): void {
     this.assertLive();
-    this.writeCamera({ modelView: view as Float32Array, projection: projection as Float32Array });
+    this.writeCamera({
+      modelView: view as Float32Array,
+      projection: projection as Float32Array,
+      origin,
+    });
   }
 
   /**
@@ -409,6 +445,12 @@ export class Line2Renderer {
 
     if (this.uniformsDirty) {
       writeMaterialUniforms(this.uniformData, this.material);
+      writeOriginUniforms(
+        this.uniformData,
+        this.originX,
+        this.originY,
+        this.originZ,
+      );
       this.device.queue.writeBuffer(
         this.uniformBuffer!,
         0,

@@ -100,4 +100,10 @@ export interface Line2CameraUniforms {
   modelView: Mat4Like;
   /** Projection matrix (column-major). */
   projection: Mat4Like;
+  /**
+   * Floating origin subtracted from instanceStart/End in the VS before modelView.
+   * GPU positions stay absolute. Omit to leave the last origin (default 0).
+   * Overlay CPU-shift paths should leave this at zero.
+   */
+  origin?: { readonly x: number; readonly y: number; readonly z: number };
 }

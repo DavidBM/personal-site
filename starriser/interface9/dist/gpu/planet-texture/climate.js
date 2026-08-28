@@ -274,21 +274,24 @@ poleIceScale = 1) {
     const grayLobe = smoothstep(0.38, 0.68, fbm3(px * 0.24 - 2, py * 0.12, pz * 0.24, seed + 870, 3) * 0.5 + 0.5) *
         (0.25 + 0.75 * smoothstep(0.12, 0.48, elev)) *
         (1 - smoothstep(0.78, 0.95, lat));
-    // Arid provinces — minority dry lobes (~8–12% of land). Sphere LF FBM is
-    // low-contrast; mid-freq mix + range-matched threshold (same lesson as rock).
-    const aridRaw = fbm3(px * 0.35 + 5, py * 0.14, pz * 0.35, seed + 850, 4) * 0.5 + 0.5;
-    const aridRaw2 = fbm3(px * 0.9 - 3, py * 0.3, pz * 0.9, seed + 851, 3) * 0.5 + 0.5;
-    const aridMix = aridRaw * 0.6 + aridRaw2 * 0.4;
-    // Desert provinces with *wide* soft falloff (not a hard sand cliff into forest).
-    // smoothstep span ~0.08 → soft Sahel-style fringes on pure + product paint.
-    const aridLobe = smoothstep(0.54, 0.62, aridMix) *
-        (1 - vegProv * 0.35) *
-        (1 - smoothstep(0.55, 0.82, lat)) *
-        // Prefer subtropical / warm mid-lats (Sahara-ish belt, not full tropics wipe)
-        (0.35 +
-            0.65 *
-                smoothstep(0.05, 0.28, lat) *
-                (1 - smoothstep(0.42, 0.65, lat)));
+    // Arid / desert — same *style* as forest: mid-freq sphere patches, not lat belts.
+    // (Old aridBelt + lat gates made deserts follow smooth latitude "lines".)
+    const aridN = fbm3(px * 0.65 + 5, py * 0.26, pz * 0.65, seed + 850, 4) * 0.5 + 0.5;
+    const aridN2 = fbm3(px * 1.6 - 3, py * 0.5, pz * 1.6, seed + 851, 3) * 0.5 + 0.5;
+    const aridN3 = fbm3(px * 2.8 + 1.2, py * 0.75, pz * 2.8, seed + 852, 3) * 0.5 + 0.5;
+    const aridMix = aridN * 0.45 + aridN2 * 0.35 + aridN3 * 0.2;
+    // Raw sphere mix ~0.45–0.62; top ~12–18% → dry islands (same idea as forest)
+    const aridPatch = smoothstep(0.55, 0.62, aridMix);
+    // Mild climate gates only (no hard subtropical strip)
+    const aridLatGate = (1 - smoothstep(0.58, 0.85, lat)) *
+        (0.55 +
+            0.45 *
+                smoothstep(0.02, 0.35, lat) *
+                (1 - smoothstep(0.48, 0.72, lat)));
+    const aridLobe = aridPatch *
+        aridLatGate *
+        (1 - vegProv * 0.3) *
+        (1 - smoothstep(0.55, 0.82, lat) * 0.5);
     // Moisture: green majority; dry lobes open desert; elev for gray
     const moistEff = clamp01(moisture * 0.65 +
         0.12 +
@@ -300,28 +303,12 @@ poleIceScale = 1) {
         (fbm3(px * 0.24 - 1.4, py * 0.11, pz * 0.24, seed + 860, 3) * 2 - 1) *
             0.12 *
             (1 - poleHold));
-    // Arid: province lobes + soft subtropical hint (deserts co-exist with green)
-    const aridProv = smoothstep(0.42, 0.72, fbm3(px * 0.24, py * 0.12, pz * 0.24, seed + 800, 3) * 0.5 + 0.5) *
-        smoothstep(0.28, 0.72, tempEff) *
-        (1 - smoothstep(0.7, 0.92, lat)) *
-        (1 - moistEff * 0.7) *
-        (1 - vegProv * 0.45) *
-        (0.5 + 0.5 * aridLobe);
-    const aridBelt = smoothstep(0.08, 0.34, lat) *
-        (1 - smoothstep(0.4, 0.62, lat)) *
-        (1 - smoothstep(0.35, 0.65, moistEff)) *
-        (1 - vegProv * 0.4) *
-        0.55;
-    const aridHot = clamp01(aridBelt * 0.5 + aridProv * 0.75 + aridLobe * 0.55) *
-        smoothstep(0.4, 0.85, tempEff) *
-        (1 - elev * 0.22) *
-        (1 - forestBlob * 0.4) *
-        (1 - moistEff * 0.35);
-    const aridCool = clamp01(aridBelt * 0.35 + aridProv * 0.45) *
-        (1 - smoothstep(0.4, 0.72, tempEff)) *
-        (1 - moistEff * 0.45);
-    // Visible desert minority (dry lobes read as tan/sand, not wiped by green)
-    const aridW0 = clamp01(aridHot + aridCool + aridLobe * 0.45) * 0.95;
+    // Secondary dry tint from climate (weak — patches own shape)
+    const aridClimate = smoothstep(0.25, 0.7, tempEff) *
+        (1 - smoothstep(0.35, 0.7, moistEff)) *
+        (1 - vegProv * 0.35);
+    // aridW0 modulates forest density / pure paint; patch-primary
+    const aridW0 = clamp01(aridLobe * 0.85 + aridClimate * aridLobe * 0.45) * 0.95;
     // Gray highland / rock cores (third color — coexists with green + desert)
     const plateau = smoothstep(0.28, 0.62, elev) *
         smoothstep(0.38, 0.68, fbm3(px * 0.4 + 4, py * 0.2, pz * 0.4, seed + 810, 3) * 0.5 + 0.5) *
@@ -374,13 +361,8 @@ poleIceScale = 1) {
         (1 - plateau * 0.45) *
         (1 - smoothstep(0.75, 0.94, lat)) *
         (0.4 + 0.7 * openLobe + 0.25 * (1 - forestBlob));
-    // Tundra before ice — short soft belt just below the polar cap
-    const tundra = smoothstep(scalePoleLatThresh(0.78, pScale), scalePoleLatThresh(0.88, pScale), absLat) *
-        (1 - smoothstep(scalePoleLatThresh(0.93, pScale), scalePoleLatThresh(0.995, pScale), absLat)) *
-        (1 - boreal * 0.75) *
-        (1 - smoothstep(0.55, 0.88, elev) * 0.2);
-    // Polar ice: solid 100% snow core + short soft gradient (not a full-cap fade).
-    // iceSolid → 1 near poles so paint can replace land color completely.
+    // Polar ice first — tundra is keyed to iceLat so it follows the cap edge
+    // (not a straight latitude rock/tundra bar).
     const iceWarp = Math.min(1, pScale); // small caps: less mid-lat warble
     const iceN1 = fbm3(x * 1.15, y * 0.32, z * 1.15, seed + 901, 5) * 0.5 + 0.5;
     const iceN2 = fbm3(x * 2.9 + 4, y * 0.55, z * 2.9, seed + 911, 4) * 0.5 + 0.5;
@@ -393,11 +375,11 @@ poleIceScale = 1) {
     const iceLobe = smoothstep(0.28, 0.62, iceN1 * 0.5 + iceN2 * 0.35 + iceN3 * 0.15);
     // Solid white cap: short ramp into full ice (was a long partial-blend fade)
     const iceSolid = smoothstep(scalePoleLatThresh(0.905, pScale), scalePoleLatThresh(0.955, pScale), iceLat);
-    // Short soft fringe just equatorward of solid (narrower than old 0.74→0.97 band)
-    const iceFringe = clamp01(smoothstep(scalePoleLatThresh(0.84, pScale), scalePoleLatThresh(0.92, pScale), iceLat) *
+    // Soft fringe equatorward of solid — wider falloff so tundra doesn't hard-cut
+    const iceFringe = clamp01(smoothstep(scalePoleLatThresh(0.78, pScale), scalePoleLatThresh(0.93, pScale), iceLat) *
         (1 - iceSolid) *
-        (0.55 + 0.45 * iceLobe) *
-        (0.55 + 0.45 * (1 - temperature)));
+        (0.5 + 0.5 * iceLobe) *
+        (0.5 + 0.5 * (1 - temperature)));
     const iceCap = clamp01(iceSolid + iceFringe * 0.92);
     const alpine = smoothstep(0.55, 0.88, elev) *
         (1 - smoothstep(0.28, 0.55, temperature)) *
@@ -408,6 +390,34 @@ poleIceScale = 1) {
     const snowW = clamp01(iceSolid + (1 - iceSolid) * (iceFringe * 0.88 + alpine * 0.5));
     // Kill vegetation under solid ice + fringe
     const vegKill = 1 - clamp01(iceSolid * 1.0 + snowW * 0.9 + iceCap * 0.25);
+    // Kill rock/desert near ice + high lat (does NOT force tundra over forest).
+    // Soft lat fade only — stops straight stone belts without a solid tundra bar.
+    const polarRockKill = clamp01(smoothstep(0.2, 0.7, iceFringe + iceSolid * 0.85) * 0.95 +
+        smoothstep(0.35, 0.75, snowW) * 0.55 +
+        smoothstep(0.76, 0.88, absLat) * 0.7);
+    // Tundra = polar ice-fringe scrub + alpine (elev+cold) so it correlates with
+    // height heat maps — high plateaus/moss, not only a polar ring.
+    const tundraPatch = smoothstep(0.42, 0.68, fbm3(px * 1.8 + 0.4, py * 0.55, pz * 1.8, seed + 930, 3) * 0.5 + 0.5) *
+        (0.35 +
+            0.65 *
+                smoothstep(0.38, 0.65, fbm3(px * 0.55 - 2.1, py * 0.22, pz * 0.55, seed + 931, 3) * 0.5 +
+                    0.5));
+    // Polar fringe (patchy, not a solid bar)
+    const polarTundra = iceFringe *
+        (0.25 + 0.75 * tundraPatch) *
+        (1 - iceSolid) *
+        (1 - boreal * 0.45);
+    // Alpine: high elev + cool temps (tracks height heat).
+    // Sharper elev/temp ramps than forest so tundra cores read clearly
+    // (still soft falloffs — not a hard biome wall).
+    const alpineTundra = clamp01(smoothstep(0.26, 0.44, elev) *
+        (1 - smoothstep(0.38, 0.7, tempEff)) *
+        (0.5 + 0.5 * smoothstep(0.08, 0.4, absLat)) *
+        (0.55 + 0.45 * tundraPatch) *
+        (1 - iceSolid) *
+        (1 - aridLobe * 0.55));
+    // True rock peaks sit above alpine band
+    const tundra = clamp01(Math.max(polarTundra, alpineTundra * 0.98) * (1 - iceSolid * 0.5));
     // Beach strip (thin)
     const beachW = 1 - smoothstep(0.0, 0.035, elev);
     // Soft multi-class land: grassland base + forest *patches* (not exclusive sectors).
@@ -438,12 +448,14 @@ poleIceScale = 1) {
         forestTemp * 0.08 +
         boreal * 0.05);
     // Soft densities 0..1 — patch-primary so grass + forest always coexist
-    // Soften (not kill) canopy inside arid lobes so desert–forest fringes mix
+    // Kill canopy hard in alpine tundra cores (less tree–moss diffusion)
     let forestDensity = clamp01(forestPatch *
         forestBoost *
         (1 - openLobe * 0.15) *
         (1 - aridW0 * 0.55) *
         (1 - aridLobe * 0.55) *
+        (1 - alpineTundra * 0.97) *
+        (1 - smoothstep(0.28, 0.5, elev) * 0.7) *
         (1 - plateau * 0.3) *
         (1 - smoothstep(0.78, 0.96, lat) * 0.45));
     // Sharpen deep so cores hit the pure forestDeep stop (not muddy mid-forest)
@@ -453,29 +465,38 @@ poleIceScale = 1) {
         (1 - aridW0 * 0.45)));
     deepDensity = Math.min(deepDensity, forestDensity);
     // Desert / gray soft overlays — minority dry + highland islands.
-    // desertPri driven mainly by aridLobe (aridW0 alone rarely clears thresholds).
-    const desertPri = clamp01(aridLobe * 1.15 + aridW0 * 0.5 + aridLobe * aridW0 * 0.35);
+    // desertPri = patch field (same family as forestDensity), not lat belts.
+    const desertPri = clamp01(aridLobe * 1.2 + aridW0 * 0.35);
     const rockRaw = fbm3(px * 0.55 + 6.2, py * 0.2, pz * 0.55, seed + 875, 4) * 0.5 + 0.5;
     const rockRaw2 = fbm3(px * 1.3 - 1.1, py * 0.4, pz * 1.3, seed + 876, 3) * 0.5 + 0.5;
     const rockMix = rockRaw * 0.65 + rockRaw2 * 0.35;
-    // Top ~12–18% of rockMix → stone islands; elev gate trims coasts
+    // Rock only on true peaks (above alpine tundra band) — not whole high continents.
+    // polarRockKill removes the straight gray belt under ice caps.
     const rockLobe = smoothstep(0.44, 0.52, rockMix) *
-        smoothstep(0.12, 0.36, elev) *
-        (1 - smoothstep(0.7, 0.92, lat)) *
+        smoothstep(0.42, 0.68, elev) *
+        (1 - smoothstep(0.62, 0.78, lat)) *
+        (1 - polarRockKill) *
+        (1 - alpineTundra * 0.7) *
         (0.5 + 0.5 * (1 - moistEff));
-    const grayPri = clamp01(grayLobe * 0.35 + plateau * 0.35 + rockLobe * 1.05) *
-        (1 - desertPri * 0.35) *
-        smoothstep(0.12, 0.38, elev);
-    // Soft desert amount: wide falloff, never full landAlive wipe (keeps green fringe)
+    // Rock: peak elev + rockLobe (minority peaks — plateaus stay tundra/green)
+    const grayPri = clamp01(grayLobe * 0.22 + plateau * 0.22 + rockLobe * 1.15) *
+        (1 - desertPri * 0.4) *
+        (1 - polarRockKill) *
+        (1 - alpineTundra * 0.65) *
+        smoothstep(0.38, 0.62, elev);
+    // Soft desert amount: wide falloff; also killed near poles
     const aDesert = landAlive *
+        (1 - polarRockKill) *
         (desertPri > 0.16 ? smoothstep(0.16, 0.72, desertPri) : 0) *
         0.78;
     const aGray = landAlive *
-        (grayPri > 0.38 ? smoothstep(0.38, 0.65, grayPri) : 0) *
+        (1 - polarRockKill) *
+        (grayPri > 0.42 ? smoothstep(0.42, 0.7, grayPri) : 0) *
         (1 - aDesert * 0.65 / Math.max(landAlive, 1e-6)) *
-        0.92;
-    // Keep vegetation underpaint under partial desert (Sahel / scrub transition)
-    const vegLand = Math.max(0, landAlive * (1 - aDesert * 0.55) - aGray * 0.85);
+        0.88;
+    // Alpine tundra claims high elev (stronger core, soft fringe via alpineTundra ramp)
+    const aAlpine = landAlive * alpineTundra * 0.95;
+    const vegLand = Math.max(0, landAlive * (1 - aDesert * 0.55) - aGray * 0.85 - aAlpine * 0.9);
     // Partition weights (sum ≈ 1): grass | mid forest | deep — exclusive soft classes
     // so each stop paints pure (no sequential-lerp mud that collapses deep→forest).
     const wDeep = deepDensity;
@@ -506,50 +527,60 @@ poleIceScale = 1) {
     col = lerpRgb(col, pal.rockDark, aGray * 0.3);
     col = lerpRgb(col, pal.highland, aGray * 0.25);
     const peak = (w) => Math.pow(clamp01(w), 1.65);
-    // Soft tundra only where ice is still weak
-    col = lerpRgb(col, pal.tundra, clamp01(peak(tundra) * vegKill) * 0.62);
-    // Snow paint: solid core → full snow; fringe → short soft gradient.
-    // iceSolid drives complete white (not partial *0.58 mixes that never hit 100%).
-    col = lerpRgb(col, pal.tundra, clamp01(iceFringe * (1 - iceSolid) * 0.75 + snowW * (1 - snowW) * 1.2 * 0.35));
+    // Alpine + polar tundra — stronger cores, still soft edges (less tree diffusion)
+    col = lerpRgb(col, pal.tundra, clamp01(peak(tundra) * vegKill) * 0.92);
+    col = lerpRgb(col, pal.tundra, clamp01(iceFringe * (1 - iceSolid) * 0.18 * tundraPatch +
+        alpineTundra * 0.88 +
+        snowW * (1 - snowW) * 0.15));
     col = lerpRgb(col, pal.snow, clamp01(iceSolid * 1.0 + iceFringe * 0.72));
     col = lerpRgb(col, { r: 0.94, g: 0.97, b: 1.0 }, clamp01(iceSolid * 0.55 + iceFringe * 0.2));
     col = lerpRgb(col, pal.beach, peak(beachW) * 0.92 * vegKill);
-    // Extra mountain rock on high elev + rock lobes (stone reads on product albedo)
-    if (snowW < 0.4 && absLat < 0.78) {
-        const peakRock = smoothstep(0.5, 0.88, elev) * 0.32 * (1 - aridW0 * 0.3) +
-            rockLobe * 0.7 +
-            aGray * 0.45;
-        col = lerpRgb(col, pal.mountain, clamp01(peakRock) * (1 - snowW));
-        col = lerpRgb(col, pal.rockDark, clamp01(rockLobe * 0.45 + aGray * 0.3) * (1 - snowW));
+    // Peak rock only above alpine band (white heat-map cores → gray, not whole plateaus)
+    let peakRockAmt = 0;
+    if (snowW < 0.35 && absLat < 0.72 && polarRockKill < 0.35) {
+        const peakRock = smoothstep(0.55, 0.9, elev) * 0.38 * (1 - aridW0 * 0.3) * (1 - alpineTundra * 0.5) +
+            rockLobe * 0.75 +
+            aGray * 0.4;
+        peakRockAmt = clamp01(peakRock) * (1 - snowW) * (1 - polarRockKill);
+        col = lerpRgb(col, pal.mountain, peakRockAmt);
+        col = lerpRgb(col, pal.rockDark, clamp01(rockLobe * 0.45 + aGray * 0.3) *
+            (1 - snowW) *
+            (1 - polarRockKill));
     }
-    // Hard class for intermediate debug maps — density fields + minority rock/desert.
-    // Rock before forest so highland stone islands punch through canopy patches.
-    // Target ~10–15% rock of land, not zero and not continent fill.
+    // Hard class = argmax of the *same* paint amounts that build product albedo.
+    // Earlier pure-class priority (forest-first) diverged from soft overlays
+    // (tundra/gray/desert), so the intermediate map no longer matched the planet.
+    const paintSnow = clamp01(iceSolid * 1.0 + iceFringe * 0.72 + snowW * 0.35);
+    // Pure tundra from alpine+polar (match paint) so pure map tracks height heat
+    const paintTundra = clamp01(peak(tundra) * vegKill * 0.95 +
+        aAlpine * 1.05 +
+        alpineTundra * 0.65 +
+        iceFringe * (1 - iceSolid) * 0.18 * tundraPatch +
+        snowW * (1 - snowW) * 0.15);
+    const paintBeach = peak(beachW) * 0.92 * vegKill;
+    const paintDesert = aDesert * 0.82;
+    const paintGray = clamp01(aGray * 0.9 + peakRockAmt * 0.95);
+    const classScores = [
+        { id: PureBiome.Snow, w: paintSnow },
+        { id: PureBiome.Tundra, w: paintTundra },
+        { id: PureBiome.Beach, w: paintBeach },
+        { id: PureBiome.Desert, w: paintDesert },
+        { id: PureBiome.Gray, w: paintGray },
+        { id: PureBiome.Deep, w: aDeep },
+        { id: PureBiome.Forest, w: aForest },
+        { id: PureBiome.Grass, w: aGrass },
+    ];
     let pureClass = PureBiome.Grass;
-    if (iceSolid > 0.55) {
+    let bestW = -1;
+    for (const s of classScores) {
+        if (s.w > bestW) {
+            bestW = s.w;
+            pureClass = s.id;
+        }
+    }
+    // Solid ice always wins (avoid fringe noise picking forest under white caps)
+    if (iceSolid > 0.55)
         pureClass = PureBiome.Snow;
-    }
-    else if (beachW > 0.55) {
-        pureClass = PureBiome.Beach;
-    }
-    else if (tundra * vegKill > 0.5 && snowW < 0.4) {
-        pureClass = PureBiome.Tundra;
-    }
-    else if (desertPri > 0.36 || aridLobe > 0.42) {
-        pureClass = PureBiome.Desert;
-    }
-    else if (rockLobe > 0.42 || (grayPri > 0.42 && elev > 0.25)) {
-        pureClass = PureBiome.Gray;
-    }
-    else if (deepDensity > 0.42) {
-        pureClass = PureBiome.Deep;
-    }
-    else if (forestDensity > 0.38) {
-        pureClass = PureBiome.Forest;
-    }
-    else {
-        pureClass = PureBiome.Grass;
-    }
     return {
         col,
         snowW,
@@ -581,6 +612,105 @@ export const PURE_BIOME_LABELS = {
     [PureBiome.Tundra]: "tundra",
     [PureBiome.Snow]: "snow",
 };
+/**
+ * Land-height heat map for intermediate debug: ocean dark blue, land elev as
+ * blue→cyan→green→yellow→red→white (peaks). Elev = (h−sea)/(1−sea) on land.
+ */
+export function renderLandHeightHeatmap(heightRgba, width, height, seaLevel, maxWidth = 1024) {
+    const scale = width > maxWidth ? maxWidth / width : 1;
+    const W = Math.max(1, Math.floor(width * scale));
+    const H = Math.max(1, Math.floor(height * scale));
+    const rgba = new Uint8ClampedArray(W * H * 4);
+    const sea = Math.max(0, Math.min(1, seaLevel));
+    // Sample land elev for robust high percentile stretch
+    let landMax = 0;
+    const elevSamples = [];
+    for (let y = 0; y < H; y++) {
+        const srcY = Math.min(height - 1, Math.floor((y + 0.5) * (height / H)));
+        for (let x = 0; x < W; x++) {
+            const srcX = Math.min(width - 1, Math.floor((x + 0.5) * (width / W)));
+            const h = (heightRgba[(srcY * width + srcX) * 4] ?? 0) / 255;
+            if (h > sea) {
+                const e = (h - sea) / Math.max(1e-4, 1 - sea);
+                elevSamples.push(e);
+                if (e > landMax)
+                    landMax = e;
+            }
+        }
+    }
+    elevSamples.sort((a, b) => a - b);
+    const p98 = elevSamples.length > 0
+        ? elevSamples[Math.min(elevSamples.length - 1, Math.floor(elevSamples.length * 0.98))]
+        : 1;
+    const elevScale = Math.max(0.08, p98);
+    for (let y = 0; y < H; y++) {
+        const srcY = Math.min(height - 1, Math.floor((y + 0.5) * (height / H)));
+        for (let x = 0; x < W; x++) {
+            const srcX = Math.min(width - 1, Math.floor((x + 0.5) * (width / W)));
+            const h = (heightRgba[(srcY * width + srcX) * 4] ?? 0) / 255;
+            const o = (y * W + x) * 4;
+            if (h <= sea) {
+                // Ocean: depth proxy from how far below sea
+                const depth = clamp01((sea - h) / Math.max(1e-4, sea));
+                rgba[o] = Math.round(4 + depth * 12);
+                rgba[o + 1] = Math.round(18 + depth * 40);
+                rgba[o + 2] = Math.round(48 + depth * 80);
+                rgba[o + 3] = 255;
+                continue;
+            }
+            const elev = clamp01((h - sea) / Math.max(1e-4, 1 - sea) / elevScale);
+            const c = heightHeatRgb(elev);
+            rgba[o] = Math.round(c.r * 255);
+            rgba[o + 1] = Math.round(c.g * 255);
+            rgba[o + 2] = Math.round(c.b * 255);
+            rgba[o + 3] = 255;
+        }
+    }
+    return { width: W, height: H, rgba };
+}
+/** Classic land elev heat: low=deep blue-green → mid=yellow → high=red → peak=white. */
+function heightHeatRgb(t) {
+    const x = clamp01(t);
+    // 5-stop smooth blend
+    if (x < 0.25) {
+        const u = x / 0.25;
+        return {
+            r: 0.05 + u * 0.05,
+            g: 0.15 + u * 0.45,
+            b: 0.55 + u * 0.15,
+        };
+    }
+    if (x < 0.45) {
+        const u = (x - 0.25) / 0.2;
+        return {
+            r: 0.1 + u * 0.25,
+            g: 0.6 + u * 0.25,
+            b: 0.35 - u * 0.2,
+        };
+    }
+    if (x < 0.65) {
+        const u = (x - 0.45) / 0.2;
+        return {
+            r: 0.35 + u * 0.5,
+            g: 0.85 - u * 0.15,
+            b: 0.15 - u * 0.1,
+        };
+    }
+    if (x < 0.85) {
+        const u = (x - 0.65) / 0.2;
+        return {
+            r: 0.85 + u * 0.1,
+            g: 0.7 - u * 0.45,
+            b: 0.05 + u * 0.05,
+        };
+    }
+    const u = (x - 0.85) / 0.15;
+    return {
+        r: 0.95 + u * 0.05,
+        g: 0.25 + u * 0.7,
+        b: 0.1 + u * 0.85,
+    };
+}
 /**
  * Pure biome class map after FBM/domain-warp partition — hard class colors only
  * (no soft blend, grain, stamps, clouds). For intermediate debug UI.

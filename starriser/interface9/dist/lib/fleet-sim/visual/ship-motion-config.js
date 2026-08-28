@@ -116,6 +116,12 @@ export const ORBIT_R_MIN = 2;
 /** Personal orbit radius max (world units). */
 export const ORBIT_R_MAX = 7;
 /**
+ * Local SCENE (bit 7) scale for orbitR + NEAR draw size. Must equal
+ * {@link KEPLER_SCALE} (`SYSTEM_LOCAL_SPAN / SHOWCASE_ORBIT_SPAN` = 0.1/56).
+ * Apply on a local copy — never write the scaled orbitR back to ShipSim.
+ */
+export const SCENE_AGENT_SCALE = 0.1 / 56;
+/**
  * Personal planar orbit height scatter as a fraction of {@link ORBIT_R_MAX}.
  * Each ship gets a deterministic offset ∈ [−frac·R_max, +frac·R_max] (e.g. ±0.7
  * when R_max=7). Visual only on NEAR triangle + model LOD; not space3d sphere.

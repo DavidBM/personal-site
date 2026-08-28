@@ -1179,30 +1179,25 @@ fn softBiomeColor(
     * (0.45 + 0.55 * smoothstep_f(0.2, 0.55, moisture)) * (0.5 + 0.5 * edgeNoise);
   let grayLobe = smoothstep_f(0.38, 0.68, fbm3(px * 0.24 - 2.0, py * 0.12, pz * 0.24, seed + 870, 3) * 0.5 + 0.5)
     * (0.25 + 0.75 * smoothstep_f(0.12, 0.48, elev)) * (1.0 - smoothstep_f(0.78, 0.95, lat));
-  // Arid minority lobes — mid-freq mix + range-matched threshold (match climate.ts)
-  let aridRaw = fbm3(px * 0.35 + 5.0, py * 0.14, pz * 0.35, seed + 850, 4) * 0.5 + 0.5;
-  let aridRaw2 = fbm3(px * 0.9 - 3.0, py * 0.3, pz * 0.9, seed + 851, 3) * 0.5 + 0.5;
-  let aridMix = aridRaw * 0.6 + aridRaw2 * 0.4;
-  // Wide soft falloff for Sahel-style fringes (match climate.ts)
-  let aridLobe = smoothstep_f(0.54, 0.62, aridMix)
-    * (1.0 - vegProv * 0.35) * (1.0 - smoothstep_f(0.55, 0.82, lat))
-    * (0.35 + 0.65 * smoothstep_f(0.05, 0.28, lat) * (1.0 - smoothstep_f(0.42, 0.65, lat)));
+  // Desert patches — same style as forest (mid-freq sphere blobs, not lat belts)
+  let aridN = fbm3(px * 0.65 + 5.0, py * 0.26, pz * 0.65, seed + 850, 4) * 0.5 + 0.5;
+  let aridN2 = fbm3(px * 1.6 - 3.0, py * 0.5, pz * 1.6, seed + 851, 3) * 0.5 + 0.5;
+  let aridN3 = fbm3(px * 2.8 + 1.2, py * 0.75, pz * 2.8, seed + 852, 3) * 0.5 + 0.5;
+  let aridMix = aridN * 0.45 + aridN2 * 0.35 + aridN3 * 0.2;
+  // Raw sphere mix ~0.45–0.62; top ~12–18% dry islands (match climate.ts)
+  let aridPatch = smoothstep_f(0.55, 0.62, aridMix);
+  let aridLatGate = (1.0 - smoothstep_f(0.58, 0.85, lat))
+    * (0.55 + 0.45 * smoothstep_f(0.02, 0.35, lat) * (1.0 - smoothstep_f(0.48, 0.72, lat)));
+  let aridLobe = aridPatch * aridLatGate * (1.0 - vegProv * 0.3)
+    * (1.0 - smoothstep_f(0.55, 0.82, lat) * 0.5);
   let moistEff = clamp01(moisture * 0.65 + 0.12
     + (fbm3(px * 0.26, py * 0.13, pz * 0.26, seed + 840, 3) * 2.0 - 1.0) * 0.18
     + vegProv * 0.15 - aridLobe * 0.4 - grayLobe * 0.08);
   let tempEff = clamp01(temperature
     + (fbm3(px * 0.24 - 1.4, py * 0.11, pz * 0.24, seed + 860, 3) * 2.0 - 1.0) * 0.12 * (1.0 - poleHold));
-
-  let aridProv = smoothstep_f(0.42, 0.72, fbm3(px * 0.24, py * 0.12, pz * 0.24, seed + 800, 3) * 0.5 + 0.5)
-    * smoothstep_f(0.28, 0.72, tempEff) * (1.0 - smoothstep_f(0.7, 0.92, lat))
-    * (1.0 - moistEff * 0.7) * (1.0 - vegProv * 0.45) * (0.5 + 0.5 * aridLobe);
-  let aridBelt = smoothstep_f(0.08, 0.34, lat) * (1.0 - smoothstep_f(0.4, 0.62, lat))
-    * (1.0 - smoothstep_f(0.35, 0.65, moistEff)) * (1.0 - vegProv * 0.4) * 0.55;
-  let aridHot = clamp01(aridBelt * 0.5 + aridProv * 0.75 + aridLobe * 0.55) * smoothstep_f(0.4, 0.85, tempEff)
-    * (1.0 - elev * 0.22) * (1.0 - forestBlob * 0.4) * (1.0 - moistEff * 0.35);
-  let aridCool = clamp01(aridBelt * 0.35 + aridProv * 0.45) * (1.0 - smoothstep_f(0.4, 0.72, tempEff))
-    * (1.0 - moistEff * 0.45);
-  let aridW0 = clamp01(aridHot + aridCool + aridLobe * 0.45) * 0.95;
+  let aridClimate = smoothstep_f(0.25, 0.7, tempEff) * (1.0 - smoothstep_f(0.35, 0.7, moistEff))
+    * (1.0 - vegProv * 0.35);
+  let aridW0 = clamp01(aridLobe * 0.85 + aridClimate * aridLobe * 0.45) * 0.95;
 
   let plateau = smoothstep_f(0.28, 0.62, elev)
     * smoothstep_f(0.38, 0.68, fbm3(px * 0.4 + 4.0, py * 0.2, pz * 0.4, seed + 810, 3) * 0.5 + 0.5)
@@ -1232,11 +1227,7 @@ fn softBiomeColor(
     * (1.0 - canopyLobe * 0.75) * (1.0 - aridW0 * 0.7) * (1.0 - plateau * 0.45)
     * (1.0 - smoothstep_f(0.75, 0.94, lat))
     * (0.4 + 0.7 * openLobe + 0.25 * (1.0 - forestBlob));
-  // Tundra short belt just below polar cap (match climate.ts)
-  let tundra = smoothstep_f(scalePoleLatThresh(0.78, pScale), scalePoleLatThresh(0.88, pScale), absLat)
-    * (1.0 - smoothstep_f(scalePoleLatThresh(0.93, pScale), scalePoleLatThresh(0.995, pScale), absLat))
-    * (1.0 - boreal * 0.75) * (1.0 - smoothstep_f(0.55, 0.88, elev) * 0.2);
-  // Polar ice: solid 100% snow core + short soft fringe (match climate.ts)
+  // Polar ice first; tundra keyed to iceLat (follows cap warble) — match climate.ts
   let iceN1 = fbm3(x * 1.15, y * 0.32, z * 1.15, seed + 901, 5) * 0.5 + 0.5;
   let iceN2 = fbm3(x * 2.9 + 4.0, y * 0.55, z * 2.9, seed + 911, 4) * 0.5 + 0.5;
   let iceN3 = fbm3(x * 5.5 - 2.0, y * 0.9, z * 5.5, seed + 921, 3) * 0.5 + 0.5;
@@ -1249,18 +1240,35 @@ fn softBiomeColor(
     scalePoleLatThresh(0.955, pScale),
     iceLat,
   );
+  // Wider soft fringe so tundra doesn't hard-cut (match climate.ts)
   let iceFringe = clamp01(
     smoothstep_f(
-      scalePoleLatThresh(0.84, pScale),
-      scalePoleLatThresh(0.92, pScale),
+      scalePoleLatThresh(0.78, pScale),
+      scalePoleLatThresh(0.93, pScale),
       iceLat,
-    ) * (1.0 - iceSolid) * (0.55 + 0.45 * iceLobe) * (0.55 + 0.45 * (1.0 - temperature)),
+    ) * (1.0 - iceSolid) * (0.5 + 0.5 * iceLobe) * (0.5 + 0.5 * (1.0 - temperature)),
   );
   let iceCap = clamp01(iceSolid + iceFringe * 0.92);
   let alpine = smoothstep_f(0.55, 0.88, elev) * (1.0 - smoothstep_f(0.28, 0.55, temperature))
     * (1.0 - smoothstep_f(0.88, 0.99, absLat) * 0.4) * 0.45 + plateau * 0.55;
   let snowW = clamp01(iceSolid + (1.0 - iceSolid) * (iceFringe * 0.88 + alpine * 0.5));
   let vegKill = 1.0 - clamp01(iceSolid * 1.0 + snowW * 0.9 + iceCap * 0.25);
+  // Rock/desert kill near ice + high lat — no forced tundra bar (match climate.ts)
+  let polarRockKill = clamp01(
+    smoothstep_f(0.2, 0.7, iceFringe + iceSolid * 0.85) * 0.95
+      + smoothstep_f(0.35, 0.75, snowW) * 0.55
+      + smoothstep_f(0.76, 0.88, absLat) * 0.7,
+  );
+  // Polar fringe + alpine (elev+cold) tundra — height-correlated (match climate.ts)
+  let tundraPatch = smoothstep_f(0.42, 0.68, fbm3(px * 1.8 + 0.4, py * 0.55, pz * 1.8, seed + 930, 3) * 0.5 + 0.5)
+    * (0.35 + 0.65 * smoothstep_f(0.38, 0.65, fbm3(px * 0.55 - 2.1, py * 0.22, pz * 0.55, seed + 931, 3) * 0.5 + 0.5));
+  let polarTundra = iceFringe * (0.25 + 0.75 * tundraPatch) * (1.0 - iceSolid) * (1.0 - boreal * 0.45);
+  let alpineTundra = clamp01(
+    smoothstep_f(0.26, 0.44, elev) * (1.0 - smoothstep_f(0.38, 0.7, tempEff))
+      * (0.5 + 0.5 * smoothstep_f(0.08, 0.4, absLat))
+      * (0.55 + 0.45 * tundraPatch) * (1.0 - iceSolid) * (1.0 - aridLobe * 0.55),
+  );
+  let tundra = clamp01(max(polarTundra, alpineTundra * 0.95) * (1.0 - iceSolid * 0.5));
   let beachW = 1.0 - smoothstep_f(0.0, 0.035, elev);
 
   // Soft multi-class land (match climate.ts): grassland base + forest patches (not exclusive sectors)
@@ -1278,7 +1286,8 @@ fn softBiomeColor(
   );
   var forestDensity = clamp01(
     forestPatch * forestBoost * (1.0 - openLobe * 0.15) * (1.0 - aridW0 * 0.55)
-      * (1.0 - aridLobe * 0.55)
+      * (1.0 - aridLobe * 0.55) * (1.0 - alpineTundra * 0.97)
+      * (1.0 - smoothstep_f(0.28, 0.5, elev) * 0.7)
       * (1.0 - plateau * 0.3) * (1.0 - smoothstep_f(0.78, 0.96, lat) * 0.45),
   );
   var deepDensity = clamp01(
@@ -1287,19 +1296,23 @@ fn softBiomeColor(
   );
   deepDensity = min(deepDensity, forestDensity);
   // Desert/gray minority islands — soft desert fringe (match climate.ts)
-  let desertPri = clamp01(aridLobe * 1.15 + aridW0 * 0.5 + aridLobe * aridW0 * 0.35);
+  let desertPri = clamp01(aridLobe * 1.2 + aridW0 * 0.35);
   let rockRaw = fbm3(px * 0.55 + 6.2, py * 0.2, pz * 0.55, seed + 875, 4) * 0.5 + 0.5;
   let rockRaw2 = fbm3(px * 1.3 - 1.1, py * 0.4, pz * 1.3, seed + 876, 3) * 0.5 + 0.5;
   let rockMix = rockRaw * 0.65 + rockRaw2 * 0.35;
   let rockLobe = smoothstep_f(0.44, 0.52, rockMix)
-    * smoothstep_f(0.12, 0.36, elev) * (1.0 - smoothstep_f(0.7, 0.92, lat))
+    * smoothstep_f(0.42, 0.68, elev) * (1.0 - smoothstep_f(0.62, 0.78, lat))
+    * (1.0 - polarRockKill) * (1.0 - alpineTundra * 0.7)
     * (0.5 + 0.5 * (1.0 - moistEff));
-  let grayPri = clamp01(grayLobe * 0.35 + plateau * 0.35 + rockLobe * 1.05) * (1.0 - desertPri * 0.35)
-    * smoothstep_f(0.12, 0.38, elev);
-  let aDesert = landAlive * select(0.0, smoothstep_f(0.16, 0.72, desertPri), desertPri > 0.16) * 0.78;
-  let aGray = landAlive * select(0.0, smoothstep_f(0.38, 0.65, grayPri), grayPri > 0.38)
-    * (1.0 - aDesert * 0.65 / max(landAlive, 1e-6)) * 0.92;
-  let vegLand = max(0.0, landAlive * (1.0 - aDesert * 0.55) - aGray * 0.85);
+  let grayPri = clamp01(grayLobe * 0.22 + plateau * 0.22 + rockLobe * 1.15) * (1.0 - desertPri * 0.4)
+    * (1.0 - polarRockKill) * (1.0 - alpineTundra * 0.65) * smoothstep_f(0.38, 0.62, elev);
+  let aDesert = landAlive * (1.0 - polarRockKill)
+    * select(0.0, smoothstep_f(0.16, 0.72, desertPri), desertPri > 0.16) * 0.78;
+  let aGray = landAlive * (1.0 - polarRockKill)
+    * select(0.0, smoothstep_f(0.42, 0.7, grayPri), grayPri > 0.42)
+    * (1.0 - aDesert * 0.65 / max(landAlive, 1e-6)) * 0.88;
+  let aAlpine = landAlive * alpineTundra * 0.95;
+  let vegLand = max(0.0, landAlive * (1.0 - aDesert * 0.55) - aGray * 0.85 - aAlpine * 0.9);
   // Partition weights (match climate.ts): pure grass | mid forest | deep
   let wDeep = deepDensity;
   let wForest = max(0.0, forestDensity - deepDensity);
@@ -1324,18 +1337,22 @@ fn softBiomeColor(
   col = lerpRgb(col, palRgb(11u), aGray * 0.25);
   // peakK matches climate.ts peak(w) = pow(w, 1.65)
   let peakK = 1.65;
-  col = lerpRgb(col, palRgb(15u), pow(clamp01(tundra), peakK) * vegKill * 0.62);
-  // Snow paint: solid core → full snow; short fringe gradient (match climate.ts)
-  col = lerpRgb(col, palRgb(15u), clamp01(iceFringe * (1.0 - iceSolid) * 0.75 + snowW * (1.0 - snowW) * 1.2 * 0.35));
+  // Alpine + polar tundra — stronger cores, soft edges (match climate.ts)
+  col = lerpRgb(col, palRgb(15u), pow(clamp01(tundra), peakK) * vegKill * 0.92);
+  col = lerpRgb(col, palRgb(15u), clamp01(
+    iceFringe * (1.0 - iceSolid) * 0.18 * tundraPatch + alpineTundra * 0.88
+      + snowW * (1.0 - snowW) * 0.15,
+  ));
   col = lerpRgb(col, palRgb(14u), clamp01(iceSolid * 1.0 + iceFringe * 0.72));
   col = lerpRgb(col, vec3<f32>(0.94, 0.97, 1.0), clamp01(iceSolid * 0.55 + iceFringe * 0.2));
   col = lerpRgb(col, palRgb(4u), pow(clamp01(beachW), peakK) * 0.92 * vegKill);
-  // Extra mountain rock + rockLobe (match climate.ts)
-  if (snowW < 0.4 && absLat < 0.78) {
-    let peakRock = smoothstep_f(0.5, 0.88, elev) * 0.32 * (1.0 - aridW0 * 0.3)
-      + rockLobe * 0.7 + aGray * 0.45;
-    col = lerpRgb(col, palRgb(12u), clamp01(peakRock) * (1.0 - snowW));
-    col = lerpRgb(col, palRgb(13u), clamp01(rockLobe * 0.45 + aGray * 0.3) * (1.0 - snowW));
+  // Peak rock above alpine band only (match climate.ts)
+  if (snowW < 0.35 && absLat < 0.72 && polarRockKill < 0.35) {
+    let peakRock = smoothstep_f(0.55, 0.9, elev) * 0.38 * (1.0 - aridW0 * 0.3) * (1.0 - alpineTundra * 0.5)
+      + rockLobe * 0.75 + aGray * 0.4;
+    col = lerpRgb(col, palRgb(12u), clamp01(peakRock) * (1.0 - snowW) * (1.0 - polarRockKill));
+    col = lerpRgb(col, palRgb(13u), clamp01(rockLobe * 0.45 + aGray * 0.3)
+      * (1.0 - snowW) * (1.0 - polarRockKill));
   }
   return vec4<f32>(col, snowW);
 }

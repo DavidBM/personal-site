@@ -22,6 +22,7 @@ import Stats from "./vendor/stats.js";
 import { assertWebGpuAvailable } from "./gpu/preferred-backend.js";
 import { WebGpuMapView } from "./gpu/webgpu-map-view.js";
 import { WebGpuCameraController } from "./gpu/webgpu-camera-controls.js";
+import { createSystemFocusController, } from "./main/system-focus-controller.js";
 import { WebGpuCameraStub, WebGpuRendererShim, } from "./gpu/webgpu-renderer-shim.js";
 export class App {
     constructor() {
@@ -34,6 +35,7 @@ export class App {
             this.uiBindings.mode === "editor" ? this.uiBindings.contextMenu : null;
         this.contextMenuController = null;
         this.pointerEventRouter = null;
+        this.systemFocus = null;
         this.webGpuView = null;
         this.webGpuShim = null;
         this.editHandlePointer = null;
@@ -85,12 +87,19 @@ export class App {
         this.webGpuShim = new WebGpuRendererShim(this.webGpuView);
         this.webGpuShim.setStatsPanels(this.statsPanels);
         this.cameraController = new WebGpuCameraController(this.webGpuView);
+        this.systemFocus = createSystemFocusController({
+            view: this.webGpuView,
+            camera: "focusOnPoint" in this.cameraController
+                ? this.cameraController
+                : null,
+        });
         // Damped zoom/tilt: one tick per rAF before look-at + LOD.
         this.webGpuView.setBeforeFrame((dtMs) => {
             const cam = this.cameraController;
             if (cam && "update" in cam && typeof cam.update === "function") {
                 cam.update(dtMs);
             }
+            this.systemFocus?.tick();
         });
         this.galaxy = new Galaxy(createWebGpuViewHooks(this.webGpuView, () => this.galaxy), this.metrics);
         this.webGpuView.setFleetPositionProvider((node) => {
@@ -204,7 +213,107 @@ export class App {
             measureOneGpuFrameMs: () => this.webGpuView?.measureOneGpuFrameMs() ?? Promise.resolve(0),
             stopRenderLoop: () => this.webGpuView?.stopLoop(),
             setCameraLookAt: (eyeX, eyeY, eyeZ, targetX, targetZ) => this.webGpuView?.setCameraLookAt(eyeX, eyeY, eyeZ, targetX, targetZ),
+            /** Live camera dive (controller owns eye; view setCameraLookAt is overwritten). */
+            focusOnPoint: (x, z, height) => {
+                const cam = this.cameraController;
+                if (cam && typeof cam.focusOnPoint === "function") {
+                    cam.focusOnPoint(x, z, height);
+                }
+            },
+            resizeView: (w, h) => this.webGpuView?.resize(w, h),
             startRenderLoop: () => this.webGpuView?.startRenderLoop(),
+            // Year-1 live CDP hatch (plan step 6): SCENE / lockBody / 4K / origin.
+            pickFirstSystem: () => {
+                const c = this.galaxy.clusters[0];
+                const s = c?.solarSystems[0];
+                if (!s)
+                    return null;
+                return { id: s.id, x: s.position.x, z: s.position.z, bufferIndex: s._bufferIndex ?? -1 };
+            },
+            lockBody: (index) => this.systemFocus?.lockBody(index),
+            pumpHiLoad: () => this.webGpuView?.catalogResidency.pumpHiLoad(),
+            observeYear1: () => {
+                const v = this.webGpuView;
+                if (!v)
+                    return { ok: false };
+                const sceneIds = Array.from(v.getSystemSceneIds());
+                const hyst = v.getSceneHysteresis();
+                const cam = v.getCameraState();
+                const origin = v.getFrameOrigin();
+                const sys = this.galaxy.clusters[0]?.solarSystems[0];
+                const neighbor = this.galaxy.clusters[0]?.solarSystems[1];
+                const buf = sys?._bufferIndex;
+                const hidden5px = buf != null && buf >= 0 ? v.store.lodHidden[buf] === 1 : false;
+                const nbuf = neighbor?._bufferIndex;
+                const neighborHidden = nbuf != null && nbuf >= 0 ? v.store.lodHidden[nbuf] === 1 : null;
+                const bodies = [];
+                const n = v.solarBodies.currentCount;
+                for (let i = 0; i < n; i++) {
+                    bodies.push({
+                        i,
+                        sun: v.solarBodies.isSun[i] ?? 0,
+                        r: v.solarBodies.radius[i] ?? 0,
+                        id: v.solarBodies.catalogIds[i] ?? "",
+                    });
+                }
+                const sun = bodies.find((b) => b.sun);
+                let park = null;
+                let parkScene = null;
+                const sysX = sys?.position.x ?? 0;
+                const sysZ = sys?.position.z ?? 0;
+                for (const id of this.fleetStatus.byId.keys()) {
+                    const row = v.readFleetGpuSlot(id);
+                    if (!row)
+                        continue;
+                    const rec = {
+                        id,
+                        pathEndX: row.pathEndX,
+                        pathEndZ: row.pathEndZ,
+                        flags: row.flags,
+                        off: Math.hypot(row.pathEndX - sysX, row.pathEndZ - sysZ),
+                    };
+                    if (!park)
+                        park = rec;
+                    if ((row.flags & 128) !== 0 && !parkScene)
+                        parkScene = rec;
+                }
+                park = parkScene ?? park;
+                return {
+                    ok: true,
+                    fleets: v.getFleetCount(),
+                    shipHw: v.getShipHighWater(),
+                    clusters: this.galaxy.clusters.length,
+                    sceneIds,
+                    sceneId: hyst.sceneId,
+                    spanPx: v.getSceneSpanPx(),
+                    bandBDraws: v.getBandBLastDrawCount(),
+                    bandCDraws: v.getLastBandCDrawCount(),
+                    hidden5px,
+                    neighborHidden,
+                    sunR: sun?.r ?? null,
+                    park,
+                    near: cam.near,
+                    fovyDeg: cam.fovyDeg,
+                    bufferH: cam.bufferH,
+                    bufferIndex: buf ?? -1,
+                    systemId: sys?.id ?? null,
+                    sysX: sys?.position.x ?? 0,
+                    sysZ: sys?.position.z ?? 0,
+                    eyeX: cam.eyeX,
+                    eyeY: cam.eyeY,
+                    eyeZ: cam.eyeZ,
+                    targetX: cam.targetX,
+                    targetY: cam.targetY,
+                    targetZ: cam.targetZ,
+                    originX: origin.x,
+                    originY: origin.y,
+                    originZ: origin.z,
+                    focusIndex: v.getFocusedBodyIndex(),
+                    hiCatalogId: v.catalogResidency.hiCatalogId(),
+                    bodies,
+                    bodyN: n,
+                };
+            },
         };
     }
     /** Finalize/clear/colors surface (WebGPU shim). */
@@ -332,6 +441,10 @@ export class App {
                 editHandlePointer: this.editHandlePointer,
                 getContextMenuController: () => this.contextMenuController,
                 publishPointerEvent: (payload, priority) => this.publishPointerEvent(payload, priority),
+                tryPickBody: (x, y) => this.systemFocus?.tryPickBody(x, y) ?? false,
+                clearFocus: () => {
+                    this.systemFocus?.clearFocus();
+                },
             });
         }
     }
