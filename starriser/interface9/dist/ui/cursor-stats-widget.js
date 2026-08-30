@@ -27,6 +27,10 @@ export class CursorStatsWidget {
         this.getZoom = getZoom;
         this._updateZoom();
     }
+    /** Director / rAF: zoom is camera height, not pointer. */
+    refreshZoom() {
+        this._updateZoom();
+    }
     _lineStyle() {
         return [
             "margin: 0",

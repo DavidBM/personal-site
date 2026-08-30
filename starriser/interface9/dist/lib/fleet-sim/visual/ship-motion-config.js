@@ -122,6 +122,25 @@ export const ORBIT_R_MAX = 7;
  */
 export const SCENE_AGENT_SCALE = 0.1 / 56;
 /**
+ * Extra NEAR / model hull scale on top of {@link SCENE_AGENT_SCALE}.
+ * 0.28 → BASE_SHIP_SIZE * KEPLER_SCALE * MUL = 0.0004 (sun R=0.005,
+ * typical compact planet ~0.0014–0.002). Local draw only — do not write
+ * the scaled size back to ShipSim.
+ */
+export const SCENE_SHIP_VISUAL_MUL = 0.28;
+/**
+ * Jewel trail world-width + pot-emitter scale (galaxy metres → hull).
+ * `TRAIL_WORLD_WIDTH_HEAD` 0.09 vs hull 0.0004 is the slab without this.
+ */
+export const SCENE_TRAIL_WIDTH_MUL = SCENE_AGENT_SCALE * SCENE_SHIP_VISUAL_MUL;
+/**
+ * SCENE (bit 7) agent time scale in `cs_ships` only, when not JUMPING.
+ * Local dt + cruise + residual cap so parked fleets CIRCULATE instead of
+ * CFL-screaming. Inbound hops (JUMPING) keep galaxy speed. Galaxy
+ * ORBIT_R / SHIP_MAX_SPEED stay put.
+ */
+export const SCENE_SPEED_SCALE = 0.02;
+/**
  * Personal planar orbit height scatter as a fraction of {@link ORBIT_R_MAX}.
  * Each ship gets a deterministic offset ∈ [−frac·R_max, +frac·R_max] (e.g. ±0.7
  * when R_max=7). Visual only on NEAR triangle + model LOD; not space3d sphere.

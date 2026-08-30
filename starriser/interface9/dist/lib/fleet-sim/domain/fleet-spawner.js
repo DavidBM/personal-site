@@ -58,6 +58,36 @@ export function spawnFleet(world, now, publishSpawned, _publishState) {
         return;
     publishSpawned(fleet);
 }
+/**
+ * Park a fleet at `node` (awaiting, no hop). Used when the player generates
+ * fleets while a Kepler SCENE is open so ships appear in that jewel.
+ */
+export function trySpawnParkedAt(world, node) {
+    const cluster = world.clusters.get(node.clusterId);
+    if (!cluster || !cluster.solarSystems.has(node.solarSystemId))
+        return null;
+    const fleet = {
+        id: nextFleetId(world),
+        counts: buildFleetCounts(),
+        currentNode: node,
+        destination: node,
+        pendingEdges: [],
+        intraPath: null,
+        intraIndex: 0,
+        state: {
+            state: "awaiting",
+            node,
+        },
+    };
+    world.fleets.set(fleet.id, fleet);
+    return fleet;
+}
+export function spawnParkedAt(world, node, publishSpawned) {
+    const fleet = trySpawnParkedAt(world, node);
+    if (!fleet)
+        return;
+    publishSpawned(fleet);
+}
 function pickRandomNode(world) {
     if (world.clusterIds.length === 0)
         return null;

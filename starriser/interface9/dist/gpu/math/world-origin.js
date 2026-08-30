@@ -180,26 +180,68 @@ export function ensureShipIndexInList(indices, shipIndex) {
 export function trailEndpointAbsoluteF32(endX, endY, endZ) {
     return { x: f32(endX), y: f32(endY), z: f32(endZ) };
 }
+/** Max hashed Kepler inclination (~7°). */
+export const KEPLER_INCLINATION_MAX = 0.12;
+function hashCatalogU32(id) {
+    let h = 2166136261;
+    for (let i = 0; i < id.length; i++) {
+        h ^= id.charCodeAt(i);
+        h = Math.imul(h, 16777619);
+    }
+    return h >>> 0;
+}
 /**
- * Phase-local Kepler offset on the gameplay plane (y = 0):
- *   k · R · (sin φ, cos φ)  →  (x, z)
- *
- * Host applies {@link discWorldRelativeF32} to add the system center − origin.
- * Do not change {@link chooseFrameOrigin} to a star/cluster.
+ * Stable inclination `i ∈ ±KEPLER_INCLINATION_MAX` and node Ω from catalog id.
+ * Sun callers pass no catalog (or empty) and keep i = 0.
  */
-export function keplerPhaseLocalF32(k, orbitRadius, phase) {
-    const r = k * orbitRadius;
+export function keplerInclinationFromCatalogId(catalogId) {
+    const s = catalogId || "";
+    const u1 = hashCatalogU32(s) / 4294967296;
+    const u2 = hashCatalogU32(s + ":Ω") / 4294967296;
     return {
-        x: f32(r * Math.sin(phase)),
-        y: 0,
-        z: f32(r * Math.cos(phase)),
+        i: (u1 * 2 - 1) * KEPLER_INCLINATION_MAX,
+        node: u2 * Math.PI * 2,
     };
+}
+/**
+ * Phase-local Kepler offset (optionally inclined):
+ *   x = r (cos ω cos Ω − sin ω sin Ω cos i)
+ *   z = r (cos ω sin Ω + sin ω cos Ω cos i)
+ *   y = r (sin ω sin i)
+ *
+ * `r = k · orbitRadius`, `ω = phase`. Default i = Ω = 0 is the old XZ ring
+ * (x = r cos ω, z = r sin ω). Host adds system − origin via
+ * {@link discWorldRelativeF32}. Do not change {@link chooseFrameOrigin}.
+ */
+export function keplerPhaseLocalF32(k, orbitRadius, phase, inclination = 0, node = 0) {
+    const r = k * orbitRadius;
+    const cw = Math.cos(phase);
+    const sw = Math.sin(phase);
+    const ci = Math.cos(inclination);
+    const si = Math.sin(inclination);
+    const cO = Math.cos(node);
+    const sO = Math.sin(node);
+    return {
+        x: f32(r * (cw * cO - sw * sO * ci)),
+        y: f32(r * (sw * si)),
+        z: f32(r * (cw * sO + sw * cO * ci)),
+    };
+}
+/**
+ * {@link keplerPhaseLocalF32} with hashed i / Ω from `catalogId`.
+ * Missing / empty id stays planar (i = 0).
+ */
+export function keplerOrbitLocalF32(k, orbitRadius, phase, catalogId) {
+    if (!catalogId)
+        return keplerPhaseLocalF32(k, orbitRadius, phase);
+    const { i, node } = keplerInclinationFromCatalogId(catalogId);
+    return keplerPhaseLocalF32(k, orbitRadius, phase, i, node);
 }
 /**
  * Disc / Kepler center relative to the frame floating origin.
  *
  *   centerRel.xz = f32(f64(system.xz − origin.xz) + local.xz)
- *   centerRel.y  = f32(RENDER_PLANE_Y − origin.y)   // 0 − origin.y
+ *   centerRel.y  = f32(RENDER_PLANE_Y + localY − origin.y)
  *
  * World gameplay y is always {@link RENDER_PLANE_Y} (0). Relative Y must be
  * `worldY − originY`, not a forced 0. When origin is the camera eye (typical
@@ -210,10 +252,10 @@ export function keplerPhaseLocalF32(k, orbitRadius, phase) {
  * Compose in f64 (JS number) then one f32 cast so meter-scale Kepler offsets
  * survive at galaxy |xz| ≳ 1e5. Never store abs-f32 composed centers.
  */
-export function discWorldRelativeF32(systemX, systemZ, localX, localZ, originX, originY, originZ) {
+export function discWorldRelativeF32(systemX, systemZ, localX, localZ, originX, originY, originZ, localY = 0) {
     return {
         x: f32(systemX - originX + localX),
-        y: f32(RENDER_PLANE_Y - originY),
+        y: f32(RENDER_PLANE_Y + localY - originY),
         z: f32(systemZ - originZ + localZ),
     };
 }

@@ -174,7 +174,7 @@ export class SolarPointGpuLayer {
      * @param cameraRight world-space unit right (from view matrix row 0)
      * @param cameraUp world-space unit up (from view matrix row 1)
      */
-    encode(pass, viewProj, worldScale, instanceCount, cameraRight, cameraUp, origin) {
+    encode(pass, viewProj, worldScale, instanceCount, cameraRight, cameraUp, origin, galaxyFade = 1) {
         if (!this.pipeline || !this.bindGroup || !this.uniformBuffer)
             return;
         if (instanceCount <= 0 || !this.instanceBuffer)
@@ -203,7 +203,8 @@ export class SolarPointGpuLayer {
         this.uniformData[28] = origin?.x ?? 0;
         this.uniformData[29] = origin?.y ?? 0;
         this.uniformData[30] = origin?.z ?? 0;
-        this.uniformData[31] = 0;
+        const fade = Number.isFinite(galaxyFade) ? galaxyFade : 1;
+        this.uniformData[31] = fade < 0 ? 0 : fade > 1 ? 1 : fade;
         if (!this.uniformHandle) {
             throw new Error("SolarPointGpuLayer: missing uniform buffer handle");
         }

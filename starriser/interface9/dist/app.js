@@ -23,6 +23,9 @@ import { assertWebGpuAvailable } from "./gpu/preferred-backend.js";
 import { WebGpuMapView } from "./gpu/webgpu-map-view.js";
 import { WebGpuCameraController } from "./gpu/webgpu-camera-controls.js";
 import { createSystemFocusController, } from "./main/system-focus-controller.js";
+import { fleetLocsFromState, pickRandomCluster, pickRandomSystem, pickSystemWithShips, arrivalShipsPresent, } from "./gpu/camera-director.js";
+import { createCameraDirectorHost, } from "./main/camera-director-host.js";
+import { SCENE_ENTER_PX, distanceForSpanPx, } from "./gpu/solar-system-lod.js";
 import { WebGpuCameraStub, WebGpuRendererShim, } from "./gpu/webgpu-renderer-shim.js";
 export class App {
     constructor() {
@@ -60,6 +63,9 @@ export class App {
         this.lastUIState = { hoveredId: null, selectedId: null };
         this.clusterDragStarts = new Map();
         this.maxSolarSystemId = 0;
+        this.lastPlanetPanelKey = "";
+        this.director = null;
+        this.lastDirectorTarget = null;
         installGamePerfGlobal();
         this.uiController =
             this.uiBindings.mode === "editor"
@@ -87,6 +93,14 @@ export class App {
         this.webGpuShim = new WebGpuRendererShim(this.webGpuView);
         this.webGpuShim.setStatsPanels(this.statsPanels);
         this.cameraController = new WebGpuCameraController(this.webGpuView);
+        this.director = createCameraDirectorHost({
+            applyPose: (pose) => {
+                const cam = this.cameraController;
+                if (cam && typeof cam.applyDirectorPose === "function") {
+                    cam.applyDirectorPose(pose);
+                }
+            },
+        });
         this.systemFocus = createSystemFocusController({
             view: this.webGpuView,
             camera: "focusOnPoint" in this.cameraController
@@ -94,12 +108,21 @@ export class App {
                 : null,
         });
         // Damped zoom/tilt: one tick per rAF before look-at + LOD.
+        // Director owns the eye while a fly is playing — do not let cam.update fight it.
         this.webGpuView.setBeforeFrame((dtMs) => {
             const cam = this.cameraController;
-            if (cam && "update" in cam && typeof cam.update === "function") {
+            if (this.director?.isPlaying()) {
+                this.director.tick(performance.now());
+            }
+            else if (cam && "update" in cam && typeof cam.update === "function") {
                 cam.update(dtMs);
             }
             this.systemFocus?.tick();
+            this.syncPlanetPanel();
+            if (cam && typeof cam.getGalaxyFade === "function") {
+                this.webGpuView?.setGalaxyFade(cam.getGalaxyFade());
+            }
+            this.cursorStatsWidget?.refreshZoom();
         });
         this.galaxy = new Galaxy(createWebGpuViewHooks(this.webGpuView, () => this.galaxy), this.metrics);
         this.webGpuView.setFleetPositionProvider((node) => {
@@ -179,6 +202,8 @@ export class App {
         this.updateStats();
         this.updateUIModeHistory();
         this.fleetStatus.renderList();
+        this.lastPlanetPanelKey = "";
+        this.syncPlanetPanel();
     }
     updateUIModeHistory() {
         const url = new URL(window.location.href);
@@ -231,7 +256,17 @@ export class App {
                 return { id: s.id, x: s.position.x, z: s.position.z, bufferIndex: s._bufferIndex ?? -1 };
             },
             lockBody: (index) => this.systemFocus?.lockBody(index),
+            selectSceneBody: (index) => this.selectSceneBody(index),
             pumpHiLoad: () => this.webGpuView?.catalogResidency.pumpHiLoad(),
+            directorGoToSystemWithShips: (opts) => this.directorGoToSystemWithShips(opts),
+            directorGoToRandomSystem: (opts) => this.directorGoToRandomSystem(opts),
+            directorFlyTo: (opts) => this.directorFlyTo(opts),
+            directorStatus: () => this.directorStatus(),
+            directorArrivalShipsPresent: () => this.directorArrivalShipsPresent(),
+            getCameraState: () => this.webGpuView?.getCameraState() ?? null,
+            pickNonJumpSystem: () => this.pickNonJumpSystem(),
+            observeJewel: () => this.observeJewel(),
+            pickRandomShipPose: () => this.webGpuView?.pickRandomShipPose() ?? null,
             observeYear1: () => {
                 const v = this.webGpuView;
                 if (!v)
@@ -579,9 +614,10 @@ export class App {
         }
     }
     generateFleet() {
-        if (this.mainBus.isPubSubReady()) {
-            publishTopic(this.mainBus, Topics.generateFleet, {});
-        }
+        if (!this.mainBus.isPubSubReady())
+            return;
+        const at = this.webGpuView?.getSceneFleetNode() ?? undefined;
+        publishTopic(this.mainBus, Topics.generateFleet, at ? { at } : {});
     }
     /**
      * Toggle third-person chase on a random ship (F1 roof-cam).
@@ -606,6 +642,69 @@ export class App {
         view.setFollowShipIndex(shipIndex);
         cam.setFollowShip(() => view.getLiveShipPose(shipIndex));
         console.info(`[camera] Following ship #${shipIndex} (CTRL free-look)`);
+    }
+    /**
+     * Planet-list pick. Sun: orbit sun, drop 4K. Planet: same as click-lock
+     * (`lockBody` → orbit boom + promoteHi). No-op when no compact SCENE.
+     */
+    selectSceneBody(index) {
+        const view = this.webGpuView;
+        if (!view)
+            return;
+        const store = view.solarBodies;
+        if (store.systemId == null || store.currentCount <= 0)
+            return;
+        const i = index | 0;
+        if (i < 0 || i >= store.currentCount)
+            return;
+        if (store.isSun[i]) {
+            this.systemFocus?.clearFocus();
+            view.setFocusedBodyIndex(null);
+            const cam = this.cameraController;
+            if (typeof cam.setSystemOrbitSun === "function") {
+                cam.setSystemOrbitSun();
+            }
+        }
+        else {
+            this.systemFocus?.lockBody(i);
+        }
+        this.lastPlanetPanelKey = "";
+        this.syncPlanetPanel();
+    }
+    /** Cheap: skip when systemId + body count + focusIndex are unchanged. */
+    syncPlanetPanel() {
+        const panel = this.uiBindings.planetPanel;
+        const view = this.webGpuView;
+        const store = view?.solarBodies;
+        if (!view || !store || store.systemId == null || store.currentCount <= 0) {
+            if (this.lastPlanetPanelKey === "0")
+                return;
+            this.lastPlanetPanelKey = "0";
+            panel.sync({ visible: false, bodies: [], focusIndex: null });
+            return;
+        }
+        const cam = this.cameraController;
+        const orbitFocus = typeof cam.getOrbitPose === "function"
+            ? (cam.getOrbitPose()?.focusIndex ?? null)
+            : null;
+        const focusIndex = orbitFocus ?? view.getFocusedBodyIndex();
+        const count = store.currentCount;
+        const key = `1:${store.systemId}:${count}:${focusIndex}:${store.catalogIds.join("|")}`;
+        if (key === this.lastPlanetPanelKey)
+            return;
+        this.lastPlanetPanelKey = key;
+        const bodies = [];
+        for (let i = 0; i < count; i++) {
+            const def = store.defs[i];
+            bodies.push({
+                index: i,
+                name: def?.name || store.catalogIds[i] || `Body ${i}`,
+                kind: def?.kind ?? (store.isSun[i] ? "sun" : "rocky"),
+                isSun: store.isSun[i] === 1,
+                catalogId: store.catalogIds[i] ?? "",
+            });
+        }
+        panel.sync({ visible: true, bodies, focusIndex });
     }
     /**
      * One generate_fleets_bulk to the fleets-worker. Worker pathfinds + chunks;
@@ -636,7 +735,183 @@ export class App {
             view.startRenderLoop();
         }
         beginBulkAdd(n);
+        // Bulk is always galaxy-wide. Parking 1k fleets in one jewel floods
+        // NEAR triangles (screenshot mess). Single "Generate a Fleet" may park.
         publishTopic(this.mainBus, Topics.generateFleetsBulk, { count: n });
+    }
+    /** Topology systems for the director (skip jump gates). */
+    collectDirectorSystems(includeJumpGates = false) {
+        const out = [];
+        const clusters = this.galaxy.clusters;
+        for (let i = 0; i < clusters.length; i++) {
+            const cluster = clusters[i];
+            const systems = cluster.solarSystems;
+            for (let j = 0; j < systems.length; j++) {
+                const sys = systems[j];
+                if (!includeJumpGates && sys.isJumpGate)
+                    continue;
+                out.push({
+                    clusterId: cluster.id,
+                    solarSystemId: sys.id,
+                    x: sys.position.x,
+                    z: sys.position.z,
+                });
+            }
+        }
+        return out;
+    }
+    collectDirectorFleets(includeJumping = true) {
+        const out = [];
+        for (const [id, entry] of this.fleetStatus.byId) {
+            const locs = fleetLocsFromState(entry.state, { includeJumping });
+            if (locs.length === 0)
+                continue;
+            out.push({ id, locs });
+        }
+        return out;
+    }
+    currentDirectorPose() {
+        const st = this.webGpuView?.getCameraState();
+        if (!st) {
+            return {
+                eyeX: 0,
+                eyeY: 2000,
+                eyeZ: 0,
+                targetX: 0,
+                targetY: 0,
+                targetZ: 0,
+            };
+        }
+        return {
+            eyeX: st.eyeX,
+            eyeY: st.eyeY,
+            eyeZ: st.eyeZ,
+            targetX: st.targetX,
+            targetY: st.targetY,
+            targetZ: st.targetZ,
+        };
+    }
+    /**
+     * Kepler-enter height from current viewport. Floor stays well above MIN_ZOOM
+     * so a fly is an ease, not a one-frame slam to the galaxy-pan floor.
+     */
+    directorFlyHeight(opts) {
+        const h = opts?.height;
+        if (typeof h === "number" && Number.isFinite(h) && h > 0)
+            return h;
+        const st = this.webGpuView?.getCameraState();
+        const pxH = st?.bufferH || st?.viewportH || 800;
+        const fovy = st?.fovyDeg ?? 60;
+        const sceneH = distanceForSpanPx(SCENE_ENTER_PX, pxH, fovy);
+        if (Number.isFinite(sceneH) && sceneH > 0.05)
+            return sceneH;
+        return 350;
+    }
+    startDirectorFly(system, opts) {
+        if (!this.director)
+            return { ok: false, reason: "director not ready" };
+        const durationMs = typeof opts?.durationMs === "number" && Number.isFinite(opts.durationMs)
+            ? opts.durationMs
+            : 2500;
+        const height = this.directorFlyHeight(opts);
+        const step = this.director.flyToSystem(this.currentDirectorPose(), system, height, durationMs);
+        this.lastDirectorTarget = {
+            clusterId: system.clusterId,
+            solarSystemId: system.solarSystemId,
+        };
+        this.webGpuView?.startRenderLoop();
+        return { ok: true, system, step };
+    }
+    directorGoToSystemWithShips(opts) {
+        if (!this.director)
+            return { ok: false, reason: "director not ready" };
+        const systems = this.collectDirectorSystems(false);
+        // Prefer parked (awaiting/cooldown) so arrival screenshots show ships
+        // at the dest, not a mid-hop that only *ends* there.
+        let system = pickSystemWithShips(systems, this.collectDirectorFleets(false));
+        if (!system) {
+            system = pickSystemWithShips(systems, this.collectDirectorFleets(true));
+        }
+        if (!system) {
+            system = pickSystemWithShips(this.collectDirectorSystems(true), this.collectDirectorFleets(true));
+        }
+        if (!system)
+            return { ok: false, reason: "no system with ships" };
+        return this.startDirectorFly(system, opts);
+    }
+    pickNonJumpSystem() {
+        return (this.collectDirectorSystems(false)[0] ??
+            this.collectDirectorSystems(true)[0] ??
+            null);
+    }
+    /**
+     * Ease the camera to xz/height (jewel zoom in/out). Optional topology ids
+     * so arrival checks still key a system.
+     */
+    directorFlyTo(opts) {
+        const system = {
+            clusterId: opts.clusterId ?? this.lastDirectorTarget?.clusterId ?? 0,
+            solarSystemId: opts.solarSystemId ?? this.lastDirectorTarget?.solarSystemId ?? 0,
+            x: opts.x,
+            z: opts.z,
+        };
+        return this.startDirectorFly(system, {
+            durationMs: opts.durationMs,
+            height: opts.height,
+        });
+    }
+    observeJewel() {
+        const v = this.webGpuView;
+        const hyst = v?.getSceneHysteresis();
+        let sceneBitCount = 0;
+        if (v) {
+            for (const id of this.fleetStatus.byId.keys()) {
+                const row = v.readFleetGpuSlot(id);
+                if (row && (row.flags & 128) !== 0)
+                    sceneBitCount++;
+            }
+        }
+        return {
+            sceneId: hyst?.sceneId ?? null,
+            spanPx: v?.getSceneSpanPx() ?? 0,
+            bandBDraws: v?.getBandBLastDrawCount() ?? 0,
+            systemId: v?.solarBodies.systemId ?? null,
+            fleetCount: v?.getFleetCount() ?? 0,
+            sceneBitCount,
+            camera: v?.getCameraState() ?? null,
+            sceneNode: v?.getSceneFleetNode() ?? null,
+        };
+    }
+    directorGoToRandomSystem(opts) {
+        if (!this.director)
+            return { ok: false, reason: "director not ready" };
+        const systems = this.collectDirectorSystems(false);
+        const cluster = pickRandomCluster(this.galaxy.clusters);
+        let system = null;
+        if (cluster) {
+            const inCluster = systems.filter((s) => s.clusterId === cluster.id);
+            system = pickRandomSystem(inCluster.length > 0 ? inCluster : systems);
+        }
+        else {
+            system = pickRandomSystem(systems);
+        }
+        if (!system)
+            return { ok: false, reason: "no solar system" };
+        return this.startDirectorFly(system, opts);
+    }
+    directorStatus() {
+        return {
+            playing: this.director?.isPlaying() ?? false,
+            meta: this.director?.currentMeta() ?? this.lastDirectorTarget,
+            pose: this.director?.currentPose() ?? this.currentDirectorPose(),
+            target: this.lastDirectorTarget,
+        };
+    }
+    directorArrivalShipsPresent() {
+        const t = this.lastDirectorTarget;
+        if (!t)
+            return { present: false, count: 0, ids: [] };
+        return arrivalShipsPresent(this.collectDirectorFleets(true), t.clusterId, t.solarSystemId);
     }
     clearBulkShipBudgetHint() {
         this.webGpuView?.setBulkShipBudgetHint(null);

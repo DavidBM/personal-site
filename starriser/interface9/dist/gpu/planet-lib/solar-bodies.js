@@ -180,15 +180,16 @@ export function evaluateBodyPoses(bodies, timeSec, out = []) {
     return out;
 }
 /**
- * Pick nearest body hit by a world ray (eye → direction).
- * Uses visual radius (not draw margin) so picks feel tight on the disc.
+ * Pick nearest body hit by a world ray (eye → direction). Closest-t wins.
+ * Default radius is visual {@link SolarBodyDef.radius}; map SCENE may pass
+ * {@link BodyPose.pickRadius} (draw-margin / 12px inflate).
  */
 export function pickBodyIndex(ox, oy, oz, dx, dy, dz, poses) {
     let bestT = Infinity;
     let bestI = null;
     for (let i = 0; i < poses.length; i++) {
         const p = poses[i];
-        const t = raySphereIntersect(ox, oy, oz, dx, dy, dz, p.x, p.y, p.z, p.def.radius);
+        const t = raySphereIntersect(ox, oy, oz, dx, dy, dz, p.x, p.y, p.z, p.pickRadius ?? p.def.radius);
         if (t != null && t < bestT) {
             bestT = t;
             bestI = i;

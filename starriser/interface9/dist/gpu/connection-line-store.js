@@ -145,6 +145,25 @@ export class ConnectionLineStore {
         return true;
     }
     /**
+     * Logical endpoints (LOD-restore, not GPU-parked HIDDEN).
+     * SCENE jump rays use this so impostor-hidden edges still have world dirs.
+     */
+    getLogicalEndpoints(key) {
+        const slot = this.keyToIndex.get(key);
+        if (slot == null)
+            return null;
+        const i = slot * CONNECTION_FLOATS_PER_SLOT;
+        const src = this.lodRestore;
+        return {
+            ax: src[i],
+            ay: src[i + 1],
+            az: src[i + 2],
+            bx: src[i + 3],
+            by: src[i + 4],
+            bz: src[i + 5],
+        };
+    }
+    /**
      * Soft-remove: hide geometry, free key. Slot not compacted (parity with points).
      */
     remove(key) {

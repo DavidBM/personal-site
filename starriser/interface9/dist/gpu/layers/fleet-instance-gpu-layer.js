@@ -3,7 +3,8 @@
  *
  * - CPU packs formation once (spawn/rebuild); R2 compute overwrites base.xyz
  *   + rotation every frame from ShipSim continuous agent (JUMP/SETTLE/ORBIT).
- * - Dual dispatch same encoder: cs_fleets (ease center) then cs_ships (1 thread/ship).
+ * - Dual dispatch same encoder: cs_fleets always proxies, then cs_ships
+ *   overwrites ships it processes (never NEAR-skip a draw write).
  * - FleetGpu storage: one row per fleet slot (stable free-list index).
  * - ShipSim storage: one row per visual ship (index = draw instance index).
  * - Trail sample + fixed-slot expand; body ribbon draw samples thruster atlas
@@ -17,7 +18,8 @@ import { writeTrailVariantModulation, } from "../shaders/fleet-trails.wgsl.js";
 import { MODEL_TRAIL_EMITTER_COUNT, MODEL_TRAIL_EMITTERS, MODEL_TRAIL_VARIANTS, modelTrailDenseExpandBudget, modelTrailMaxWidthScale, } from "../../lib/fleet-sim/visual/model-trail-config.js";
 import { MODEL_LOD_MAX_INSTANCES, } from "../fleet-lod.js";
 import { buildFleetIntegrateWgsl, buildFleetIntegrateFastWgsl, FLEET_INTEGRATE_UNIFORM_SIZE, FLEET_INTEGRATE_WORKGROUP, FLEET_INTEGRATE_SHIP_SIM_STRIDE, } from "../shaders/fleet-integrate.wgsl.js";
-import { DEFAULT_TRAIL_TEXTURE_URL, FLEET_TRAILS_WGSL, TRAIL_TEMPLATE_INDEX_COUNT, TRAIL_TEMPLATE_INDICES, TRAIL_TEMPLATE_STRIDE, TRAIL_UNIFORM_FLOATS, TRAIL_UNIFORM_SIZE, TRAIL_WIDTH_HEAD_PX, TRAIL_WIDTH_TAIL_PX, buildTrailTemplateInterleaved, resolveTrailDrawWidths, writeTrailUniforms, writeTrailWidthMode, writeTrailExposure, TRAIL_EXPOSURE_DEFAULT, } from "../shaders/fleet-trails.wgsl.js";
+import { DEFAULT_TRAIL_TEXTURE_URL, FLEET_TRAILS_WGSL, TRAIL_TEMPLATE_INDEX_COUNT, TRAIL_TEMPLATE_INDICES, TRAIL_TEMPLATE_STRIDE, TRAIL_UNIFORM_FLOATS, TRAIL_UNIFORM_SIZE, TRAIL_WIDTH_HEAD_PX, TRAIL_WIDTH_TAIL_PX, TRAIL_WORLD_WIDTH_HEAD, TRAIL_WORLD_WIDTH_TAIL, buildTrailTemplateInterleaved, resolveTrailDrawWidths, writeTrailUniforms, writeTrailWidthMode, writeTrailExposure, TRAIL_EXPOSURE_DEFAULT, } from "../shaders/fleet-trails.wgsl.js";
+import { SCENE_TRAIL_WIDTH_MUL } from "../ship-motion-config.js";
 import { TRAIL_SAMPLE_FLOATS, resolveTrailLayout, } from "../fleet-trail-ref.js";
 import { FLEET_FLAG_SYSTEM_SCENE, FLEET_GPU_STRIDE, FleetGpuFields, TRAIL_SAMPLE_STRIDE, } from "../fleet-layout.js";
 import { TRAIL_INDIRECT_DISPATCH_BYTE, TRAIL_INDIRECT_META_BYTE, TRAIL_INDIRECT_WORKLIST_BYTE, trailIndirectTableBytes, writeDispatchIndirectArgs, } from "../../lib/fleet-sim/visual/trail-indirect-table.js";
@@ -1770,7 +1772,7 @@ export class FleetInstanceGpuLayer {
      *   forceLodNear && !expandTrails. Demos / motion proofs must set this so
      *   SEEK/sphere/jump-cruise run; pure-orbit benches may leave it unset.
      *   Map view always leaves both trail flags true (full agent path).
-     * @param options.anyScene / options.follow — product ship gate (see dispatch).
+     * @param options.systemSceneActive / options.anyScene — ships pass vs compact.
      */
     async stepIntegrate(nowRel, dtMs, fleetCount, shipCount, camera, options) {
         const ships = shipCount !== undefined ? shipCount : this.instanceCount;
@@ -2192,9 +2194,10 @@ export class FleetInstanceGpuLayer {
         this.bootstrap.gpu.writeBuffer(this.instanceHandle, byteOffset, data, dataByteOffset, bytes);
     }
     /**
-     * R2 + GPU LOD: dual dispatch — cs_fleets (ease + MID/FAR proxy) then
-     * cs_ships (NEAR agent + trails). Same encoder; storage barrier automatic.
-     * No-op if no fleets.
+     * R2 + GPU LOD: dual dispatch — cs_fleets always proxies (ICON / hide size=0),
+     * then cs_ships overwrites ships it processes. Never NEAR-skip a draw write:
+     * origin-relative bases glue to the camera if a later pass skips.
+     * Same encoder; storage barrier automatic. No-op if no fleets.
      *
      * @param nowRel GPU-relative ms (`wallMs - timeOriginMs`); must fit f32.
      * @param dtMs frame delta ms (clamped in shader / host to [0, 50]).
@@ -2207,8 +2210,10 @@ export class FleetInstanceGpuLayer {
      * @param options.expandTrails default true (game). false = skip ribbon expand.
      * @param options.appendTrails default true (game). false = agent-only probe.
      * @param options.useFullAgent when true, never select cs_ships_fast.
-     * @param options.anyScene CPU SystemSceneSet non-empty (or follow folded in).
-     * @param options.follow roof-cam follow — agents even outside look-at SCENE.
+     * @param options.anyScene CPU SystemSceneSet (compact / requireSystemScene).
+     * @param options.follow roof-cam follow — not a product ships-pass trigger.
+     * @param options.systemSceneActive Kepler loaded — product `cs_ships` gate.
+     * @param options.hideNonSceneDraw jewel: non-SCENE `writeLodProxy` size=0.
      */
     dispatchIntegrate(encoder, nowRel, dtMs, fleetCount, shipCount = 0, camera, options) {
         // Only integrate fleets that exist on the GPU buffer (last setFleetGpuData).
@@ -2240,6 +2245,7 @@ export class FleetInstanceGpuLayer {
             this.trailDrawShipIndices.length > 0;
         const anyScene = options?.anyScene === true;
         const follow = options?.follow === true;
+        const systemSceneActive = options?.systemSceneActive === true;
         // forceLodNear + no ribbon expand → cs_ships_fast (planar ring snap only).
         // Map never has forceLodNear; full cs_ships always for production.
         // useFullAgent: demos/motion proofs must opt out of the fast ring path so
@@ -2249,11 +2255,11 @@ export class FleetInstanceGpuLayer {
             options?.useFullAgent !== true &&
             this.computeShipFastPipeline != null &&
             this.computeShipFastBindGroup != null;
-        // Product: skip the whole pass unless useFast / anyScene / follow.
-        // Today's bug was `cameraY < LOD_FAR_Y` (120k) → 480k agents at 2000.
-        // forceLodNear is tests-only (map never sets it) so existing goldens
-        // still dispatch without packing FLEET_FLAG_SYSTEM_SCENE.
-        const shipsNeedAgent = useFast || anyScene || follow || this.forceLodNear;
+        // Product: galaxy map is icons only — `cs_ships` when Kepler is loaded.
+        // forceLodNear is tests-only (map never sets it) so goldens still dispatch
+        // without packing FLEET_FLAG_SYSTEM_SCENE. Follow on the galaxy map must
+        // not run the ships pass.
+        const shipsNeedAgent = useFast || systemSceneActive || this.forceLodNear;
         // Uniform layout (96 B):
         //   [0] nowRel f32  [1] fleetCount u32  [2] dtMs f32  [3] shipCount u32
         //   [4] cameraY     [5] targetX         [6] targetZ   [7] viewportH
@@ -2261,7 +2267,7 @@ export class FleetInstanceGpuLayer {
         //   [12] expandTrails u32  [13] appendTrails u32
         //   [14] lodNearDist f32   [15] viewCullScale f32
         //   [16..18] origin.xyz   [19] requireSystemScene
-        //   [20] shipsPassActive  [21..23] pad
+        //   [20] shipsPassActive  [21] hideNonSceneDraw  [22..23] pad
         this.integrateUniformF32[0] = nowRel;
         this.integrateUniformU32[1] = nFleets >>> 0;
         this.integrateUniformF32[2] = dtMs;
@@ -2294,10 +2300,13 @@ export class FleetInstanceGpuLayer {
         this.integrateUniformF32[16] = camera?.originX ?? 0;
         this.integrateUniformF32[17] = camera?.originY ?? 0;
         this.integrateUniformF32[18] = camera?.originZ ?? 0;
-        // GPU AND backstop: only when host actually opened a SCENE/follow pass.
+        // GPU AND backstop: compact / FAR-skip when the host opened a SCENE pass.
         // forceLodNear tests omit bit 7 — leave 0 so goldens keep the agent path.
-        this.integrateUniformU32[19] = anyScene || follow ? 1 : 0;
+        this.integrateUniformU32[19] =
+            anyScene || follow || systemSceneActive ? 1 : 0;
         this.integrateUniformU32[20] = shipsNeedAgent ? 1 : 0; // shipsPassActive
+        this.integrateUniformU32[21] =
+            options?.hideNonSceneDraw === true ? 1 : 0;
         // Mode 2 needs modelHide @ binding 8 (ensured when hide indices were set).
         // Pot expand writes up to MODEL_TRAIL_EMITTER_COUNT dense line slots / model ship.
         if (modelTrailOnly) {
@@ -2468,12 +2477,16 @@ export class FleetInstanceGpuLayer {
         if (!bg)
             return;
         const wScale = (modelPot ? modelTrailMaxWidthScale() : 1) * this.trailWidthScale;
+        // Jewel: galaxy world widths (0.09) vs Kepler hull (~0.0004) is a slab.
+        const sceneMul = options?.sceneTrailScale === true ? SCENE_TRAIL_WIDTH_MUL : 1;
         // Model depthAware → world-unit width (ship-relative). Strategic → screen px.
         const widths = resolveTrailDrawWidths({
             depthAware,
             widthScale: wScale,
             screenHeadPx: TRAIL_WIDTH_HEAD_PX,
             screenTailPx: TRAIL_WIDTH_TAIL_PX,
+            worldHead: TRAIL_WORLD_WIDTH_HEAD * sceneMul,
+            worldTail: TRAIL_WORLD_WIDTH_TAIL * sceneMul,
         });
         // Expand already wrote origin-relative endpoints (integrate origin).
         // Pass residual origin 0 so VS does not double-subtract the frame origin.

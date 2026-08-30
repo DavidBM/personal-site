@@ -3,8 +3,8 @@
  *
  * Phase / showcase orbit / visual radius / catalogId are source of truth.
  * No abs-f32 composed world centers — the layer host-composes with
- * keplerPhaseLocalF32 + discWorldRelativeF32 each encode (centerRel.y =
- * 0 − origin.y, never forced 0).
+ * keplerOrbitLocalF32 + discWorldRelativeF32 each encode (centerRel.y =
+ * localY − origin.y, never forced 0). Planets carry hashed inclination.
  */
 import { DIRTY_CLEAN, expandDirtyRange, markDirtyFull, } from "../math/dirty-range.js";
 import { MAX_COMPACT_PLANETS } from "./compact-kepler.js";

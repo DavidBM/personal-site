@@ -75,7 +75,10 @@ fn vs_main(
   var worldSize = size;
   if (screenSpace > 0.5) {
     let H = max(u.viewportH, 1.0);
-    let cy = max(u.cameraY, 1.0);
+    // Do not floor cameraY at 1 — jewel eyeDist is ~0.05–0.2; a 1.0 floor
+    // turns 15px icons into ~world-0.02 tris that look like LOD stuck huge
+    // when the camera is still close after SCENE exit.
+    let cy = max(u.cameraY, 0.02);
     worldSize = size * (2.0 * cy * u.tanHalfFov) / H;
   }
   let s = sin(rotation);

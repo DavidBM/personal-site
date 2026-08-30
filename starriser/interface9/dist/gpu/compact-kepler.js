@@ -1,7 +1,8 @@
 /**
  * Compact Kepler set for one Band B SCENE.
  *
- * Sun + ≤8 seed-selected catalog bodies. Orbits stay at showcase radii;
+ * Sun + ≤8 seed-selected catalog bodies. After pick, showcase orbits are
+ * reassigned to even slots (inner 8 … outer 52) so discs do not collide;
  * pose compose applies {@link KEPLER_SCALE}. Sun visual radius is 0.005
  * (~5% of span 0.1). Do not plant SHOWCASE_BODIES at SolarSystem.position.
  */
@@ -9,6 +10,10 @@ import { catalogById, catalogEntryToBody, PLANET_CATALOG, seedForCatalogId, } fr
 import { KEPLER_SCALE } from "./solar-system-lod.js";
 /** Hard cap on non-sun bodies in one SCENE. */
 export const MAX_COMPACT_PLANETS = 8;
+/** Even compact showcase orbit floor (k=0.1/56 → world 0.014). */
+export const COMPACT_SHOWCASE_ORBIT_INNER = 8;
+/** Even compact showcase orbit ceiling (k=0.1/56 → world 0.093). */
+export const COMPACT_SHOWCASE_ORBIT_OUTER = 52;
 /**
  * Compact sun visual radius (world). 5% of SYSTEM_LOCAL_SPAN (0.1).
  * Pin the product number so Schmitt enter still matches a 5px sun.
@@ -69,7 +74,32 @@ function pickPlanetEntries(catalogId) {
     for (let i = 0; i < rest.length && picked.length < MAX_COMPACT_PLANETS; i++) {
         picked.push(scalePlanet(catalogEntryToBody(rest[i])));
     }
-    return picked;
+    return spaceCompactShowcaseOrbits(picked);
+}
+/**
+ * Sort by current showcase orbit, then reassign even slots so consecutive
+ * compact world orbits clear (r_i + r_{i+1}). Period stays Keplerian
+ * (T ∝ a^1.5); KEPLER_SCALE / SPAN are unchanged.
+ */
+function spaceCompactShowcaseOrbits(planets) {
+    const n = planets.length;
+    if (n <= 0)
+        return planets;
+    const sorted = planets.slice().sort((a, b) => a.orbitRadius - b.orbitRadius);
+    const inner = COMPACT_SHOWCASE_ORBIT_INNER;
+    const outer = COMPACT_SHOWCASE_ORBIT_OUTER;
+    const span = outer - inner;
+    const out = new Array(n);
+    for (let i = 0; i < n; i++) {
+        const p = sorted[i];
+        const oldR = p.orbitRadius > 1e-9 ? p.orbitRadius : inner;
+        const newR = inner + span * ((i + 1) / n);
+        const period = oldR > 1e-9
+            ? p.orbitPeriodSec * Math.pow(newR / oldR, 1.5)
+            : 14 + 76 * ((i + 1) / n);
+        out[i] = { ...p, orbitRadius: newR, orbitPeriodSec: period };
+    }
+    return out;
 }
 /**
  * Build sun + ≤8 planets for a hashed catalog identity.

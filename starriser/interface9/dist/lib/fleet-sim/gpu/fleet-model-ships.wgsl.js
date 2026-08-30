@@ -10,7 +10,7 @@
 import { SHIP_SIM_STRIDE } from "../visual/ship-sim-layout.js";
 import { MODEL_LOD_MAX_INSTANCES } from "../visual/fleet-lod.js";
 import { FLEET_GPU_STRIDE } from "../visual/fleet-layout.js";
-import { SCENE_AGENT_SCALE } from "../visual/ship-motion-config.js";
+import { SCENE_AGENT_SCALE, SCENE_SHIP_VISUAL_MUL, } from "../visual/ship-motion-config.js";
 export const FLEET_MODEL_VERTEX_STRIDE = 32; // 8 × f32
 /**
  * mat4 viewProjRel + origin.xyz + modelScale + fallbackLight.xyz + ambient +
@@ -119,6 +119,7 @@ const SHIP_MODE_ORBIT: u32 = 3u;
 const FLEET_FLAG_SPACE3D: u32 = 64u;
 const FLEET_FLAG_SYSTEM_SCENE: u32 = 128u;
 const SCENE_AGENT_SCALE: f32 = ${SCENE_AGENT_SCALE};
+const SCENE_SHIP_VISUAL_MUL: f32 = ${SCENE_SHIP_VISUAL_MUL};
 const LIGHT_CENTER_EPS: f32 = ${FLEET_MODEL_LIGHT_CENTER_EPS};
 
 struct VSIn {
@@ -198,7 +199,8 @@ fn vs_main(input : VSIn) -> VSOut {
   }
   var hullScale = u.modelScale;
   if (inScene) {
-    hullScale = hullScale * SCENE_AGENT_SCALE;
+    // Kepler BASE, not galaxy modelScale (0.25) — that stacked to a sub-pixel hull.
+    hullScale = SCENE_AGENT_SCALE * SCENE_SHIP_VISUAL_MUL;
   }
   let localMesh = quatRotate(meshFix, input.meshPos) * hullScale;
   let nMesh = quatRotate(meshFix, input.meshNrm);

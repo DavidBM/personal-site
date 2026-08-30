@@ -4,11 +4,15 @@
  * Origin-relative VS via planet-lib. Per-body 256-byte look UBO.
  * Skip planet screenR < 1.5 unless focused. Always draw the sun (replaces 5px).
  * At most 1 sun + 8 discs. Band C: ray-sphere + frag_depth + Dual() poles
- * via encodeDepth (pass 2). Color-only fs_main stays on encode() (passColor).
+ * via encodeDepth (pass 2, writeMask 0). Color fs_main is encode() (passColor),
+ * including the focused planet.
  *
- * FOCUS (encodeDepth only): one Hillaire/Bruneton LUT stack when ready;
- * RecurseDraw O’Neil (`fs_band_c`) while late. Neighbours stay catalog-atm
- * O’Neil on `fs_main`. No second 4K. Bake via {@link pumpLutBake} after submit.
+ * FOCUS color: same `fs_main` / `in_scatter` as unselected planets (moon bind).
+ * FOCUS depth: `fs_band_c` + `frag_depth` with `writeMask: 0` (no second glow).
+ * Live map forces `lutReady = false` so FOCUS never takes `planetLutPipe` /
+ * `lutBindGroup` (Hillaire isotropic multi-scatter halo). Dual poles + one 4K
+ * `packForDraw` unchanged. Lab may still bake via {@link pumpLutBake}; do not
+ * call it from encode.
  */
 import { MAP_MSAA_SAMPLES } from "../map-msaa.js";
 import { PLANET_BODY_UNIFORM_SIZE, PLANET_DISC_WGSL, PLANET_FRAME_UNIFORM_SIZE, } from "../planet-lib/planet-disc.wgsl.js";
@@ -19,7 +23,7 @@ import { DEFAULT_SUN_TYPE_ID, resolveSunType, } from "../planet-lib/sun-types.js
 import { spinAngle } from "../planet-lib/solar-bodies.js";
 import { COMPACT_SUN_VISUAL_RADIUS, MAX_COMPACT_PLANETS, } from "../compact-kepler.js";
 import { BODY_SCREEN_R_MIN, KEPLER_SCALE, bodyScreenRadiusPx, cameraToPlaneDistance, shouldEncodeBandBBody, } from "../solar-system-lod.js";
-import { discWorldRelativeF32, keplerPhaseLocalF32, } from "../math/world-origin.js";
+import { discWorldRelativeF32, keplerOrbitLocalF32, } from "../math/world-origin.js";
 import { createHillaireLutStack, DEFAULT_FOCUS_ATM_MODE, } from "../planet-lib/hillaire-lut.js";
 /** Re-export draw skip so tests / layer share one constant. */
 export { BODY_SCREEN_R_MIN };
@@ -55,6 +59,12 @@ export class SolarBodyGpuLayer {
     getLastDrawCount() {
         return this.lastDrawCount;
     }
+    /** Fade-skip / SCENE dismiss: treat this frame as no Band B draws. */
+    clearLastDrawCount() {
+        this.lastDrawCount = 0;
+        this.prepared = [];
+        this.preparedDepth = [];
+    }
     getLastPlanetBinds() {
         return this.lastPlanetBinds;
     }
@@ -62,8 +72,8 @@ export class SolarBodyGpuLayer {
         return this.lastBandCDrawCount;
     }
     /**
-     * Last Band-C FOCUS atmosphere path. `"oneil"` = RecurseDraw / no focus
-     * (oneil-fallback). `"hillaire"` = LUT sampled this prepare.
+     * Last Band-C FOCUS atmosphere path. Live map stays `"oneil"` (color is
+     * `fs_main` in_scatter; depth is `fs_band_c`). `"hillaire"` is lab-only LUT.
      */
     getLastFocusAtmMode() {
         return this.lastFocusAtmMode;
@@ -124,7 +134,7 @@ export class SolarBodyGpuLayer {
             fragment: {
                 module: planetMod,
                 entryPoint: "fs_band_c",
-                targets: [{ format, blend: blendPremul }],
+                targets: [{ format, blend: blendPremul, writeMask: 0 }],
             },
             primitive: { topology: "triangle-list" },
             depthStencil: {
@@ -227,8 +237,8 @@ export class SolarBodyGpuLayer {
             const ph = phaseAt(store.phase0[i], store.orbitPeriod[i], opts.timeSec);
             const local = store.isSun[i]
                 ? { x: 0, y: 0, z: 0 }
-                : keplerPhaseLocalF32(KEPLER_SCALE, store.orbitRadius[i], ph);
-            const rel = discWorldRelativeF32(store.systemX, store.systemZ, local.x, local.z, origin.x, origin.y, origin.z);
+                : keplerOrbitLocalF32(KEPLER_SCALE, store.orbitRadius[i], ph, store.catalogIds[i]);
+            const rel = discWorldRelativeF32(store.systemX, store.systemZ, local.x, local.z, origin.x, origin.y, origin.z, local.y);
             const pose = {
                 def,
                 x: rel.x,
@@ -312,21 +322,16 @@ export class SolarBodyGpuLayer {
             });
             this.bootstrap.device.queue.writeBuffer(bodyBuf, 0, this.planetBodyCpu);
             const pack = opts.residency.packForDraw(store.catalogIds[i]);
-            const useDepth = bandC && i === focused && this.planetDepthPipe;
-            const lutReady = useDepth &&
-                !!this.planetLutPipe &&
-                !!this.lut &&
-                this.lut.isReadyFor(catalogId, look);
-            const pipeForBg = lutReady
-                ? this.planetLutPipe
-                : useDepth
-                    ? this.planetDepthPipe
-                    : this.planetPipe;
-            const bg = this.bootstrap.device.createBindGroup({
-                label: `map-planet-bg-${planetSlot}`,
-                layout: pipeForBg.getBindGroupLayout(0),
-                entries: [
-                    { binding: 0, resource: { buffer: this.frameBuf } },
+            // Product path: FOCUS color is fs_main (same as unselected). Hillaire
+            // LUT is isotropic multi-scatter — do not bind it on FOCUS.
+            const lutReady = false;
+            const pipeForBg = this.planetPipe;
+            const frameBuf = this.frameBuf;
+            if (!pipeForBg || !frameBuf)
+                return;
+            const makePlanetEntries = (includeMoon) => {
+                const entries = [
+                    { binding: 0, resource: { buffer: frameBuf } },
                     { binding: 1, resource: { buffer: bodyBuf } },
                     { binding: 2, resource: pack.sampler },
                     { binding: 3, resource: pack.albedo.createView() },
@@ -334,13 +339,20 @@ export class SolarBodyGpuLayer {
                     { binding: 5, resource: pack.spec.createView() },
                     { binding: 6, resource: pack.night.createView() },
                     { binding: 7, resource: pack.cloud.createView() },
-                    { binding: 8, resource: pack.moon.createView() },
-                    { binding: 10, resource: pack.poleSampler },
-                    { binding: 11, resource: pack.poleNorth.createView() },
-                    { binding: 12, resource: pack.poleSouth.createView() },
-                    { binding: 13, resource: pack.cloudPoleNorth.createView() },
-                    { binding: 14, resource: pack.cloudPoleSouth.createView() },
-                ],
+                ];
+                // fs_band_c / fs_band_c_lut do not sample texMoon → Dawn auto layout
+                // omits binding 8. Including moon on the depth pipe invalidates the
+                // frame (black screen on planet lock). Color fs_main still binds moon.
+                if (includeMoon) {
+                    entries.push({ binding: 8, resource: pack.moon.createView() });
+                }
+                entries.push({ binding: 10, resource: pack.poleSampler }, { binding: 11, resource: pack.poleNorth.createView() }, { binding: 12, resource: pack.poleSouth.createView() }, { binding: 13, resource: pack.cloudPoleNorth.createView() }, { binding: 14, resource: pack.cloudPoleSouth.createView() });
+                return entries;
+            };
+            const colorBg = this.bootstrap.device.createBindGroup({
+                label: `map-planet-bg-${planetSlot}`,
+                layout: pipeForBg.getBindGroupLayout(0),
+                entries: makePlanetEntries(pipeForBg === this.planetPipe),
             });
             let lutBindGroup;
             if (lutReady && this.planetLutPipe && this.lut) {
@@ -350,12 +362,21 @@ export class SolarBodyGpuLayer {
             if (bandC && i === focused) {
                 this.lastFocusAtmMode = lutBindGroup ? "hillaire" : DEFAULT_FOCUS_ATM_MODE;
             }
-            const cmd = { kind: "planet", bindGroup: bg, lutBindGroup };
-            if (bandC && i === focused) {
-                this.preparedDepth.push(cmd);
-            }
-            else {
-                this.prepared.push(cmd);
+            this.prepared.push({
+                kind: "planet",
+                bindGroup: colorBg,
+                lutBindGroup,
+            });
+            if (bandC && i === focused && this.planetDepthPipe) {
+                const depthBg = this.bootstrap.device.createBindGroup({
+                    label: `map-planet-depth-bg-${planetSlot}`,
+                    layout: this.planetDepthPipe.getBindGroupLayout(0),
+                    entries: makePlanetEntries(false),
+                });
+                this.preparedDepth.push({
+                    kind: "planet",
+                    bindGroup: depthBg,
+                });
             }
             this.lastPlanetBinds++;
             planetSlot++;
@@ -383,8 +404,9 @@ export class SolarBodyGpuLayer {
         }
     }
     /**
-     * Band C depth encode (ray-sphere + frag_depth). Call from passResolve
-     * when depth is attached (models OR Band C). Requires {@link prepare}.
+     * Band C depth encode (ray-sphere + frag_depth, color writeMask 0).
+     * Call from passResolve when depth is attached (models OR Band C).
+     * Requires {@link prepare}.
      */
     encodeDepth(pass) {
         this.lastBandCDrawCount = 0;

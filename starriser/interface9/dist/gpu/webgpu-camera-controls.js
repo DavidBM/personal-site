@@ -17,10 +17,11 @@
  */
 import { groundPickFromScreen, } from "./math/ground-pick.js";
 import { ControlsManager } from "../controls-manager.js";
-import { CHAIN_CURSOR_PX, CTRL_LOOK_RETURN_MS, DS_FRAME_MAX, TAU_S, TAU_TILT, TAU_XZ, chaseCameraFromShip, clampLogHeight, clampZoomHeight, ctrlLookReturnFactor, lerpEyePose, dampTowardExp, eyeAfterHeightScale, heightToLog, isPoseSettled, logToHeight, lookAtFromEyeTilt, orbitEyeAroundLookAt, pivotScreenForWheel, refineEyeForScreenGround, tiltFactorForHeight, wheelDeltaLogS, ORBIT_MAX_PITCH, FOLLOW_TRANSITION_MS, } from "./camera-zoom.js";
+import { CHAIN_CURSOR_PX, CTRL_LOOK_RETURN_MS, DS_FRAME_MAX, TAU_S, TAU_TILT, TAU_XZ, chaseCameraFromShip, chaseCameraSceneBoom, clampLogHeight, clampZoomHeight, ctrlLookReturnFactor, lerpEyePose, dampTowardExp, eyeAfterHeightScale, heightToLog, isPoseSettled, logToHeight, lookAtFromEyeTilt, orbitEyeAroundLookAt, pivotScreenForWheel, refineEyeForScreenGround, tiltFactorForHeight, wheelDeltaLogS, ORBIT_MAX_PITCH, FOLLOW_TRANSITION_MS, } from "./camera-zoom.js";
 import { applyFollowDragLook, followTransitionT, lerpFollowCamEndpoints, mapRestPoseFromFollowExit, } from "./follow-cam-pose.js";
 import { composeCompactBodyWorld } from "./solar-system-lod.js";
 import { createSystemOrbitPose, defaultSystemOrbitRadius, systemOrbitApplyDrag, systemOrbitApplyWheel, systemOrbitBoomDistance, systemOrbitExitHeight, systemOrbitEye, systemOrbitMaxRadius, systemOrbitMinRadius, systemOrbitSetFocus, } from "./system-orbit-pose.js";
+import { SCENE_AGENT_SCALE, SCENE_SHIP_VISUAL_MUL, } from "./ship-motion-config.js";
 export class WebGpuCameraController {
     constructor(view) {
         this.isDragging = false;
@@ -257,6 +258,21 @@ export class WebGpuCameraController {
     isOrbiting() {
         return this.orbitActive && !this.followActive;
     }
+    /**
+     * Galaxy topology / 5px fade while Kepler SCENE orbit eases.
+     * map (no orbit, no transition) → 1; enter t∈[0,1] → 1−t; orbit → 0; exit t → t.
+     */
+    getGalaxyFade() {
+        const tr = this.orbitTransition;
+        if (tr) {
+            const t = followTransitionT(performance.now() - tr.t0Ms, tr.durationMs);
+            if (tr.kind === "enter")
+                return 1 - t;
+            if (tr.kind === "exit")
+                return t;
+        }
+        return this.orbitActive ? 0 : 1;
+    }
     getOrbitPose() {
         return this.orbit ? { ...this.orbit } : null;
     }
@@ -364,6 +380,27 @@ export class WebGpuCameraController {
             this.applyPose(this.cur);
         }
     }
+    /**
+     * Director author: slam display + target to an eased sample so rAF `update`
+     * does not fight the fly. Disarms orbit; does not start follow.
+     */
+    applyDirectorPose(opts) {
+        // Director owns the eye even during F1 — leftover follow made every
+        // sample a no-op (hatch shot stuck at origin/2000). Clear via isFollowing
+        // so onMouseMove keeps the only followActive brace-block (mdx-before-write).
+        if (this.isFollowing()) {
+            this.followActive = false;
+            this.followGetPose = null;
+            this.followTransition = null;
+        }
+        this.disarmOrbit();
+        const h = clampZoomHeight(opts.eyeY);
+        const tilt = tiltFactorForHeight(h);
+        this.cur = { eyeX: opts.eyeX, eyeY: h, eyeZ: opts.eyeZ, tilt };
+        this.tgt = { ...this.cur };
+        this.view.setCameraLookAt(opts.eyeX, h, opts.eyeZ, opts.targetX, opts.targetZ, opts.targetY ?? 0);
+        this.invalidatePickCache();
+    }
     /** Dive / pull back to a ground point at height (damped). */
     focusOnPoint(x, z, height) {
         if (this.orbitActive)
@@ -455,9 +492,15 @@ export class WebGpuCameraController {
         if (this.followActive && this.followGetPose) {
             const pose = this.followGetPose();
             if (pose) {
+                const jewelFollow = this.view.isFollowedFleetInSystemScene() ||
+                    this.view.solarBodies.systemId != null;
+                const sceneBoom = jewelFollow
+                    ? chaseCameraSceneBoom(SCENE_AGENT_SCALE * SCENE_SHIP_VISUAL_MUL)
+                    : undefined;
                 const chase = chaseCameraFromShip(pose.posX, pose.posY, pose.posZ, pose.heading, {
                     lookYaw: this.lookYaw,
                     lookPitch: this.lookPitch,
+                    ...sceneBoom,
                 });
                 let eyeX = chase.eyeX;
                 let eyeY = chase.eyeY;
@@ -597,6 +640,7 @@ export class WebGpuCameraController {
                     };
                     this.tgt = { ...this.cur };
                     this.applyPose(this.cur);
+                    this.view.dismissCompactScene();
                 }
                 return true;
             }

@@ -45,6 +45,18 @@ export const FOLLOW_LOOK_AHEAD = 6;
  */
 export const FOLLOW_LOOK_Y = -0.12;
 /**
+ * Jewel (SCENE) chase boom vs galaxy roof-cam. Kepler hull is
+ * `BASE * SCENE_AGENT_SCALE * SCENE_SHIP_VISUAL_MUL` (~0.0004);
+ * galaxy {@link FOLLOW_BACK_DIST} 1.55 would look 6 units ahead of a
+ * millimetre ship. `chaseCameraSceneBoom(agentScale)` applies this mul
+ * then floors so the hull fills ~80–200px.
+ */
+export const FOLLOW_SCENE_BOOM_MUL = 8;
+/** Minimum chase back in jewel (world); keep outside Kepler hull. */
+export const FOLLOW_SCENE_BACK_MIN = 0.012;
+export const FOLLOW_SCENE_HEIGHT_MIN = 0.003;
+export const FOLLOW_SCENE_LOOK_AHEAD_MIN = 0.02;
+/**
  * Roof-cam chase: eye just above/behind the ship, look-at well ahead along travel.
  * heading 0 = +Z; forward = (sin h, 0, cos h).
  * lookYaw/lookPitch = CTRL free-look offsets (rad); 0 = pure chase.
@@ -71,6 +83,20 @@ export function chaseCameraFromShip(posX, posY, posZ, heading, opts) {
     const targetY = posY + lookY;
     const targetZ = posZ + fz * lookAhead;
     return { eyeX, eyeY, eyeZ, targetX, targetY, targetZ };
+}
+/**
+ * Roof-cam offsets for a Kepler-scaled hull.
+ * Pass `SCENE_AGENT_SCALE * SCENE_SHIP_VISUAL_MUL` (~0.0005). Galaxy
+ * follow keeps {@link FOLLOW_BACK_DIST} (1.55) — do not call this there.
+ */
+export function chaseCameraSceneBoom(agentScale) {
+    const s = agentScale * FOLLOW_SCENE_BOOM_MUL;
+    return {
+        back: Math.max(FOLLOW_BACK_DIST * s, FOLLOW_SCENE_BACK_MIN),
+        height: Math.max(FOLLOW_HEIGHT * s, FOLLOW_SCENE_HEIGHT_MIN),
+        lookAhead: Math.max(FOLLOW_LOOK_AHEAD * s, FOLLOW_SCENE_LOOK_AHEAD_MIN),
+        lookY: FOLLOW_LOOK_Y * s,
+    };
 }
 /**
  * Orbit eye around a fixed look-at pivot (sphere). Used for map CTRL free-look.

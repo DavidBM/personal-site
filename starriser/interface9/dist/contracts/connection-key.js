@@ -31,14 +31,28 @@ export function makeSolarConnectionKey(clusterId, solarSystemId1, solarSystemId2
  * keys (underscores only) or malformed strings.
  */
 export function solarConnectionClusterId(key) {
-    // Solar keys always contain a dash (`sysA-sysB_cluster`); jump edges do not.
+    const parsed = parseSolarConnectionKey(key);
+    return parsed ? parsed.clusterId : null;
+}
+/**
+ * Parse intra-cluster solar key (`a-b_c`). Null for inter-cluster
+ * (`c1_c2_jg1_jg2`) or malformed strings.
+ */
+export function parseSolarConnectionKey(key) {
+    if (typeof key !== "string" || key.length === 0)
+        return null;
     const dash = key.indexOf("-");
     if (dash < 0)
         return null;
     const under = key.indexOf("_", dash + 1);
     if (under < 0 || under + 1 >= key.length)
         return null;
-    const id = Number(key.slice(under + 1));
-    return Number.isFinite(id) ? id : null;
+    const a = Number(key.slice(0, dash));
+    const b = Number(key.slice(dash + 1, under));
+    const clusterId = Number(key.slice(under + 1));
+    if (!Number.isFinite(a) || !Number.isFinite(b) || !Number.isFinite(clusterId)) {
+        return null;
+    }
+    return { a, b, clusterId };
 }
 //# sourceMappingURL=connection-key.js.map

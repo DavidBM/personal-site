@@ -10,13 +10,14 @@
  * F1 follow always wins the camera — still admit lock + `promoteHi`,
  * but do not `setSystemOrbitFocus` while following.
  *
- * Pick in drawing-buffer pixels. Boom via controller orbit radius — no
- * solar-camera.ts. Calls residency.promoteHi for the focused catalog id only.
+ * Pick in drawing-buffer pixels via {@link rayFromLookAtCamera} (not
+ * inv(view·proj) — MAP_NEAR vs far misses tiny Kepler planets at |xz|≳1e5).
+ * Boom via controller orbit radius — no solar-camera.ts. Calls
+ * residency.promoteHi for the focused catalog id only.
  */
 import { MAP_NEAR } from "../gpu/camera-zoom.js";
 import { systemOrbitBoomDistance, systemOrbitMinRadius, } from "../gpu/system-orbit-pose.js";
-import { screenToNdc } from "../gpu/math/ground-pick.js";
-import { pickRayFromNdc } from "../gpu/planet-lib/solar-pick.js";
+import { rayFromLookAtCamera, screenToNdc } from "../gpu/math/ground-pick.js";
 import { pickBodyIndex } from "../gpu/planet-lib/solar-bodies.js";
 import { bodyScreenRadiusPx, cameraToPlaneDistance, composeCompactBodyWorld, } from "../gpu/solar-system-lod.js";
 export { composeCompactBodyWorld };
@@ -45,12 +46,39 @@ export function sceneBodyLimbPx(store, index, eyeX, eyeY, eyeZ, timeSec, bufferH
     const dist = cameraToPlaneDistance(eyeX, eyeY, eyeZ, world.x, world.z);
     return bodyScreenRadiusPx(store.radius[index], dist, bufferH, fovyDeg);
 }
+/** World diameter that projects to `px` at `dist` (same family as icon size). */
+export function worldSizeForPx(px, dist, tanHalfFov, bufferH) {
+    const h = bufferH || 1;
+    const d = Math.max(dist, 1e-4);
+    const th = Math.max(tanHalfFov, 1e-8);
+    return (Math.max(0, px) * (2 * d * th)) / h;
+}
 export function pickSceneBodyFromMap(opts) {
-    const ndc = screenToNdc(opts.bufferX, opts.bufferY, opts.bufferW || 1, opts.bufferH || 1);
-    const ray = pickRayFromNdc(ndc.x, ndc.y, opts.viewProj);
-    if (!ray)
-        return null;
-    return pickBodyIndex(ray.originX, ray.originY, ray.originZ, ray.dx, ray.dy, ray.dz, opts.poses);
+    const bufferW = opts.bufferW || 1;
+    const bufferH = opts.bufferH || 1;
+    const ndc = screenToNdc(opts.bufferX, opts.bufferY, bufferW, bufferH);
+    const fovyDeg = opts.fovyDeg ?? 60;
+    const tanHalfFov = Math.tan(((fovyDeg * Math.PI) / 180) * 0.5);
+    const ray = rayFromLookAtCamera({
+        ndcX: ndc.x,
+        ndcY: ndc.y,
+        aspect: bufferW / bufferH,
+        tanHalfFov,
+        eyeX: opts.eyeX,
+        eyeY: opts.eyeY,
+        eyeZ: opts.eyeZ,
+        targetX: opts.targetX,
+        targetY: opts.targetY ?? 0,
+        targetZ: opts.targetZ,
+    });
+    const poses = new Array(opts.poses.length);
+    for (let i = 0; i < opts.poses.length; i++) {
+        const p = opts.poses[i];
+        const dist = Math.max(1e-4, Math.hypot(opts.eyeX - p.x, opts.eyeY - p.y, opts.eyeZ - p.z));
+        const pickR = Math.max(p.def.radius, p.def.radius * Math.min(p.def.drawMargin, 2), worldSizeForPx(12, dist, tanHalfFov, bufferH));
+        poses[i] = pickR === p.def.radius ? p : { ...p, pickRadius: pickR };
+    }
+    return pickBodyIndex(ray.origin.x, ray.origin.y, ray.origin.z, ray.direction.x, ray.direction.y, ray.direction.z, poses);
 }
 export function buildSceneBodyPoses(store, timeSec) {
     const n = store.currentCount;
@@ -81,6 +109,7 @@ export function createSystemFocusController(opts) {
         const cam = opts.camera;
         return !!cam && typeof cam.isFollowing === "function" && cam.isFollowing();
     };
+    const catalogIdAt = (store, index) => store.catalogIds[index] || store.defs?.[index]?.id || "";
     /** Slot whose `{systemId, catalogId}` still matches, or null → clear. */
     const resolveLockedSlot = () => {
         if (locked == null)
@@ -93,7 +122,7 @@ export function createSystemFocusController(opts) {
         for (let i = 0; i < n; i++) {
             if (store.isSun[i])
                 continue;
-            if (store.catalogIds[i] === want)
+            if (catalogIdAt(store, i) === want)
                 return i;
         }
         return null;
@@ -108,7 +137,7 @@ export function createSystemFocusController(opts) {
         }
         if (view.solarBodies.isSun[index])
             return;
-        const id = view.solarBodies.catalogIds[index];
+        const id = catalogIdAt(view.solarBodies, index);
         if (!id)
             return;
         if (lastHiId === id) {
@@ -128,10 +157,11 @@ export function createSystemFocusController(opts) {
         if (store.isSun[index])
             return;
         const systemId = store.systemId;
-        const catalogId = store.catalogIds[index];
-        if (systemId == null || !catalogId)
-            return;
-        locked = { systemId, catalogId };
+        const catalogId = catalogIdAt(store, index);
+        // Missing catalog id must not skip the camera — still orbit the body.
+        if (systemId != null) {
+            locked = { systemId, catalogId };
+        }
         hyst = { focusIndex: index, holdStartMs: 0 };
         view.setFocusedBodyIndex(index);
         applyHi(index);
@@ -210,7 +240,13 @@ export function createSystemFocusController(opts) {
                 bufferY: buf.y,
                 bufferW: st.bufferW,
                 bufferH: st.bufferH,
-                viewProj: view.getViewProj(),
+                eyeX: st.eyeX,
+                eyeY: st.eyeY,
+                eyeZ: st.eyeZ,
+                targetX: st.targetX,
+                targetY: st.targetY,
+                targetZ: st.targetZ,
+                fovyDeg: st.fovyDeg,
                 poses,
             });
             if (hit == null)

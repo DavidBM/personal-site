@@ -17,7 +17,7 @@ import { SolarBodyGpuLayer } from "./layers/solar-body-gpu-layer.js";
 import { SolarCatalogResidency } from "./solar-catalog-residency.js";
 import { catalogIdFromSystemId } from "./solar-catalog-id.js";
 import { buildCompactKepler } from "./compact-kepler.js";
-import { KEPLER_SCALE, composeCompactBodyWorld, fillSceneCandidatesForCluster, oneSceneWithHysteresis, pickLookAtClusterId, pickSceneParkBodyIndex, } from "./solar-system-lod.js";
+import { KEPLER_SCALE, SYSTEM_LOCAL_SPAN, fillSceneCandidatesForCluster, oneSceneWithHysteresis, pickLookAtClusterId, pickSceneParkBodyIndex, } from "./solar-system-lod.js";
 import { ConnectionLineStore } from "./connection-line-store.js";
 import { ConnectionLineGpuLayer } from "./layers/connection-line-gpu-layer.js";
 import { FleetInstanceGpuLayer } from "./layers/fleet-instance-gpu-layer.js";
@@ -26,24 +26,27 @@ import { MapOverlayGpuLayer } from "./layers/map-overlay-gpu-layer.js";
 import { MAP_MSAA_SAMPLES } from "./map-msaa.js";
 import { Line2Renderer } from "../vendor/line2/index.js";
 import { hashStringSeed, FLEET_SHIP_DRAW_FLOATS, } from "./fleet-ship-pack.js";
-import { CAP_NEAR, GLOBAL_MAX_INSTANCES, GPU_FLEET_CAPACITY_MIN, GPU_SHIP_CAPACITY_MIN, MODEL_LOD_DEFAULT_SCALE, MODEL_LOD_MAX_INSTANCES, WARM_FRAMES, buildModelTopologyContext, countShips, fleetLocInSystemScene, fleetTopologyLocFromState, isFleetModelTopologyEligible, isModelLodActiveSticky, modelLodFleetCullPos, nextGrowCapacity, parseInterClusterConnectionKey, resolveModelFocusClusterId, scaleCountsToBudget, selectModelShipIndices, shouldForceIncludeFollowedFleet, shouldResetFleetTrails, } from "./fleet-lod.js";
+import { CAP_NEAR, GLOBAL_MAX_INSTANCES, GPU_FLEET_CAPACITY_MIN, GPU_SHIP_CAPACITY_MIN, BASE_SHIP_SIZE, MODEL_LOD_DEFAULT_SCALE, MODEL_LOD_MAX_INSTANCES, WARM_FRAMES, buildModelTopologyContext, countShips, fleetLocInSystemScene, fleetTopologyLocFromState, isFleetModelTopologyEligible, isModelLodActiveSticky, modelLodFleetCullPos, nextGrowCapacity, parseInterClusterConnectionKey, resolveModelFocusClusterId, scaleCountsToBudget, selectModelShipIndices, shouldForceIncludeFollowedFleet, shouldResetFleetTrails, } from "./fleet-lod.js";
 import { createFleetSlotAllocator } from "./fleet-slot-allocator.js";
 import { SYSTEM_POINT_DIAMETER_PX, billboardScaleForDiameterPx, cameraDistanceToTarget, clusterImpostorWithHysteresis, } from "./galaxy-point-lod.js";
 import { MAP_NEAR } from "./camera-zoom.js";
+import { SCENE_AGENT_SCALE, SCENE_SHIP_VISUAL_MUL, } from "./ship-motion-config.js";
 import { FLEET_GPU_STRIDE, FLEET_FLAG_ALIVE, FLEET_FLAG_JUMPING, FLEET_FLAG_COOLDOWN, FLEET_FLAG_WARM, FLEET_FLAG_SPACE3D, FLEET_FLAG_SYSTEM_SCENE, FleetGpuFields, hashFleetId, } from "./fleet-layout.js";
 import { SHIP_SIM_STRIDE, ShipSimFields, readShipSim, writeShipSim, } from "./ship-sim-layout.js";
 import { SHIP_MODE_ORBIT, SHIP_MODE_PAUSED } from "./ship-flight-ref.js";
 import { followPoseFromAgent, stepFollowShipAgent, } from "./follow-cam-pose.js";
 import { fleetCenter, initShipsFromFormation, packFormation, writePathCommand, } from "./fleet-motion-api.js";
 import { mat4CameraRight, mat4CameraUp, mat4Identity, mat4Invert, mat4LookAt, mat4Perspective, mat4ViewProj, } from "./math/mat4.js";
-import { chooseFrameOrigin, discWorldRelativeF32, ensureShipIndexInList, mat4LookAtRelative, } from "./math/world-origin.js";
+import { chooseFrameOrigin, discWorldRelativeF32, ensureShipIndexInList, keplerInclinationFromCatalogId, mat4LookAtRelative, } from "./math/world-origin.js";
+import { compactBodySunLocal } from "./system-scene/frame.js";
+import { buildSystemSceneView } from "./system-scene/view.js";
 import { frameDebugBegin, frameDebugFrameTotal, frameDebugTime, } from "./frame-debug.js";
 import { hitEditHandleAtGround, layoutFromRadius, } from "./math/edit-handle-hit.js";
 import { intersectRayPlaneY0, rayFromNdc, } from "./math/ground-pick.js";
-import { LINE2_OVERLAY_COLOR_FLOATS, LINE2_OVERLAY_POS_FLOATS, OVERLAY_COLOR_HOVER, OVERLAY_COLOR_SELECT, packEditHandleGizmoLine2, packKeplerOrbitRingsViewRel, packRingLine2, shiftLine2PackByOrigin, } from "./map-overlay-pack.js";
+import { KEPLER_ORBIT_RING_SEGMENTS, LINE2_OVERLAY_COLOR_FLOATS, LINE2_OVERLAY_POS_FLOATS, OVERLAY_COLOR_HOVER, OVERLAY_COLOR_SELECT, SCENE_GRID_DIVISIONS, SCENE_GRID_SPAN_MUL, SCENE_JUMP_RAY_R0_MUL, SCENE_SCHEMATIC_DASH_SIZE, SCENE_SCHEMATIC_GAP_SIZE, SCENE_SCHEMATIC_GRID_COLOR, SCENE_SCHEMATIC_RING_COLOR, SCENE_JUMP_RAY_COLOR, capSceneJumpRayLength, packEditHandleGizmoLine2, packKeplerOrbitRingsViewRel, packRingLine2, packSceneGridViewRel, packSceneJumpRaysViewRel, shiftLine2PackByOrigin, } from "./map-overlay-pack.js";
 import { MAP_OVERLAY_FLOATS_PER_VERT } from "./shaders/map-overlay.wgsl.js";
 import { RENDER_PLANE_Y } from "../contracts/render-constants.js";
-import { solarConnectionClusterId } from "../contracts/connection-key.js";
+import { parseSolarConnectionKey, solarConnectionClusterId, } from "../contracts/connection-key.js";
 import { resolveFleetVisualPosition, } from "./fleet-motion-ref.js";
 import { rebuildWebGpuConnectionsFromGalaxy } from "../main/webgpu-view-bridge.js";
 import { createPassSetFlags, fillPassSetFlags, hashPassSet, solarStoreHasDisc, solarStoreHasSun, } from "./pass-set.js";
@@ -54,6 +57,10 @@ const MAX_FLEET_SLOTS = 100000;
 const OVERLAY_LINEWIDTH_PX = 3.5;
 const EMPTY_SYSTEM_IDS = [];
 const EMPTY_PREVIEW_KEEP = new Set();
+/** Skip 5px galaxy points (and topology is already off) below this fade. */
+const GALAXY_FADE_SKIP = 0.02;
+/** Skip Kepler discs/schematics while orbit exit is almost done (fade < 1). */
+const KEPLER_ENCODE_FADE_MAX = 0.88;
 /**
  * Owns canvas + WebGPU device + map layers. Call {@link WebGpuMapView.create}.
  */
@@ -80,6 +87,13 @@ export class WebGpuMapView {
         this.lastOverlayWorld = null;
         this.lastPassResolveHadDepth = false;
         this.lastOrbitRingSegments = 0;
+        this.lastJumpRaySegments = 0;
+        /** Last color-pass: topology Line2 was encoded (galaxyFade ≥ 1). */
+        this.lastGalaxyTopologyEncoded = true;
+        /** 1 = full galaxy; 0 = orbiting SCENE (topology replaced by local rays). */
+        this.galaxyFade = 1;
+        /** Last overlay pack included hover/select rings (false while SCENE / fade). */
+        this.lastPackedGalaxyRings = false;
         /**
          * Year-1 hashed sticky pass-set. One reused flags object + a number.
          * Skip unused encode; do not allocate PassData / a plan per rAF.
@@ -90,6 +104,8 @@ export class WebGpuMapView {
         this.lastResolveW = 0;
         this.lastResolveH = 0;
         this.orbitRings = null;
+        this.sceneGrid = null;
+        this.sceneJumpRays = null;
         this.overlayRelScratch = null;
         /**
          * Fleets still in R5 warm-up (`warmFramesLeft > 0`). tickWarmFleets only
@@ -169,6 +185,14 @@ export class WebGpuMapView {
         this.viewRel = mat4Identity();
         this.viewProjRel = mat4Identity();
         this.frameOrigin = { x: 0, y: 0, z: 0 };
+        /** SCENE look-at relative to the Kepler sun (not galaxy eye). */
+        this.sceneViewRel = mat4Identity();
+        this.sceneViewProjRel = mat4Identity();
+        this.sceneSunX = 0;
+        this.sceneSunZ = 0;
+        /** SCENE GPU origin — ships / pathEnd are sun-relative. */
+        this.sceneOriginZero = { x: 0, y: 0, z: 0 };
+        this.sceneSunOrigin = { x: 0, y: 0, z: 0 };
         this.cameraRight = new Float32Array(3);
         this.cameraUp = new Float32Array(3);
         this.cameraX = 0;
@@ -456,6 +480,10 @@ export class WebGpuMapView {
             z: this.frameOrigin.z,
         };
     }
+    /** Galaxy-abs Kepler sun xz (SCENE placement). GPU SCENE origin stays 0. */
+    getSceneSunAbs() {
+        return { x: this.sceneSunX, z: this.sceneSunZ };
+    }
     resize(width, height) {
         if (this.bootstrap.isLost)
             return;
@@ -469,6 +497,9 @@ export class WebGpuMapView {
         const bufH = this.canvas.height;
         this.overlayLines.setResolution(bufW, bufH);
         this.lines.setResolution(bufW, bufH);
+        this.orbitRings?.setResolution(bufW, bufH);
+        this.sceneGrid?.setResolution(bufW, bufH);
+        this.sceneJumpRays?.setResolution(bufW, bufH);
         this.ensureMsaaColor(bufW, bufH);
     }
     setCameraLookAt(eyeX, eyeY, eyeZ, targetX, targetZ, targetY = 0) {
@@ -532,17 +563,32 @@ export class WebGpuMapView {
             pad1: this.fleetGpuView.getUint32(o + FleetGpuFields._pad1, true),
             posX: this.fleetGpuView.getFloat32(o + FleetGpuFields.posX, true),
             posZ: this.fleetGpuView.getFloat32(o + FleetGpuFields.posZ, true),
+            pathStartX: this.fleetGpuView.getFloat32(o + FleetGpuFields.pathStartX, true),
+            pathStartZ: this.fleetGpuView.getFloat32(o + FleetGpuFields.pathStartZ, true),
             pathEndX: this.fleetGpuView.getFloat32(o + FleetGpuFields.pathEndX, true),
             pathEndZ: this.fleetGpuView.getFloat32(o + FleetGpuFields.pathEndZ, true),
             fleetSlot: f.fleetSlot,
         };
     }
     /**
+     * Jewel loc is the loaded Kepler `solarBodies.systemId`, not a stale
+     * SystemSceneSet. When no Kepler is loaded (S3B setSystemScene-only tests),
+     * fall back to the CPU set. Inbound jumping still uses endNode via
+     * {@link fleetTopologyLocFromState}.
+     */
+    fleetLocMatchesKepler(state) {
+        const keplerId = this.solarBodies.systemId;
+        if (keplerId != null) {
+            return fleetTopologyLocFromState(state).solarSystemId === keplerId;
+        }
+        return fleetLocInSystemScene(state, this.systemSceneIds);
+    }
+    /**
      * Whole-hop inbound uses endNode via {@link fleetTopologyLocFromState}.
      * Followed fleet is force-included for agents only (no second Kepler set).
      */
     fleetInSystemScene(state, visual) {
-        if (fleetLocInSystemScene(state, this.systemSceneIds))
+        if (this.fleetLocMatchesKepler(state))
             return true;
         return shouldForceIncludeFollowedFleet(this.isFollowedVisual(visual), true);
     }
@@ -552,6 +598,30 @@ export class WebGpuMapView {
             return false;
         const n = visual.instanceCapacity | 0;
         return n > 0 && idx >= visual.instanceStart && idx < visual.instanceStart + n;
+    }
+    /**
+     * True when the chased fleet is in the jewel (loaded Kepler loc, or
+     * GPU bit 7 while a SCENE is loaded). Follow force-include bit 7 on the
+     * galaxy map is **not** jewel — empty scene set keeps the 1.55 boom.
+     */
+    isFollowedFleetInSystemScene() {
+        if (this.followShipIndex == null)
+            return false;
+        for (const f of this.fleets.values()) {
+            if (!this.isFollowedVisual(f))
+                continue;
+            if (this.fleetLocMatchesKepler(f.state))
+                return true;
+            const jewelOpen = this.solarBodies.systemId != null || this.systemSceneIds.size > 0;
+            if (!jewelOpen)
+                return false;
+            const o = f.fleetSlot * FLEET_GPU_STRIDE;
+            if (o + 4 > this.fleetGpuBytes.byteLength)
+                return false;
+            const flags = this.fleetGpuView.getUint32(o + FleetGpuFields.flags, true);
+            return (flags & FLEET_FLAG_SYSTEM_SCENE) !== 0;
+        }
+        return false;
     }
     /**
      * Re-OR bit 7 after a flags rebuild. 0→1 on a live visual starts WARM_FRAMES.
@@ -566,6 +636,8 @@ export class WebGpuMapView {
             visual.warmFramesLeft = WARM_FRAMES;
             this.warmingFleetIds.add(visual.id);
             next |= FLEET_FLAG_WARM;
+            // Galaxy trail samples are O(1–7); Kepler hull is ~0.0004. Wipe on enter.
+            this.fleetsLayer.killTrailRange(visual.instanceStart, visual.instanceCapacity);
         }
         return next | FLEET_FLAG_SYSTEM_SCENE;
     }
@@ -617,14 +689,33 @@ export class WebGpuMapView {
         const o = visual.fleetSlot * FLEET_GPU_STRIDE;
         if (o + FLEET_GPU_STRIDE > this.fleetGpuBytes.byteLength)
             return;
+        const lookup = this.positionLookup;
+        const state = visual.state;
+        let startX = pos.x;
+        let startZ = pos.z;
+        if (state.state === "jumping" && lookup) {
+            const start = lookup(state.startNode);
+            if (start) {
+                startX = start.x;
+                startZ = start.z;
+            }
+        }
+        this.fleetGpuView.setFloat32(o + FleetGpuFields.pathStartX, startX, true);
+        this.fleetGpuView.setFloat32(o + FleetGpuFields.pathStartZ, startZ, true);
         this.fleetGpuView.setFloat32(o + FleetGpuFields.pathEndX, pos.x, true);
         this.fleetGpuView.setFloat32(o + FleetGpuFields.pathEndZ, pos.z, true);
+        const flags = this.fleetGpuView.getUint32(o + FleetGpuFields.flags, true);
+        const next = state.state === "jumping"
+            ? (flags | FLEET_FLAG_JUMPING) >>> 0
+            : (flags & ~FLEET_FLAG_JUMPING) >>> 0;
+        this.fleetGpuView.setUint32(o + FleetGpuFields.flags, next, true);
     }
     /**
      * Visual-only: SCENE fleets CIRCULATE a hashed compact planet, not the
-     * system node. Topology dest stays SolarSystem.position. Formation
-     * (instanceStart / shipBudget) is not touched. Jumping still overwrites
-     * pathEnd (galaxy hop ≫ 0.5) so they arrive at the planet.
+     * system node. Stored pathStart/pathEnd are **sun-relative** (no unit).
+     * Topology dest stays SolarSystem.position. Formation
+     * (instanceStart / shipBudget) is not touched. Park pathStart=pathEnd
+     * and clear JUMPING so cs_fleets does not ease across the galaxy.
      */
     writeParkedPathEnd(visual, timeSec) {
         const store = this.solarBodies;
@@ -636,16 +727,46 @@ export class WebGpuMapView {
             return;
         const hash = this.fleetGpuView.getUint32(o + FleetGpuFields.fleetIdHash, true);
         const idx = pickSceneParkBodyIndex(hash, store);
-        const world = composeCompactBodyWorld(store, idx, timeSec, this.parkWorldScratch);
-        if (!world)
+        const local = compactBodySunLocal(store, idx, timeSec, this.parkWorldScratch);
+        if (!local)
             return;
-        const prevX = this.fleetGpuView.getFloat32(o + FleetGpuFields.pathEndX, true);
-        const prevZ = this.fleetGpuView.getFloat32(o + FleetGpuFields.pathEndZ, true);
-        if (prevX === world.x && prevZ === world.z)
+        // Sun-relative compact pose — do not store galaxy abs (system + kepler).
+        const lx = local.x;
+        const ly = local.y;
+        const lz = local.z;
+        const prevEndX = this.fleetGpuView.getFloat32(o + FleetGpuFields.pathEndX, true);
+        const prevEndZ = this.fleetGpuView.getFloat32(o + FleetGpuFields.pathEndZ, true);
+        const prevStartX = this.fleetGpuView.getFloat32(o + FleetGpuFields.pathStartX, true);
+        const prevStartZ = this.fleetGpuView.getFloat32(o + FleetGpuFields.pathStartZ, true);
+        const prevEndY = this.fleetGpuView.getFloat32(o + FleetGpuFields._pad0, true);
+        const prevFlags = this.fleetGpuView.getUint32(o + FleetGpuFields.flags, true);
+        const nextFlags = this.orSystemSceneFlag(visual, visual.state, (prevFlags & ~FLEET_FLAG_JUMPING) >>> 0, prevFlags);
+        if (prevEndX === lx &&
+            prevEndZ === lz &&
+            prevStartX === lx &&
+            prevStartZ === lz &&
+            prevEndY === ly &&
+            prevFlags === nextFlags) {
             return;
-        this.fleetGpuView.setFloat32(o + FleetGpuFields.pathEndX, world.x, true);
-        this.fleetGpuView.setFloat32(o + FleetGpuFields.pathEndZ, world.z, true);
+        }
+        this.fleetGpuView.setFloat32(o + FleetGpuFields.pathStartX, lx, true);
+        this.fleetGpuView.setFloat32(o + FleetGpuFields.pathStartZ, lz, true);
+        this.fleetGpuView.setFloat32(o + FleetGpuFields.pathEndX, lx, true);
+        this.fleetGpuView.setFloat32(o + FleetGpuFields.pathEndZ, lz, true);
+        this.fleetGpuView.setFloat32(o + FleetGpuFields._pad0, ly, true);
+        this.fleetGpuView.setUint32(o + FleetGpuFields.flags, nextFlags, true);
         this.markFleetDirty(slot);
+        // First park snaps galaxy pathEnd (system node / hop) onto a compact
+        // planet. Per-frame Kepler motion is ≪ SPAN*0.05 — do not wipe then.
+        const dx = prevEndX - lx;
+        const dz = prevEndZ - lz;
+        const killR = SYSTEM_LOCAL_SPAN * 0.05;
+        if (visual.instanceCapacity > 0 &&
+            dx * dx + dz * dz > killR * killR) {
+            this.fleetsLayer.killTrailRange(visual.instanceStart, visual.instanceCapacity);
+            this.snapShipsToSceneOrbit(visual);
+            this.markShipDirty(visual.instanceStart, visual.instanceCapacity);
+        }
     }
     /**
      * Every frame while Kepler is live: park SCENE-loc fleets on a hashed planet.
@@ -655,14 +776,12 @@ export class WebGpuMapView {
         if (this.fleets.size === 0)
             return;
         const store = this.solarBodies;
-        if (store.systemId == null ||
-            store.currentCount <= 0 ||
-            !this.systemSceneIds.has(store.systemId)) {
+        if (store.systemId == null || store.currentCount <= 0)
             return;
-        }
         const timeSec = this.getSceneTimeSec();
         for (const f of this.fleets.values()) {
-            if (!fleetLocInSystemScene(f.state, this.systemSceneIds))
+            // Loc-only: do not park a followed galaxy fleet onto compact planets.
+            if (!this.fleetLocMatchesKepler(f.state))
                 continue;
             this.writeParkedPathEnd(f, timeSec);
         }
@@ -671,7 +790,7 @@ export class WebGpuMapView {
     getBandBLastDrawCount() {
         return this.solarBodyLayer.getLastDrawCount();
     }
-    /** Last host-composed sun centerRel (origin-relative, y = 0 − origin.y). */
+    /** Last host-composed sun centerRel (SCENE prepare origin is the sun → ~0). */
     getLastBandBSunCenterRel() {
         return this.solarBodyLayer.getLastSunCenterRel();
     }
@@ -700,6 +819,16 @@ export class WebGpuMapView {
     getFocusedBodyIndex() {
         return this.focusedBodyIndex;
     }
+    /** Topology node of the loaded Kepler SCENE (for jewel fleet spawn). */
+    getSceneFleetNode() {
+        const id = this.solarBodies.systemId;
+        if (id == null)
+            return null;
+        const rec = this.sceneSystems.get(id);
+        if (!rec)
+            return null;
+        return { clusterId: rec.clusterId, solarSystemId: id };
+    }
     getLastBandCDrawCount() {
         return this.solarBodyLayer.getLastBandCDrawCount();
     }
@@ -708,15 +837,16 @@ export class WebGpuMapView {
         return this.passSetHash;
     }
     /**
-     * Last Band-C FOCUS atmosphere: `"hillaire"` when the LUT was sampled,
-     * `"oneil"` RecurseDraw (oneil-fallback) otherwise.
+     * Last Band-C FOCUS atmosphere. Live map is RecurseDraw `"oneil"`
+     * (color `fs_main`; depth `fs_band_c`). `"hillaire"` is lab LUT apply only.
      */
     getLastFocusAtmMode() {
         return this.solarBodyLayer.getLastFocusAtmMode();
     }
     /**
      * Bake the FOCUS LUT after submit / on promote. One in-flight.
-     * Never from encode / renderFrame — startLoop and tests call this.
+     * Never from encode / renderFrame / startLoop — lab and tests call this.
+     * Live map FOCUS stays RecurseDraw O’Neil (`lutReady = false`).
      */
     pumpLutBake() {
         this.solarBodyLayer.pumpLutBake();
@@ -726,6 +856,69 @@ export class WebGpuMapView {
     }
     getLastOrbitRingSegments() {
         return this.lastOrbitRingSegments;
+    }
+    getLastJumpRaySegments() {
+        return this.lastJumpRaySegments;
+    }
+    /** True when the last color pass encoded topology Line2 (galaxyFade ≥ 1). */
+    getLastGalaxyTopologyEncoded() {
+        return this.lastGalaxyTopologyEncoded;
+    }
+    /**
+     * Galaxy topology/point opacity. App copies {@link WebGpuCameraController.getGalaxyFade}
+     * each beforeFrame. 1 = map; 0 = Kepler orbit.
+     */
+    setGalaxyFade(f) {
+        const v = Number(f);
+        const next = Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 1;
+        const prevHide = this.hideGalaxySelectionRings();
+        this.galaxyFade = next;
+        if (this.hideGalaxySelectionRings() !== prevHide)
+            this.overlayDirty = true;
+    }
+    getGalaxyFade() {
+        return this.galaxyFade;
+    }
+    /** True when the last overlay pack included hover/select rings. */
+    getLastPackedGalaxyRings() {
+        return this.lastPackedGalaxyRings;
+    }
+    /**
+     * Orbit-exit complete: drop hysteresis, empty the compact Kepler SCENE, and
+     * restore the look-at system's 5px immediately (do not wait SCENE_HOLD_MS).
+     */
+    dismissCompactScene() {
+        const prevIdx = this.sceneHiddenBufferIndex;
+        const prevSceneId = this.sceneHysteresis.sceneId;
+        if (prevIdx != null) {
+            const prevRec = prevSceneId != null ? this.sceneSystems.get(prevSceneId) : undefined;
+            const impostor = prevRec != null &&
+                this.clusterLodMeta.get(prevRec.clusterId)?.wasImpostor === true;
+            if (!impostor) {
+                this.store.setLodHidden(prevIdx, false);
+                this.storeDirty = true;
+            }
+        }
+        this.resetSystemSceneLod();
+        this.lastOrbitRingSegments = 0;
+        this.lastJumpRaySegments = 0;
+        this.orbitRings?.clearGeometry();
+        this.sceneGrid?.clearGeometry();
+        this.sceneJumpRays?.clearGeometry();
+        this.solarBodyLayer.clearLastDrawCount();
+        this.overlayDirty = true;
+    }
+    hideGalaxySelectionRings() {
+        return this.solarBodies.systemId != null || this.galaxyFade < 1;
+    }
+    /** Kepler discs + schematics: skip while orbit exit fade is almost done. */
+    shouldEncodeKeplerScene() {
+        if (this.solarBodies.systemId == null)
+            return false;
+        if (this.galaxyFade > KEPLER_ENCODE_FADE_MAX && this.galaxyFade < 1) {
+            return false;
+        }
+        return true;
     }
     /**
      * Resolve the next {@link renderOnce} into an owned COPY_SRC color instead of
@@ -1157,60 +1350,177 @@ export class WebGpuMapView {
             return null;
         return hitEditHandleAtGround(ground.x, ground.z, this.activeHandles, this.editLayout);
     }
-    ensureOrbitRings() {
-        if (this.orbitRings)
-            return this.orbitRings;
-        this.orbitRings = new Line2Renderer(this.bootstrap.device, {
+    makeSchematicLine2(alpha) {
+        const line = new Line2Renderer(this.bootstrap.device, {
             format: this.bootstrap.format,
             sampleCount: MAP_MSAA_SAMPLES,
             alphaToCoverage: false,
             material: {
-                color: [0.75, 0.82, 1, 0.55],
-                linewidth: 1.25,
+                color: [1, 1, 1, alpha],
+                linewidth: 1,
                 worldUnits: false,
                 endcaps: false,
                 softAA: false,
                 vertexColors: true,
                 depthTest: false,
                 depthWrite: false,
+                dashed: true,
+                dashSize: SCENE_SCHEMATIC_DASH_SIZE,
+                gapSize: SCENE_SCHEMATIC_GAP_SIZE,
             },
         });
-        this.orbitRings.setResolution(this.canvas.width, this.canvas.height);
+        line.setResolution(this.canvas.width, this.canvas.height);
+        return line;
+    }
+    ensureOrbitRings() {
+        if (this.orbitRings)
+            return this.orbitRings;
+        this.orbitRings = this.makeSchematicLine2(SCENE_SCHEMATIC_RING_COLOR[3]);
         return this.orbitRings;
     }
-    /** Origin-relative Kepler rings (never abs viewProj). */
-    encodeOrbitRingsViewRel(pass, origin) {
-        this.lastOrbitRingSegments = 0;
-        const store = this.solarBodies;
-        if (store.currentCount <= 0 || store.systemId == null) {
-            this.orbitRings?.clearGeometry();
+    ensureSceneGrid() {
+        if (this.sceneGrid)
+            return this.sceneGrid;
+        this.sceneGrid = this.makeSchematicLine2(SCENE_SCHEMATIC_GRID_COLOR[3]);
+        return this.sceneGrid;
+    }
+    ensureSceneJumpRays() {
+        if (this.sceneJumpRays)
+            return this.sceneJumpRays;
+        this.sceneJumpRays = this.makeSchematicLine2(SCENE_JUMP_RAY_COLOR[3]);
+        return this.sceneJumpRays;
+    }
+    encodeViewRelLine2(line, pack, pass) {
+        line.setResolution(this.canvas.width, this.canvas.height);
+        if (pack.segmentCount <= 0) {
+            line.clearGeometry();
             return;
         }
-        const radii = [];
+        line.setPositions(pack.positions);
+        line.setColors(pack.colors);
+        line.writeViewProjection(this.sceneViewRel, this.proj, { x: 0, y: 0, z: 0 });
+        line.encode(pass);
+    }
+    /**
+     * SCENE schematics in origin-relative space: y=0 grid, inclined Kepler
+     * rings, local jump rays. Drawn before solar discs so planets sit on top.
+     */
+    encodeSceneSchematicsViewRel(pass, origin) {
+        this.lastOrbitRingSegments = 0;
+        this.lastJumpRaySegments = 0;
+        const store = this.solarBodies;
+        if (store.currentCount <= 0 ||
+            store.systemId == null ||
+            !this.shouldEncodeKeplerScene()) {
+            this.orbitRings?.clearGeometry();
+            this.sceneGrid?.clearGeometry();
+            this.sceneJumpRays?.clearGeometry();
+            return;
+        }
+        const sunRel = discWorldRelativeF32(store.systemX, store.systemZ, 0, 0, origin.x, origin.y, origin.z);
+        const specs = [];
+        let rMax = 0;
         for (let i = 0; i < store.currentCount; i++) {
             if (store.isSun[i])
                 continue;
             const r = KEPLER_SCALE * store.orbitRadius[i];
-            if (r > 0)
-                radii.push(r);
+            if (!(r > 0))
+                continue;
+            rMax = Math.max(rMax, r);
+            const cat = store.catalogIds[i] ?? "";
+            const inc = keplerInclinationFromCatalogId(cat);
+            specs.push({ radius: r, inclination: inc.i, node: inc.node });
         }
-        if (radii.length === 0) {
+        const half = Math.max(SCENE_GRID_SPAN_MUL * SYSTEM_LOCAL_SPAN, 1.4 * rMax);
+        const gridPack = packSceneGridViewRel(sunRel.x, sunRel.y, sunRel.z, half, SCENE_GRID_DIVISIONS);
+        this.encodeViewRelLine2(this.ensureSceneGrid(), gridPack, pass);
+        if (specs.length === 0) {
             this.orbitRings?.clearGeometry();
-            return;
         }
-        const sunRel = discWorldRelativeF32(store.systemX, store.systemZ, 0, 0, origin.x, origin.y, origin.z);
-        const pack = packKeplerOrbitRingsViewRel(sunRel.x, sunRel.y, sunRel.z, radii, 48);
-        const rings = this.ensureOrbitRings();
-        rings.setResolution(this.canvas.width, this.canvas.height);
-        if (pack.segmentCount <= 0) {
-            rings.clearGeometry();
-            return;
+        else {
+            const ringPack = packKeplerOrbitRingsViewRel(sunRel.x, sunRel.y, sunRel.z, specs, KEPLER_ORBIT_RING_SEGMENTS);
+            this.encodeViewRelLine2(this.ensureOrbitRings(), ringPack, pass);
+            this.lastOrbitRingSegments = ringPack.segmentCount;
         }
-        rings.setPositions(pack.positions);
-        rings.setColors(pack.colors);
-        rings.writeViewProjection(this.viewRel, this.proj);
-        rings.encode(pass);
-        this.lastOrbitRingSegments = pack.segmentCount;
+        if (this.galaxyFade < 1) {
+            const rays = this.collectSceneJumpRays(store.systemId, store.systemX, store.systemZ);
+            const r0 = SCENE_JUMP_RAY_R0_MUL * rMax;
+            const rayPack = packSceneJumpRaysViewRel(sunRel.x, sunRel.y, sunRel.z, rays, r0);
+            this.encodeViewRelLine2(this.ensureSceneJumpRays(), rayPack, pass);
+            this.lastJumpRaySegments = rayPack.segmentCount;
+        }
+        else {
+            this.sceneJumpRays?.clearGeometry();
+        }
+    }
+    /** Topology edges incident on the SCENE system → unit dir + original length. */
+    collectSceneJumpRays(systemId, systemX, systemZ) {
+        const rays = [];
+        const seen = new Set();
+        const push = (dx, dz, length, key) => {
+            if (seen.has(key) || !(length > 1e-12))
+                return;
+            const mag = Math.hypot(dx, dz);
+            if (!(mag > 1e-12))
+                return;
+            seen.add(key);
+            rays.push({
+                dirX: dx / mag,
+                dirZ: dz / mag,
+                length: capSceneJumpRayLength(length, SYSTEM_LOCAL_SPAN),
+            });
+        };
+        const otherFromKey = (key) => {
+            const ends = this.lineStore.getLogicalEndpoints(key);
+            if (!ends)
+                return null;
+            const da = Math.hypot(ends.ax - systemX, ends.az - systemZ);
+            const db = Math.hypot(ends.bx - systemX, ends.bz - systemZ);
+            if (da <= db)
+                return { x: ends.bx, z: ends.bz };
+            return { x: ends.ax, z: ends.az };
+        };
+        const rec = this.sceneSystems.get(systemId);
+        const meta = rec != null ? this.clusterLodMeta.get(rec.clusterId) : undefined;
+        if (meta) {
+            for (let i = 0; i < meta.lineKeys.length; i++) {
+                const key = meta.lineKeys[i];
+                const parsed = parseSolarConnectionKey(key);
+                if (!parsed)
+                    continue;
+                const otherId = parsed.a === systemId
+                    ? parsed.b
+                    : parsed.b === systemId
+                        ? parsed.a
+                        : -1;
+                if (otherId < 0)
+                    continue;
+                const other = this.sceneSystems.get(otherId);
+                const pos = other
+                    ? { x: other.x, z: other.z }
+                    : otherFromKey(key);
+                if (!pos)
+                    continue;
+                push(pos.x - systemX, pos.z - systemZ, Math.hypot(pos.x - systemX, pos.z - systemZ), key);
+            }
+        }
+        for (const [key, jump] of this.jumpEdgesByKey) {
+            let otherId = -1;
+            if (jump.jumpGate1 === systemId)
+                otherId = jump.jumpGate2;
+            else if (jump.jumpGate2 === systemId)
+                otherId = jump.jumpGate1;
+            else
+                continue;
+            const other = this.sceneSystems.get(otherId);
+            const pos = other
+                ? { x: other.x, z: other.z }
+                : otherFromKey(key);
+            if (!pos)
+                continue;
+            push(pos.x - systemX, pos.z - systemZ, Math.hypot(pos.x - systemX, pos.z - systemZ), key);
+        }
+        return rays;
     }
     /**
      * Pack gizmo + rings into overlay GPU buffers when dirty.
@@ -1228,11 +1538,15 @@ export class WebGpuMapView {
             lineChunks.push(gizmo.lines);
             fillChunks.push(gizmo.fills);
         }
-        if (this.hoverRing) {
+        const hideRings = this.hideGalaxySelectionRings();
+        this.lastPackedGalaxyRings = false;
+        if (!hideRings && this.hoverRing) {
             lineChunks.push(packRingLine2(this.hoverRing.x, this.hoverRing.z, this.hoverRing.radius, 48, OVERLAY_COLOR_HOVER));
+            this.lastPackedGalaxyRings = true;
         }
-        if (this.selectRing) {
+        if (!hideRings && this.selectRing) {
             lineChunks.push(packRingLine2(this.selectRing.x, this.selectRing.z, this.selectRing.radius, 48, OVERLAY_COLOR_SELECT));
+            this.lastPackedGalaxyRings = true;
         }
         if (lineChunks.length === 0 && fillChunks.length === 0) {
             this.clearOverlay();
@@ -1260,15 +1574,21 @@ export class WebGpuMapView {
     /**
      * Pick a random **formation ship** (NEAR agent) for third-person follow.
      * Prefers fleets with shipBudget > 1 so we chase a real agent, not an impostor icon.
+     * When a jewel SCENE is loaded, prefers Kepler-loc parked fleets.
      * Returns a stable shipIndex; use {@link getLiveShipPose} each frame.
      */
     pickRandomShipPose() {
         const all = [...this.fleets.values()].filter((f) => f.instanceActive > 0);
         if (all.length === 0)
             return null;
-        // Prefer multi-ship formation fleets (agent ships, not single impostor).
-        const multi = all.filter((f) => f.instanceCapacity > 1);
-        const pool = multi.length > 0 ? multi : all;
+        // Jewel: prefer parked Kepler loc; fallback to any multi-ship fleet.
+        const jewelOpen = this.solarBodies.systemId != null || this.systemSceneIds.size > 0;
+        const scene = jewelOpen
+            ? all.filter((f) => this.fleetLocMatchesKepler(f.state))
+            : [];
+        const fromSceneOrAll = scene.length > 0 ? scene : all;
+        const multi = fromSceneOrAll.filter((f) => f.instanceCapacity > 1);
+        const pool = multi.length > 0 ? multi : fromSceneOrAll;
         const f = pool[(Math.random() * pool.length) | 0];
         const n = Math.max(1, f.instanceActive | 0);
         const local = (Math.random() * n) | 0;
@@ -1332,34 +1652,47 @@ export class WebGpuMapView {
         const i = shipIndex | 0;
         if (i < 0)
             return null;
+        let pose = null;
         if (this.followPoseCache && this.followPoseCache.shipIndex === i) {
-            return { ...this.followPoseCache };
+            pose = { ...this.followPoseCache };
         }
-        // Bootstrap before first same-frame shadow step / seed.
-        const o = i * SHIP_SIM_STRIDE;
-        if (o + SHIP_SIM_STRIDE <= this.shipSimView.byteLength) {
-            const pose = {
-                posX: this.shipSimView.getFloat32(o + ShipSimFields.posX, true),
-                posY: this.shipSimView.getFloat32(o + ShipSimFields.posY, true),
-                posZ: this.shipSimView.getFloat32(o + ShipSimFields.posZ, true),
-                heading: this.shipSimView.getFloat32(o + ShipSimFields.heading, true),
-                shipIndex: i,
-                speed: this.shipSimView.getFloat32(o + ShipSimFields.speed, true),
-            };
-            if (this.followPoseLastGood &&
-                this.followPoseLastGood.shipIndex === i &&
-                !Number.isFinite(pose.posX)) {
-                return { ...this.followPoseLastGood };
+        else {
+            // Bootstrap before first same-frame shadow step / seed.
+            const o = i * SHIP_SIM_STRIDE;
+            if (o + SHIP_SIM_STRIDE <= this.shipSimView.byteLength) {
+                pose = {
+                    posX: this.shipSimView.getFloat32(o + ShipSimFields.posX, true),
+                    posY: this.shipSimView.getFloat32(o + ShipSimFields.posY, true),
+                    posZ: this.shipSimView.getFloat32(o + ShipSimFields.posZ, true),
+                    heading: this.shipSimView.getFloat32(o + ShipSimFields.heading, true),
+                    shipIndex: i,
+                    speed: this.shipSimView.getFloat32(o + ShipSimFields.speed, true),
+                };
+                if (this.followPoseLastGood &&
+                    this.followPoseLastGood.shipIndex === i &&
+                    !Number.isFinite(pose.posX)) {
+                    pose = { ...this.followPoseLastGood };
+                }
+                else if (Number.isFinite(pose.posX) && Number.isFinite(pose.posZ)) {
+                    this.followPoseLastGood = { ...pose, speed: pose.speed ?? 0 };
+                }
             }
-            if (Number.isFinite(pose.posX) && Number.isFinite(pose.posZ)) {
-                this.followPoseLastGood = { ...pose, speed: pose.speed ?? 0 };
+            else if (this.followPoseLastGood &&
+                this.followPoseLastGood.shipIndex === i) {
+                pose = { ...this.followPoseLastGood };
             }
+        }
+        if (!pose)
+            return null;
+        // GPU ShipSim is sun-relative while Kepler is loaded; camera / UI stay galaxy.
+        const store = this.solarBodies;
+        if (store.systemId == null)
             return pose;
-        }
-        if (this.followPoseLastGood && this.followPoseLastGood.shipIndex === i) {
-            return { ...this.followPoseLastGood };
-        }
-        return null;
+        return {
+            ...pose,
+            posX: pose.posX + store.systemX,
+            posZ: pose.posZ + store.systemZ,
+        };
     }
     /**
      * One-shot seed: pull ShipSim from GPU so the CPU shadow starts on the live
@@ -1643,6 +1976,12 @@ export class WebGpuMapView {
         }
         if (N > 0) {
             this.initShipSimForFleet(visual);
+            // Galaxy formation is O(1–7) around pathEnd; Kepler span is 0.1.
+            // Snap onto the scaled ring so jewel-spawned ships are on-camera now,
+            // not 40s of SCENE_SPEED_SCALE SEEK from off-screen.
+            if (this.fleetLocMatchesKepler(state)) {
+                this.snapShipsToSceneOrbit(visual);
+            }
             // Free-list reuse + fresh spawn: wipe trail rings so old segments never stitch.
             this.fleetsLayer.killTrailRange(range.start, N);
         }
@@ -2040,28 +2379,21 @@ export class WebGpuMapView {
             instanceStart: visual.instanceStart,
             fleetIdHash: hashFleetId(visual.id),
         });
-        if (fleetLocInSystemScene(state, this.systemSceneIds)) {
+        if (this.fleetLocMatchesKepler(state)) {
             this.writeParkedPathEnd(visual, this.getSceneTimeSec());
         }
         return true;
     }
     /**
      * Safe FleetGpu row when path lookup misses on spawn: ALIVE only (no JUMPING),
-     * park at given/last pos, duration 1. Always writes shipBudget/instanceStart.
+     * park at the given xz, duration 1. Always writes shipBudget/instanceStart.
+     * Never reuse a recycled slot's leftover compact-planet pos — that parks a
+     * galaxy fleet inside the jewel.
      */
     writeFleetGpuParkedScatter(visual, fleetSlot, parkX = 0, parkZ = 0) {
         const o = fleetSlot * FLEET_GPU_STRIDE;
-        let posX = parkX;
-        let posZ = parkZ;
         let heading = 0;
         if (o + FLEET_GPU_STRIDE <= this.fleetGpuBytes.byteLength) {
-            const priorX = this.fleetGpuView.getFloat32(o + FleetGpuFields.posX, true);
-            const priorZ = this.fleetGpuView.getFloat32(o + FleetGpuFields.posZ, true);
-            // Prefer explicit park when prior is empty zero (fresh slot).
-            if (priorX !== 0 || priorZ !== 0) {
-                posX = priorX;
-                posZ = priorZ;
-            }
             heading = this.fleetGpuView.getFloat32(o + FleetGpuFields.heading, true);
         }
         let flags = FLEET_FLAG_ALIVE;
@@ -2072,16 +2404,16 @@ export class WebGpuMapView {
             : 0;
         flags = this.orSystemSceneFlag(visual, visual.state, flags, prevFlags);
         const cmd = {
-            from: { x: posX, z: posZ },
-            target: { x: posX, z: posZ },
+            from: { x: parkX, z: parkZ },
+            target: { x: parkX, z: parkZ },
             durationMs: 1,
             t0: 0,
             formationHeading: heading,
             jumping: false,
         };
         writePathCommand(this.fleetGpuView, o, cmd, {
-            posX,
-            posZ,
+            posX: parkX,
+            posZ: parkZ,
             heading,
             flags,
             shipBudget: visual.instanceCapacity,
@@ -2091,7 +2423,7 @@ export class WebGpuMapView {
             instanceStart: visual.instanceStart,
             fleetIdHash: hashFleetId(visual.id),
         });
-        if (fleetLocInSystemScene(visual.state, this.systemSceneIds)) {
+        if (this.fleetLocMatchesKepler(visual.state)) {
             this.writeParkedPathEnd(visual, this.getSceneTimeSec());
         }
     }
@@ -2140,6 +2472,38 @@ export class WebGpuMapView {
             seed: visual.seed,
             paused: false, // formation agent — shader LOD pauses draw on MID/FAR
         });
+    }
+    /**
+     * Place jewel ships on SCENE-scaled CIRCULATE around parked pathEnd.
+     * Host formation pack uses galaxy ORBIT_R (2–7); Kepler field is 0.1.
+     */
+    snapShipsToSceneOrbit(visual) {
+        const path = this.fleetGpuPath(visual);
+        if (!path)
+            return;
+        const n = visual.instanceCapacity;
+        const k = SCENE_AGENT_SCALE;
+        for (let i = 0; i < n; i++) {
+            const idx = visual.instanceStart + i;
+            const rec = readShipSim(this.shipSimView, idx * SHIP_SIM_STRIDE);
+            const R = Math.max(1e-6, (rec.orbitR ?? 2) * k);
+            const phase = rec.orbitPhase ?? 0;
+            const x = path.pathEndX + R * Math.sin(phase);
+            const z = path.pathEndZ + R * Math.cos(phase);
+            const y = (rec.slotY ?? 0) * k;
+            writeShipSim(this.shipSimView, idx * SHIP_SIM_STRIDE, {
+                ...rec,
+                posX: x,
+                posY: y,
+                posZ: z,
+                speed: Math.abs((rec.orbitOmega ?? 0) * R),
+                mode: SHIP_MODE_ORBIT,
+            });
+            const io = idx * FLEET_SHIP_DRAW_FLOATS;
+            this.instanceData[io] = x;
+            this.instanceData[io + 1] = y;
+            this.instanceData[io + 2] = z;
+        }
     }
     /**
      * R5 — after each integrate: count a warm frame for spawn warm-up.
@@ -2339,6 +2703,8 @@ export class WebGpuMapView {
         const sceneId = next.sceneId;
         const rec = sceneId != null ? this.sceneSystems.get(sceneId) : undefined;
         const nextHidden = rec ? rec.bufferIndex : null;
+        if (prevSceneId !== sceneId)
+            this.overlayDirty = true;
         if (this.sceneHiddenBufferIndex !== nextHidden) {
             const prevIdx = this.sceneHiddenBufferIndex;
             if (prevIdx != null) {
@@ -2369,7 +2735,8 @@ export class WebGpuMapView {
             this.setSystemScene(new Set());
             return;
         }
-        this.setSystemScene(new Set([sceneId]));
+        // Rebuild Kepler *before* setSystemScene so fleetLocMatchesKepler
+        // sees the new systemId when re-OR-ing bit 7 (not the previous jewel).
         if (this.solarBodies.systemId !== sceneId) {
             const catalogId = catalogIdFromSystemId(sceneId);
             const kepler = buildCompactKepler(catalogId);
@@ -2386,6 +2753,7 @@ export class WebGpuMapView {
         else {
             this.solarBodies.setSystemPosition(rec.x, rec.z);
         }
+        this.setSystemScene(new Set([sceneId]));
     }
     getLastFrameCpuMs() {
         return this.lastFrameCpuMs;
@@ -2468,7 +2836,6 @@ export class WebGpuMapView {
             this.renderFrame();
             this.catalogResidency.pumpPreviewLoads();
             this.catalogResidency.pumpHiLoad();
-            this.solarBodyLayer.pumpLutBake();
             this.lastFrameCpuMs = performance.now() - t0;
             this.frameCpuSampleSum += this.lastFrameCpuMs;
             this.frameCpuSampleCount++;
@@ -2529,9 +2896,13 @@ export class WebGpuMapView {
             // Floating origin: planar CIRCULATE follow → pathEnd (orbit center);
             // else followed ship pose; else camera eye. Chase look-at still uses ship.
             // Same-frame shadow (stepFollow above) — not a lagging readback.
-            const followOriginOpts = this.followShipIndex != null
-                ? this.followFrameOriginOpts(this.followShipIndex)
-                : null;
+            // Kepler open: do not feed sun-rel pathEnd into galaxy chooseFrameOrigin.
+            const keplerOpenNow = this.solarBodies.systemId != null;
+            const followOriginOpts = keplerOpenNow
+                ? null
+                : this.followShipIndex != null
+                    ? this.followFrameOriginOpts(this.followShipIndex)
+                    : null;
             this.frameOrigin = chooseFrameOrigin(this.cameraX, this.cameraY, this.cameraZ, followOriginOpts);
             mat4LookAtRelative(this.viewRel, this.cameraX, this.cameraY, this.cameraZ, this.targetX, this.targetY, this.targetZ, this.frameOrigin.x, this.frameOrigin.y, this.frameOrigin.z);
             mat4ViewProj(this.viewProjRel, this.proj, this.viewRel);
@@ -2573,16 +2944,37 @@ export class WebGpuMapView {
         const tanHalfFov = Math.tan(fovyRad * 0.5);
         // View distance, not raw eyeY — orbit eyeY≈0.05 would mark the cluster NEAR.
         const lodCameraY = cameraDistanceToTarget({ x: this.cameraX, y: this.cameraY, z: this.cameraZ }, { x: this.targetX, y: this.targetY, z: this.targetZ });
+        const keplerOpen = this.solarBodies.systemId != null;
+        if (keplerOpen) {
+            this.sceneSunX = this.solarBodies.systemX;
+            this.sceneSunZ = this.solarBodies.systemZ;
+            this.sceneSunOrigin.x = this.sceneSunX;
+            this.sceneSunOrigin.z = this.sceneSunZ;
+            buildSystemSceneView(this.sceneViewRel, this.sceneViewProjRel, this.proj, this.cameraX, this.cameraY, this.cameraZ, this.targetX, this.targetY, this.targetZ, this.sceneSunX, this.sceneSunZ);
+        }
         let modelIndices = [];
         frameDebugTime("selectModelLod", () => {
-            this.modelLodGlobalSticky = isModelLodActiveSticky(lodCameraY, this.cssHeight, tanHalfFov, this.modelLodGlobalSticky);
             const followIdx = this.followShipIndex;
-            const followingModels = followIdx != null;
-            const anySceneModels = this.systemSceneIds.size > 0;
-            // Models require sticky height AND (SCENE or follow) — no galaxy-wide hulls.
+            // Galaxy map: icons only — no model hulls. Jewel uses Kepler worldSize.
+            const sceneModelWorldSize = keplerOpen
+                ? BASE_SHIP_SIZE * SCENE_AGENT_SCALE * SCENE_SHIP_VISUAL_MUL
+                : undefined;
+            this.modelLodGlobalSticky = isModelLodActiveSticky(lodCameraY, this.cssHeight, tanHalfFov, this.modelLodGlobalSticky, sceneModelWorldSize != null
+                ? {
+                    worldSize: sceneModelWorldSize,
+                    enterScreenPx: 8,
+                    exitScreenPx: 5,
+                }
+                : undefined);
+            // Jewel: Kepler hull is ~6px at sun orbit — galaxy 100px gate never
+            // fires. Force sticky so textured models can draw; 8/5 stay the
+            // per-fleet floor in selectModelShipIndices. Galaxy follow stays icons.
+            if (keplerOpen)
+                this.modelLodGlobalSticky = true;
+            // Models require sticky height AND a loaded Kepler — no galaxy-wide hulls.
             if (this.modelLayer.isReady() &&
                 this.modelLodGlobalSticky &&
-                (anySceneModels || followingModels)) {
+                keplerOpen) {
                 const clusterCenters = [];
                 for (const meta of this.clusterLodMeta.values()) {
                     clusterCenters.push({
@@ -2609,9 +3001,16 @@ export class WebGpuMapView {
                     }
                 }
                 // Look-at for focus: chase target each frame (moves with ship).
-                const lookX = this.targetX;
-                const lookZ = this.targetZ;
-                const focusId = resolveModelFocusClusterId(lookX, lookZ, clusterCenters, followLoc);
+                const lookGalaxyX = this.targetX;
+                const lookGalaxyZ = this.targetZ;
+                // SCENE cull is sun-rel (pathEnd / ShipSim); topology focus stays galaxy.
+                const lookX = keplerOpen
+                    ? this.targetX - this.sceneSunX
+                    : this.targetX;
+                const lookZ = keplerOpen
+                    ? this.targetZ - this.sceneSunZ
+                    : this.targetZ;
+                const focusId = resolveModelFocusClusterId(lookGalaxyX, lookGalaxyZ, clusterCenters, followLoc);
                 const topoCtx = focusId != null
                     ? buildModelTopologyContext(focusId, [
                         ...this.jumpEdgesByKey.values(),
@@ -2643,8 +3042,12 @@ export class WebGpuMapView {
                     let posX;
                     let posZ;
                     if (isFollowed && followPose) {
-                        posX = followPose.posX;
-                        posZ = followPose.posZ;
+                        posX = keplerOpen
+                            ? followPose.posX - this.sceneSunX
+                            : followPose.posX;
+                        posZ = keplerOpen
+                            ? followPose.posZ - this.sceneSunZ
+                            : followPose.posZ;
                     }
                     else {
                         // Prefer pathEnd when closer to look-at so inbound gate hops model.
@@ -2670,6 +3073,14 @@ export class WebGpuMapView {
                     eyeZ: this.cameraZ,
                     viewportH: this.cssHeight,
                     assumeHeightGate: true,
+                    ...(sceneModelWorldSize != null
+                        ? {
+                            worldSize: sceneModelWorldSize,
+                            minScreenPx: 8,
+                            exitScreenPx: 5,
+                            neighborRadius: 2,
+                        }
+                        : {}),
                 }, MODEL_LOD_MAX_INSTANCES, this.modelLodFleetSticky);
             }
             else {
@@ -2719,20 +3130,21 @@ export class WebGpuMapView {
             const fovyRadIntegrate = (this.fovyDeg * Math.PI) / 180;
             const integrateCamera = {
                 cameraY: lodCameraY,
-                targetX: this.targetX,
-                targetZ: this.targetZ,
+                targetX: keplerOpen ? this.targetX - this.sceneSunX : this.targetX,
+                targetZ: keplerOpen ? this.targetZ - this.sceneSunZ : this.targetZ,
                 viewportH: this.cssHeight,
                 tanHalfFov: Math.tan(fovyRadIntegrate * 0.5),
-                // Same floating origin as model/trail draw — expand writes origin-relative
-                // endpoints so pot offsets stay precise (esp. follow origin = ship).
-                originX: this.frameOrigin.x,
-                originY: this.frameOrigin.y,
-                originZ: this.frameOrigin.z,
+                // Galaxy: eye/ship/pathEnd. SCENE: ships are sun-rel → origin 0.
+                originX: keplerOpen ? 0 : this.frameOrigin.x,
+                originY: keplerOpen ? 0 : this.frameOrigin.y,
+                originZ: keplerOpen ? 0 : this.frameOrigin.z,
             };
             const following = this.followShipIndex != null;
             const integrateOpts = {
                 anyScene: this.systemSceneIds.size > 0 || following,
                 follow: following,
+                systemSceneActive: keplerOpen,
+                hideNonSceneDraw: keplerOpen || this.getGalaxyFade() < 1,
             };
             // Follow lockstep: integrate must *finish* on the GPU before we overwrite
             // the tracked ship with the camera shadow. queue.writeBuffer before a single
@@ -2771,6 +3183,9 @@ export class WebGpuMapView {
                 ? this.resolveColorView
                 : texture.createView();
             const origin = this.frameOrigin;
+            const sceneView = this.sceneViewRel;
+            const sceneViewProj = this.sceneViewProjRel;
+            const sceneOrigin = this.sceneOriginZero;
             const bandC = this.focusedBodyIndex != null &&
                 this.focusedBodyIndex >= 0 &&
                 this.solarBodies.currentCount > 0 &&
@@ -2779,8 +3194,8 @@ export class WebGpuMapView {
             this.solarBodyLayer.prepare({
                 store: this.solarBodies,
                 residency: this.catalogResidency,
-                viewProjRel: this.viewProjRel,
-                frameOrigin: origin,
+                viewProjRel: keplerOpen ? sceneViewProj : this.viewProjRel,
+                frameOrigin: keplerOpen ? this.sceneSunOrigin : origin,
                 eyeX: this.cameraX,
                 eyeY: this.cameraY,
                 eyeZ: this.cameraZ,
@@ -2795,10 +3210,11 @@ export class WebGpuMapView {
             // Hashed sticky pass-set: fill reused flags, skip unused encode.
             // Rebuild the number when flags change — no PassData / plan object.
             const sceneOpen = this.systemSceneIds.size > 0 || this.solarBodies.systemId != null;
+            const keplerEncode = sceneOpen && this.shouldEncodeKeplerScene();
             const nBodies = this.solarBodies.currentCount;
             const hasSun = solarStoreHasSun(this.solarBodies.isSun, nBodies);
             const hasDisc = solarStoreHasDisc(this.solarBodies.isSun, nBodies);
-            fillPassSetFlags(this.passSetFlags, sceneOpen && hasDisc, sceneOpen && hasSun, (sceneOpen && hasDisc) || bandC, modelOn && modelN > 0, following);
+            fillPassSetFlags(this.passSetFlags, keplerEncode && hasDisc, keplerEncode && hasSun, (keplerEncode && hasDisc) || (keplerEncode && bandC), modelOn && modelN > 0, following);
             this.passSetHash = hashPassSet(this.passSetFlags);
             const passColor = encoder.beginRenderPass({
                 colorAttachments: [
@@ -2811,29 +3227,40 @@ export class WebGpuMapView {
                     },
                 ],
             });
-            // Topology connections: origin-relative view + same proj (screen-px width).
-            frameDebugTime("encode.lines", () => this.lines.encode(passColor, this.viewRel, this.proj, origin));
-            // Systems then cluster impostors — same worldScale (~5px diameter).
-            frameDebugTime("encode.points", () => this.points.encode(passColor, this.viewProjRel, this.pointWorldScale, this.store.currentCount, this.cameraRight, this.cameraUp, origin));
-            frameDebugTime("encode.impostors", () => this.impostorPoints.encode(passColor, this.viewProjRel, this.pointWorldScale, this.impostorStore.currentCount, this.cameraRight, this.cameraUp, origin));
+            // Faded galaxy (if any) → schematics → solar discs. Skip topology while
+            // orbiting so galaxy jump-gate f32 jitter does not crawl the SCENE.
+            this.lastGalaxyTopologyEncoded = false;
+            if (this.galaxyFade >= 1) {
+                frameDebugTime("encode.lines", () => this.lines.encode(passColor, this.viewRel, this.proj, origin));
+                this.lastGalaxyTopologyEncoded = true;
+            }
+            if (this.galaxyFade >= GALAXY_FADE_SKIP) {
+                frameDebugTime("encode.points", () => this.points.encode(passColor, this.viewProjRel, this.pointWorldScale, this.store.currentCount, this.cameraRight, this.cameraUp, origin, this.galaxyFade));
+                frameDebugTime("encode.impostors", () => this.impostorPoints.encode(passColor, this.viewProjRel, this.pointWorldScale, this.impostorStore.currentCount, this.cameraRight, this.cameraUp, origin, this.galaxyFade));
+            }
+            frameDebugTime("encode.schematics", () => this.encodeSceneSchematicsViewRel(passColor, keplerOpen ? this.sceneSunOrigin : origin));
             // Band B: compact Kepler after 5px hide is visible. Color-only (no frag_depth).
             // Skip unused: do not record encode.solarBodies when discs+sun are off.
             if (this.passSetFlags.discs || this.passSetFlags.sun) {
                 frameDebugTime("encode.solarBodies", () => this.solarBodyLayer.encode(passColor));
             }
-            // Strategic trails only in the color-only pass (no depth). When model LOD
-            // owns ships, pot trails draw after models in the depth pass instead.
-            if (!(modelOn && modelN > 0)) {
-                frameDebugTime("encode.trails", () => this.fleetsLayer.encodeTrails(passColor, this.viewRel, this.proj, this.canvas.width, this.canvas.height, lodCameraY, origin));
+            else {
+                this.solarBodyLayer.clearLastDrawCount();
+            }
+            // Strategic trails only in the color-only pass (no depth). Galaxy map
+            // is icons — skip when Kepler is not loaded. When model LOD owns ships,
+            // pot trails draw after models in the depth pass instead.
+            if (keplerOpen && !(modelOn && modelN > 0)) {
+                frameDebugTime("encode.trails", () => this.fleetsLayer.encodeTrails(passColor, sceneView, this.proj, this.canvas.width, this.canvas.height, lodCameraY, sceneOrigin, { sceneTrailScale: true }));
             }
             // W4: cameraY / viewportH / tanHalfFov + floating origin for ship VS.
-            frameDebugTime("encode.fleets", () => this.fleetsLayer.encode(passColor, this.viewProjRel, 0.95, {
+            frameDebugTime("encode.fleets", () => this.fleetsLayer.encode(passColor, keplerOpen ? sceneViewProj : this.viewProjRel, 0.95, {
                 cameraY: cameraDistanceToTarget({ x: this.cameraX, y: this.cameraY, z: this.cameraZ }, { x: this.targetX, y: this.targetY, z: this.targetZ }),
                 viewportH: this.cssHeight,
                 tanHalfFov,
-                originX: origin.x,
-                originY: origin.y,
-                originZ: origin.z,
+                originX: keplerOpen ? sceneOrigin.x : origin.x,
+                originY: keplerOpen ? sceneOrigin.y : origin.y,
+                originZ: keplerOpen ? sceneOrigin.z : origin.z,
             }));
             // M4: translucent plane fills under fat Line2 rings/axes.
             // Resolution every frame so select/hover rings keep correct screen width
@@ -2849,7 +3276,6 @@ export class WebGpuMapView {
                 }
                 this.overlayLines.writeViewProjection(this.viewRel, this.proj);
                 this.overlayLines.encode(passColor);
-                this.encodeOrbitRingsViewRel(passColor, origin);
             });
             passColor.end();
             // Pass 2: depth when models OR Band C; resolve MSAA → swapchain
@@ -2877,21 +3303,21 @@ export class WebGpuMapView {
             if (bandC && this.msaaDepthView && this.passSetFlags.atm) {
                 frameDebugTime("encode.bandC", () => this.solarBodyLayer.encodeDepth(passResolve));
             }
-            if (modelOn && modelN > 0) {
+            if (keplerOpen && modelOn && modelN > 0) {
                 // eyeWorld = true camera (rim only). Key light is fleet pathEnd in VS.
                 // Follow floating origin may be the ship — do not use origin as light.
                 if (this.passSetFlags.models) {
-                    frameDebugTime("encode.models", () => this.modelLayer.encode(passResolve, this.viewProjRel, modelIndices, origin, {
-                        x: this.cameraX,
+                    frameDebugTime("encode.models", () => this.modelLayer.encode(passResolve, sceneViewProj, modelIndices, sceneOrigin, {
+                        x: this.cameraX - this.sceneSunX,
                         y: this.cameraY,
-                        z: this.cameraZ,
+                        z: this.cameraZ - this.sceneSunZ,
                     }, 
                     // Aft thruster pulse — same wall clock as trail glow feel.
                     this.toGpuTime(Date.now()) / 1000));
                 }
                 // Model pot trails after opaque hull. Depth write off; compare less-equal
                 // so nearer hulls occlude far thruster ribbons (not always-on-top).
-                frameDebugTime("encode.modelTrails", () => this.fleetsLayer.encodeTrails(passResolve, this.viewRel, this.proj, this.canvas.width, this.canvas.height, lodCameraY, origin, { depthAware: true }));
+                frameDebugTime("encode.modelTrails", () => this.fleetsLayer.encodeTrails(passResolve, sceneView, this.proj, this.canvas.width, this.canvas.height, lodCameraY, sceneOrigin, { depthAware: true, sceneTrailScale: true }));
             }
             passResolve.end();
             frameDebugTime("queue.submit", () => this.bootstrap.device.queue.submit([encoder.finish()]));
@@ -2912,6 +3338,10 @@ export class WebGpuMapView {
         this.solarBodyLayer.dispose();
         this.orbitRings?.dispose();
         this.orbitRings = null;
+        this.sceneGrid?.dispose();
+        this.sceneGrid = null;
+        this.sceneJumpRays?.dispose();
+        this.sceneJumpRays = null;
         this.catalogResidency.dispose();
         this.lines.dispose();
         this.modelLayer.dispose();

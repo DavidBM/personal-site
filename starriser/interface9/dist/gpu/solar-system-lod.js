@@ -9,7 +9,7 @@
  */
 import { RENDER_PLANE_Y } from "../contracts/render-constants.js";
 import { LOD_HOLD_MS, projectedWorldSizeAtDistanceToScreenPx } from "./fleet-lod.js";
-import { keplerPhaseLocalF32 } from "./math/world-origin.js";
+import { keplerOrbitLocalF32 } from "./math/world-origin.js";
 /**
  * Compact Kepler field diameter (world). Neighbors sit ~25 apart, so span 0.1
  * is 250 diameters away. Schmitt uses projected {@link SYSTEM_LOCAL_SPAN} only
@@ -46,7 +46,8 @@ function keplerPhaseAt(phase0, period, timeSec) {
     return phase0 + (timeSec / Math.max(1e-6, period)) * Math.PI * 2;
 }
 /**
- * World pose of a compact Kepler slot (y = gameplay plane).
+ * World pose of a compact Kepler slot. Planets use hashed inclination
+ * (`catalogIds`); the sun stays on the gameplay plane.
  * Optional `out` reuses a scratch vec so the rAF parking path does not alloc.
  */
 export function composeCompactBodyWorld(store, index, timeSec, out) {
@@ -59,9 +60,9 @@ export function composeCompactBodyWorld(store, index, timeSec, out) {
         dest.z = store.systemZ;
         return dest;
     }
-    const local = keplerPhaseLocalF32(KEPLER_SCALE, store.orbitRadius[index], keplerPhaseAt(store.phase0[index], store.orbitPeriod[index], timeSec));
+    const local = keplerOrbitLocalF32(KEPLER_SCALE, store.orbitRadius[index], keplerPhaseAt(store.phase0[index], store.orbitPeriod[index], timeSec), store.catalogIds?.[index]);
     dest.x = store.systemX + local.x;
-    dest.y = RENDER_PLANE_Y;
+    dest.y = RENDER_PLANE_Y + local.y;
     dest.z = store.systemZ + local.z;
     return dest;
 }

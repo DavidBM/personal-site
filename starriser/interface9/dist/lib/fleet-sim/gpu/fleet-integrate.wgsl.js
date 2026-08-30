@@ -3,26 +3,31 @@
  *
  * Two entry points (same module):
  *   cs_fleets — one thread / fleet: FleetGpu.pos via ease01;
- *               GPU LOD band from cameraY + distXZ(target):
- *                 NEAR + shipsPassActive + (no SCENE req | bit 7):
- *                   cs_ships owns multi-ship draw (no fleet write)
- *                 else: writeLodProxy icon — never leave stale NEAR tris
- *                 MID/FAR: writeLodProxy screen icon; zero rest of budget
+ *               always writeLodProxy for live fleets with N>0 (never NEAR-skip):
+ *                 hideNonSceneDraw + no bit 7: size=0, screenSpace=1
+ *                   (jewel: do not skip — zero stale ICON_SCREEN_PX)
+ *                 else: ICON_SCREEN_PX + pad=1 (MID/FAR and NEAR)
+ *               same-encoder cs_ships overwrites SCENE/NEAR ships it processes
+ *               tombstone ALIVE=0: writeLodProxy size=0 if budget>0
+ *               Origin-relative instance bases glue to the camera if a later
+ *               pass skips — that is the giant frozen triangle.
  *   cs_ships  — one thread / ship: integrateShipAgent + draw scatter + trails;
  *               seek center = pathEnd (hop destination), centerVel = 0
  *               MID/FAR: size 0 (non-base) + skip agent (cs_fleets owns draw)
  *               NEAR: agent + trails for localIndex < shipBudget
- *               mode==PAUSED early-returns (tombstone ships)
+ *               mode==PAUSED: zeroDrawSize then return (tombstone leftover)
  *               FLEET_FLAG_WARM → still sim, write draw size=0 (no pop)
  *               FLEET_FLAG_SYSTEM_SCENE (bit7): AND for agent + trail append.
  *               Missing SCENE + requireSystemScene → FAR-equivalent skip.
- *               SCENE_AGENT_SCALE (KEPLER_SCALE = 0.1/56) local orbitR, slotY, NEAR size; never
- *               write scaled orbitR/slotY back to ShipSim. Galaxy-scale posY
- *               snaps once on SCENE enter. cs_fleets NEAR-handoff uses bit 7
- *               only when shipsPassActive (else galaxy-wide icon).
+ *               compactN==0 && requireSystemScene: return (do not high-water).
+ *               SCENE_AGENT_SCALE (KEPLER_SCALE = 0.1/56) local orbitR, slotY;
+ *               NEAR size *= SCENE_AGENT_SCALE * SCENE_SHIP_VISUAL_MUL; dt *=
+ *               SCENE_SPEED_SCALE. Never write scaled orbitR/slotY back.
+ *               Galaxy-scale posY snaps once on SCENE enter.
  *   cs_compact_scene — walk nFleets (bit 7); append simIdx worklist into the
  *               one trailIndirect table. Product cs_ships reads worklist[gid].
- *               forceLodNear leaves compactCount=0 (high-water gid.x).
+ *               forceLodNear leaves compactCount=0 + requireSystemScene=0
+ *               (high-water gid.x).
  *
  * Host dispatches fleets first, then ships (same encoder; storage barrier auto).
  * Ship physics matches ship-flight-ref / ship-orbit-ref EXACTLY.
@@ -45,7 +50,7 @@ import { DEFAULT_TRAIL_LAYOUT, TRAIL_ALPHA_POWER, TRAIL_ALONG_POWER, TRAIL_LINE_
 import { TRAIL_TEMPLATE_INDEX_COUNT } from "./fleet-trails.wgsl.js";
 import { MODEL_TRAIL_EMITTER_COUNT, MODEL_TRAIL_EMITTERS, modelTrailExpandAlphaMul, } from "../visual/model-trail-config.js";
 import { SHIP_APPROACH_BRAKE_POWER, SHIP_BRAKE_DIST_MARGIN, SHIP_DEFAULT_BRAKE_DIST, SHIP_LAUNCH_ACCEL_MIN, SHIP_LAUNCH_SPEED_FRAC, SHIP_MAX_ACCEL, SHIP_MAX_SPEED, SHIP_MID_CRUISE_BOOST, SHIP_MIN_ALIGN, SHIP_MODE_JUMP, SHIP_MODE_ORBIT, SHIP_MODE_PAUSED, SHIP_MODE_SETTLE, SHIP_NOSE_OFFSET, CRUISE_ACCEL_SCALE, CRUISE_BRAKE_MULT, JUMP_BRAKE_MULT, V_OPEN_UNCAP, HOP_OPEN_SPEED_MUL, HOP_OPEN_SPEED_MIN, RESIDUAL_HIGH_MUL, RESIDUAL_CLEAR_MUL, RESIDUAL_FREEZE_OUT_K, } from "../visual/ship-flight-ref.js";
-import { ORBIT_CAPTURE_K, ORBIT_CAPTURE_OUT_K, ORBIT_DEFAULT_ACCEL, ORBIT_DEFAULT_OMEGA_MAX, ORBIT_ENTRANCE_EPS_TINY, ORBIT_ENTRANCE_REM_K, ORBIT_LEAD_RAD, ORBIT_NEAR_SPEED_SCALE, ORBIT_OMEGA_TURN_FRAC, ORBIT_R_EPS, ORBIT_R_MIN, SCENE_AGENT_SCALE, ORBIT_SPRING_K, ORBIT_V_RAD_MAX_FRAC, ORBIT_V_RAD_MAX_R_MUL, ORBIT_RESIDUAL_V_MUL, ORBIT_RESIDUAL_V_ADD, ORBIT_SINGULARITY_R_MUL, ORBIT_ESCAPE_V_RAD, ORBIT_SETTLED_R_FRAC, ORBIT_SETTLED_HEADING_RAD, ORBIT_HEIGHT_MAX, ORBIT_HEIGHT_BLEND_REM_K, ORBIT_HEIGHT_APPROACH_TAU_S, ORBIT_HEIGHT_CLIMB_SLOPE, ORBIT_HEIGHT_MAX_FRAME_FRAC, ORBIT_HEIGHT_MIN_RATE, V_TURN_ALLOW_R_FRAC, } from "../visual/ship-orbit-ref.js";
+import { ORBIT_CAPTURE_K, ORBIT_CAPTURE_OUT_K, ORBIT_DEFAULT_ACCEL, ORBIT_DEFAULT_OMEGA_MAX, ORBIT_ENTRANCE_EPS_TINY, ORBIT_ENTRANCE_REM_K, ORBIT_LEAD_RAD, ORBIT_NEAR_SPEED_SCALE, ORBIT_OMEGA_TURN_FRAC, ORBIT_R_EPS, ORBIT_R_MIN, SCENE_AGENT_SCALE, SCENE_SHIP_VISUAL_MUL, SCENE_TRAIL_WIDTH_MUL, SCENE_SPEED_SCALE, ORBIT_SPRING_K, ORBIT_V_RAD_MAX_FRAC, ORBIT_V_RAD_MAX_R_MUL, ORBIT_RESIDUAL_V_MUL, ORBIT_RESIDUAL_V_ADD, ORBIT_SINGULARITY_R_MUL, ORBIT_ESCAPE_V_RAD, ORBIT_SETTLED_R_FRAC, ORBIT_SETTLED_HEADING_RAD, ORBIT_HEIGHT_MAX, ORBIT_HEIGHT_BLEND_REM_K, ORBIT_HEIGHT_APPROACH_TAU_S, ORBIT_HEIGHT_CLIMB_SLOPE, ORBIT_HEIGHT_MAX_FRAME_FRAC, ORBIT_HEIGHT_MIN_RATE, V_TURN_ALLOW_R_FRAC, } from "../visual/ship-orbit-ref.js";
 import { SHIP_SIM_STRIDE } from "../visual/ship-sim-layout.js";
 import { TRAIL_META_WORD as META } from "../visual/trail-indirect-table.js";
 import { FLEET_SHIP_DRAW_STRIDE } from "./fleet-ships.wgsl.js";
@@ -56,13 +61,17 @@ import { FLEET_SHIP_DRAW_STRIDE } from "./fleet-ships.wgsl.js";
  *   tanHalfFov f32, lodNearY f32, lodFarY f32, lodMidDist f32,
  *   expandTrails u32, appendTrails u32, lodNearDist f32, viewCullScale f32,
  *   originX f32, originY f32, originZ f32, requireSystemScene u32,
- *   shipsPassActive u32, _pad0 u32, _pad1 u32, _pad2 u32
+ *   shipsPassActive u32, hideNonSceneDraw u32, _pad1 u32, _pad2 u32
  *
  * `origin` = frame floating origin (same as model/trail draw). Expand writes
  * **origin-relative** trail endpoints so pot offsets stay mesh-scale at large |world|.
  *
  * `shipsPassActive` = 1 iff this dispatch will run `cs_ships` (`shipsNeedAgent`).
- * `cs_fleets` NEAR-handoffs only when this is set; otherwise writeLodProxy.
+ * `cs_fleets` always writeLodProxy; it does not NEAR-skip on this flag.
+ *
+ * `hideNonSceneDraw` = 1 in the jewel (Kepler loaded or galaxyFade&lt;1).
+ * Non-SCENE fleets writeLodProxy size=0 (stale icons). Do **not** reuse
+ * `requireSystemScene` for this — map follow without a jewel keeps icons.
  *
  * `expandTrails`:
  *   0 = skip ribbon expand
@@ -172,6 +181,9 @@ const ICON_SCREEN_PX: f32 = ${ICON_SCREEN_PX};
 // Orbit constants — match ship-orbit-ref.ts (unified controller)
 const ORBIT_R_MIN: f32 = ${ORBIT_R_MIN};
 const SCENE_AGENT_SCALE: f32 = ${SCENE_AGENT_SCALE};
+const SCENE_SHIP_VISUAL_MUL: f32 = ${SCENE_SHIP_VISUAL_MUL};
+const SCENE_TRAIL_WIDTH_MUL: f32 = ${SCENE_TRAIL_WIDTH_MUL};
+const SCENE_SPEED_SCALE: f32 = ${SCENE_SPEED_SCALE};
 const ORBIT_SPRING_K: f32 = ${ORBIT_SPRING_K};
 const ORBIT_DEFAULT_OMEGA_MAX: f32 = ${ORBIT_DEFAULT_OMEGA_MAX};
 const ORBIT_DEFAULT_ACCEL: f32 = ${ORBIT_DEFAULT_ACCEL};
@@ -256,10 +268,11 @@ struct IntegrateUniforms {
   requireSystemScene: u32,
   /**
    * 1 = this dispatch will run cs_ships (shipsNeedAgent).
-   * cs_fleets NEAR-handoffs only then; else writeLodProxy (no stale tris).
+   * Host skip / compact gating; cs_fleets always writeLodProxy regardless.
    */
   shipsPassActive: u32,
-  _padPass0: u32,
+  /** 1 = jewel: non-SCENE writeLodProxy size=0 (not a skip). Map follow without jewel = 0. */
+  hideNonSceneDraw: u32,
   _padPass1: u32,
   _padPass2: u32,
 };
@@ -1382,6 +1395,9 @@ fn integrateShipAgent(
   } else if (dt > 50.0) {
     dt = 50.0;
   }
+  if ((flags & FLEET_FLAG_SYSTEM_SCENE) != 0u && !domainWarpActive) {
+    dt = dt * SCENE_SPEED_SCALE;
+  }
   let dtSec = dt / 1000.0;
 
   if (ship.mode == SHIP_MODE_PAUSED) {
@@ -1391,6 +1407,7 @@ fn integrateShipAgent(
   // Scale orbitR + slotY locally for this step; restore before writeback.
   let orbitRCanon = ship.orbitR;
   let slotYCanon = ship.slotY;
+  let cruiseCanon = ship.cruiseV;
   ship.orbitR = sceneScaleOrbitR(ship.orbitR, flags);
   if ((flags & FLEET_FLAG_SYSTEM_SCENE) != 0u) {
     ship.slotY = ship.slotY * SCENE_AGENT_SCALE;
@@ -1408,6 +1425,15 @@ fn integrateShipAgent(
   }
   if (!(ship.cruiseV > 0.0)) {
     ship.cruiseV = SHIP_MAX_SPEED;
+  }
+  if ((flags & FLEET_FLAG_SYSTEM_SCENE) != 0u && !domainWarpActive) {
+    ship.cruiseV = ship.cruiseV * SCENE_SPEED_SCALE;
+    // Residual 12k would cross the jewel in one frame; cap to calm CIRCULATE.
+    let vOrb = orbitFloorSpeed(ship.orbitOmega, ship.orbitR, ship.omegaMax);
+    let vCap = max(4.0 * vOrb, 0.05);
+    if (ship.speed > vCap) {
+      ship.speed = vCap;
+    }
   }
 
   // Hop open from path length / domain duration (formation ships share fleet clock).
@@ -1532,6 +1558,7 @@ fn integrateShipAgent(
   );
   out.orbitR = orbitRCanon;
   out.slotY = slotYCanon;
+  out.cruiseV = cruiseCanon;
   return out;
 }
 
@@ -1846,9 +1873,14 @@ fn expandShipTrails(
   } else {
     q = quatNormalize4(q);
   }
-  let o0 = quatRotateVec3(q, MODEL_TRAIL_E0_LOCAL);
-  let o1 = quatRotateVec3(q, MODEL_TRAIL_E1_LOCAL);
-  let o2 = quatRotateVec3(q, MODEL_TRAIL_E2_LOCAL);
+  var emitScale = 1.0;
+  let fi = ship.fleetIndex;
+  if (fi < arrayLength(&fleets) && (fleets[fi].flags & FLEET_FLAG_SYSTEM_SCENE) != 0u) {
+    emitScale = SCENE_TRAIL_WIDTH_MUL;
+  }
+  let o0 = quatRotateVec3(q, MODEL_TRAIL_E0_LOCAL * emitScale);
+  let o1 = quatRotateVec3(q, MODEL_TRAIL_E1_LOCAL * emitScale);
+  let o2 = quatRotateVec3(q, MODEL_TRAIL_E2_LOCAL * emitScale);
   expandTrailLines(
     simIdx, ringBase, write, colorR, colorG, colorB, baseY,
     o0, MODEL_TRAIL_E0_ALPHA, maxSlots, pathEndX, pathEndZ, pathEndY,
@@ -2030,9 +2062,11 @@ fn writeLodProxy(
 /**
  * Pass A — one thread per fleet: ease FleetGpu.pos + GPU LOD draw.
  * Heading left untouched (formation formH).
- * NEAR + shipsPassActive + (no SCENE req | bit 7): cs_ships owns draw.
- * Otherwise writeLodProxy (MID/FAR icon, or NEAR when cs_ships will not
- * touch this fleet) so origin-relative icons never stick to the screen.
+ * Always writeLodProxy for live N>0 (never NEAR-skip): origin-relative
+ * instance bases glue to the camera if cs_ships later skips this fleet.
+ * hideNonSceneDraw + no bit 7: writeLodProxy size=0 (jewel; not a skip).
+ * Else ICON_SCREEN_PX + pad=1. Same-encoder cs_ships overwrites ships it
+ * actually processes — no one-frame ICON flash on live NEAR/SCENE.
  */
 @compute @workgroup_size(${FLEET_INTEGRATE_WORKGROUP})
 fn cs_fleets(@builtin(global_invocation_id) gid3: vec3<u32>) {
@@ -2042,8 +2076,22 @@ fn cs_fleets(@builtin(global_invocation_id) gid3: vec3<u32>) {
   }
 
   var f = fleets[gid];
-  // Tombstone: skip (host zeros draw on free).
+  // Tombstone: zero leftover origin-relative tris (they glue to the camera).
   if ((f.flags & FLEET_FLAG_ALIVE) == 0u) {
+    let nDead = f.shipBudget;
+    if (nDead > 0u) {
+      writeLodProxy(
+        f.instanceStart,
+        nDead,
+        f.posX - u.origin.x,
+        f.posZ - u.origin.z,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+      );
+    }
     return;
   }
 
@@ -2068,18 +2116,46 @@ fn cs_fleets(@builtin(global_invocation_id) gid3: vec3<u32>) {
     return;
   }
   let base = f.instanceStart;
-  let band = classifyLodBand(u.cameraY, f.posX, f.posZ);
 
-  // NEAR: cs_ships owns multi-ship draw only when this dispatch runs it
-  // for this fleet. Missing SCENE / host skip → icon path (no stale tris).
-  if (band == LOD_BAND_NEAR && u.shipsPassActive != 0u) {
-    if (u.requireSystemScene == 0u || (f.flags & FLEET_FLAG_SYSTEM_SCENE) != 0u) {
-      return;
-    }
+  // Jewel: hide galaxy-wide fleet icons. Zero size — skip leaves stale icons.
+  // Do not use requireSystemScene for this (map follow without jewel keeps icons).
+  let sceneBit = (f.flags & FLEET_FLAG_SYSTEM_SCENE) != 0u;
+  if (u.hideNonSceneDraw != 0u && (f.flags & FLEET_FLAG_SYSTEM_SCENE) == 0u) {
+    let domHide = dominantFromPacked(f.countsPacked);
+    writeLodProxy(
+      base,
+      N,
+      f.posX - u.origin.x,
+      f.posZ - u.origin.z,
+      0.0,
+      domHide.y,
+      domHide.z,
+      domHide.w,
+      1.0,
+    );
+    return;
+  }
+
+  // Non-SCENE fleets always get a fresh icon this frame whenever a SCENE
+  // pass is open (requireSystemScene). Same ICON as the default write.
+  if (!sceneBit && u.requireSystemScene != 0u) {
+    let domNs = dominantFromPacked(f.countsPacked);
+    writeLodProxy(
+      base,
+      N,
+      f.posX - u.origin.x,
+      f.posZ - u.origin.z,
+      ICON_SCREEN_PX,
+      domNs.y,
+      domNs.z,
+      domNs.w,
+      1.0,
+    );
+    return;
   }
 
   let dom = dominantFromPacked(f.countsPacked);
-  // MID/FAR (and NEAR without a ships pass) share ICON_SCREEN_PX + pad=1.
+  // MID/FAR and NEAR share ICON_SCREEN_PX + pad=1. cs_ships overwrites.
   writeLodProxy(
     base,
     N,
@@ -2101,12 +2177,19 @@ fn cs_fleets(@builtin(global_invocation_id) gid3: vec3<u32>) {
  *   FAR  — no agent; icon from cs_fleets
  * Off-screen / soft nearDist demote to MID via classifyLodBand.
  * Product compact: compactCount>0 → simIdx = worklist[gid] (SCENE bit 7).
- * forceLodNear: compactCount stays 0 → high-water gid.x.
+ * compactN==0 && requireSystemScene: return (do not high-water gid.x).
+ * forceLodNear: compactCount stays 0 + requireSystemScene=0 → high-water gid.x.
  */
 @compute @workgroup_size(${FLEET_INTEGRATE_WORKGROUP})
 fn cs_ships(@builtin(global_invocation_id) gid3: vec3<u32>) {
   var simIdx = gid3.x;
   let compactN = atomicLoad(&trailDrawMeta[${META.COMPACT_COUNT}u]);
+  // Empty SCENE worklist must not fall through to high-water gid.x (that
+  // agents the first N ships in buffer order). forceLodNear goldens keep
+  // requireSystemScene=0 so compactN==0 still means high-water.
+  if (compactN == 0u && u.requireSystemScene != 0u) {
+    return;
+  }
   if (compactN > 0u) {
     if (gid3.x >= compactN) {
       return;
@@ -2124,6 +2207,7 @@ fn cs_ships(@builtin(global_invocation_id) gid3: vec3<u32>) {
   let o = simIdx * floatsPerInstance;
 
   if (ship.mode == SHIP_MODE_PAUSED) {
+    zeroDrawSize(simIdx);
     ship.speed = 0.0;
     shipSims[simIdx] = ship;
     return;
@@ -2301,7 +2385,7 @@ fn cs_ships(@builtin(global_invocation_id) gid3: vec3<u32>) {
         instances[o + 8u], instances[o + 9u], instances[o + 10u],
       );
       if ((f.flags & FLEET_FLAG_SYSTEM_SCENE) != 0u) {
-        sz = sz * SCENE_AGENT_SCALE;
+        sz = sz * SCENE_AGENT_SCALE * SCENE_SHIP_VISUAL_MUL;
       }
       instances[o + 7u] = sz;
       instances[o + 11u] = 0.0;
@@ -2446,7 +2530,7 @@ struct IntegrateUniforms {
   origin: vec3<f32>,
   requireSystemScene: u32,
   shipsPassActive: u32,
-  _padPass0: u32,
+  hideNonSceneDraw: u32,
   _padPass1: u32,
   _padPass2: u32,
 };

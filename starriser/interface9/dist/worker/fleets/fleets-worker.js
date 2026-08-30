@@ -3,7 +3,7 @@ import { whenPubSubReady } from "../bus/when-pubsub-ready.js";
 import { publishTopic, subscribeTopic, Topics, } from "../protocol/topics.js";
 import { applyFleetOps, clearFleetWorld, createFleetWorld, removeInvalidFleets, } from "./fleet-world.js";
 import { tickFleets } from "./fleet-simulation.js";
-import { spawnFleet, trySpawnFleet } from "./fleet-spawner.js";
+import { spawnFleet, spawnParkedAt, trySpawnFleet, } from "./fleet-spawner.js";
 const TICK_MS = 120;
 /**
  * Worker-side bulk spawn pacing.
@@ -115,11 +115,18 @@ export function busConstructor(bus) {
             onOps: handleOps,
             onClearGalaxy: handleClearGalaxy,
         });
-        subscribeTopic(bus, Topics.generateFleet, () => {
+        subscribeTopic(bus, Topics.generateFleet, (payload) => {
+            const at = payload?.at;
+            if (at && Number.isFinite(at.clusterId) && Number.isFinite(at.solarSystemId)) {
+                spawnParkedAt(world, { clusterId: at.clusterId, solarSystemId: at.solarSystemId }, publishSpawned);
+                return;
+            }
             // Single fleet: one fleet_spawned with jumping state.
             spawnFleet(world, Date.now(), publishSpawned);
         });
         subscribeTopic(bus, Topics.generateFleetsBulk, (payload) => {
+            // Galaxy-wide only. Ignoring payload.at — parking N fleets in one jewel
+            // floods NEAR triangles (Generate 1K while SCENE is open).
             startBulkSpawn(payload?.count ?? 0);
         });
         ensureTicking();

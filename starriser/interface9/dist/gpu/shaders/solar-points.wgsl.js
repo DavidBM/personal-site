@@ -29,7 +29,8 @@ struct Uniforms {
   _padU : f32,
   /** Floating origin — VS forms (center − origin) then viewProjRel. */
   origin : vec3<f32>,
-  _padO : f32,
+  /** Galaxy fade while Kepler SCENE orbit eases in (1 = full, 0 = hidden). */
+  galaxyFade : f32,
 };
 
 @group(0) @binding(0) var<uniform> u : Uniforms;
@@ -80,7 +81,7 @@ fn fs_main(input : VSOut) -> @location(0) vec4<f32> {
   if (d > 0.5) {
     discard;
   }
-  let alpha = 0.85 * smoothstep(0.5, 0.35, d);
+  let alpha = 0.85 * smoothstep(0.5, 0.35, d) * u.galaxyFade;
   return vec4<f32>(input.color, alpha);
 }
 `;

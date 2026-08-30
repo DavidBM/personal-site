@@ -11,9 +11,10 @@
  *   2 ICON      — cameraY ≥ farY: single icon, no agent, no trail
  *
  * Product ship gate (map-view): expensive `cs_ships` only when
- * `useFast || anyScene || follow`. Model LOD (`isModelLodActive*` /
- * `selectModelShipIndices`) is height/view/neighbor policy only — the map
- * `selectModelLod` block must also require SYSTEM_SCENE or follow.
+ * `useFast || systemSceneActive` (Kepler loaded). Galaxy map is icons;
+ * follow there does not run the ships pass. Model LOD
+ * (`isModelLodActive*` / `selectModelShipIndices`) is height/view/neighbor
+ * policy only — the map `selectModelLod` block requires a loaded Kepler.
  *
  * Tests may force NEAR via FleetInstanceGpuLayer option `forceLodNear` only —
  * never a global product flag.

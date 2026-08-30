@@ -138,6 +138,10 @@ export class WebGpuCameraStub {
     setZoomTarget(_height) { }
     focusOnPoint(_x, _z, _height) { }
     setFollowShip(_getPose) { }
+    applyDirectorPose(_opts) { }
+    getGalaxyFade() {
+        return 1;
+    }
     isFollowing() {
         return false;
     }

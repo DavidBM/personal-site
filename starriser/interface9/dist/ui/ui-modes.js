@@ -1,6 +1,7 @@
 import { buildEditorGenerationPanel } from "./editor-generation-panel.js";
 import { buildEditorStatsPanel } from "./editor-stats-panel.js";
 import { buildPlayUIPanels } from "./play-ui.js";
+import { buildSystemPlanetPanel, } from "./system-planet-panel.js";
 export function resolveUIMode(defaultMode = "editor") {
     const params = new URLSearchParams(window.location.search);
     const requested = params.get("ui");
@@ -70,6 +71,9 @@ export function buildEditorUI(ctx, actions) {
     const generation = buildEditorGenerationPanel(ctx, actions);
     const stats = buildEditorStatsPanel(ctx);
     const contextMenu = buildEditorContextMenu(ctx, actions);
+    const planetPanel = buildSystemPlanetPanel(ctx, actions, {
+        placement: "editor",
+    });
     return {
         mode: "editor",
         stats: stats.stats,
@@ -80,14 +84,19 @@ export function buildEditorUI(ctx, actions) {
             stats: stats.panel,
         },
         fleets: stats.fleets,
+        planetPanel,
     };
 }
 export function buildPlayUI(ctx, actions) {
     addModeSwitcher(ctx, actions, "play");
     const play = buildPlayUIPanels(ctx);
+    const planetPanel = buildSystemPlanetPanel(ctx, actions, {
+        placement: "play",
+    });
     return {
         mode: "play",
         panels: play.panels,
+        planetPanel,
     };
 }
 //# sourceMappingURL=ui-modes.js.map

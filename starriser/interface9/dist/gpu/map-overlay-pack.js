@@ -9,6 +9,7 @@
  */
 import { RENDER_PLANE_Y } from "../contracts/render-constants.js";
 import { MAP_OVERLAY_FLOATS_PER_VERT, } from "./shaders/map-overlay.wgsl.js";
+import { keplerPhaseLocalF32 } from "./math/world-origin.js";
 /** Axis X (red). */
 export const OVERLAY_COLOR_AXIS_X = [1, 0.25, 0.2, 1];
 /** Axis Z (blue). */
@@ -21,6 +22,39 @@ export const OVERLAY_COLOR_HOVER = [1, 1, 0.2, 1];
 export const OVERLAY_COLOR_SELECT = [0, 1, 1, 1];
 /** Default ring (soft white). */
 export const OVERLAY_COLOR_RING = [0.85, 0.9, 1, 0.7];
+/** SCENE orbit rings — faint blueprint cyan (Line2 material supplies alpha). */
+export const SCENE_SCHEMATIC_RING_COLOR = [0.45, 0.65, 1, 0.05];
+/** SCENE y=0 grid — fainter than rings. */
+export const SCENE_SCHEMATIC_GRID_COLOR = [0.45, 0.65, 1, 0.028];
+/** SCENE-local jump rays. */
+export const SCENE_JUMP_RAY_COLOR = [0.45, 0.85, 1, 0.07];
+/** 48 × 5 Kepler ring tessellation. */
+export const KEPLER_ORBIT_RING_SEGMENTS = 240;
+/** Jump rays start at this × outer planet Kepler radius. */
+export const SCENE_JUMP_RAY_R0_MUL = 1.2;
+/**
+ * Cap local jump-ray length at this × SYSTEM_LOCAL_SPAN so galaxy hops of
+ * ~1500 do not become hyperspace beams through the jewel.
+ */
+export const SCENE_JUMP_RAY_LEN_CAP_MUL = 3.2;
+/** Grid half-extent as a multiple of SYSTEM_LOCAL_SPAN. */
+export const SCENE_GRID_SPAN_MUL = 2.8;
+/** Square grid lines per axis (24 cells → 25 lines × 2 dirs). */
+export const SCENE_GRID_DIVISIONS = 24;
+/** Rim dissolve: RGB *= 1 − this × (distFromCenter / halfExtent)². */
+export const SCENE_GRID_EDGE_FADE = 0.85;
+/** Blueprint dash (screen units). */
+export const SCENE_SCHEMATIC_DASH_SIZE = 8;
+export const SCENE_SCHEMATIC_GAP_SIZE = 10;
+/** Local ray length: same direction, min(edge, cap×span). */
+export function capSceneJumpRayLength(length, span) {
+    const cap = SCENE_JUMP_RAY_LEN_CAP_MUL * span;
+    if (!(length > 0))
+        return 0;
+    if (!(cap > 0))
+        return length;
+    return length < cap ? length : cap;
+}
 /** Floats per Line2 segment: start xyz + end xyz. */
 export const LINE2_OVERLAY_POS_FLOATS = 6;
 /** Floats per Line2 segment: start rgb + end rgb. */
@@ -229,25 +263,98 @@ export function shiftLine2PackByOrigin(pack, originX, originY, originZ, out) {
     colors.set(pack.colors.subarray(0, need));
     return { positions, colors, segmentCount: n };
 }
+function ringSpecOf(item) {
+    if (typeof item === "number") {
+        return { radius: item, inclination: 0, node: 0 };
+    }
+    return {
+        radius: item.radius,
+        inclination: item.inclination ?? 0,
+        node: item.node ?? 0,
+    };
+}
 /**
  * Kepler orbit rings in **origin-relative** space (sun at centerRel).
- * Radii are already `k * showcaseOrbit`. `endcaps: false` at encode.
+ * Radii are already `k * showcaseOrbit`. Sample the same inclined Kepler
+ * formula as planets (`keplerPhaseLocalF32`). Default 240 segs.
  */
-export function packKeplerOrbitRingsViewRel(centerRelX, centerRelY, centerRelZ, radii, segments = 48, color = OVERLAY_COLOR_RING) {
-    const nRing = radii.length;
+export function packKeplerOrbitRingsViewRel(centerRelX, centerRelY, centerRelZ, rings, segments = KEPLER_ORBIT_RING_SEGMENTS, color = SCENE_SCHEMATIC_RING_COLOR) {
+    const nRing = rings.length;
     const segs = Math.max(3, segments | 0);
     const segmentCount = nRing * segs;
     const positions = new Float32Array(segmentCount * LP);
     const colors = new Float32Array(segmentCount * LC);
     let s = 0;
     for (let r = 0; r < nRing; r++) {
-        const radius = radii[r];
-        if (!(radius > 0))
+        const spec = ringSpecOf(rings[r]);
+        if (!(spec.radius > 0))
             continue;
-        const ring = packRingLine2(centerRelX, centerRelZ, radius, segs, color, centerRelY);
-        positions.set(ring.positions, s * LP);
-        colors.set(ring.colors, s * LC);
-        s += ring.segmentCount;
+        for (let i = 0; i < segs; i++) {
+            const a0 = (i / segs) * Math.PI * 2;
+            const a1 = ((i + 1) / segs) * Math.PI * 2;
+            const p0 = keplerPhaseLocalF32(1, spec.radius, a0, spec.inclination, spec.node);
+            const p1 = keplerPhaseLocalF32(1, spec.radius, a1, spec.inclination, spec.node);
+            writeLine2Seg(positions, colors, s, centerRelX + p0.x, centerRelY + p0.y, centerRelZ + p0.z, centerRelX + p1.x, centerRelY + p1.y, centerRelZ + p1.z, color);
+            s += 1;
+        }
+    }
+    return {
+        positions: positions.subarray(0, s * LP),
+        colors: colors.subarray(0, s * LC),
+        segmentCount: s,
+    };
+}
+/**
+ * Faint y = 0 square grid in origin-relative space, centered on the sun.
+ * `divisions` cells per axis → (divisions+1)×2 Line2 segments.
+ * RGB fades toward the rim (outer i=0 / i=n stay, but dimmer).
+ */
+export function packSceneGridViewRel(centerRelX, centerRelY, centerRelZ, halfExtent, divisions = SCENE_GRID_DIVISIONS, color = SCENE_SCHEMATIC_GRID_COLOR) {
+    const n = Math.max(1, divisions | 0);
+    const half = halfExtent > 0 ? halfExtent : 0;
+    const segmentCount = (n + 1) * 2;
+    const positions = new Float32Array(segmentCount * LP);
+    const colors = new Float32Array(segmentCount * LC);
+    const step = n > 0 ? (2 * half) / n : 0;
+    let s = 0;
+    for (let i = 0; i <= n; i++) {
+        const t = -half + i * step;
+        const u = half > 1e-12 ? Math.abs(t) / half : 0;
+        const fade = 1 - SCENE_GRID_EDGE_FADE * u * u;
+        const faded = [color[0] * fade, color[1] * fade, color[2] * fade, color[3]];
+        writeLine2Seg(positions, colors, s, centerRelX - half, centerRelY, centerRelZ + t, centerRelX + half, centerRelY, centerRelZ + t, faded);
+        s += 1;
+        writeLine2Seg(positions, colors, s, centerRelX + t, centerRelY, centerRelZ - half, centerRelX + t, centerRelY, centerRelZ + half, faded);
+        s += 1;
+    }
+    return { positions, colors, segmentCount: s };
+}
+/**
+ * SCENE-local jump rays: start at `r0` along each unit dir, then original
+ * edge length. Positions are already origin-relative (sun at centerRel).
+ */
+export function packSceneJumpRaysViewRel(centerRelX, centerRelY, centerRelZ, rays, r0, color = SCENE_JUMP_RAY_COLOR) {
+    const n = rays.length;
+    const positions = new Float32Array(n * LP);
+    const colors = new Float32Array(n * LC);
+    const startR = r0 > 0 ? r0 : 0;
+    let s = 0;
+    for (let i = 0; i < n; i++) {
+        const ray = rays[i];
+        const len = ray.length;
+        if (!(len > 0))
+            continue;
+        let dx = ray.dirX;
+        let dz = ray.dirZ;
+        const mag = Math.hypot(dx, dz);
+        if (!(mag > 1e-12))
+            continue;
+        dx /= mag;
+        dz /= mag;
+        const x0 = centerRelX + dx * startR;
+        const z0 = centerRelZ + dz * startR;
+        writeLine2Seg(positions, colors, s, x0, centerRelY, z0, x0 + dx * len, centerRelY, z0 + dz * len, color);
+        s += 1;
     }
     return {
         positions: positions.subarray(0, s * LP),
