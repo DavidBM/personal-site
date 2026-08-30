@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Galaxy — Planet land (fractal Voronoi)</title>
+    <style>
+      :root {
+        --bg: #050814;
+        --panel: rgba(6, 14, 28, 0.92);
+        --border: rgba(120, 180, 255, 0.32);
+        --text: #d8ecff;
+        --muted: #6e8eaa;
+        --accent: #8ec8ff;
+        --input: #0c1424;
+        --land: #7dcc6a;
+        --island: #c8e06a;
+        --ocean: #4aa3e0;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: var(--bg);
+        color: var(--text);
+        font-family: ui-sans-serif, system-ui, sans-serif;
+        overflow: hidden;
+      }
+      #canvas {
+        display: block;
+        width: 100vw;
+        height: 100vh;
+        touch-action: none;
+        cursor: grab;
+      }
+      #canvas:active {
+        cursor: grabbing;
+      }
+      #hud {
+        position: fixed;
+        top: 10px;
+        left: 10px;
+        width: min(340px, 92vw);
+        max-height: calc(100vh - 20px);
+        overflow: auto;
+        padding: 12px 14px 16px;
+        border-radius: 10px;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+        font-size: 12px;
+        line-height: 1.45;
+        z-index: 10;
+      }
+      #hud h1 {
+        margin: 0 0 4px;
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        color: var(--accent);
+      }
+      #hud .sub {
+        margin: 0 0 10px;
+        color: var(--muted);
+        font-size: 11px;
+      }
+      #hud .sub a {
+        color: var(--accent);
+      }
+      fieldset {
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        margin: 0 0 10px;
+        padding: 8px 8px 6px;
+      }
+      legend {
+        padding: 0 6px;
+        font-size: 10px;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--accent);
+      }
+      .row {
+        display: grid;
+        grid-template-columns: 1fr 92px 40px;
+        align-items: center;
+        gap: 6px;
+        margin-bottom: 5px;
+        font-size: 11px;
+      }
+      .row label {
+        color: var(--muted);
+      }
+      .row input[type="range"] {
+        width: 100%;
+        accent-color: var(--accent);
+      }
+      .row .val,
+      .mono {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 10px;
+        color: var(--text);
+        text-align: right;
+      }
+      .row-select {
+        display: grid;
+        grid-template-columns: 1fr 150px;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 6px;
+        font-size: 11px;
+        color: var(--muted);
+      }
+      select,
+      input[type="number"] {
+        background: var(--input);
+        border: 1px solid var(--border);
+        color: var(--text);
+        border-radius: 4px;
+        padding: 4px 6px;
+        font-size: 11px;
+      }
+      .tools {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 4px;
+        margin-bottom: 6px;
+      }
+      .tools label {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 5px 7px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        cursor: pointer;
+        user-select: none;
+        font-size: 11px;
+      }
+      .tools label:hover {
+        background: rgba(80, 120, 180, 0.18);
+      }
+      .tools input {
+        accent-color: var(--accent);
+        margin: 0;
+      }
+      .btns {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 6px;
+        margin-top: 4px;
+      }
+      button {
+        padding: 6px 8px;
+        border-radius: 6px;
+        border: 1px solid var(--border);
+        background: rgba(40, 70, 110, 0.45);
+        color: var(--text);
+        font-size: 11px;
+        cursor: pointer;
+      }
+      button:hover {
+        background: rgba(60, 100, 150, 0.55);
+      }
+      .check {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin: 4px 0 6px;
+        font-size: 11px;
+        color: var(--muted);
+        cursor: pointer;
+      }
+      .stats {
+        margin-top: 6px;
+        font-size: 10px;
+        color: var(--muted);
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+      .stats div {
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+        margin-bottom: 2px;
+      }
+      .hint {
+        margin-top: 8px;
+        font-size: 10px;
+        color: var(--muted);
+        line-height: 1.4;
+      }
+      #status {
+        position: fixed;
+        left: 12px;
+        bottom: 12px;
+        font-size: 12px;
+        color: var(--muted);
+        background: rgba(0, 0, 20, 0.55);
+        padding: 6px 10px;
+        border-radius: 6px;
+        z-index: 10;
+        max-width: 70vw;
+      }
+      #status.error {
+        color: #ff8a8a;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="canvas"></canvas>
+    <aside id="hud">
+      <h1>Planet land generator</h1>
+      <p class="sub">
+        Real-time 3D sphere.
+        <a href="https://www.shadertoy.com/view/sfKSDw" target="_blank" rel="noreferrer"
+          >Fractal jittered Voronoi</a
+        >
+        cells become continents, islands, lakes. Click a cell to paint.
+      </p>
+
+      <fieldset>
+        <legend>View</legend>
+        <div class="row-select">
+          <label for="viewMode">Mode</label>
+          <select id="viewMode">
+            <option value="0">Land (composite)</option>
+            <option value="1">Continent cells</option>
+            <option value="2">Island cells</option>
+            <option value="3">Lake cells</option>
+            <option value="4">Height</option>
+          </select>
+        </div>
+        <label class="check">
+          <input type="checkbox" id="showBorders" checked />
+          Cell borders
+        </label>
+        <label class="check">
+          <input type="checkbox" id="autoSpin" checked />
+          Auto spin
+        </label>
+      </fieldset>
+
+      <fieldset>
+        <legend>Paint</legend>
+        <div class="tools">
+          <label><input type="radio" name="paint" value="0" checked /> Continent</label>
+          <label><input type="radio" name="paint" value="1" /> Island</label>
+          <label><input type="radio" name="paint" value="2" /> Ocean</label>
+          <label><input type="radio" name="paint" value="3" /> Erase</label>
+        </div>
+        <div class="btns">
+          <button type="button" id="clearPaint">Clear paint</button>
+          <button type="button" id="randSeed">Random seed</button>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Continents</legend>
+        <div class="row">
+          <label for="contFreq">Frequency</label>
+          <input id="contFreq" type="range" min="0.25" max="2.2" step="0.01" />
+          <span class="val" id="contFreqVal"></span>
+        </div>
+        <div class="row">
+          <label for="contFill">Land fill</label>
+          <input id="contFill" type="range" min="0" max="1" step="0.01" />
+          <span class="val" id="contFillVal"></span>
+        </div>
+        <div class="row">
+          <label for="contDepth">Fractal depth</label>
+          <input id="contDepth" type="range" min="0" max="6" step="1" />
+          <span class="val" id="contDepthVal"></span>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Islands</legend>
+        <div class="row">
+          <label for="islandFreq">Frequency</label>
+          <input id="islandFreq" type="range" min="0.6" max="6" step="0.01" />
+          <span class="val" id="islandFreqVal"></span>
+        </div>
+        <div class="row">
+          <label for="islandFill">Fill</label>
+          <input id="islandFill" type="range" min="0" max="0.6" step="0.005" />
+          <span class="val" id="islandFillVal"></span>
+        </div>
+        <div class="row">
+          <label for="islandDepth">Fractal depth</label>
+          <input id="islandDepth" type="range" min="0" max="6" step="1" />
+          <span class="val" id="islandDepthVal"></span>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Lakes</legend>
+        <div class="row">
+          <label for="lakeFreq">Frequency</label>
+          <input id="lakeFreq" type="range" min="0.8" max="8" step="0.01" />
+          <span class="val" id="lakeFreqVal"></span>
+        </div>
+        <div class="row">
+          <label for="lakeFill">Fill</label>
+          <input id="lakeFill" type="range" min="0" max="0.45" step="0.005" />
+          <span class="val" id="lakeFillVal"></span>
+        </div>
+        <div class="row">
+          <label for="lakeDepth">Fractal depth</label>
+          <input id="lakeDepth" type="range" min="0" max="6" step="1" />
+          <span class="val" id="lakeDepthVal"></span>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Shape</legend>
+        <div class="row">
+          <label for="seed">Seed</label>
+          <input id="seed" type="range" min="1" max="9999" step="1" />
+          <span class="val" id="seedVal"></span>
+        </div>
+        <div class="row">
+          <label for="jitter">Jitter</label>
+          <input id="jitter" type="range" min="0" max="1" step="0.01" />
+          <span class="val" id="jitterVal"></span>
+        </div>
+        <div class="row">
+          <label for="warp">Warp</label>
+          <input id="warp" type="range" min="0" max="1.2" step="0.01" />
+          <span class="val" id="warpVal"></span>
+        </div>
+        <div class="row">
+          <label for="coastWidth">Coast width</label>
+          <input id="coastWidth" type="range" min="0.01" max="0.16" step="0.001" />
+          <span class="val" id="coastWidthVal"></span>
+        </div>
+        <div class="row">
+          <label for="mountain">Mountains</label>
+          <input id="mountain" type="range" min="0" max="1.4" step="0.01" />
+          <span class="val" id="mountainVal"></span>
+        </div>
+        <div class="row">
+          <label for="iceLat">Ice latitude</label>
+          <input id="iceLat" type="range" min="0.5" max="0.96" step="0.01" />
+          <span class="val" id="iceLatVal"></span>
+        </div>
+        <div class="row">
+          <label for="searchR">Search (±)</label>
+          <input id="searchR" type="range" min="1" max="2" step="1" />
+          <span class="val" id="searchRVal"></span>
+        </div>
+        <div class="row">
+          <label for="atmStrength">Atmosphere</label>
+          <input id="atmStrength" type="range" min="0" max="1.2" step="0.01" />
+          <span class="val" id="atmStrengthVal"></span>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Presets</legend>
+        <div class="btns">
+          <button type="button" data-preset="earthlike">Earth-like</button>
+          <button type="button" data-preset="archipelago">Archipelago</button>
+          <button type="button" data-preset="pangaea">Pangaea</button>
+          <button type="button" data-preset="lakeland">Lakeland</button>
+        </div>
+      </fieldset>
+
+      <div class="stats">
+        <div><span>FPS</span><span id="hud-fps">…</span></div>
+        <div><span>Hover cell</span><span id="hud-cell">—</span></div>
+        <div><span>Kind</span><span id="hud-kind">—</span></div>
+        <div><span>Painted</span><span id="hud-paint">0</span></div>
+      </div>
+      <p class="hint">
+        Drag orbit · wheel zoom · Shift-drag sun · click paints the cell under
+        the cursor. Cell view: pick which Voronoi pieces become land. Search ±1
+        is fast (3³); ±2 is the paper’s 5³ neighborhood (slower, exact).
+      </p>
+    </aside>
+    <div id="status">Starting WebGPU…</div>
+    <script type="module" src="./dist/gpu/planet-land/main.js"></script>
+  </body>
+</html>
