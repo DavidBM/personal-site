@@ -1,1 +1,1 @@
-{"version":3,"file":"sun-ray-domain.js","sourceRoot":"","sources":["../../../js/gpu/solar-system/sun-ray-domain.ts"],"names":[],"mappings":"AAAA,cAAc,iCAAiC,CAAC"}
+{"version":3,"file":"sun-ray-domain.js","sourceRoot":"/js/","sources":["gpu/solar-system/sun-ray-domain.ts"],"names":[],"mappings":"AAAA,cAAc,iCAAiC,CAAC"}

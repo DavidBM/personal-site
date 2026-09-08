@@ -47,6 +47,35 @@ function ensurePlanetPanelStyles() {
   border-color: rgba(120, 160, 200, 0.38);
   color: #e6f1ff;
 }
+.ui-system-section-label {
+  margin: 8px 6px 2px;
+  color: #5e7893;
+  font-size: 9px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+}
+.ui-button.ui-fleet-row {
+  position: relative;
+  overflow: hidden;
+}
+.ui-button.ui-fleet-row::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 20%;
+  bottom: 20%;
+  width: 2px;
+  background: #60e2ff;
+  box-shadow: 0 0 8px rgba(96, 226, 255, 0.85);
+  opacity: 0.45;
+}
+.ui-button.ui-fleet-row:hover::before,
+.ui-button.ui-fleet-row.selected::before { opacity: 1; }
+.ui-system-empty {
+  padding: 5px 6px;
+  color: #53677c;
+  font-size: 10px;
+}
 .ui-planet-kind {
   color: #6d8299;
   font-size: 10px;
@@ -60,19 +89,25 @@ function ensurePlanetPanelStyles() {
 `;
     document.head.appendChild(style);
 }
-function listIdentity(bodies) {
+function listIdentity(bodies, fleets) {
     let s = String(bodies.length);
     for (let i = 0; i < bodies.length; i++) {
         const b = bodies[i];
         s += `|${b.index}:${b.catalogId}`;
     }
+    for (let i = 0; i < fleets.length; i++) {
+        const f = fleets[i];
+        s += `|f:${f.id}:${f.shipCount}:${f.state}`;
+    }
     return s;
 }
-function applySelected(rows, focusIndex) {
+function applySelected(rows, focusIndex, fleetId) {
     for (let i = 0; i < rows.length; i++) {
         const el = rows[i];
-        const idx = Number(el.dataset.index);
-        el.classList.toggle("selected", focusIndex != null && idx === focusIndex);
+        const idx = el.dataset.index == null ? NaN : Number(el.dataset.index);
+        el.classList.toggle("selected", el.dataset.fleetId != null
+            ? el.dataset.fleetId === fleetId
+            : focusIndex != null && idx === focusIndex);
     }
 }
 export function buildSystemPlanetPanel(ctx, actions, opts) {
@@ -107,7 +142,8 @@ export function buildSystemPlanetPanel(ctx, actions, opts) {
     let lastVisible = false;
     let lastIdentity = "";
     let lastFocus;
-    const rebuild = (bodies, focusIndex) => {
+    let lastFleet;
+    const rebuild = (bodies, fleets, fleetTotal, focusIndex, selectedFleetId) => {
         for (const c of rowComponents)
             c.destroy();
         rowComponents.length = 0;
@@ -115,6 +151,13 @@ export function buildSystemPlanetPanel(ctx, actions, opts) {
         while (list.element.firstChild) {
             list.element.removeChild(list.element.firstChild);
         }
+        const addLabel = (text) => {
+            const label = document.createElement("div");
+            label.className = "ui-system-section-label";
+            label.textContent = text;
+            list.element.appendChild(label);
+        };
+        addLabel("Celestial bodies");
         for (let i = 0; i < bodies.length; i++) {
             const body = bodies[i];
             const btn = ctx.button({
@@ -139,7 +182,41 @@ export function buildSystemPlanetPanel(ctx, actions, opts) {
             rowComponents.push(btn);
             rowEls.push(btn.element);
         }
-        applySelected(rowEls, focusIndex);
+        addLabel(`Fleets · ${fleetTotal}`);
+        if (fleets.length === 0) {
+            const empty = document.createElement("div");
+            empty.className = "ui-system-empty";
+            empty.textContent = "No fleets in this system";
+            list.element.appendChild(empty);
+        }
+        for (const fleet of fleets) {
+            const btn = ctx.button({
+                id: `system-fleet-${fleet.id}`,
+                parent: list.element,
+                text: fleet.id,
+                title: `Orbit fleet ${fleet.id}`,
+                className: "ui-planet-row ui-fleet-row",
+                onClick: () => actions.selectSceneFleet?.(fleet.id),
+            });
+            btn.element.dataset.fleetId = fleet.id;
+            btn.element.textContent = "";
+            const nameEl = document.createElement("span");
+            nameEl.textContent = fleet.id;
+            const detailEl = document.createElement("span");
+            detailEl.className = "ui-planet-kind";
+            detailEl.textContent = `${fleet.shipCount} · ${fleet.state}`;
+            btn.element.append(nameEl, detailEl);
+            rowComponents.push(btn);
+            rowEls.push(btn.element);
+        }
+        if (fleetTotal > fleets.length) {
+            const more = ctx.button({ id: "system-fleet-load-more", parent: list.element,
+                text: `Load more · ${fleets.length} of ${fleetTotal}`,
+                title: "Load the next fleets in this system", className: "ui-planet-row",
+                onClick: () => actions.loadMoreSceneFleets?.() });
+            rowComponents.push(more);
+        }
+        applySelected(rowEls, focusIndex, selectedFleetId);
     };
     const sync = (next) => {
         if (!next.visible) {
@@ -149,23 +226,29 @@ export function buildSystemPlanetPanel(ctx, actions, opts) {
             }
             lastIdentity = "";
             lastFocus = undefined;
+            lastFleet = undefined;
             return;
         }
         if (!lastVisible) {
             panel.element.style.display = "";
             lastVisible = true;
         }
-        const identity = listIdentity(next.bodies);
+        const fleets = next.fleets ?? [];
+        const fleetTotal = next.fleetTotal ?? fleets.length;
+        const fleetId = next.selectedFleetId ?? null;
+        const identity = listIdentity(next.bodies, fleets);
         if (identity === lastIdentity) {
-            if (next.focusIndex !== lastFocus) {
-                applySelected(rowEls, next.focusIndex);
+            if (next.focusIndex !== lastFocus || fleetId !== lastFleet) {
+                applySelected(rowEls, next.focusIndex, fleetId);
                 lastFocus = next.focusIndex;
+                lastFleet = fleetId;
             }
             return;
         }
-        rebuild(next.bodies, next.focusIndex);
+        rebuild(next.bodies, fleets, fleetTotal, next.focusIndex, fleetId);
         lastIdentity = identity;
         lastFocus = next.focusIndex;
+        lastFleet = fleetId;
     };
     return { panel, sync };
 }

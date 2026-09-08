@@ -1,0 +1,886 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Galaxy — Planet texture generator</title>
+    <style>
+      :root {
+        --bg: #060a14;
+        --panel: rgba(8, 16, 32, 0.94);
+        --border: rgba(120, 180, 255, 0.28);
+        --text: #cfe8ff;
+        --muted: #7a9ab8;
+        --accent: #8ec8ff;
+        --input: #0c1424;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: var(--bg);
+        color: var(--text);
+        font-family: ui-sans-serif, system-ui, sans-serif;
+      }
+      #layout {
+        --planet-panel-w: min(42vh, 480px);
+        --planet-panel-h: 360px;
+        display: grid;
+        grid-template-columns: minmax(280px, 340px) 1fr var(--planet-panel-w);
+        min-height: 100%;
+        height: 100%;
+      }
+      @media (max-width: 1100px) {
+        #layout {
+          grid-template-columns: minmax(260px, 300px) 1fr;
+          grid-template-rows: 1fr var(--planet-panel-h);
+        }
+        #planet-panel {
+          grid-column: 1 / -1;
+          max-height: none;
+          min-height: 200px;
+        }
+        #planet-resize {
+          left: 0;
+          right: 0;
+          top: 0;
+          bottom: auto;
+          width: 100%;
+          height: 8px;
+          cursor: row-resize;
+          touch-action: none;
+        }
+        #planet-resize::after {
+          width: 48px;
+          height: 3px;
+          left: 50%;
+          top: 50%;
+          transform: translate(-50%, -50%);
+        }
+      }
+      #sidebar {
+        overflow: auto;
+        padding: 14px 14px 28px;
+        background: var(--panel);
+        border-right: 1px solid var(--border);
+        box-shadow: 4px 0 24px rgba(0, 0, 0, 0.35);
+      }
+      #sidebar h1 {
+        margin: 0 0 4px;
+        font-size: 13px;
+        font-weight: 600;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        color: var(--accent);
+      }
+      #sidebar .sub {
+        margin: 0 0 14px;
+        font-size: 12px;
+        color: var(--muted);
+        line-height: 1.45;
+      }
+      fieldset {
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        margin: 0 0 12px;
+        padding: 10px 10px 8px;
+      }
+      legend {
+        padding: 0 6px;
+        font-size: 11px;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--accent);
+      }
+      .row {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 6px;
+        font-size: 12px;
+      }
+      .row label {
+        color: var(--muted);
+      }
+      .row input[type="number"],
+      .row input[type="text"],
+      .row select {
+        width: 110px;
+        background: var(--input);
+        border: 1px solid var(--border);
+        color: var(--text);
+        border-radius: 4px;
+        padding: 4px 6px;
+        font-size: 12px;
+      }
+      .row input[type="range"] {
+        width: 110px;
+      }
+      .btns {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin: 10px 0;
+      }
+      button {
+        background: #143054;
+        border: 1px solid var(--border);
+        color: var(--text);
+        border-radius: 6px;
+        padding: 8px 12px;
+        font-size: 12px;
+        cursor: pointer;
+      }
+      button:hover {
+        background: #1a3d68;
+      }
+      button:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+      #btnCancelBake:not(:disabled) {
+        background: #3a1820;
+        border-color: rgba(255, 120, 120, 0.45);
+        color: #ffc8c8;
+      }
+      #btnCancelBake:not(:disabled):hover {
+        background: #5a222c;
+      }
+      #status {
+        font-size: 11px;
+        color: var(--muted);
+        line-height: 1.45;
+        min-height: 2.8em;
+        margin-top: 8px;
+        white-space: pre-wrap;
+        font-variant-numeric: tabular-nums;
+      }
+      #status.multiline {
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 10.5px;
+        line-height: 1.5;
+        max-height: none;
+        overflow: visible;
+        padding: 6px 8px;
+        background: rgba(0, 0, 0, 0.22);
+        border-radius: 6px;
+        border: 1px solid rgba(255, 255, 255, 0.06);
+      }
+      #status.error {
+        color: #ff8a8a;
+      }
+      #bake-progress-wrap {
+        margin-top: 10px;
+        display: none;
+      }
+      #bake-progress-wrap.active {
+        display: block;
+      }
+      #bake-progress-label {
+        font-size: 11px;
+        color: var(--accent);
+        margin-bottom: 4px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      #bake-progress {
+        width: 100%;
+        height: 8px;
+        appearance: none;
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        overflow: hidden;
+        background: var(--input);
+      }
+      #bake-progress::-webkit-progress-bar {
+        background: var(--input);
+      }
+      #bake-progress::-webkit-progress-value {
+        background: linear-gradient(90deg, #1a5a9a, #8ec8ff);
+      }
+      #bake-progress::-moz-progress-bar {
+        background: linear-gradient(90deg, #1a5a9a, #8ec8ff);
+      }
+      .spinner {
+        width: 12px;
+        height: 12px;
+        border: 2px solid rgba(142, 200, 255, 0.25);
+        border-top-color: var(--accent);
+        border-radius: 50%;
+        animation: spin 0.7s linear infinite;
+        flex-shrink: 0;
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      #main.baking .grid,
+      #planet-preview-wrap.baking {
+        position: relative;
+      }
+      #main.baking .grid::after,
+      #planet-preview-wrap.baking::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: rgba(4, 8, 16, 0.45);
+        pointer-events: none;
+        z-index: 2;
+        border-radius: 10px;
+      }
+      #main.baking canvas,
+      #planet-preview-wrap.baking canvas {
+        filter: brightness(0.55) saturate(0.7);
+      }
+      .bake-overlay {
+        display: none;
+        position: absolute;
+        inset: 0;
+        z-index: 3;
+        align-items: center;
+        justify-content: center;
+        flex-direction: column;
+        gap: 10px;
+        pointer-events: none;
+        color: var(--accent);
+        font-size: 12px;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+      .bake-overlay .spinner {
+        width: 28px;
+        height: 28px;
+        border-width: 3px;
+      }
+      #main.baking .bake-overlay,
+      #planet-preview-wrap.baking .bake-overlay {
+        display: flex;
+      }
+      #main {
+        overflow: auto;
+        padding: 16px;
+        min-width: 0;
+      }
+      #planet-panel {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        background: var(--panel);
+        border-left: 1px solid var(--border);
+        padding: 14px;
+        min-height: 0;
+        overflow: hidden;
+      }
+      /* Drag to resize planet preview column (desktop) / height (narrow). */
+      #planet-resize {
+        position: absolute;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        width: 8px;
+        z-index: 6;
+        cursor: col-resize;
+        touch-action: none;
+        background: transparent;
+        border: 0;
+        padding: 0;
+        margin: 0;
+      }
+      #planet-resize::after {
+        content: "";
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+        width: 3px;
+        height: 48px;
+        border-radius: 2px;
+        background: rgba(142, 200, 255, 0.22);
+        transition: background 0.12s ease, height 0.12s ease, width 0.12s ease;
+      }
+      #planet-resize:hover::after,
+      #planet-resize:focus-visible::after,
+      #planet-resize.dragging::after {
+        background: rgba(142, 200, 255, 0.75);
+      }
+      #planet-resize:focus-visible {
+        outline: none;
+      }
+      #planet-resize.dragging {
+        background: rgba(142, 200, 255, 0.08);
+      }
+      body.planet-resizing {
+        cursor: col-resize;
+        user-select: none;
+      }
+      body.planet-resizing.planet-resizing-row {
+        cursor: row-resize;
+      }
+      #planet-panel h2 {
+        margin: 0 0 8px;
+        font-size: 11px;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--accent);
+        font-weight: 600;
+      }
+      #planet-panel .hint {
+        margin: 0 0 10px;
+        font-size: 11px;
+        color: var(--muted);
+        line-height: 1.4;
+      }
+      #planet-preview-wrap {
+        flex: 1;
+        display: flex;
+        align-items: stretch;
+        justify-content: stretch;
+        min-height: 280px;
+        width: 100%;
+        background: radial-gradient(ellipse at center, #0a1428 0%, #040810 70%);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        overflow: hidden;
+        position: relative;
+      }
+      #planetPreview {
+        width: 100%;
+        height: 100%;
+        max-height: none;
+        display: block;
+        background: transparent;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+        gap: 14px;
+      }
+      .card {
+        background: rgba(10, 18, 36, 0.85);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 10px;
+      }
+      .card h2 {
+        margin: 0 0 8px;
+        font-size: 11px;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--accent);
+        font-weight: 600;
+      }
+      .card canvas {
+        width: 100%;
+        height: auto;
+        display: block;
+        background: #040810;
+        border-radius: 6px;
+        image-rendering: auto;
+        cursor: zoom-in;
+      }
+      /* Pole maps: show intrinsic size so poleSize changes are visible */
+      .card canvas#poleN,
+      .card canvas#poleS {
+        width: auto;
+        max-width: 100%;
+        image-rendering: pixelated;
+      }
+      .card canvas:hover {
+        outline: 1px solid var(--accent);
+      }
+      .note {
+        margin-top: 16px;
+        font-size: 11px;
+        color: var(--muted);
+        line-height: 1.5;
+        max-width: 72em;
+      }
+      .note code {
+        color: var(--accent);
+      }
+      /* AI sources used gallery */
+      #ai-gallery,
+      #intermediate-steps {
+        margin-top: 16px;
+        background: rgba(10, 18, 36, 0.85);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 10px 12px;
+      }
+      #ai-gallery h2,
+      #intermediate-steps h2 {
+        margin: 0 0 8px;
+        font-size: 11px;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--accent);
+        font-weight: 600;
+      }
+      #intermediate-steps .sub {
+        margin: 0 0 10px;
+        font-size: 11px;
+        color: var(--muted);
+        line-height: 1.45;
+      }
+      #intermediate-steps .card {
+        margin: 0;
+      }
+      #biome-legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px 12px;
+        margin-top: 8px;
+        font-size: 11px;
+        color: var(--muted);
+      }
+      #biome-legend .swatch {
+        display: inline-block;
+        width: 12px;
+        height: 12px;
+        border-radius: 2px;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        vertical-align: -2px;
+        margin-right: 4px;
+      }
+      #ai-gallery-thumbs {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+        gap: 10px;
+        font-size: 11px;
+        color: var(--muted);
+      }
+      #ai-gallery.has-items #ai-gallery-thumbs {
+        color: var(--text);
+      }
+      .ai-gallery-card {
+        background: rgba(4, 8, 16, 0.9);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        overflow: hidden;
+      }
+      .ai-gallery-card img {
+        display: block;
+        width: 100%;
+        height: auto;
+        aspect-ratio: 2 / 1;
+        object-fit: cover;
+        background: #040810;
+      }
+      .ai-gallery-label {
+        padding: 4px 6px;
+        font-size: 10px;
+        word-break: break-all;
+        color: var(--muted);
+      }
+      .ai-gallery-proc {
+        padding: 8px 6px 10px;
+        font-size: 10px;
+        color: var(--accent);
+      }
+      /* Texture inspect lightbox */
+      #tex-lightbox {
+        display: none;
+        position: fixed;
+        inset: 0;
+        z-index: 10000;
+        background: rgba(2, 6, 14, 0.92);
+        flex-direction: column;
+        align-items: stretch;
+        justify-content: stretch;
+      }
+      #tex-lightbox.open {
+        display: flex;
+      }
+      #tex-lightbox-header {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 10px 14px;
+        border-bottom: 1px solid var(--border);
+        background: rgba(8, 14, 28, 0.95);
+        flex: 0 0 auto;
+      }
+      #tex-lightbox-title {
+        flex: 1;
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--accent);
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+      #tex-lightbox-header .hint {
+        font-size: 11px;
+        color: var(--muted);
+      }
+      #tex-lightbox-close {
+        border: 1px solid var(--border);
+        background: rgba(20, 36, 64, 0.9);
+        color: var(--text);
+        border-radius: 6px;
+        padding: 6px 12px;
+        cursor: pointer;
+        font-size: 12px;
+      }
+      #tex-lightbox-close:hover {
+        border-color: var(--accent);
+        color: var(--accent);
+      }
+      #tex-lightbox-stage {
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow: hidden;
+        position: relative;
+        cursor: grab;
+        touch-action: none;
+      }
+      #tex-lightbox-stage.dragging {
+        cursor: grabbing;
+      }
+      #tex-lightbox-img {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        max-width: none;
+        transform-origin: center center;
+        image-rendering: auto;
+        user-select: none;
+        pointer-events: none;
+        box-shadow: 0 8px 40px rgba(0, 0, 0, 0.55);
+      }
+    </style>
+  </head>
+  <body>
+    <div id="layout">
+      <aside id="sidebar">
+        <h1>Planet texture bake</h1>
+        <p class="sub">
+          Offline multi-map generator (equirect + pole caps). Same pure path as
+          Node tests. Azure-rooted ocean default. Up to 8K long edge; full bake
+          may take tens of seconds.
+        </p>
+        <form id="controls">
+          <fieldset>
+            <legend>Preset</legend>
+            <div class="row">
+              <label for="preset">Preset</label>
+              <select id="preset"></select>
+            </div>
+            <div class="btns">
+              <button type="button" id="btnPreset">Apply preset</button>
+            </div>
+          </fieldset>
+          <fieldset>
+            <legend>Core</legend>
+            <div class="row">
+              <label for="seed">Seed</label>
+              <input id="seed" type="number" step="1" value="42" />
+            </div>
+            <div class="row">
+              <label for="resolution">Resolution (long edge)</label>
+              <select id="resolution"></select>
+            </div>
+            <div class="row">
+              <label for="poleSize" title="Polar ice footprint on land albedo (ocean/temperate). 1≈none, 125≈half, 250≈full default, 750≈extra-large caps. Does NOT resize N/S product maps — those follow resolution only. Re-bake to apply.">Pole ice size</label>
+              <input id="poleSize" type="number" step="1" min="1" max="4096" value="250" />
+            </div>
+            <div class="row">
+              <label for="softCoastEnabled" title="Disabled — structure mask owns firm coasts (control kept for URL compat).">Soft coast (disabled)</label>
+              <input id="softCoastEnabled" type="checkbox" disabled />
+            </div>
+            <div class="row">
+              <label for="planetClass">Class</label>
+              <select id="planetClass">
+                <option value="ocean">ocean</option>
+                <option value="temperate">temperate</option>
+                <option value="rocky">rocky</option>
+                <option value="ice">ice</option>
+                <option value="gas">gas</option>
+                <option value="exotic">exotic</option>
+              </select>
+            </div>
+            <div class="row">
+              <label for="liquidKind">Liquid</label>
+              <select id="liquidKind">
+                <option value="water">water</option>
+                <option value="methane">methane</option>
+                <option value="acid">acid</option>
+                <option value="lava">lava</option>
+                <option value="none">none</option>
+              </select>
+            </div>
+            <div class="row">
+              <label for="liquidLevel">Liquid level</label>
+              <input id="liquidLevel" type="number" step="0.01" min="0" max="1" value="0.55" />
+            </div>
+          </fieldset>
+          <fieldset>
+            <legend>Terrain / gas</legend>
+            <div class="row">
+              <label for="heightOctaves" title="Micro-relief fBm octaves (2–8). Changes land detail density.">Height octaves</label>
+              <input id="heightOctaves" type="number" step="1" min="2" max="8" value="6" />
+            </div>
+            <div class="row">
+              <label for="heightFreq" title="Spatial frequency of micro relief and bathymetry.">Height freq</label>
+              <input id="heightFreq" type="number" step="0.05" value="1.8" />
+            </div>
+            <div class="row">
+              <label for="warp" title="Terrain: coast domain-warp irregularity. Gas: band swirl strength.">Domain warp</label>
+              <input id="warp" type="number" step="0.05" value="0.45" />
+            </div>
+            <div class="row">
+              <label for="thermalIters" title="Thermal erosion passes (capped at 8). 0 = skip.">Thermal iters</label>
+              <input id="thermalIters" type="number" step="1" min="0" max="8" value="6" />
+            </div>
+            <div class="row">
+              <label for="hydraulicDrops" title="Hydraulic droplets. 0 = auto density from resolution (not off).">Hydraulic drops (0=auto)</label>
+              <input id="hydraulicDrops" type="number" step="1" value="0" />
+            </div>
+            <div class="row gas-only">
+              <label for="bandStrength" title="Gas class only: latitude band strength.">Gas band strength</label>
+              <input id="bandStrength" type="number" step="0.05" value="0.85" />
+            </div>
+            <div class="row gas-only">
+              <label for="stormDensity" title="Gas class only: storm/vortex density.">Storm density</label>
+              <input id="stormDensity" type="number" step="0.05" value="0.35" />
+            </div>
+            <div class="row">
+              <label for="continentScale" title="Landmass size/count (structure).">Continent scale</label>
+              <input id="continentScale" type="number" step="0.05" value="1.1" />
+            </div>
+            <div class="row">
+              <label for="mountainScale" title="Mountain/peak amplitude in micro relief.">Mountain scale</label>
+              <input id="mountainScale" type="number" step="0.05" value="0.85" />
+            </div>
+          </fieldset>
+          <fieldset>
+            <legend>Look</legend>
+            <div class="row">
+              <label for="cloudCover">Cloud cover</label>
+              <input id="cloudCover" type="number" step="0.05" min="0" max="1" value="0.8" />
+            </div>
+            <div class="row">
+              <label for="colorBoost">Color boost</label>
+              <input id="colorBoost" type="number" step="0.05" value="0.65" />
+            </div>
+            <div class="row">
+              <label for="wetness">Wetness / spec</label>
+              <input id="wetness" type="number" step="0.05" value="0.85" />
+            </div>
+          </fieldset>
+          <fieldset>
+            <legend>Terrain features</legend>
+            <div class="row">
+              <label
+                for="terrainFeatureBlend"
+                title="How green-screen mountain/ridge stamps mix into land color. softLight/multiply are gentler than luminosity."
+                >Blend mode</label
+              >
+              <select id="terrainFeatureBlend">
+                <option value="linear" selected>linear (mid-grey ±)</option>
+                <option value="softLight">soft light</option>
+                <option value="multiply">multiply</option>
+                <option value="luminosity">luminosity (high contrast)</option>
+                <option value="overlay">overlay</option>
+                <option value="screen">screen</option>
+                <option value="lerp">lerp color</option>
+              </select>
+            </div>
+            <div class="row">
+              <label
+                for="terrainFeatureStrength"
+                title="How strongly terrain-feature stamps write on land (0 = off, 1 = full). Lower if stamps dominate."
+                >Strength</label
+              >
+              <input
+                id="terrainFeatureStrength"
+                type="range"
+                min="0"
+                max="1"
+                step="0.05"
+                value="1"
+              />
+            </div>
+            <div class="row">
+              <label for="terrainFeatureStrengthNum" title="Numeric strength">Strength value</label>
+              <input
+                id="terrainFeatureStrengthNum"
+                type="number"
+                min="0"
+                max="1"
+                step="0.05"
+                value="1"
+              />
+            </div>
+          </fieldset>
+          <div class="btns">
+            <button type="button" id="btnBake">Bake</button>
+            <button
+              type="button"
+              id="btnCancelBake"
+              disabled
+              title="Stop the current bake after the current stage"
+            >
+              Cancel
+            </button>
+            <button type="button" id="btnExport">Export PNGs</button>
+            <button type="button" id="btnImportAlbedo" title="AI/DCC equirect 2:1, X-seamless">
+              Import albedo
+            </button>
+            <input
+              id="importAlbedoFile"
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              hidden
+            />
+          </div>
+          <p class="sub" style="margin-top:6px;font-size:11px">
+            Always-on AI as soft surface <strong>patches</strong> from
+            seed-picked banks
+            (<code>assets/planets/ai/&lt;class&gt;/00–19.png</code>) + orbit-scale
+            vegetation patches for ocean/temperate. Apply preset picks a new seed.
+            Offline Imagine only — no runtime ML.
+          </p>
+        </form>
+        <div id="status">Loading…</div>
+        <div id="bake-progress-wrap" aria-live="polite">
+          <div id="bake-progress-label">
+            <span class="spinner" aria-hidden="true"></span>
+            <span id="bake-progress-text">Baking…</span>
+          </div>
+          <progress id="bake-progress" max="100" value="0"></progress>
+        </div>
+      </aside>
+      <main id="main">
+        <div class="grid" style="position: relative">
+          <div class="bake-overlay" id="maps-bake-overlay">
+            <span class="spinner" aria-hidden="true"></span>
+            <span>Generating maps</span>
+          </div>
+          <div class="card">
+            <h2>Albedo (equirect belly)</h2>
+            <canvas id="albedo"></canvas>
+          </div>
+          <div class="card">
+            <h2>Normal</h2>
+            <canvas id="normal"></canvas>
+          </div>
+          <div class="card">
+            <h2>Height</h2>
+            <canvas id="height"></canvas>
+          </div>
+          <div class="card">
+            <h2>Liquid / material mask</h2>
+            <canvas id="liquid"></canvas>
+          </div>
+          <div class="card">
+            <h2>Night lights (emissive)</h2>
+            <canvas id="night"></canvas>
+            <p class="sub" style="margin-top: 6px">
+              Temperate city lights (land megacities + corridors). Black for
+              classes without night content; lava uses melt emissive.
+            </p>
+          </div>
+          <div class="card">
+            <h2>Clouds</h2>
+            <canvas id="clouds"></canvas>
+          </div>
+          <div class="card">
+            <h2>Clouds pole north (α)</h2>
+            <canvas id="cloudsPoleN"></canvas>
+          </div>
+          <div class="card">
+            <h2>Clouds pole south (α)</h2>
+            <canvas id="cloudsPoleS"></canvas>
+          </div>
+          <div class="card">
+            <h2>Pole north (α gradient)</h2>
+            <canvas id="poleN"></canvas>
+          </div>
+          <div class="card">
+            <h2>Pole south (α gradient)</h2>
+            <canvas id="poleS"></canvas>
+          </div>
+        </div>
+        <section id="intermediate-steps" aria-label="Intermediate bake steps">
+          <h2>Intermediate steps</h2>
+          <p class="sub">
+            Hard class = argmax of the same soft-biome paint weights used on the
+            product albedo (grass / forest / deep / desert / rock / tundra / snow).
+            No grain, AI stamps, or clouds — so stamps can still add rock texture
+            on top of a forest class after bake.
+          </p>
+          <div class="card">
+            <h2>Pure biome split</h2>
+            <canvas id="biomeSplit"></canvas>
+            <div id="biome-legend" aria-live="polite"></div>
+          </div>
+          <div class="card" style="margin-top: 12px">
+            <h2>Continent height (heat)</h2>
+            <canvas id="heightHeat"></canvas>
+            <div id="height-heat-legend" class="sub" style="margin-top: 6px">
+              Ocean dark · land elev: cyan/green → yellow → red → white peaks
+            </div>
+          </div>
+        </section>
+        <section id="ai-gallery" aria-label="AI sources used in last bake">
+          <h2>AI sources used</h2>
+          <div id="ai-gallery-thumbs">
+            No AI sources used yet — bake to populate.
+          </div>
+        </section>
+        <p class="note">
+          <strong>Look:</strong> NASA-colorized Blue Marble / EVE-style multi-biome
+          density (coastal shelf, arid, forest, snow) — not minimap height-tint.
+          <strong>AI:</strong> bank images stamp as soft surface patches (not a
+          full-equirect noise layer); gallery above lists paths actually used.
+          <strong>EVE vs this tool:</strong> EVE Online Dominion (CCP Mannapi, 2010)
+          used runtime GPU height→normal preprocess, dual UV (belly + poles), large
+          clouds, scatter LUT. This generator <em>batches offline</em> and exports
+          equirect belly + N/S pole α-caps.
+          Open after <code>./build.sh</code>. Resolutions 256…8192.
+        </p>
+      </main>
+      <aside id="planet-panel">
+        <button
+          type="button"
+          id="planet-resize"
+          aria-label="Resize planet preview"
+          aria-orientation="vertical"
+          title="Drag to resize preview · double-click resets"
+        ></button>
+        <h2>Planet preview</h2>
+        <p class="hint">
+          Full-res WebGPU disc. <strong>Drag</strong> free rotate (quat, no
+          limits) · <strong>Shift+drag</strong> sun · <strong>Wheel</strong>
+          zoom · <strong>Left edge</strong> resize panel. Temperate bakes show
+          night-side city lights (coast/lowland megacities) only in shadow —
+          rotate or shift the sun to see them.
+        </p>
+        <div id="planet-preview-wrap">
+          <div class="bake-overlay" id="planet-bake-overlay">
+            <span class="spinner" aria-hidden="true"></span>
+            <span>Baking planet</span>
+          </div>
+          <canvas id="planetPreview" width="512" height="512" aria-label="Planet sphere preview with atmosphere"></canvas>
+        </div>
+      </aside>
+    </div>
+    <div id="tex-lightbox" role="dialog" aria-modal="true" aria-labelledby="tex-lightbox-title" hidden>
+      <div id="tex-lightbox-header">
+        <div id="tex-lightbox-title">Texture</div>
+        <span class="hint">Wheel zoom · drag pan · Esc or Close to dismiss</span>
+        <button type="button" id="tex-lightbox-close">Close</button>
+      </div>
+      <div id="tex-lightbox-stage">
+        <img id="tex-lightbox-img" alt="Full texture" draggable="false" />
+      </div>
+    </div>
+    <script type="module" src="dist/gpu/planet-texture/main.js"></script>
+  </body>
+</html>

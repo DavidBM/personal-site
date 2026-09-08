@@ -53,9 +53,13 @@ export const FOLLOW_LOOK_Y = -0.12;
  */
 export const FOLLOW_SCENE_BOOM_MUL = 8;
 /** Minimum chase back in jewel (world); keep outside Kepler hull. */
-export const FOLLOW_SCENE_BACK_MIN = 0.012;
-export const FOLLOW_SCENE_HEIGHT_MIN = 0.003;
-export const FOLLOW_SCENE_LOOK_AHEAD_MIN = 0.02;
+export const FOLLOW_SCENE_BACK_MIN = 0.006;
+export const FOLLOW_SCENE_HEIGHT_MIN = 0.0015;
+export const FOLLOW_SCENE_LOOK_AHEAD_MIN = 0.01;
+/** Fleet selection framing for the half-size compact hulls. */
+export const SCENE_FLEET_ORBIT_RADIUS = 0.006;
+export const SCENE_FLEET_ORBIT_MIN_RADIUS = 0.002;
+export const SCENE_FLEET_ORBIT_MAX_RADIUS = 0.08;
 /**
  * Roof-cam chase: eye just above/behind the ship, look-at well ahead along travel.
  * heading 0 = +Z; forward = (sin h, 0, cos h).

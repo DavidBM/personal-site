@@ -1,1 +1,1 @@
-{"version":3,"file":"solar-pick.js","sourceRoot":"","sources":["../../../js/gpu/solar-system/solar-pick.ts"],"names":[],"mappings":"AAAA,cAAc,6BAA6B,CAAC"}
+{"version":3,"file":"solar-pick.js","sourceRoot":"/js/","sources":["gpu/solar-system/solar-pick.ts"],"names":[],"mappings":"AAAA,cAAc,6BAA6B,CAAC"}

@@ -10,6 +10,7 @@
 import { RENDER_PLANE_Y } from "../contracts/render-constants.js";
 import { LOD_HOLD_MS, projectedWorldSizeAtDistanceToScreenPx } from "./fleet-lod.js";
 import { keplerOrbitLocalF32 } from "./math/world-origin.js";
+import { orbitPhaseAt } from "./planet-lib/solar-bodies.js";
 /**
  * Compact Kepler field diameter (world). Neighbors sit ~25 apart, so span 0.1
  * is 250 diameters away. Schmitt uses projected {@link SYSTEM_LOCAL_SPAN} only
@@ -42,28 +43,33 @@ export const FOCUS_HOLD_MS = SCENE_HOLD_MS;
  * Product draw policy for Band B — not a second Schmitt span constant.
  */
 export const BODY_SCREEN_R_MIN = 1.5;
-function keplerPhaseAt(phase0, period, timeSec) {
-    return phase0 + (timeSec / Math.max(1e-6, period)) * Math.PI * 2;
-}
 /**
- * World pose of a compact Kepler slot. Planets use hashed inclination
- * (`catalogIds`); the sun stays on the gameplay plane.
- * Optional `out` reuses a scratch vec so the rAF parking path does not alloc.
+ * Compact body pose in the system's own numeric space. The galaxy anchor never
+ * participates, so small orbital motion survives even beyond galaxy f32 range.
  */
-export function composeCompactBodyWorld(store, index, timeSec, out) {
-    if (index < 0 || index >= store.currentCount)
+export function composeCompactBodyLocal(store, index, timeSec, out) {
+    if (!Number.isInteger(index) || index < 0 || index >= store.currentCount)
         return null;
     const dest = out ?? { x: 0, y: RENDER_PLANE_Y, z: 0 };
     if (store.isSun[index]) {
-        dest.x = store.systemX;
+        dest.x = 0;
         dest.y = RENDER_PLANE_Y;
-        dest.z = store.systemZ;
+        dest.z = 0;
         return dest;
     }
-    const local = keplerOrbitLocalF32(KEPLER_SCALE, store.orbitRadius[index], keplerPhaseAt(store.phase0[index], store.orbitPeriod[index], timeSec), store.catalogIds?.[index]);
-    dest.x = store.systemX + local.x;
+    const local = keplerOrbitLocalF32(KEPLER_SCALE, store.orbitRadius[index], orbitPhaseAt(store.phase0[index], store.orbitPeriod[index], timeSec), store.catalogIds?.[index]);
+    dest.x = local.x;
     dest.y = RENDER_PLANE_Y + local.y;
-    dest.z = store.systemZ + local.z;
+    dest.z = local.z;
+    return dest;
+}
+/** Galaxy-space boundary for UI picking and camera targeting; simulation stays local. */
+export function composeCompactBodyWorld(store, index, timeSec, out) {
+    const dest = composeCompactBodyLocal(store, index, timeSec, out);
+    if (!dest)
+        return null;
+    dest.x += store.systemX;
+    dest.z += store.systemZ;
     return dest;
 }
 /**

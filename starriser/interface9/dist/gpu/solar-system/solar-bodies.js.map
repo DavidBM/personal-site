@@ -1,1 +1,1 @@
-{"version":3,"file":"solar-bodies.js","sourceRoot":"","sources":["../../../js/gpu/solar-system/solar-bodies.ts"],"names":[],"mappings":"AAAA,cAAc,+BAA+B,CAAC"}
+{"version":3,"file":"solar-bodies.js","sourceRoot":"/js/","sources":["gpu/solar-system/solar-bodies.ts"],"names":[],"mappings":"AAAA,cAAc,+BAA+B,CAAC"}

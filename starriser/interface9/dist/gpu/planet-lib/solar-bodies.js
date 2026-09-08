@@ -71,6 +71,14 @@ export function buildShowcaseBodies(planetCount = SHOWCASE_PLANET_COUNT) {
 }
 /** Showcase system: 1 sun + 30 planets (perf stress). */
 export const SHOWCASE_BODIES = Object.freeze(buildShowcaseBodies(SHOWCASE_PLANET_COUNT));
+/** Slow ambient motion: visible over several seconds without looking hurried. */
+export const SOLAR_ORBIT_SPEED_SCALE = 0.01;
+export const SOLAR_SPIN_SPEED_SCALE = 0.02;
+/** Shared orbital phase so the lab and live compact scene use one clock. */
+export function orbitPhaseAt(orbitPhase0, orbitPeriodSec, timeSec) {
+    const period = Math.max(1e-6, orbitPeriodSec);
+    return orbitPhase0 + (timeSec * SOLAR_ORBIT_SPEED_SCALE / period) * Math.PI * 2;
+}
 /**
  * Kepler-style circular orbit in the XZ plane (y = 0 game plane).
  * Phase advances with time / period.
@@ -82,8 +90,7 @@ export function orbitWorldPosition(orbitRadius, orbitPeriodSec, orbitPhase0, tim
         out.z = 0;
         return out;
     }
-    const period = Math.max(1e-6, orbitPeriodSec);
-    const phase = orbitPhase0 + (timeSec / period) * Math.PI * 2;
+    const phase = orbitPhaseAt(orbitPhase0, orbitPeriodSec, timeSec);
     out.x = Math.cos(phase) * orbitRadius;
     out.y = 0;
     out.z = Math.sin(phase) * orbitRadius;
@@ -91,7 +98,7 @@ export function orbitWorldPosition(orbitRadius, orbitPeriodSec, orbitPhase0, tim
 }
 /** Axial spin angle at time (radians). */
 export function spinAngle(spinRadPerSec, timeSec) {
-    return spinRadPerSec * timeSec;
+    return spinRadPerSec * timeSec * SOLAR_SPIN_SPEED_SCALE;
 }
 /** Clamp selection index into [0, count). */
 export function clampSelection(index, count) {

@@ -1,1 +1,1 @@
-{"version":3,"file":"fleet-trails.wgsl.js","sourceRoot":"","sources":["../../../js/gpu/shaders/fleet-trails.wgsl.ts"],"names":[],"mappings":"AAAA,cAAc,8CAA8C,CAAC"}
+{"version":3,"file":"fleet-trails.wgsl.js","sourceRoot":"/js/","sources":["gpu/shaders/fleet-trails.wgsl.ts"],"names":[],"mappings":"AAAA,cAAc,8CAA8C,CAAC"}

@@ -1,1 +1,1 @@
-{"version":3,"file":"planet-scatter.js","sourceRoot":"","sources":["../../../js/gpu/solar-system/planet-scatter.ts"],"names":[],"mappings":"AAAA,cAAc,iCAAiC,CAAC"}
+{"version":3,"file":"planet-scatter.js","sourceRoot":"/js/","sources":["gpu/solar-system/planet-scatter.ts"],"names":[],"mappings":"AAAA,cAAc,iCAAiC,CAAC"}

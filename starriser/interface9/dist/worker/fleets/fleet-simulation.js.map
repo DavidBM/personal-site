@@ -1,1 +1,1 @@
-{"version":3,"file":"fleet-simulation.js","sourceRoot":"","sources":["../../../js/worker/fleets/fleet-simulation.ts"],"names":[],"mappings":"AAAA,cAAc,gDAAgD,CAAC"}
+{"version":3,"file":"fleet-simulation.js","sourceRoot":"/js/","sources":["worker/fleets/fleet-simulation.ts"],"names":[],"mappings":"AAAA,cAAc,gDAAgD,CAAC"}

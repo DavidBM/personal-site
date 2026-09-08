@@ -2,7 +2,7 @@ import { Topics, } from "../protocol/topics.js";
 import { applyBusinessOps, clearBusinessWorld, hasCluster, } from "./business-world.js";
 import { computeConnectionGradient } from "./connection-graph.js";
 import { SelectionStore } from "./selection-store.js";
-export function createPointerInteractionController({ world, editMode, publish, }) {
+export function createPointerInteractionController({ world, editMode, publish, allowEditing = true, }) {
     let isProcessingTap = false;
     const handlePointerEvent = (data) => {
         if (!world.clusters.length)
@@ -97,6 +97,15 @@ export function createPointerInteractionController({ world, editMode, publish, }
             }
         }
     };
+    function handleObserverPointer(data) {
+        if (!data.galaxy_position)
+            return;
+        const hit = world.clusterIndex.query(data.galaxy_position.x, data.galaxy_position.z);
+        if (data.type === 'move')
+            SelectionStore.setHovered(hit.dist <= 3000 && hit.item ? hit.item.id : null);
+        if (data.type === 'tap')
+            SelectionStore.setSelected(hit.dist <= 600 && hit.item ? hit.item.id : null);
+    }
     const handleSelectionChange = ({ hoveredId, selectedId, }) => {
         // One publish per semantic event (main applies UI + colors from these).
         publish(Topics.updateUIState, { hoveredId, selectedId });
@@ -150,7 +159,7 @@ export function createPointerInteractionController({ world, editMode, publish, }
         editMode.clearUIObjects();
     }
     return {
-        handlePointerEvent,
+        handlePointerEvent: allowEditing ? handlePointerEvent : handleObserverPointer,
         handleSelectionChange,
         handleOps,
         handleClearGalaxy,

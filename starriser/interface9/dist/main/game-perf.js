@@ -1,8 +1,8 @@
 /**
- * Production-safe game perf hooks for bulk fleet add wall time + rAF FPS.
- * Target: 10k fleets add <3s; steady frame ≤8ms (120 FPS).
+ * Bulk fleet wall time and the main thread's rAF heartbeat.
+ * Target: 10k fleets add <2s. Render FPS comes from worker frame counters.
  * Exposed on globalThis.__galaxyGamePerf for CDP / browser scenarios.
- * Measures the real map path only (no forceLodNear / cs_ships_fast).
+ * A healthy UI heartbeat does not establish render throughput or GPU duration.
  */
 const BULK_TIMEOUT_MS = 120000;
 let active = null;
@@ -29,7 +29,7 @@ function finishBulk(session, endTs) {
         active = null;
     console.log(`[gamePerf] bulk add: ${report.applied}/${report.requested} in ` +
         `${wallMs.toFixed(0)}ms (target <2000) ok=${report.ok}`);
-    // Auto-sample FPS after a successful bulk (or any complete apply).
+    // Observe UI responsiveness after bulk; worker render FPS is reported separately.
     if (session.applied > 0) {
         startFrameSample(2000);
     }
@@ -49,6 +49,7 @@ function finishFrameSample() {
     }
     const avg = frameCount > 0 ? frameSum / frameCount : 0;
     frameSample = {
+        source: "main-thread-raf",
         avgDtMs: avg,
         minDtMs: Number.isFinite(frameMin) ? frameMin : 0,
         maxDtMs: frameMax,
@@ -56,7 +57,7 @@ function finishFrameSample() {
         approxFps: avg > 0 ? 1000 / avg : 0,
         ok: avg > 0 && avg <= 8.5,
     };
-    console.log(`[gamePerf] frame sample: ${frameSample.approxFps.toFixed(1)} FPS ` +
+    console.log(`[gamePerf] main rAF heartbeat: ${frameSample.approxFps.toFixed(1)} Hz ` +
         `(avg ${avg.toFixed(2)}ms, min ${frameSample.minDtMs.toFixed(2)}, ` +
         `max ${frameSample.maxDtMs.toFixed(2)}, n=${frameCount}) ok=${frameSample.ok}`);
 }
@@ -77,7 +78,7 @@ function frameTick(now) {
     }
     frameRaf = requestAnimationFrame(frameTick);
 }
-/** Sample rAF dt for `durationMs` (default 2s). Target ≤8ms. */
+/** Sample main-thread rAF intervals for `durationMs`; retained CDP API name. */
 export function startFrameSample(durationMs = 2000) {
     if (typeof requestAnimationFrame === "undefined")
         return;
@@ -95,6 +96,15 @@ export function startFrameSample(durationMs = 2000) {
 }
 export function getLastFrameSample() {
     return frameSample;
+}
+/** Teardown cancels work without turning an interrupted run into a report. */
+export function cancelGamePerfWork() {
+    if (active)
+        clearEndTimer(active);
+    active = null;
+    if (frameRaf !== 0)
+        cancelAnimationFrame(frameRaf);
+    frameRaf = 0;
 }
 /** Start timing a bulk add of `requested` fleets. */
 export function beginBulkAdd(requested) {
@@ -119,7 +129,7 @@ export function beginBulkAdd(requested) {
         finishBulk(session, performance.now());
     }
 }
-/** Note N fleets applied on main (batch size). Completes when applied >= requested. */
+/** Note N renderer-confirmed fleet additions. Completes when applied >= requested. */
 export function noteBulkApplied(n) {
     if (!active)
         return;

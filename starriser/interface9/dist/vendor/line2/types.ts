@@ -57,6 +57,8 @@ export interface Line2MaterialParams {
 
 /** Options when constructing {@link Line2Renderer}. */
 export interface Line2RendererOptions {
+  /** Preserve double positions with high/low floats in the same position buffer. */
+  splitPosition?: boolean;
   /** Swap-chain / color target format. */
   format: GPUTextureFormat;
   /** Sample count for the render target (1 = no MSAA). Default 1. */

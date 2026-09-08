@@ -1,0 +1,38 @@
+/* tslint:disable */
+/* eslint-disable */
+export const memory: WebAssembly.Memory;
+export const __wbg_ruleroutes_free: (a: number, b: number) => void;
+export const __wbg_rulesystem_free: (a: number, b: number) => void;
+export const route_arrival_ms: (a: bigint, b: number) => [bigint, number, number];
+export const rule_version: () => number;
+export const ruleroutes_new: (a: number, b: number, c: number, d: number) => [number, number, number];
+export const ruleroutes_select: (a: number, b: number, c: number, d: number, e: number) => [number, number, number, number];
+export const rulesystem_commit: (a: number) => number;
+export const rulesystem_committed_time_ms: (a: number) => bigint;
+export const rulesystem_discard: (a: number) => void;
+export const rulesystem_identities: (a: number) => [number, number];
+export const rulesystem_new: (a: number, b: number, c: bigint, d: bigint, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number) => [number, number, number];
+export const rulesystem_next_deadline_ms: (a: number) => [number, bigint];
+export const rulesystem_pending_events: (a: number) => [number, number];
+export const rulesystem_pending_identities: (a: number) => [number, number];
+export const rulesystem_pending_meta: (a: number) => [number, number];
+export const rulesystem_pending_order_ids: (a: number) => [number, number];
+export const rulesystem_pending_positions: (a: number) => [number, number];
+export const rulesystem_pending_revisions: (a: number) => [number, number];
+export const rulesystem_pending_times: (a: number) => [number, number];
+export const rulesystem_pending_transfer_ids: (a: number) => [number, number];
+export const rulesystem_pending_transfer_meta: (a: number) => [number, number];
+export const rulesystem_pending_transfer_positions: (a: number) => [number, number];
+export const rulesystem_positions: (a: number) => [number, number];
+export const rulesystem_revision: (a: number) => bigint;
+export const rulesystem_revisions: (a: number) => [number, number];
+export const rulesystem_stage_due: (a: number, b: bigint, c: number) => number;
+export const rulesystem_stage_export: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: bigint, k: bigint, l: number, m: bigint) => number;
+export const rulesystem_stage_move: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: bigint, k: number, l: bigint) => number;
+export const rulesystem_times: (a: number) => [number, number];
+export const transfer_travel_ms: () => bigint;
+export const __wbindgen_externrefs: WebAssembly.Table;
+export const __externref_table_dealloc: (a: number) => void;
+export const __wbindgen_malloc: (a: number, b: number) => number;
+export const __wbindgen_free: (a: number, b: number, c: number) => void;
+export const __wbindgen_start: () => void;

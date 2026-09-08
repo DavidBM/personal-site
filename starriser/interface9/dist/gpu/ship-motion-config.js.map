@@ -1,1 +1,1 @@
-{"version":3,"file":"ship-motion-config.js","sourceRoot":"","sources":["../../js/gpu/ship-motion-config.ts"],"names":[],"mappings":"AAAA,cAAc,+CAA+C,CAAC"}
+{"version":3,"file":"ship-motion-config.js","sourceRoot":"/js/","sources":["gpu/ship-motion-config.ts"],"names":[],"mappings":"AAAA,cAAc,+CAA+C,CAAC"}

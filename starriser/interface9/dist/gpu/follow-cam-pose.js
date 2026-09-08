@@ -10,6 +10,7 @@
  */
 import { chaseCameraFromShip, clampZoomHeight, FOLLOW_BACK_DIST, FOLLOW_HEIGHT, lookAtFromEyeTilt, smoothstep01, tiltFactorForHeight, } from "./camera-zoom.js";
 import { integrateShipAgent, } from "../lib/fleet-sim/visual/ship-flight-ref.js";
+import { stepLocalShipAgent } from '../lib/fleet-sim/visual/local-move-reference.js';
 import { MODEL_LOD_DEFAULT_SCALE } from "../lib/fleet-sim/visual/fleet-lod.js";
 /** Enter/exit follow ease duration (ms). */
 export const FOLLOW_TRANSITION_MS = 500;
@@ -113,6 +114,12 @@ export function chaseFromFollowPose(posX, posY, posZ, heading, opts) {
  * cs_ships (C = pathEnd, V_C = 0). Mutates and returns `ship`.
  */
 export function stepFollowShipAgent(ship, path, dtMs, nowRel) {
+    if (path.simPaused) {
+        ship.speed = 0;
+        return ship;
+    }
+    if (path.localMovement)
+        return stepLocalShipAgent(ship, path, dtMs);
     const pathEndY = path.pathEndY ?? 0;
     return integrateShipAgent(ship, {
         centerX: path.pathEndX,

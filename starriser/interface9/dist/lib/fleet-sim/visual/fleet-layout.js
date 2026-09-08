@@ -109,6 +109,8 @@ export const FLEET_FLAG_SPACE3D = 1 << 6;
  * `writeFleetGpu` zeros `_pad1` — never stash this bit there. Stride stays 64.
  */
 export const FLEET_FLAG_SYSTEM_SCENE = 1 << 7; // 128
+/** Explicit sun-local movement; preserves duration coupling without galaxy hop floors. */
+export const FLEET_FLAG_LOCAL_MOVE = 1 << 8;
 /**
  * Ship instance for instanced draw (vertex-step-mode instance). Stride 48.
  *

@@ -87,15 +87,16 @@ export function buildEditorUI(ctx, actions) {
         planetPanel,
     };
 }
-export function buildPlayUI(ctx, actions) {
-    addModeSwitcher(ctx, actions, "play");
-    const play = buildPlayUIPanels(ctx);
+export function buildPlayUI(ctx, actions, online = false) {
+    if (!online)
+        addModeSwitcher(ctx, actions, "play");
+    const panels = online ? {} : buildPlayUIPanels(ctx).panels;
     const planetPanel = buildSystemPlanetPanel(ctx, actions, {
         placement: "play",
     });
     return {
         mode: "play",
-        panels: play.panels,
+        panels,
         planetPanel,
     };
 }

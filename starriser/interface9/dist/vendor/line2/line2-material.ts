@@ -4,6 +4,7 @@
  */
 
 import type { Line2MaterialParams, Rgba } from "./types.js";
+import { writeSplitPosition } from "../../math/split-position.js";
 
 /**
  * Bytes of the GPU uniform buffer (multiple of 16).
@@ -13,6 +14,8 @@ import type { Line2MaterialParams, Rgba } from "./types.js";
 export const LINE2_UNIFORM_SIZE = 208;
 /** Float count in the uniform staging array. */
 export const LINE2_UNIFORM_FLOATS = LINE2_UNIFORM_SIZE / 4;
+/** Optional low-origin vec3 + padding; default overlays retain 208 bytes. */
+export const LINE2_SPLIT_UNIFORM_SIZE = LINE2_UNIFORM_SIZE + 16;
 /** Float offset of `origin.xyz` (byte 192). Pad float 51 unused. */
 export const LINE2_UNIFORM_ORIGIN_FLOAT = 48;
 
@@ -134,7 +137,12 @@ export function writeOriginUniforms(
   x: number,
   y: number,
   z: number,
+  splitPosition = false,
 ): void {
+  if (splitPosition) {
+    writeSplitPosition(dst, LINE2_UNIFORM_ORIGIN_FLOAT, LINE2_UNIFORM_ORIGIN_FLOAT + 4, x, y, z);
+    return;
+  }
   dst[LINE2_UNIFORM_ORIGIN_FLOAT] = x;
   dst[LINE2_UNIFORM_ORIGIN_FLOAT + 1] = y;
   dst[LINE2_UNIFORM_ORIGIN_FLOAT + 2] = z;

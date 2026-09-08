@@ -17,12 +17,26 @@
 import { isBusMessage, isRecord, serializeBusMessage, } from "./bus-types.js";
 import * as pubsub from "./bus-pubsub.js";
 import * as workers from "./bus-workers.js";
+import { createBusDispatcher } from "./bus-dispatcher.js";
+import { isBusControl } from "./bus-control.js";
+import { createServiceClient } from './service-client.js';
+import { isServiceDelivery, sendService } from './service-transport.js';
+import { createBusAdmission } from './bus-admission.js';
 export class Bus {
     /**
      * @param {BusEndpoint} endpoint - postMessage target or self
      * @param {BusOptions} [options] - Configuration options (debug: number, workerLabel: string)
      */
     constructor(endpoint, options = {}) {
+        this._destroyed = false;
+        this._messageSinks = new Map();
+        this._lifetime = new AbortController();
+        this._orderedMessages = new Map();
+        this._orderedTopics = new Map();
+        this._reportedCodes = new Set();
+        this._failureCount = 0;
+        this._lastFailure = null;
+        this._receiveError = () => this._reportFailure({ code: "MESSAGE_ERROR", message: "Bus message could not be cloned or decoded" });
         if (!endpoint)
             throw new Error("Bus requires a postMessage endpoint");
         this._target = endpoint;
@@ -33,12 +47,10 @@ export class Bus {
             ...options,
         };
         this._counter = 1;
-        this._listeners = {};
+        this._listeners = Object.create(null);
         this._pendingRequests = new Map();
-        this._normalQueue = [];
-        this._backgroundQueue = [];
-        this._processing = false;
-        this._normalQueueMessagesProcessed = null;
+        this._dispatcher = createBusDispatcher(this._options, delivery => this._executeDelivery(delivery), (delivery, reason) => this._deliveryFailure(delivery, "HANDLER_ERROR", reason));
+        this._admission = createBusAdmission((size, signal) => (this._messageSinks.get(size.type ?? '') ?? this._dispatcher).reserve(size, signal), message => ({ bytes: this._dispatcher.estimate(message), control: isBusControl(message), type: message.t }), error => this._reportFailure({ code: 'SEND_ERROR', message: error.message }));
         this._managedWorkers = new Map();
         this._workerIdCounter = 1;
         this._brokerWorker = null;
@@ -49,11 +61,27 @@ export class Bus {
         this._brokerPort = null;
         this._bindReceive = this._onReceive.bind(this);
         this._setupMessageListener();
-        this._startProcessor();
     }
     isPubSubReady() {
         return this._brokerReady;
     }
+    bind(identity, declarations) {
+        return (this._services ?? (this._services = createServiceClient(this))).bind(identity, declarations);
+    }
+    getServiceGraph() {
+        return (this._services ?? (this._services = createServiceClient(this))).graph();
+    }
+    setServiceTrace(options) {
+        return (this._services ?? (this._services = createServiceClient(this))).trace(options);
+    }
+    _sendServicePacket(packet, priority, ordered, signal) {
+        if (this._destroyed)
+            throw new Error('Bus destroyed');
+        return this._observe(sendService(this, packet, priority, ordered, signal));
+    }
+    isDestroyed() { return this._destroyed; }
+    /** The transport owner aborts active work and attached resources on teardown. */
+    get signal() { return this._lifetime.signal; }
     hasBrokerPort() {
         return this._brokerPort !== null;
     }
@@ -61,6 +89,8 @@ export class Bus {
         return typeof this._options.debug === "number" ? this._options.debug : 0;
     }
     async enablePubSub() {
+        if (this._destroyed)
+            throw new Error("Bus destroyed");
         return pubsub.enablePubSub(this);
     }
     async registerWorkerWithBroker(workerId, worker) {
@@ -72,31 +102,38 @@ export class Bus {
     _handleBrokerMessage(message) {
         pubsub.handleBrokerMessage(this, message);
     }
-    _handlePubMessage(topic, data, senderId) {
-        pubsub.handlePubMessage(this, topic, data, senderId);
+    _handlePubMessage(topic, data, senderId, priority = 1) {
+        pubsub.handlePubMessage(this, topic, data, senderId, priority);
     }
     publish(topic, data, priority = 1) {
-        pubsub.publish(this, topic, data, priority);
+        return this._observe(this.publishWithBackpressure(topic, data, priority));
     }
-    subscribe(topic, handler) {
+    publishWithBackpressure(topic, data, priority = 1, options = {}) {
+        return pubsub.publishWithBackpressure(this, topic, data, priority, options);
+    }
+    publishAndIgnoreAfterTimeout(topic, data, maxQueueAgeMs, priority = 1) {
+        return this._observe(pubsub.publishExpiring(this, topic, data, this._expiry(maxQueueAgeMs), priority));
+    }
+    subscribe(topic, handler, options) {
+        if (this._destroyed)
+            return;
+        this._setOrdering(this._orderedTopics, topic, options);
         pubsub.subscribe(this, topic, handler);
     }
     unsubscribe(topic, handler) {
         pubsub.unsubscribe(this, topic, handler);
+        if (!this._subscriptions.has(topic))
+            this._orderedTopics.delete(topic);
     }
     async getBrokerStatus() {
         return pubsub.getBrokerStatus(this);
-    }
-    getWorkerPort(workerId) {
-        return pubsub.getWorkerPort(this, workerId);
-    }
-    sendToWorker(workerId, type, data, priority = 1) {
-        pubsub.sendToWorker(this, workerId, type, data, priority);
     }
     static serializeMessage(t, d, p, e, i) {
         return serializeBusMessage(t, d, p, e, i);
     }
     async launchWorker(workerModulePath, options = {}) {
+        if (this._destroyed)
+            throw new Error("Bus destroyed");
         return workers.launchWorker(this, (endpoint, busOptions) => new Bus(endpoint, busOptions), workerModulePath, options);
     }
     getWorker(workerId) {
@@ -105,7 +142,10 @@ export class Bus {
     terminateWorker(workerId) {
         workers.terminateWorker(this, workerId);
     }
-    on(t, handler, _options) {
+    on(t, handler, options) {
+        if (this._destroyed)
+            return;
+        this._setOrdering(this._orderedMessages, t, options);
         if (!this._listeners[t])
             this._listeners[t] = [];
         this._listeners[t].push(handler);
@@ -115,45 +155,115 @@ export class Bus {
             return;
         if (!handler) {
             delete this._listeners[t];
+            this._orderedMessages.delete(t);
         }
         else {
             this._listeners[t] = this._listeners[t].filter((h) => h !== handler);
-            if (this._listeners[t].length === 0)
+            if (this._listeners[t].length === 0) {
                 delete this._listeners[t];
+                this._orderedMessages.delete(t);
+            }
         }
     }
-    _send_base(t, d, p, e = 0) {
-        const msg = serializeBusMessage(t, d, p, e);
-        this._sendLocal(t, msg);
-        this._sendToTarget(msg);
+    _send_base(t, d, p, _e = 0) {
+        return this._observe(this.sendWithBackpressure(t, d, p));
     }
     send(t, d) {
-        this._send_base(t, d, 1, 0);
+        return this._send_base(t, d, 1, 0);
     }
     send_realtime(t, d) {
-        this._send_base(t, d, 0, 0);
+        return this._send_base(t, d, 0, 0);
     }
     send_background(t, d) {
-        this._send_base(t, d, 2, 0);
+        return this._send_base(t, d, 2, 0);
+    }
+    sendWithBackpressure(t, d, priority = 1, options = {}) {
+        return this._sendAcknowledged(serializeBusMessage(t, d, priority, 0), options.signal);
+    }
+    sendAndIgnoreAfterTimeout(t, d, maxQueueAgeMs, priority = 1) {
+        return this._observe(this._sendAcknowledged({ ...serializeBusMessage(t, d, priority, 0), x: this._expiry(maxQueueAgeMs) }));
+    }
+    _expiry(age) {
+        if (!Number.isFinite(age) || age <= 0 || age > 0x7fffffff)
+            throw new Error('Queue age must be positive and fit the platform timer range');
+        return performance.timeOrigin + performance.now() + age;
+    }
+    async _sendAcknowledged(message, signal) {
+        if (this._destroyed || signal?.aborted)
+            throw new Error('Bus send canceled');
+        await this._admission.send(this._target, message, signal);
+        if (this._listeners[message.t])
+            await this._enqueue({ message, local: true });
+    }
+    _observe(waiting) {
+        void waiting.catch(error => this._reportFailure({ code: 'SEND_ERROR', message: String(error) }));
+        return waiting;
+    }
+    _measureForAdmission(message) { return this._admission.measurement(message); }
+    _reserveTo(target, message, signal, measurement) {
+        return this._admission.prepare(target, message, signal, measurement);
+    }
+    _sendOn(target, message, signal) {
+        return this._admission.send(target, message, signal);
+    }
+    _disconnectEndpoint(target) { this._admission.disconnect(target); }
+    _admissionRequestSignal(target, id) { return this._admission.requestSignal(target, id); }
+    _finishAdmissionRequest(target, id) { this._admission.finishRequest(target, id); }
+    _setMessageSink(type, sink) { this._messageSinks.set(type, sink); }
+    _reserveIngress(size, signal) { return this._dispatcher.reserve(size, signal); }
+    _receiveFrom(target, message, deliver = (value, credit) => this._processMessage(value, credit)) {
+        this._admission.receive(target, message, deliver);
+    }
+    _requestOn(target, t, d, priority, options = {}, expiresAt) {
+        if (this._destroyed || options.signal?.aborted)
+            return Promise.reject(new Error('Bus request canceled'));
+        const id = this._counter++;
+        return new Promise((resolve, reject) => {
+            let reservation;
+            const abort = () => {
+                this._resolveRequest(id, undefined, { code: 'SEND_ERROR', message: 'Bus request canceled' });
+            };
+            this._pendingRequests.set(id, { resolve: () => resolve(), reject,
+                cleanup: () => { options.signal?.removeEventListener('abort', abort); reservation?.cancel(); } });
+            options.signal?.addEventListener('abort', abort, { once: true });
+            // Routing can await several recipient queues. Keep one publisher's next
+            // publication behind that admission; worker wrappers scope this lane to
+            // their incarnation, while subscriber handler completion stays separate.
+            void this._reserveTo(target, { ...serializeBusMessage(t, d, priority, 1, id),
+                o: t === 'publish' ? 'publication' : undefined, x: expiresAt }, options.signal)
+                .then(async (credit) => { reservation = credit; if (credit)
+                await credit.send(); })
+                .catch(error => this._resolveRequest(id, undefined, { code: 'SEND_ERROR', message: String(error) }));
+        });
     }
     _request_base(t, d, p, timeoutMs = 5000) {
+        if (this._destroyed)
+            return Promise.reject(new Error("Bus destroyed"));
         const requestId = this._counter++;
         const msg = serializeBusMessage(t, d, p, 1, requestId);
         return new Promise((resolve, reject) => {
             const resolveUnknown = (value) => resolve(value);
             const rejectUnknown = (reason) => reject(reason);
-            this._pendingRequests.set(requestId, {
-                resolve: resolveUnknown,
-                reject: rejectUnknown,
-            });
-            setTimeout(() => {
+            const timeout = setTimeout(() => {
                 if (this._pendingRequests.has(requestId)) {
                     this._pendingRequests.delete(requestId);
                     reject(new Error("Request timeout"));
                 }
             }, timeoutMs);
-            this._sendLocal(t, msg);
-            this._sendToTarget(msg);
+            this._pendingRequests.set(requestId, {
+                resolve: resolveUnknown,
+                reject: rejectUnknown,
+                timeout,
+            });
+            try {
+                this._sendToTarget(msg);
+                this._sendLocal(t, msg);
+            }
+            catch (error) {
+                clearTimeout(timeout);
+                this._pendingRequests.delete(requestId);
+                reject(error);
+            }
         });
     }
     request_realtime(t, d, timeoutMs = 5000) {
@@ -166,32 +276,32 @@ export class Bus {
         return this._request_base(t, d, 2, timeoutMs);
     }
     respond(requestId, t, d, p = 0) {
+        if (this._destroyed)
+            return;
         const msg = serializeBusMessage(t, d, p, 2, requestId);
-        this._sendLocal(t, msg);
         this._sendToTarget(msg);
+        this._sendLocal(t, msg);
     }
     _sendLocal(t, m) {
-        const localHandlers = this._listeners[t];
-        if (!localHandlers)
+        if (!this._listeners[t])
             return;
-        for (const handler of localHandlers) {
-            try {
-                handler(m.d, { id: m.i, eventType: m.e, priority: m.p });
-            }
-            catch (err) {
-                // Local handler error
-            }
-        }
+        this._observe(this._enqueue({ message: m, local: true }));
     }
     _sendToTarget(m) {
-        if (this._target && typeof this._target.postMessage === "function") {
-            const target = this._target;
-            target.postMessage(m);
-        }
+        return this._observe(this._sendOn(this._target, m));
     }
     destroy() {
+        if (this._destroyed)
+            return;
+        this._destroyed = true;
+        this._lifetime.abort();
+        this._admission.dispose();
+        this._dispatcher.dispose();
         if (this._brokerBus) {
-            this._brokerBus.send("cleanup", {});
+            try {
+                this._brokerBus.send("cleanup", {});
+            }
+            catch { /* Continue local teardown if the remote endpoint failed. */ }
         }
         for (const port of this._workerPorts.values()) {
             try {
@@ -221,11 +331,23 @@ export class Bus {
             this._brokerReady = false;
         }
         this._removeMessageListener();
-        this._listeners = {};
-        this._pendingRequests.clear();
+        this._listeners = Object.create(null);
+        this._rejectPendingRequests();
         this._subscriptions.clear();
+        this._orderedMessages.clear();
+        this._orderedTopics.clear();
+        this._messageSinks.clear();
+    }
+    _rejectPendingRequests() {
+        for (const pending of this._pendingRequests.values()) {
+            clearTimeout(pending.timeout);
+            pending.cleanup?.();
+            pending.reject(new Error("Bus destroyed"));
+        }
+        this._pendingRequests.clear();
     }
     _setupMessageListener() {
+        this._target.addEventListener("messageerror", this._receiveError);
         if (typeof window !== "undefined" && this._target === window) {
             window.addEventListener("message", this._bindReceive, false);
         }
@@ -237,6 +359,7 @@ export class Bus {
         }
     }
     _removeMessageListener() {
+        this._target.removeEventListener("messageerror", this._receiveError);
         if (typeof window !== "undefined" && this._target === window) {
             window.removeEventListener("message", this._bindReceive, false);
         }
@@ -249,96 +372,181 @@ export class Bus {
     }
     _onReceive(e) {
         const m = e.data;
-        if (!isBusMessage(m))
-            return;
-        this._processMessage(m);
-    }
-    _processMessage(m) {
-        if (m.t === "setup_broker_port" && isRecord(m.d)) {
-            const brokerPort = m.d.brokerPort;
-            if (brokerPort instanceof MessagePort) {
-                this.setupBrokerPort(brokerPort);
-            }
-            this._sendLocal(m.t, m);
+        if (!isBusMessage(m)) {
+            if (isRecord(m) && m.b === true)
+                this._reportFailure({ code: "INVALID_MESSAGE", message: "Invalid Bus envelope" });
             return;
         }
-        if (m.e === 2 && m.i !== undefined && this._pendingRequests.has(m.i)) {
-            const pending = this._pendingRequests.get(m.i);
-            this._pendingRequests.delete(m.i);
-            pending?.resolve(m.d);
+        this._receiveFrom(this._target, m);
+    }
+    _processMessage(m, reservation) {
+        const sink = this._messageSinks.get(m.t);
+        return this._observe(sink ? sink.deliver(m, reservation) : this._enqueue({ message: m }, reservation));
+    }
+    _resolveRequest(id, data, failure) {
+        const pending = this._pendingRequests.get(id);
+        if (!pending)
+            return false;
+        this._pendingRequests.delete(id);
+        clearTimeout(pending.timeout);
+        pending.cleanup?.();
+        if (failure)
+            pending.reject(Object.assign(new Error(failure.message), { code: failure.code }));
+        else
+            pending.resolve(data);
+        return true;
+    }
+    _initializeBrokerPort(message, port) {
+        try {
+            if (!(port instanceof MessagePort))
+                throw new Error("Invalid broker port");
+            this.setupBrokerPort(port);
+            return this._runBrokerSetup(message).then(() => this._acknowledgeSubscriptions(port)).catch(error => this._brokerSetupFailed(error));
+        }
+        catch (error) {
+            this._brokerSetupFailed(error);
+        }
+    }
+    async _runBrokerSetup(message) {
+        for (const handler of this._listeners[message.t] ?? []) {
+            if (this._destroyed)
+                return;
+            await handler(message.d, { eventType: message.e, priority: message.p, signal: this._lifetime.signal });
+        }
+    }
+    _acknowledgeSubscriptions(port) {
+        if (!this._destroyed)
+            port.postMessage(serializeBusMessage("subscriptions_ready", {}, 0, 0));
+    }
+    _brokerSetupFailed(error) {
+        this._reportFailure({ code: "HANDLER_ERROR", type: "setup_broker_port", message: this._errorText(error) });
+        try {
+            this.send_realtime("wrk_error", { error: this._errorText(error) });
+        }
+        catch { /* Send failure is already reported. */ }
+    }
+    _processQueues() { this._dispatcher.drain(); }
+    _enqueuePublication(topic, data, senderId, priority = 1, reservation, expiresAt) {
+        const key = this._orderedTopics.get(topic);
+        const sender = senderId ?? "";
+        return this._observe(this._enqueue({ message: { ...serializeBusMessage(topic, data, priority, 0), x: expiresAt,
+                k: reservation?.bytes }, publication: { topic, senderId },
+            ordered: key === undefined ? undefined : `topic:${sender.length}:${sender}:${key}` }, reservation));
+    }
+    _setOrdering(orders, type, options) {
+        if (!options?.orderedIngress)
             return;
-        }
-        const prio = typeof m.p === "number" ? m.p : 1;
-        if (prio === 0) {
-            this._executeMessage(m);
-        }
-        else if (prio === 1) {
-            this._normalQueue.push(m);
-        }
-        else {
-            this._backgroundQueue.push(m);
-        }
+        const existing = orders.get(type);
+        if (existing && existing !== options.orderedIngress)
+            throw new Error(`Conflicting Bus ordering for ${type}`);
+        orders.set(type, options.orderedIngress);
     }
-    _startProcessor() {
-        const process = () => {
-            this._processQueues();
-            requestAnimationFrame(process);
-        };
-        requestAnimationFrame(process);
+    _enqueue(delivery, reservation) {
+        if (this._destroyed)
+            return Promise.reject(new Error('Bus destroyed'));
+        if (!delivery.publication) {
+            delivery.control = isBusControl(delivery.message);
+            const key = this._orderedMessages.get(delivery.message.t);
+            if (key !== undefined && delivery.message.e !== 2)
+                delivery.ordered = `message:${key}`;
+            if (delivery.message.o !== undefined)
+                delivery.ordered = `service:${delivery.message.o}`;
+        }
+        return this._dispatcher.enqueue(delivery, reservation).catch(error => {
+            this._deliveryFailure(delivery, "INVALID_MESSAGE", String(error));
+            throw error;
+        });
     }
-    _processQueues() {
-        if (this._processing)
+    _executeDelivery(delivery) {
+        if (this._destroyed)
             return;
-        this._processing = true;
-        const startTime = performance.now();
-        let maxDuration = 2;
-        let messagesProcessed = 0;
-        if (this._normalQueueMessagesProcessed) {
-            if (this._normalQueue.length > this._normalQueueMessagesProcessed * 3) {
-                maxDuration = Math.min((maxDuration * this._normalQueue.length) /
-                    this._normalQueueMessagesProcessed, 64);
-                console.log("Processing normal queue too slow", "duration assigned", maxDuration, "current queue length", this._normalQueue.length, "queue speed", this._normalQueueMessagesProcessed);
-            }
-        }
-        let time_exhausted = true;
-        while (performance.now() - startTime < maxDuration) {
-            messagesProcessed++;
-            if (this._normalQueue.length > 0) {
-                const m = this._normalQueue.shift();
-                if (m)
-                    this._executeMessage(m);
-            }
-            else if (this._backgroundQueue.length > 0) {
-                const m = this._backgroundQueue.shift();
-                if (m)
-                    this._executeMessage(m);
-            }
-            else {
-                time_exhausted = false;
-                break;
-            }
-        }
-        if (time_exhausted) {
-            console.log("Normal queue exhausted");
-            this._normalQueueMessagesProcessed = messagesProcessed;
-        }
-        else {
-            this._normalQueueMessagesProcessed = null;
-        }
-        this._processing = false;
+        const m = delivery.message;
+        if (this._services && isServiceDelivery(m))
+            return this._services.receive(m.d);
+        if (!delivery.local && m.e === 2 && m.i !== undefined && this._resolveRequest(m.i, m.d, m.failure))
+            return;
+        if (m.t === "setup_broker_port" && isRecord(m.d))
+            return this._initializeBrokerPort(m, m.d.brokerPort);
+        return this._executeHandlers(delivery);
     }
-    _executeMessage(m) {
-        const handlers = this._listeners[m.t];
+    _executeHandlers(delivery) {
+        const m = delivery.message;
+        const handlers = delivery.publication ? this._subscriptions.get(m.t) : this._listeners[m.t];
         if (!handlers)
             return;
+        let pending;
         for (const handler of handlers) {
-            try {
-                handler(m.d, { id: m.i, eventType: m.e, priority: m.p });
-            }
-            catch (err) {
-                // Handler error
+            const result = this._invokeHandler(handler, delivery);
+            if (result)
+                (pending ?? (pending = [])).push(result);
+            if (this._destroyed)
+                break;
+        }
+        if (pending)
+            return Promise.all(pending).then(() => { });
+    }
+    _invokeHandler(handler, delivery) {
+        const m = delivery.message;
+        const meta = { id: m.i, eventType: m.e, priority: m.p, signal: this._lifetime.signal,
+            ordered: m.o, knownBytes: m.k, admissionId: m.q,
+            topic: delivery.publication?.topic ?? m.t, senderId: delivery.publication?.senderId };
+        try {
+            const result = handler(m.d, meta);
+            if (result && typeof result.then === "function") {
+                return Promise.resolve(result).then(() => { }, error => this._deliveryFailure(delivery, "HANDLER_ERROR", this._errorText(error)));
             }
         }
+        catch (error) {
+            this._deliveryFailure(delivery, "HANDLER_ERROR", this._errorText(error));
+        }
+    }
+    _errorText(error) { return error instanceof Error ? error.message : String(error); }
+    _serviceDeliveryFailed(message, failure) {
+        this._serviceTransportFailure?.(message, failure);
+        if (isServiceDelivery(message))
+            this._services?.failure(message.d, { code: 'OVERLOADED', message: failure.message });
+    }
+    _deliveryFailure(delivery, code, message) {
+        if (this._destroyed)
+            return;
+        const m = delivery.message;
+        const failure = { code, message, type: m.t, priority: m.p, requestId: m.i };
+        this._reportFailure(failure);
+        this._serviceDeliveryFailed(m, failure);
+        if (delivery.control && code === "QUEUE_OVERFLOW") {
+            this.destroy();
+            return;
+        }
+        if (m.e !== 1 || m.i === undefined)
+            return;
+        if (delivery.local) {
+            this._resolveRequest(m.i, undefined, failure);
+            return;
+        }
+        try {
+            this._sendToTarget({ ...serializeBusMessage(m.t, null, 0, 2, m.i), failure });
+        }
+        catch { /* Send failure is already reported. */ }
+    }
+    _reportFailure(failure) {
+        if (this._destroyed)
+            return;
+        failure = { ...failure, message: failure.message.slice(0, 1024), type: failure.type?.slice(0, 256) };
+        this._failureCount++;
+        this._lastFailure = failure;
+        if (this._options.onError) {
+            try {
+                this._options.onError(failure);
+            }
+            catch { /* Diagnostics never break delivery. */ }
+        }
+        else if (!this._reportedCodes.has(failure.code)) {
+            this._reportedCodes.add(failure.code);
+            console.error(`[Bus] ${failure.code}: ${failure.message}`);
+        }
+    }
+    getDiagnostics() {
+        return { ...this._dispatcher.stats(), failures: this._failureCount, lastFailure: this._lastFailure };
     }
 }
 //# sourceMappingURL=Bus.js.map

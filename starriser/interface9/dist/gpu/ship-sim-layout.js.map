@@ -1,1 +1,1 @@
-{"version":3,"file":"ship-sim-layout.js","sourceRoot":"","sources":["../../js/gpu/ship-sim-layout.ts"],"names":[],"mappings":"AAAA,cAAc,4CAA4C,CAAC"}
+{"version":3,"file":"ship-sim-layout.js","sourceRoot":"/js/","sources":["gpu/ship-sim-layout.ts"],"names":[],"mappings":"AAAA,cAAc,4CAA4C,CAAC"}

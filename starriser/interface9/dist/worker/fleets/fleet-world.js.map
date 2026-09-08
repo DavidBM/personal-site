@@ -1,1 +1,1 @@
-{"version":3,"file":"fleet-world.js","sourceRoot":"","sources":["../../../js/worker/fleets/fleet-world.ts"],"names":[],"mappings":"AAAA,cAAc,2CAA2C,CAAC"}
+{"version":3,"file":"fleet-world.js","sourceRoot":"/js/","sources":["worker/fleets/fleet-world.ts"],"names":[],"mappings":"AAAA,cAAc,2CAA2C,CAAC"}

@@ -1,4 +1,4 @@
-const CLICK_DIST2 = 50 * 50;
+const CLICK_DIST2 = 6 * 6;
 const TAP_TIME_MS = 200;
 /**
  * Map pointer router — game owns the drag session.
@@ -10,7 +10,7 @@ const TAP_TIME_MS = 200;
  * Canvas-only listeners miss mouseup when the cursor leaves the canvas
  * onto overlay panels — classic “keeps dragging when I return” bug.
  */
-export function createPointerEventRouter({ canvas, cameraController, controlsManager, editHandlePointer, getContextMenuController, publishPointerEvent, tryPickBody, clearFocus, }) {
+export function createPointerEventRouter({ canvas, cameraController, controlsManager, editHandlePointer, getContextMenuController, publishPointerEvent, tryPickBody, tryPickSceneTarget, updateSceneHover, clearFocus, isSceneActive, }) {
     const cleanup = [];
     /** Active primary map-drag (or edit-handle) owned by document listeners. */
     let mapDragSession = false;
@@ -31,19 +31,38 @@ export function createPointerEventRouter({ canvas, cameraController, controlsMan
         y: 0,
         z: 0,
     };
-    const maybeLockBodyOnMouseUp = (event) => {
-        if (bodyPickConsumed || !tryPickBody)
-            return;
-        if (event.button !== 0 || event.detail !== 1)
-            return;
-        if (controlsManager.pointerMovedDistanceSq() >= CLICK_DIST2)
-            return;
-        bodyPickConsumed = true;
-        if (tryPickBody(event.clientX, event.clientY)) {
-            event.preventDefault();
+    const scenePicker = tryPickSceneTarget ?? tryPickBody;
+    const galaxyInputEnabled = () => isSceneActive?.() !== true;
+    const routeEdit = (kind, event) => {
+        if (!galaxyInputEnabled()) {
+            editHandlePointer.setActiveClusterId(null);
+            return false;
         }
+        return editHandlePointer[kind](event);
+    };
+    const publishGalaxyPointer = (payload, priority) => {
+        if (galaxyInputEnabled())
+            publishPointerEvent(payload, priority);
+    };
+    const maybeLockBodyOnMouseUp = (event) => {
+        if (bodyPickConsumed || !scenePicker)
+            return false;
+        if (event.button !== 0 || event.detail !== 1)
+            return false;
+        if (controlsManager.pointerMovedDistanceSq() >= CLICK_DIST2)
+            return false;
+        bodyPickConsumed = true;
+        const picked = scenePicker(event.clientX, event.clientY);
+        if (picked) {
+            event.preventDefault();
+            return true;
+        }
+        clearFocus?.();
+        return false;
     };
     const publishScreenEvent = (type, screenX, screenY, extras = {}) => {
+        if (!galaxyInputEnabled())
+            return;
         const ground = getGroundPoint(screenX, screenY);
         const pointerRay = cameraController.getPointerRayFromScreenPosition(screenX, screenY);
         publishPointerEvent({
@@ -69,8 +88,14 @@ export function createPointerEventRouter({ canvas, cameraController, controlsMan
         window.addEventListener("blur", onWindowBlur);
     };
     function onDocumentMouseMove(event) {
+        if (!galaxyInputEnabled() && editDragSession) {
+            editDragSession = false;
+            editHandlePointer.setActiveClusterId(null);
+            detachDocumentDrag();
+            return;
+        }
         if (editDragSession) {
-            if (editHandlePointer.handleMove(event)) {
+            if (routeEdit("handleMove", event)) {
                 event.preventDefault();
             }
             return;
@@ -79,6 +104,7 @@ export function createPointerEventRouter({ canvas, cameraController, controlsMan
             return;
         cameraController.onMouseMove(event);
         controlsManager.pointerMove(event.clientX, event.clientY);
+        updateSceneHover?.(-1, -1);
         // Selection hover while dragging is noisy — skip bus publish on drag move.
     }
     function endDragSession(event, button = 0) {
@@ -89,9 +115,8 @@ export function createPointerEventRouter({ canvas, cameraController, controlsMan
         detachDocumentDrag();
         if (wasEdit) {
             bodyPickConsumed = true;
-            if (event) {
-                editHandlePointer.handleUp(event);
-            }
+            if (event)
+                routeEdit("handleUp", event);
             return;
         }
         if (!wasMap)
@@ -101,7 +126,7 @@ export function createPointerEventRouter({ canvas, cameraController, controlsMan
             controlsManager.pointerUp(event.clientX, event.clientY);
             const ground = getGroundPoint(event.clientX, event.clientY);
             const pointerRay = cameraController.getPointerRayFromScreenPosition(event.clientX, event.clientY);
-            publishPointerEvent({
+            publishGalaxyPointer({
                 type: "up",
                 screen_position: { x: event.clientX, y: event.clientY },
                 galaxy_position: { x: ground.x, z: ground.z },
@@ -116,14 +141,13 @@ export function createPointerEventRouter({ canvas, cameraController, controlsMan
             // Only treat as tap if the camera never entered a real drag (short click).
             const stillDragging = cameraController.isDragging;
             if (button === 0 && !stillDragging && movedDist < CLICK_DIST2) {
-                maybeLockBodyOnMouseUp(event);
+                bodyPickConsumed = maybeLockBodyOnMouseUp(event);
             }
-            bodyPickConsumed = true;
             if (button === 0 &&
                 movedDist < CLICK_DIST2 &&
                 dur < TAP_TIME_MS &&
-                !stillDragging) {
-                publishPointerEvent({
+                !stillDragging && !bodyPickConsumed) {
+                publishGalaxyPointer({
                     type: "tap",
                     eventSource: "selection",
                     tapId: `selection_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
@@ -180,7 +204,7 @@ export function createPointerEventRouter({ canvas, cameraController, controlsMan
         // then onDoubleClick dives 350/2500 and locked tick slams back.
         // Lock on mouseup detail===1 (single click). Touch stays immediate.
         // Edit handles are highest-priority and bypass camera/selection routing.
-        if (editHandlePointer.handleDown(event)) {
+        if (routeEdit("handleDown", event)) {
             event.preventDefault();
             editDragSession = true;
             attachDocumentDrag();
@@ -201,12 +225,13 @@ export function createPointerEventRouter({ canvas, cameraController, controlsMan
         if (mapDragSession || editDragSession) {
             return;
         }
-        if (editHandlePointer.handleMove(event)) {
+        if (routeEdit("handleMove", event)) {
             event.preventDefault();
             return;
         }
         cameraController.onMouseMove(event);
         controlsManager.pointerMove(event.clientX, event.clientY);
+        updateSceneHover?.(event.clientX, event.clientY);
         publishScreenEvent("move", event.clientX, event.clientY);
     });
     // Canvas mouseup is a fallback only — document listener is authoritative while
@@ -219,7 +244,7 @@ export function createPointerEventRouter({ canvas, cameraController, controlsMan
             }
             return;
         }
-        if (editHandlePointer.handleUp(event)) {
+        if (routeEdit("handleUp", event)) {
             event.preventDefault();
             return;
         }
@@ -227,7 +252,7 @@ export function createPointerEventRouter({ canvas, cameraController, controlsMan
         controlsManager.pointerUp(event.clientX, event.clientY);
         const ground = getGroundPoint(event.clientX, event.clientY);
         const pointerRay = cameraController.getPointerRayFromScreenPosition(event.clientX, event.clientY);
-        publishPointerEvent({
+        publishGalaxyPointer({
             type: "up",
             screen_position: { x: event.clientX, y: event.clientY },
             galaxy_position: { x: ground.x, z: ground.z },
@@ -240,13 +265,13 @@ export function createPointerEventRouter({ canvas, cameraController, controlsMan
         const movedDist = controlsManager.pointerMovedDistanceSq();
         const isDragging = cameraController.isDragging;
         if (event.button === 0 && !isDragging && movedDist < CLICK_DIST2) {
-            maybeLockBodyOnMouseUp(event);
+            bodyPickConsumed = maybeLockBodyOnMouseUp(event);
         }
         if (event.button === 0 &&
             movedDist < CLICK_DIST2 &&
             dur < TAP_TIME_MS &&
-            !isDragging) {
-            publishPointerEvent({
+            !isDragging && !bodyPickConsumed) {
+            publishGalaxyPointer({
                 type: "tap",
                 eventSource: "selection",
                 tapId: `selection_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
@@ -268,7 +293,7 @@ export function createPointerEventRouter({ canvas, cameraController, controlsMan
             }
         }
         // Mirror mouse: edit handles take priority when gizmo is active.
-        if (editHandlePointer.handleDown(event)) {
+        if (routeEdit("handleDown", event)) {
             event.preventDefault();
             editDragSession = true;
             attachDocumentDrag();
@@ -283,7 +308,7 @@ export function createPointerEventRouter({ canvas, cameraController, controlsMan
     addCanvasListener("touchmove", (event) => {
         if (editDragSession)
             return;
-        if (editHandlePointer.handleMove(event)) {
+        if (routeEdit("handleMove", event)) {
             event.preventDefault();
             return;
         }
@@ -296,12 +321,12 @@ export function createPointerEventRouter({ canvas, cameraController, controlsMan
     const handleTouchEndOrCancel = (event) => {
         if (editDragSession) {
             endDragSession(null);
-            if (editHandlePointer.handleUp(event)) {
+            if (routeEdit("handleUp", event)) {
                 event.preventDefault();
             }
             return;
         }
-        if (editHandlePointer.handleUp(event)) {
+        if (routeEdit("handleUp", event)) {
             event.preventDefault();
             return;
         }
@@ -319,7 +344,7 @@ export function createPointerEventRouter({ canvas, cameraController, controlsMan
         }
         controlsManager.pointerUp(screenX, screenY);
         const pointerRay = cameraController.getPointerRayFromScreenPosition(screenX, screenY);
-        publishPointerEvent({
+        publishGalaxyPointer({
             type: "up",
             screen_position: { x: screenX, y: screenY },
             galaxy_position: { x: ground.x, z: ground.z },
@@ -330,7 +355,7 @@ export function createPointerEventRouter({ canvas, cameraController, controlsMan
         const pointerDownTime = controlsManager.getPointerDownTimestamp() || upTime;
         const dur = upTime - pointerDownTime;
         if (controlsManager.pointerMovedDistanceSq() < CLICK_DIST2 && dur < TAP_TIME_MS) {
-            publishPointerEvent({
+            publishGalaxyPointer({
                 type: "tap",
                 eventSource: "touch",
                 tapId: `touch_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
@@ -353,6 +378,12 @@ export function createPointerEventRouter({ canvas, cameraController, controlsMan
         const contextMenuController = getContextMenuController();
         if (!contextMenuController)
             return;
+        if (!galaxyInputEnabled()) {
+            event.preventDefault();
+            event.stopPropagation();
+            contextMenuController.hide();
+            return;
+        }
         event.preventDefault();
         event.stopPropagation();
         const pick = contextMenuController.pickAndShow(event.clientX, event.clientY);
@@ -370,6 +401,7 @@ export function createPointerEventRouter({ canvas, cameraController, controlsMan
     });
     return {
         dispose() {
+            updateSceneHover?.(-1, -1);
             detachDocumentDrag();
             mapDragSession = false;
             editDragSession = false;

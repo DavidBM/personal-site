@@ -8,13 +8,15 @@ export function whenPubSubReady(bus, setup) {
         if (ready || !bus.hasBrokerPort())
             return;
         ready = true;
-        setup();
+        return setup();
     };
     if (bus.hasBrokerPort()) {
-        run();
+        const result = run();
+        if (result)
+            void result.catch(error => bus._reportFailure({ code: 'HANDLER_ERROR', type: 'setup_broker_port', message: String(error) }));
     }
     bus.on("setup_broker_port", () => {
-        run();
+        return run();
     });
 }
 //# sourceMappingURL=when-pubsub-ready.js.map

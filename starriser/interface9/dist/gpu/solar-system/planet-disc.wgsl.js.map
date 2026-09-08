@@ -1,1 +1,1 @@
-{"version":3,"file":"planet-disc.wgsl.js","sourceRoot":"","sources":["../../../js/gpu/solar-system/planet-disc.wgsl.ts"],"names":[],"mappings":"AAAA,cAAc,mCAAmC,CAAC"}
+{"version":3,"file":"planet-disc.wgsl.js","sourceRoot":"/js/","sources":["gpu/solar-system/planet-disc.wgsl.ts"],"names":[],"mappings":"AAAA,cAAc,mCAAmC,CAAC"}

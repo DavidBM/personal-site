@@ -2,6 +2,7 @@
  * Line2 material defaults and uniform packing.
  * Uniform layout must stay in lockstep with `line2-wgsl.ts`.
  */
+import { writeSplitPosition } from "../../math/split-position.js";
 /**
  * Bytes of the GPU uniform buffer (multiple of 16).
  * 192 was packed full (endcaps at float 47); origin.xyz occupies the next
@@ -10,6 +11,8 @@
 export const LINE2_UNIFORM_SIZE = 208;
 /** Float count in the uniform staging array. */
 export const LINE2_UNIFORM_FLOATS = LINE2_UNIFORM_SIZE / 4;
+/** Optional low-origin vec3 + padding; default overlays retain 208 bytes. */
+export const LINE2_SPLIT_UNIFORM_SIZE = LINE2_UNIFORM_SIZE + 16;
 /** Float offset of `origin.xyz` (byte 192). Pad float 51 unused. */
 export const LINE2_UNIFORM_ORIGIN_FLOAT = 48;
 const DEFAULT_COLOR = [1, 1, 1, 1];
@@ -107,7 +110,11 @@ export function writeMaterialUniforms(dst, state) {
  * Write floating origin into the uniform staging buffer (floats 48–50).
  * Does not touch material or matrix slots.
  */
-export function writeOriginUniforms(dst, x, y, z) {
+export function writeOriginUniforms(dst, x, y, z, splitPosition = false) {
+    if (splitPosition) {
+        writeSplitPosition(dst, LINE2_UNIFORM_ORIGIN_FLOAT, LINE2_UNIFORM_ORIGIN_FLOAT + 4, x, y, z);
+        return;
+    }
     dst[LINE2_UNIFORM_ORIGIN_FLOAT] = x;
     dst[LINE2_UNIFORM_ORIGIN_FLOAT + 1] = y;
     dst[LINE2_UNIFORM_ORIGIN_FLOAT + 2] = z;

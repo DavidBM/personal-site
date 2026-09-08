@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Galaxy · Service inspector</title><link rel="stylesheet" href="./js/debug/bus/style.css"></head>
+<body><header><h1>Service inspector</h1><p id="status">Connecting to the running game…</p>
+<label>Trace mode <select id="mode"><option value="disabled">Disabled</option><option value="sampled">Sampled · 1/16</option><option value="full">Full · bounded</option></select></label>
+<button id="snapshot-export">Export snapshot</button><button id="otlp-export">Export selected OTLP spans</button></header>
+<main><form id="filters"><label>Service <input id="service" maxlength="256"></label><label>Contract <input id="contract" maxlength="128"></label>
+<label>Trace ID <input id="trace" list="traces" maxlength="32" spellcheck="false"></label><label>Command ID <input id="command" list="commands" maxlength="256" spellcheck="false"></label><datalist id="traces"></datalist><datalist id="commands"></datalist></form>
+<p id="summary"></p><section><h2>Declared and connected</h2><p>Contracts connect registered services. Source links open the owning file. External stages describe explicit dependencies; they do not imply live connectivity.</p><div id="graph"></div></section>
+<section><h2>Observed contract totals</h2><p>Broker aggregates across all instances and scopes. Service and trace filters cannot attribute these totals to individual edges. Queue age and handler time are unavailable here.</p><div id="counters"></div></section>
+<section><h2>Direct streams</h2><p>Bulk buffers never pass through the inspector. Progress samples come from separate worker queries; they are not simultaneous. Applied means CPU/GPU buffer publication, not GPU completion.</p><div id="streams"></div><div id="projection-progress"></div></section>
+<section><h2>Command timeline</h2><p>Each clock has its own axis. Local durations are measured within one process; cross-clock positions are not synchronized. Parent span IDs preserve causality. At most 256 rows per clock are drawn.</p><div id="timeline"></div></section>
+<section><h2>Broker observations</h2><p>Admission/failure instants on the broker's local clock, not handler spans. Most recent 256 matching records.</p><div id="broker-events"></div></section></main>
+<script type="module" src="./dist/debug/bus/entry.js"></script></body></html>

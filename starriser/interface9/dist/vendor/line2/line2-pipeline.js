@@ -1,7 +1,7 @@
 /**
  * WebGPU render pipeline(s) for fat Line2 (triangle-list, instanced).
  */
-import { LINE2_WGSL } from "./line2-wgsl.js";
+import { buildLine2Wgsl } from "./line2-wgsl.js";
 /** Transparent blend matching Galaxy connection / overlay layers. */
 export const LINE2_BLEND = {
     color: {
@@ -18,11 +18,11 @@ export const LINE2_BLEND = {
 /**
  * Vertex buffer layouts:
  *  0 — template (pos3 + uv2), per-vertex
- *  1 — instance start/end (6 floats), per-instance
+ *  1 — instance start/end (6 floats, or 12 with high/low split), per-instance
  *  2 — instance colors (6 floats), per-instance
  *  3 — instance distances (2 floats), per-instance
  */
-export function line2VertexBufferLayouts() {
+export function line2VertexBufferLayouts(splitPosition = false) {
     return [
         {
             arrayStride: 20, // 5 × f32
@@ -33,11 +33,15 @@ export function line2VertexBufferLayouts() {
             ],
         },
         {
-            arrayStride: 24, // start xyz + end xyz
+            arrayStride: splitPosition ? 48 : 24, // high start/end + optional low start/end
             stepMode: "instance",
             attributes: [
                 { shaderLocation: 2, offset: 0, format: "float32x3" },
                 { shaderLocation: 3, offset: 12, format: "float32x3" },
+                ...(splitPosition ? [
+                    { shaderLocation: 8, offset: 24, format: "float32x3" },
+                    { shaderLocation: 9, offset: 36, format: "float32x3" },
+                ] : []),
             ],
         },
         {
@@ -67,7 +71,7 @@ export function createLine2Pipeline(device, options) {
     const sampleCount = options.sampleCount ?? 1;
     const module = device.createShaderModule({
         label: "line2",
-        code: LINE2_WGSL,
+        code: buildLine2Wgsl(options.splitPosition),
     });
     // Default null: no depthStencil (Galaxy color-only pass).
     const depthFormat = options.depthFormat === undefined ? null : options.depthFormat;
@@ -84,7 +88,7 @@ export function createLine2Pipeline(device, options) {
         vertex: {
             module,
             entryPoint: "vs_main",
-            buffers: line2VertexBufferLayouts(),
+            buffers: line2VertexBufferLayouts(options.splitPosition),
         },
         fragment: {
             module,

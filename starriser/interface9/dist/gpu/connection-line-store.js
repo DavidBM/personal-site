@@ -2,7 +2,8 @@
  * CPU packing for connection line segments (cluster + solar edges).
  * No GPU API imports — unit-testable under Node.
  *
- * Separate pos/color arrays (6 floats position + 6 floats color per slot).
+ * Separate position/color arrays (6 doubles + 6 float32 colors per slot).
+ * Hidden restore caches also retain doubles; GPU packing happens on dirty upload.
  */
 import { HIDDEN_COORDINATE } from "../contracts/render-constants.js";
 import { hexToRgb } from "../utils/color.js";
@@ -18,10 +19,10 @@ export class ConnectionLineStore {
     constructor(initialCapacity = 0) {
         this.capacity = 0;
         this.count = 0;
-        this.positions = new Float32Array(0);
+        this.positions = new Float64Array(0);
         this.colors = new Float32Array(0);
         this.lodHidden = new Uint8Array(0);
-        this.lodRestore = new Float32Array(0);
+        this.lodRestore = new Float64Array(0);
         this.keyToIndex = new Map();
         this.indexToKey = new Map();
         this.positionDirty = DIRTY_CLEAN;
@@ -41,10 +42,10 @@ export class ConnectionLineStore {
         if (needed <= this.capacity)
             return false;
         const newCap = Math.max(needed, Math.ceil(this.capacity * 1.5) || 16);
-        const newPos = new Float32Array(newCap * CONNECTION_FLOATS_PER_SLOT);
+        const newPos = new Float64Array(newCap * CONNECTION_FLOATS_PER_SLOT);
         const newCol = new Float32Array(newCap * CONNECTION_FLOATS_PER_SLOT);
         const newLodHidden = new Uint8Array(newCap);
-        const newRestore = new Float32Array(newCap * CONNECTION_FLOATS_PER_SLOT);
+        const newRestore = new Float64Array(newCap * CONNECTION_FLOATS_PER_SLOT);
         newPos.set(this.positions);
         newCol.set(this.colors);
         newLodHidden.set(this.lodHidden);
@@ -144,6 +145,34 @@ export class ConnectionLineStore {
         this.positionDirty = expandDirtyRange(this.positionDirty, i, CONNECTION_FLOATS_PER_SLOT);
         return true;
     }
+    /** Apply one cluster's LOD state without repeated key lookups or dirty objects. */
+    setLodHiddenIndices(indices, hidden) {
+        if (indices.length === 0)
+            return;
+        let dirtyStart = Number.POSITIVE_INFINITY;
+        let dirtyEnd = 0;
+        for (const slot of indices) {
+            if (slot < 0 || slot >= this.count)
+                continue;
+            if ((this.lodHidden[slot] !== 0) === hidden)
+                continue;
+            const offset = slot * CONNECTION_FLOATS_PER_SLOT;
+            if (hidden) {
+                this.lodRestore.set(this.positions.subarray(offset, offset + CONNECTION_FLOATS_PER_SLOT), offset);
+                this.positions.fill(HIDDEN_COORDINATE, offset, offset + CONNECTION_FLOATS_PER_SLOT);
+                this.lodHidden[slot] = 1;
+            }
+            else {
+                this.positions.set(this.lodRestore.subarray(offset, offset + CONNECTION_FLOATS_PER_SLOT), offset);
+                this.lodHidden[slot] = 0;
+            }
+            dirtyStart = Math.min(dirtyStart, offset);
+            dirtyEnd = Math.max(dirtyEnd, offset + CONNECTION_FLOATS_PER_SLOT);
+        }
+        if (dirtyEnd > dirtyStart) {
+            this.positionDirty = expandDirtyRange(this.positionDirty, dirtyStart, dirtyEnd - dirtyStart);
+        }
+    }
     /**
      * Logical endpoints (LOD-restore, not GPU-parked HIDDEN).
      * SCENE jump rays use this so impostor-hidden edges still have world dirs.
@@ -183,10 +212,10 @@ export class ConnectionLineStore {
         return true;
     }
     clear() {
-        this.positions = new Float32Array(0);
+        this.positions = new Float64Array(0);
         this.colors = new Float32Array(0);
         this.lodHidden = new Uint8Array(0);
-        this.lodRestore = new Float32Array(0);
+        this.lodRestore = new Float64Array(0);
         this.capacity = 0;
         this.count = 0;
         this.keyToIndex.clear();
@@ -198,10 +227,10 @@ export class ConnectionLineStore {
      */
     rebuild(edges) {
         const n = edges.length;
-        this.positions = new Float32Array(n * CONNECTION_FLOATS_PER_SLOT);
+        this.positions = new Float64Array(n * CONNECTION_FLOATS_PER_SLOT);
         this.colors = new Float32Array(n * CONNECTION_FLOATS_PER_SLOT);
         this.lodHidden = new Uint8Array(n);
-        this.lodRestore = new Float32Array(n * CONNECTION_FLOATS_PER_SLOT);
+        this.lodRestore = new Float64Array(n * CONNECTION_FLOATS_PER_SLOT);
         this.capacity = n;
         this.count = n;
         this.keyToIndex.clear();

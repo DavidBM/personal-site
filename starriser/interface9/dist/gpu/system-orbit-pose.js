@@ -13,10 +13,14 @@ export const SYSTEM_ORBIT_DEFAULT_PITCH = 0.32;
 export const SYSTEM_ORBIT_RADIUS_SPAN_MUL = 1.8;
 export const SYSTEM_ORBIT_DRAG_YAW_SENS = 0.005;
 export const SYSTEM_ORBIT_DRAG_PITCH_SENS = 0.004;
+/** Quick target acquisition without a click-time camera snap. */
+export const SYSTEM_ORBIT_SELECT_MS = 350;
 export const SYSTEM_ORBIT_PITCH_MIN = -1.42;
 export const SYSTEM_ORBIT_PITCH_MAX = 1.42;
-/** Planet/sun min radius = max(this × bodyR, boom, near×NEAR_MUL). */
-export const SYSTEM_ORBIT_BODY_MIN_R_MUL = 1.6;
+/** Closest center distance retains a small visible gap above the body surface. */
+export const SYSTEM_ORBIT_BODY_MIN_R_MUL = 1.1;
+/** Surface-to-eye clearance also stays beyond the near plane with headroom. */
+export const SYSTEM_ORBIT_SURFACE_NEAR_MUL = 1.25;
 export const SYSTEM_ORBIT_NEAR_MUL = 3;
 /** Exit map height = dAt(SCENE_EXIT_PX) × this (span ≲ 3px, 5px language). */
 export const SYSTEM_ORBIT_EXIT_HEIGHT_MUL = 12;
@@ -46,6 +50,23 @@ export function systemOrbitEye(pose) {
         targetX: pose.focusX,
         targetY: pose.focusY,
         targetZ: pose.focusZ,
+    };
+}
+/**
+ * Spherical viewing angles carried from the live camera to a newly selected
+ * target. This keeps the object on the same side of the view during the pan.
+ */
+export function systemOrbitAnglesFromView(eyeX, eyeY, eyeZ, targetX, targetY, targetZ, fallbackYaw = SYSTEM_ORBIT_DEFAULT_YAW, fallbackPitch = SYSTEM_ORBIT_DEFAULT_PITCH) {
+    const dx = eyeX - targetX;
+    const dy = eyeY - targetY;
+    const dz = eyeZ - targetZ;
+    const radius = Math.hypot(dx, dy, dz);
+    if (!(radius > 1e-9) || !Number.isFinite(radius)) {
+        return { yaw: fallbackYaw, pitch: fallbackPitch };
+    }
+    return {
+        yaw: Math.atan2(dx, dz),
+        pitch: Math.max(SYSTEM_ORBIT_PITCH_MIN, Math.min(SYSTEM_ORBIT_PITCH_MAX, Math.asin(Math.max(-1, Math.min(1, dy / radius))))),
     };
 }
 export function systemOrbitApplyDrag(pose, dxPx, dyPx, yawSens = SYSTEM_ORBIT_DRAG_YAW_SENS, pitchSens = SYSTEM_ORBIT_DRAG_PITCH_SENS) {
@@ -96,8 +117,10 @@ export function systemOrbitBoomDistance(radiusWorld, bufferW, bufferH, fovyDeg, 
     const d = (radiusWorld * H) / (frac * short * th);
     return Math.max(near * SYSTEM_ORBIT_NEAR_MUL, d);
 }
-export function systemOrbitMinRadius(bodyR, boom, near = MAP_NEAR) {
-    return Math.max(SYSTEM_ORBIT_BODY_MIN_R_MUL * Math.max(0, bodyR), Math.max(0, boom), SYSTEM_ORBIT_NEAR_MUL * Math.max(0, near));
+export function systemOrbitMinRadius(bodyR, near = MAP_NEAR) {
+    const radius = Math.max(0, bodyR);
+    const nearPlane = Math.max(0, near);
+    return Math.max(SYSTEM_ORBIT_BODY_MIN_R_MUL * radius, radius + SYSTEM_ORBIT_SURFACE_NEAR_MUL * nearPlane, SYSTEM_ORBIT_NEAR_MUL * nearPlane);
 }
 /** Distance where {@link SYSTEM_LOCAL_SPAN} projects to {@link SCENE_EXIT_PX}. */
 export function systemOrbitMaxRadius(viewportH, fovyDeg) {

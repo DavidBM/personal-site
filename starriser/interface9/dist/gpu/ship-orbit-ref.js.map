@@ -1,1 +1,1 @@
-{"version":3,"file":"ship-orbit-ref.js","sourceRoot":"","sources":["../../js/gpu/ship-orbit-ref.ts"],"names":[],"mappings":"AAAA,cAAc,2CAA2C,CAAC"}
+{"version":3,"file":"ship-orbit-ref.js","sourceRoot":"/js/","sources":["gpu/ship-orbit-ref.ts"],"names":[],"mappings":"AAAA,cAAc,2CAA2C,CAAC"}

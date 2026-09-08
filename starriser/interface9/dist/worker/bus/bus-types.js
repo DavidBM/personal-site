@@ -8,8 +8,8 @@ export const isBusMessage = (value) => {
         return false;
     return (value.b === true &&
         typeof value.t === "string" &&
-        typeof value.p === "number" &&
-        typeof value.e === "number");
+        (value.p === 0 || value.p === 1 || value.p === 2) &&
+        (value.e === 0 || value.e === 1 || value.e === 2));
 };
 /**
  * Micro-optimized message serializer. Always call this to construct messages.

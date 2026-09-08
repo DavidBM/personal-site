@@ -15,8 +15,10 @@
  *
  * Sample layout (matches fleet-layout TrailSample):
  *   [0] relX  [1] relZ  [2] age01 (or birth ms on GPU)  [3] relY
- * GPU stores **pathEnd-relative** offsets (O(R) / hop residual) so f32 keeps
- * lateral bits at large |pathEnd|. Expand: (pathEnd − origin) + sample + pot.
+ * Galaxy GPU samples use **pathEnd-relative** offsets to preserve f32 detail at
+ * large coordinates. Expand: (pathEnd − origin) + sample + pot. Compact LOCAL_MOVE
+ * scene samples stay sun-local instead: moving a target cannot relocate history;
+ * expansion uses sample − origin + pot.
  * CPU goldens may still pass absolute world when pathEnd is omitted (0,0,0).
  *
  * Ring: `write` is the next slot to overwrite; wrap with trailWrap.
@@ -34,7 +36,7 @@ import { TRAIL_SAMPLE_STRIDE } from "./fleet-layout.js";
 export const DEFAULT_TRAIL_CONFIG = {
     // Power-of-2 ring (bitwise wrap). Short ring = cheap expand + fewer ghosts.
     // 8 samples is enough for multi-segment ribbons once hop speed matches the
-    // 30s domain clock (fast uncapped hop was filling/overwriting every frame).
+    // 15s domain clock (fast uncapped hop was filling/overwriting every frame).
     ringSize: 8,
     lifetimeMs: 1400,
     // No distance gate: append every moving integrate step (follow-cam / hop

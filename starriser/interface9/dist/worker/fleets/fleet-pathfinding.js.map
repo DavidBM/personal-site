@@ -1,1 +1,1 @@
-{"version":3,"file":"fleet-pathfinding.js","sourceRoot":"","sources":["../../../js/worker/fleets/fleet-pathfinding.ts"],"names":[],"mappings":"AAAA,cAAc,iDAAiD,CAAC"}
+{"version":3,"file":"fleet-pathfinding.js","sourceRoot":"/js/","sources":["worker/fleets/fleet-pathfinding.ts"],"names":[],"mappings":"AAAA,cAAc,iDAAiD,CAAC"}

@@ -1,0 +1,80 @@
+[
+  {
+    "path": "bus-inspector.html",
+    "title": "Galaxy · Service inspector",
+    "description": "Inspect declared services, live dependencies, message traffic and causal traces.",
+    "group": "Authoring & visual labs"
+  },
+  {
+    "path": "earth-crack-planet.html",
+    "title": "Galaxy — Earth + crack (full Azure disc · crack-only height)",
+    "description": "Inspect heightfield ray intersections and deep cracks on an Earth-like planet.",
+    "group": "Authoring & visual labs"
+  },
+  {
+    "path": "galaxy.html",
+    "title": "Galaxy Map Generator",
+    "description": "Offline galaxy editor with procedural maps, fleets and solar-system exploration.",
+    "group": "Game"
+  },
+  {
+    "path": "index.html",
+    "title": "Galaxy · Local launchpad",
+    "description": "Find every Galaxy game, authoring lab, demo and browser test.",
+    "group": "Game"
+  },
+  {
+    "path": "model-viewer.html",
+    "title": "Galaxy — Ship model viewer (thruster attach)",
+    "description": "Inspect ship models, lighting and thruster attachment coordinates.",
+    "group": "Authoring & visual labs"
+  },
+  {
+    "path": "online.html",
+    "title": "Galaxy · Multiplayer",
+    "description": "Persistent multiplayer client: connect, preview orders, move and jump ships.",
+    "group": "Game"
+  },
+  {
+    "path": "planet-land.html",
+    "title": "Galaxy — Planet land (fractal Voronoi)",
+    "description": "Paint and generate continents, islands and lakes on a procedural planet.",
+    "group": "Authoring & visual labs"
+  },
+  {
+    "path": "planet-texture.html",
+    "title": "Galaxy — Planet texture generator",
+    "description": "Create planet surface maps, cloud layers and night city lights.",
+    "group": "Authoring & visual labs"
+  },
+  {
+    "path": "solar-catalog-bake.html",
+    "title": "Galaxy — Solar catalog 4K baker",
+    "description": "Bake the planet catalog into reusable surface, cloud and atmosphere assets.",
+    "group": "Authoring & visual labs"
+  },
+  {
+    "path": "solar-stage-gallery.html",
+    "title": "Galaxy — Solar stage gallery (WebGPU · 4K)",
+    "description": "Compare solar visual stages and presentation experiments.",
+    "group": "Authoring & visual labs"
+  },
+  {
+    "path": "solar-system.html",
+    "title": "Galaxy — Solar system showcase (WebGPU)",
+    "description": "Explore the solar-system authoring lab and tune planetary atmospheres.",
+    "group": "Authoring & visual labs"
+  },
+  {
+    "path": "sphere-surface-methods.html",
+    "title": "Galaxy — Sphere surface methods (disc impostor · ray-heightfield)",
+    "description": "Compare sphere-impostor surface and parallax techniques side by side.",
+    "group": "Authoring & visual labs"
+  },
+  {
+    "path": "thruster-texture.html",
+    "title": "Galaxy — Thruster texture creator",
+    "description": "Author engine-plume textures and export a PNG atlas.",
+    "group": "Authoring & visual labs"
+  }
+]

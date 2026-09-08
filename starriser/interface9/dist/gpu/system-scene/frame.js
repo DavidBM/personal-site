@@ -7,9 +7,9 @@
  *
  * Local diameter is {@link SYSTEM_SCENE_SPAN} (1). Compact Kepler world
  * diameter {@link SYSTEM_LOCAL_SPAN} (0.1) maps onto that via {@link systemSceneUnit}.
- * Live parking / ShipSim use {@link compactBodySunLocal} (subtract sun only).
+ * Live parking / ShipSim use {@link compactBodySunLocal} (direct local Kepler pose).
  */
-import { SYSTEM_LOCAL_SPAN, composeCompactBodyWorld, } from "../solar-system-lod.js";
+import { SYSTEM_LOCAL_SPAN, composeCompactBodyLocal, } from "../solar-system-lod.js";
 /** Local diameter of the compact Kepler field. */
 export const SYSTEM_SCENE_SPAN = 1.0;
 /**
@@ -46,15 +46,10 @@ export function fromSystemLocal(frame, lx, ly, lz) {
     };
 }
 /**
- * Compact Kepler pose with the sun subtracted (no {@link systemSceneUnit}).
- * Sun slot → (0, y, 0). Planet → Kepler-local offset even when `systemX` is 1e5.
+ * Direct Kepler-local pose (no {@link systemSceneUnit}, no absolute round trip).
+ * The galaxy anchor never enters simulation, including for a moving orbit center.
  */
 export function compactBodySunLocal(store, index, timeSec, out) {
-    const world = composeCompactBodyWorld(store, index, timeSec, out);
-    if (!world)
-        return null;
-    world.x -= store.systemX;
-    world.z -= store.systemZ;
-    return world;
+    return composeCompactBodyLocal(store, index, timeSec, out);
 }
 //# sourceMappingURL=frame.js.map

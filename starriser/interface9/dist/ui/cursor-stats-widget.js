@@ -1,4 +1,7 @@
 import { subscribeTopic, Topics } from "../worker/protocol/topics.js";
+function coordinate(value) {
+    return typeof value === "number" ? value : 0;
+}
 /**
  * Compact cursor readout in the stats panel (3 lines):
  * Screen coordinates · Map coordinates · Zoom level.
@@ -9,6 +12,7 @@ export class CursorStatsWidget {
         this.scrSpan = null;
         this.mapSpan = null;
         this.zoomSpan = null;
+        this.unsubscribePointer = null;
         this.bus = bus;
         this.lineId = lineId;
         this.container = container ?? null;
@@ -20,7 +24,14 @@ export class CursorStatsWidget {
         window.addEventListener("wheel", this.onWheelBound, { passive: true });
         if (!bus.isPubSubReady())
             return;
-        subscribeTopic(bus, Topics.pointerEvent, this._onPointerEvent);
+        this.unsubscribePointer = subscribeTopic(bus, Topics.pointerEvent, this._onPointerEvent);
+    }
+    dispose() {
+        window.removeEventListener("wheel", this.onWheelBound);
+        this.unsubscribePointer?.();
+        this.unsubscribePointer = null;
+        this.root?.remove();
+        this.getZoom = null;
     }
     /** Optional late bind (e.g. camera ready after UI). */
     setZoomProvider(getZoom) {
@@ -121,31 +132,13 @@ export class CursorStatsWidget {
             z == null || !Number.isFinite(z) ? "—" : this._formatZoom(z);
     }
     _onPointerEvent(payload) {
-        let sx = 0;
-        let sy = 0;
-        let mx = 0;
-        let my = 0;
-        if (payload?.screen_position) {
-            sx =
-                typeof payload.screen_position.x === "number"
-                    ? payload.screen_position.x
-                    : 0;
-            sy =
-                typeof payload.screen_position.y === "number"
-                    ? payload.screen_position.y
-                    : 0;
-        }
-        if (payload?.galaxy_position) {
-            mx =
-                typeof payload.galaxy_position.x === "number"
-                    ? payload.galaxy_position.x
-                    : 0;
-            // Galaxy plane uses XZ; show as (x, y) with y ← z for the readout.
-            my =
-                typeof payload.galaxy_position.z === "number"
-                    ? payload.galaxy_position.z
-                    : 0;
-        }
+        const screen = payload?.screen_position;
+        const galaxy = payload?.galaxy_position;
+        const sx = coordinate(screen?.x);
+        const sy = coordinate(screen?.y);
+        const mx = coordinate(galaxy?.x);
+        // Galaxy plane uses XZ; show as (x, y) with y ← z for the readout.
+        const my = coordinate(galaxy?.z);
         if (this.scrSpan) {
             this.scrSpan.textContent = `(${sx.toFixed(1)}, ${sy.toFixed(1)})`;
         }

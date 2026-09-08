@@ -2,9 +2,10 @@
  * WebGPU render pipeline(s) for fat Line2 (triangle-list, instanced).
  */
 
-import { LINE2_WGSL } from "./line2-wgsl.js";
+import { buildLine2Wgsl } from "./line2-wgsl.js";
 
 export interface Line2PipelineOptions {
+  splitPosition?: boolean;
   format: GPUTextureFormat;
   sampleCount?: number;
   /** Enable MSAA alpha-to-coverage on the color target. */
@@ -42,11 +43,11 @@ export const LINE2_BLEND: GPUBlendState = {
 /**
  * Vertex buffer layouts:
  *  0 — template (pos3 + uv2), per-vertex
- *  1 — instance start/end (6 floats), per-instance
+ *  1 — instance start/end (6 floats, or 12 with high/low split), per-instance
  *  2 — instance colors (6 floats), per-instance
  *  3 — instance distances (2 floats), per-instance
  */
-export function line2VertexBufferLayouts(): GPUVertexBufferLayout[] {
+export function line2VertexBufferLayouts(splitPosition = false): GPUVertexBufferLayout[] {
   return [
     {
       arrayStride: 20, // 5 × f32
@@ -57,11 +58,15 @@ export function line2VertexBufferLayouts(): GPUVertexBufferLayout[] {
       ],
     },
     {
-      arrayStride: 24, // start xyz + end xyz
+      arrayStride: splitPosition ? 48 : 24, // high start/end + optional low start/end
       stepMode: "instance",
       attributes: [
         { shaderLocation: 2, offset: 0, format: "float32x3" },
         { shaderLocation: 3, offset: 12, format: "float32x3" },
+        ...(splitPosition ? [
+          { shaderLocation: 8, offset: 24, format: "float32x3" as const },
+          { shaderLocation: 9, offset: 36, format: "float32x3" as const },
+        ] : []),
       ],
     },
     {
@@ -95,7 +100,7 @@ export function createLine2Pipeline(
   const sampleCount = options.sampleCount ?? 1;
   const module = device.createShaderModule({
     label: "line2",
-    code: LINE2_WGSL,
+    code: buildLine2Wgsl(options.splitPosition),
   });
 
   // Default null: no depthStencil (Galaxy color-only pass).
@@ -117,7 +122,7 @@ export function createLine2Pipeline(
     vertex: {
       module,
       entryPoint: "vs_main",
-      buffers: line2VertexBufferLayouts(),
+      buffers: line2VertexBufferLayouts(options.splitPosition),
     },
     fragment: {
       module,

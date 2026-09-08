@@ -198,7 +198,7 @@ export function packSegmentColors(
  * polyline’s pattern is continuous. For disconnected segments the chain still
  * advances (matches Three).
  */
-export function computeLineDistances(positions: Float32Array): Float32Array {
+export function computeLineDistances(positions: ArrayLike<number>): Float32Array {
   const segmentCount = positions.length / LINE2_POS_FLOATS;
   if (!Number.isInteger(segmentCount)) {
     throw new Error("computeLineDistances: positions length must be multiple of 6");

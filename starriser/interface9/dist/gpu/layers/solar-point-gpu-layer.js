@@ -9,10 +9,27 @@
  */
 import { MAP_MSAA_SAMPLES } from "../map-msaa.js";
 import { SOLAR_POINTS_BILLBOARD_WGSL } from "../shaders/solar-points.wgsl.js";
-/** mat4 (64) + 4 f32 (16) + right (16) + up (16) + origin (16) */
-const UNIFORM_SIZE = 128;
-const FLOATS_PER_INSTANCE = 6; // pos.xyz + color.rgb
+import { SOLAR_POINT_UNIFORM_BYTES as UNIFORM_SIZE, SOLAR_POINT_INSTANCE_FLOATS as FLOATS_PER_INSTANCE, packSolarPointInstanceRange, packSolarPointUniforms, } from "../solar-point-pack.js";
 const BYTES_PER_INSTANCE = FLOATS_PER_INSTANCE * 4;
+function dirtyInstanceRange(state, count) {
+    if (state.kind === "clean")
+        return [count, 0];
+    if (state.kind === "full")
+        return [0, count];
+    return [
+        Math.floor(state.start / 3),
+        Math.min(count, Math.ceil((state.start + state.count) / 3)),
+    ];
+}
+function pendingInstanceRange(store, count, capacityChanged) {
+    if (capacityChanged)
+        return [0, count];
+    const positionRange = dirtyInstanceRange(store.positionDirty, count);
+    const colorRange = dirtyInstanceRange(store.colorDirty, count);
+    const start = Math.min(positionRange[0], colorRange[0]);
+    const end = Math.max(positionRange[1], colorRange[1]);
+    return end > start ? [start, end - start] : null;
+}
 export class SolarPointGpuLayer {
     constructor(bootstrap) {
         this.name = "solar-points";
@@ -51,6 +68,7 @@ export class SolarPointGpuLayer {
                         attributes: [
                             { shaderLocation: 0, offset: 0, format: "float32x3" },
                             { shaderLocation: 1, offset: 12, format: "float32x3" },
+                            { shaderLocation: 2, offset: 24, format: "float32x3" },
                         ],
                     },
                 ],
@@ -108,9 +126,20 @@ export class SolarPointGpuLayer {
         this.instanceCapacity = 0;
         this.interleave = new Float32Array(0);
     }
+    growInstances(count) {
+        const cap = Math.max(count, this.instanceCapacity * 2 || 16);
+        this.destroyInstanceBuffer();
+        this.instanceCapacity = cap;
+        this.instanceHandle = this.bootstrap.gpu.createBuffer({
+            label: "solar-points-instances", size: cap * BYTES_PER_INSTANCE,
+            usage: "vertex|copy_dst",
+        });
+        this.instanceBuffer = this.bootstrap.gpu.getBuffer(this.instanceHandle);
+        this.interleave = new Float32Array(cap * FLOATS_PER_INSTANCE);
+    }
     /**
      * Sync store → instance buffer (interleaved).
-     * Full rewrite only when capacity grows or store marks dirty.
+     * Pack/upload dirty instances; repopulate the full buffer after capacity growth.
      */
     syncFromStore(store) {
         if (!this.pipeline || !this.uniformBuffer) {
@@ -128,43 +157,17 @@ export class SolarPointGpuLayer {
         if (!capacityChanged && !dirty) {
             return;
         }
-        if (capacityChanged) {
-            if (this.instanceHandle) {
-                this.bootstrap.gpu.destroyBuffer(this.instanceHandle);
-                this.instanceHandle = null;
-                this.instanceBuffer = null;
-            }
-            else if (this.instanceBuffer) {
-                this.instanceBuffer.destroy();
-                this.instanceBuffer = null;
-            }
-            const cap = Math.max(count, this.instanceCapacity * 2 || 16);
-            this.instanceCapacity = cap;
-            this.instanceHandle = this.bootstrap.gpu.createBuffer({
-                label: "solar-points-instances",
-                size: cap * BYTES_PER_INSTANCE,
-                usage: "vertex|copy_dst",
-            });
-            this.instanceBuffer = this.bootstrap.gpu.getBuffer(this.instanceHandle);
-            this.interleave = new Float32Array(cap * FLOATS_PER_INSTANCE);
-        }
+        if (capacityChanged)
+            this.growInstances(count);
         const dst = this.interleave;
-        const pos = store.positions;
-        const col = store.colors;
-        for (let i = 0; i < count; i++) {
-            const i3 = i * 3;
-            const o = i * FLOATS_PER_INSTANCE;
-            dst[o] = pos[i3];
-            dst[o + 1] = pos[i3 + 1];
-            dst[o + 2] = pos[i3 + 2];
-            dst[o + 3] = col[i3];
-            dst[o + 4] = col[i3 + 1];
-            dst[o + 5] = col[i3 + 2];
+        const range = pendingInstanceRange(store, count, capacityChanged);
+        if (!range) {
+            store.clearDirty();
+            return;
         }
-        if (!this.instanceHandle) {
-            throw new Error("SolarPointGpuLayer: missing instance buffer handle");
-        }
-        this.bootstrap.gpu.writeBuffer(this.instanceHandle, 0, dst, 0, count * BYTES_PER_INSTANCE);
+        const [startIndex, uploadCount] = range;
+        packSolarPointInstanceRange(store, dst, startIndex, uploadCount);
+        this.bootstrap.gpu.writeBuffer(this.instanceHandle, startIndex * BYTES_PER_INSTANCE, dst, startIndex * BYTES_PER_INSTANCE, uploadCount * BYTES_PER_INSTANCE);
         store.clearDirty();
     }
     /**
@@ -179,32 +182,7 @@ export class SolarPointGpuLayer {
             return;
         if (instanceCount <= 0 || !this.instanceBuffer)
             return;
-        this.uniformData.set(viewProj, 0);
-        this.uniformData[16] = worldScale;
-        this.uniformData[17] = 0;
-        this.uniformData[18] = 0;
-        this.uniformData[19] = 0;
-        // cameraRight at float offset 20 (byte 80)
-        const rx = cameraRight?.[0] ?? 1;
-        const ry = cameraRight?.[1] ?? 0;
-        const rz = cameraRight?.[2] ?? 0;
-        this.uniformData[20] = rx;
-        this.uniformData[21] = ry;
-        this.uniformData[22] = rz;
-        this.uniformData[23] = 0;
-        // cameraUp at float offset 24 (byte 96)
-        const ux = cameraUp?.[0] ?? 0;
-        const uy = cameraUp?.[1] ?? 1;
-        const uz = cameraUp?.[2] ?? 0;
-        this.uniformData[24] = ux;
-        this.uniformData[25] = uy;
-        this.uniformData[26] = uz;
-        this.uniformData[27] = 0;
-        this.uniformData[28] = origin?.x ?? 0;
-        this.uniformData[29] = origin?.y ?? 0;
-        this.uniformData[30] = origin?.z ?? 0;
-        const fade = Number.isFinite(galaxyFade) ? galaxyFade : 1;
-        this.uniformData[31] = fade < 0 ? 0 : fade > 1 ? 1 : fade;
+        packSolarPointUniforms(this.uniformData, viewProj, worldScale, cameraRight, cameraUp, origin, galaxyFade);
         if (!this.uniformHandle) {
             throw new Error("SolarPointGpuLayer: missing uniform buffer handle");
         }

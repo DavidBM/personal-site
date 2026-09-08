@@ -1,3 +1,4 @@
+import { FleetTopicNames } from "../../features/fleets/contracts.js";
 /**
  * Wire topic names. One topic per semantic event.
  * Prefer small payloads; main-thread handlers must stay ≤ ~1 ms.
@@ -9,6 +10,7 @@
  */
 export const Topics = {
     galaxyOps: "ops",
+    galaxyOpsApplied: "galaxy_ops_applied",
     galaxyLocalOps: "ops_local",
     galaxyComplete: "complete",
     galaxyError: "error",
@@ -23,14 +25,7 @@ export const Topics = {
     hideEditHandles: "hide_edit_handles",
     updateCluster: "update_cluster",
     commitClusterMove: "commit_cluster_move",
-    generateFleet: "generate_fleet",
-    /** One request for N fleets; fleets-worker chunks spawn + batch replies. */
-    generateFleetsBulk: "generate_fleets_bulk",
-    fleetSpawned: "fleet_spawned",
-    /** Small batch of successful spawns (64–128); cuts main-thread message storm. */
-    fleetsSpawnedBatch: "fleets_spawned_batch",
-    fleetState: "fleet_state",
-    fleetRemoved: "fleet_removed",
+    ...FleetTopicNames,
     galaxyGenerationStarted: "galaxy_generation_started",
     galaxyRegenerationStarted: "galaxy_regeneration_started",
     galaxyRegenerationComplete: "galaxy_regeneration_complete",
@@ -39,7 +34,21 @@ export const Topics = {
 export function publishTopic(bus, topic, payload, priority = 1) {
     bus.publish(topic, payload, priority);
 }
+/** Resolves after queue admission; application completion is a domain event. */
+export function publishTopicWithBackpressure(bus, topic, payload, priority = 1, options) {
+    return bus.publishWithBackpressure(topic, payload, priority, options);
+}
+export function publishTopicAndIgnoreAfterTimeout(bus, topic, payload, maxQueueAgeMs, priority = 1) {
+    return bus.publishAndIgnoreAfterTimeout(topic, payload, maxQueueAgeMs, priority);
+}
 export function subscribeTopic(bus, topic, handler) {
     bus.subscribe(topic, handler);
+    let active = true;
+    return () => {
+        if (!active)
+            return;
+        active = false;
+        bus.unsubscribe(topic, handler);
+    };
 }
 //# sourceMappingURL=topics.js.map

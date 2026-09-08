@@ -16,8 +16,7 @@
 const THRESHOLD_MS = 5;
 /** At most one frame breakdown log per this many ms. */
 const LOG_MIN_INTERVAL_MS = 1000;
-const LS_KEY = "galaxyFrameDebug";
-let enabled = null;
+let enabled = false;
 /** Active frame: spans collected until frameDebugFrameTotal. */
 let frameSpans = null;
 let frameT0 = 0;
@@ -25,50 +24,13 @@ let frameT0 = 0;
 let lastLogWallMs = 0;
 /** Best (slowest) suppressed frame while throttled — logged next window. */
 let pendingWorst = null;
-function readEnabled() {
-    if (typeof window === "undefined")
-        return false;
-    try {
-        const q = new URLSearchParams(window.location.search);
-        const v = q.get("frameDebug");
-        if (v === "1" || v === "true" || v === "yes")
-            return true;
-        if (v === "0" || v === "false")
-            return false;
-    }
-    catch {
-        /* ignore */
-    }
-    try {
-        const ls = window.localStorage?.getItem(LS_KEY);
-        if (ls === "1" || ls === "true")
-            return true;
-    }
-    catch {
-        /* ignore */
-    }
-    return false;
-}
 /** Whether frame debug logging is on (cached after first read). */
 export function isFrameDebugEnabled() {
-    if (enabled === null)
-        enabled = readEnabled();
     return enabled;
 }
-/** Force on/off at runtime (persists to localStorage when possible). */
+/** Force on/off at runtime. Browser preference persistence belongs to the adapter. */
 export function enableFrameDebug(on) {
     enabled = on;
-    try {
-        if (typeof window !== "undefined" && window.localStorage) {
-            if (on)
-                window.localStorage.setItem(LS_KEY, "1");
-            else
-                window.localStorage.removeItem(LS_KEY);
-        }
-    }
-    catch {
-        /* ignore */
-    }
     if (!on) {
         pendingWorst = null;
         lastLogWallMs = 0;

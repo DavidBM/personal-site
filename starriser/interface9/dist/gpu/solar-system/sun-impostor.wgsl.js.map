@@ -1,1 +1,1 @@
-{"version":3,"file":"sun-impostor.wgsl.js","sourceRoot":"","sources":["../../../js/gpu/solar-system/sun-impostor.wgsl.ts"],"names":[],"mappings":"AAAA,cAAc,oCAAoC,CAAC"}
+{"version":3,"file":"sun-impostor.wgsl.js","sourceRoot":"/js/","sources":["gpu/solar-system/sun-impostor.wgsl.ts"],"names":[],"mappings":"AAAA,cAAc,oCAAoC,CAAC"}

@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Galaxy — Solar catalog 4K baker</title>
+    <style>
+      :root {
+        --bg: #02040c;
+        --panel: rgba(6, 12, 28, 0.92);
+        --border: rgba(120, 180, 255, 0.3);
+        --text: #d8ecff;
+        --muted: #6e8eaa;
+        --accent: #ffc878;
+        --err: #ffb0a0;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+        background: var(--bg);
+        color: var(--text);
+        font-family: ui-sans-serif, system-ui, sans-serif;
+      }
+      main {
+        max-width: 640px;
+        margin: 36px auto;
+        padding: 22px 24px 28px;
+        border-radius: 14px;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
+      }
+      h1 {
+        margin: 0 0 6px;
+        font-size: 13px;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--accent);
+      }
+      .sub {
+        margin: 0 0 18px;
+        font-size: 12px;
+        color: var(--muted);
+        line-height: 1.45;
+      }
+      .row {
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        margin: 8px 0;
+        font-size: 13px;
+        font-variant-numeric: tabular-nums;
+      }
+      .label {
+        color: var(--muted);
+        flex: 0 0 88px;
+      }
+      .val {
+        flex: 1;
+        color: #eef6ff;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 12px;
+        word-break: break-word;
+      }
+      #status,
+      #error {
+        margin-top: 14px;
+        font-size: 13px;
+        line-height: 1.4;
+      }
+      #error:empty {
+        display: none;
+      }
+      #error.error,
+      #status.error {
+        color: var(--err);
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Solar catalog baker</h1>
+      <p class="sub">
+        Full product path at 4K (WebGPU + AI stamps). Resume skips planets that
+        already have albedo. Launch via
+        <code>node scripts/bake-solar-catalog.mjs</code>.
+      </p>
+      <div class="row">
+        <span class="label">Status</span>
+        <span class="val" id="status">Starting…</span>
+      </div>
+      <div class="row">
+        <span class="label">Planet</span>
+        <span class="val" id="planet">—</span>
+      </div>
+      <div class="row">
+        <span class="label">Progress</span>
+        <span class="val" id="progress">0%</span>
+      </div>
+      <div class="row">
+        <span class="label">Finished</span>
+        <span class="val" id="finished">—</span>
+      </div>
+      <p id="error"></p>
+    </main>
+    <script type="module" src="dist/gpu/solar-system/catalog-bake.js"></script>
+  </body>
+</html>

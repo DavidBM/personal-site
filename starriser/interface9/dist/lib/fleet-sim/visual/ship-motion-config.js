@@ -24,7 +24,7 @@ export const SHIP_MAX_ACCEL = 14400;
 export const SHIP_MAX_BRAKE = 28800;
 /**
  * Soft cruise (world/s) — personal default before hop scaling.
- * Product hops use domain durationMs (30s); agent open speed is capped via
+ * Product hops use domain durationMs (15s); agent open speed is capped via
  * {@link hopOpenSpeedFromDuration} so formation ships share the hop clock with
  * the fleet triangle/impostor. Peak mid-path CruiseProfile is this ×
  * {@link SHIP_MID_CRUISE_BOOST} when not hop-capped.
@@ -123,14 +123,14 @@ export const ORBIT_R_MAX = 7;
 export const SCENE_AGENT_SCALE = 0.1 / 56;
 /**
  * Extra NEAR / model hull scale on top of {@link SCENE_AGENT_SCALE}.
- * 0.28 → BASE_SHIP_SIZE * KEPLER_SCALE * MUL = 0.0004 (sun R=0.005,
+ * 0.05 → BASE_SHIP_SIZE * KEPLER_SCALE * MUL = 0.000071 (sun R=0.005,
  * typical compact planet ~0.0014–0.002). Local draw only — do not write
  * the scaled size back to ShipSim.
  */
-export const SCENE_SHIP_VISUAL_MUL = 0.28;
+export const SCENE_SHIP_VISUAL_MUL = 0.05;
 /**
  * Jewel trail world-width + pot-emitter scale (galaxy metres → hull).
- * `TRAIL_WORLD_WIDTH_HEAD` 0.09 vs hull 0.0004 is the slab without this.
+ * `TRAIL_WORLD_WIDTH_HEAD` 0.09 vs the tiny hull is a slab without this.
  */
 export const SCENE_TRAIL_WIDTH_MUL = SCENE_AGENT_SCALE * SCENE_SHIP_VISUAL_MUL;
 /**
@@ -139,7 +139,9 @@ export const SCENE_TRAIL_WIDTH_MUL = SCENE_AGENT_SCALE * SCENE_SHIP_VISUAL_MUL;
  * CFL-screaming. Inbound hops (JUMPING) keep galaxy speed. Galaxy
  * ORBIT_R / SHIP_MAX_SPEED stay put.
  */
-export const SCENE_SPEED_SCALE = 0.02;
+export const SCENE_SPEED_SCALE = 0.04;
+/** Extra angular pacing once a compact-scene ship has captured its orbit. */
+export const SCENE_ORBIT_SPEED_MUL = 1.5;
 /**
  * Personal planar orbit height scatter as a fraction of {@link ORBIT_R_MAX}.
  * Each ship gets a deterministic offset ∈ [−frac·R_max, +frac·R_max] (e.g. ±0.7
@@ -176,11 +178,11 @@ export const SHIP_SIM_DEFAULT_ORBIT_R = 4;
  * Min |ω| (rad/s). v_orbit ≈ |ω|·R — ring only (independent of hop cruise).
  * Dialed down so orbit is clearly slower but still visible (~0.4× prior).
  */
-export const ORBIT_OMEGA_MIN = 0.18;
+export const ORBIT_OMEGA_MIN = 0.03;
 /** Max |ω| (rad/s). */
-export const ORBIT_OMEGA_MAX = 0.55;
+export const ORBIT_OMEGA_MAX = 0.08;
 /** Default |ω| when pack omits it. */
-export const SHIP_SIM_DEFAULT_ORBIT_OMEGA = 0.28;
+export const SHIP_SIM_DEFAULT_ORBIT_OMEGA = 0.05;
 /** Near-band lead (rad) — heading helper only; polar speed is normative. */
 export const ORBIT_LEAD_RAD = 0.2;
 /**

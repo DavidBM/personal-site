@@ -31,6 +31,8 @@ export const PLANET_BODY_UNIFORM_SIZE = 256;
 export const PLANET_BODY_UNIFORM_ALIGN = 256;
 export const PLANET_KIND_OCEAN = 2;
 export const PLANET_KIND_ROCKY = 1;
+/** Extra cloud longitude drift in texture turns/second (one turn in ~55 min). */
+export const PLANET_CLOUD_DRIFT_UV_PER_SEC = 0.0003;
 /** Defaults (also planet-atm-params.ts). */
 export const PLANET_EDGE_INNER = 0.992;
 export const PLANET_EDGE_OUTER = 1.0;
@@ -412,8 +414,59 @@ fn proceduralAlbedo(kind : f32, nBody : vec3<f32>, base : vec3<f32>, t : f32) ->
   return mix(ice, ice * vec3<f32>(0.52, 0.68, 0.84), cracks * 0.4);
 }
 
-@fragment
-fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
+// Shared scattering for the combined lab shader and the depth-tested map shell.
+fn discAtmosphere(in: VSOut) -> vec3<f32> {
+  let local = in.local;
+  let discR = 1.0 / body.spinOblMargin.z;
+  let rr = length(local) / discR;
+  let edgeOuter = body.look0.y;
+  let atmOuterRr = body.look0.z;
+  let rInner = body.look2.x;
+  let atmThick = max(body.look0.w, 0.001);
+  let camDist = max(body.look1.w, 1.0);
+  let atmGain = body.look1.z;
+  let glowMul = body.look2.y;
+  let glowCol = body.glowStr.xyz;
+  let camFwd = normalize_fast(cross(body.camRight.xyz, body.camUp.xyz));
+  let sunDir = normalize_fast(frame.sunPos.xyz - body.centerRadius.xyz);
+  let camPos = vec3<f32>(0.0, 0.0, camDist);
+  let p = vec2<f32>(local.x / discR, local.y / discR);
+  let dir = normalize_fast(vec3<f32>(p.x, p.y, -camDist));
+  var e = ray_vs_sphere(camPos, dir, rInner + atmThick);
+  var atm = vec3<f32>(0.0);
+  // Mild boost restores limb energy after single-eval OD (not a sample lattice).
+  let scatterBoost = 1.15;
+  if (e.x < e.y && e.x > 0.0) {
+    let f = ray_vs_sphere(camPos, dir, rInner);
+    if (f.x < f.y && f.x > 0.0) {
+      e.y = min(e.y, f.x);
+    }
+    // Only integrate if we still have a forward segment
+    if (e.y > e.x + 1e-4) {
+      // Sun in the same local frame as camPos/dir (+Z = toward camera)
+      var sunLocal = vec3<f32>(
+        dot(sunDir, body.camRight.xyz),
+        dot(sunDir, body.camUp.xyz),
+        dot(sunDir, camFwd),
+      );
+      let sl = length(sunLocal);
+      // Avoid normalize(0) → NaN flash; prefer "sun toward camera" fallback
+      sunLocal = select(vec3<f32>(0.0, 0.0, 1.0), sunLocal / max(sl, 1e-6), sl > 1e-5);
+      let scatter = in_scatter(camPos, dir, e, sunLocal) * scatterBoost;
+      let gStr = body.glowStr.w * glowMul;
+      atm = scatter * mix(vec3<f32>(1.0, 1.0, 1.0), glowCol, 0.35) * (0.85 + 0.55 * gStr) * atmGain;
+    }
+  }
+
+  let atmFade = 1.0 - smoothstep(edgeOuter + 0.02, atmOuterRr, rr);
+  atm = atm * atmFade;
+  // Final safety: finite + soft HDR ceiling (stops one-frame white/blue pops)
+  atm = clamp(atm, vec3<f32>(0.0), vec3<f32>(6.0));
+
+  return atm;
+}
+
+fn shadePlanet(in: VSOut, includeAtmosphere: bool) -> vec4<f32> {
   let local = in.local;
   let r = length(local);
   let margin = body.spinOblMargin.z;
@@ -468,8 +521,8 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
   nBody = rotateY(nBody, -spin);
   nBody = normalize_fast(nBody);
   let uv = sphereToUv(nBody);
-  // Slow cloud drift over land (longitude only; ~1 full turn per ~5–6 min)
-  let uvCloud = vec2<f32>(fract(uv.x + frame.timePad.x * 0.003), uv.y);
+  // Slow cloud drift over land (longitude only; one extra turn in ~55 min).
+  let uvCloud = vec2<f32>(fract(uv.x + frame.timePad.x * ${PLANET_CLOUD_DRIFT_UV_PER_SEC}), uv.y);
 
   let isOcean = k == 2;
   let isRocky = k == 1;
@@ -515,30 +568,7 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
     let dayTiny = smoothstep(-0.15, 0.2, dot(nWorld, sunDir0));
     var colTiny = albedoBase * (body.look4.x + body.look4.y * dayTiny) * body.look3.w;
     var atmTiny = vec3<f32>(0.0);
-    let camPosT = vec3<f32>(0.0, 0.0, camDist);
-    let pT = vec2<f32>(local.x / discR, local.y / discR);
-    let dirT = normalize_fast(vec3<f32>(pT.x, pT.y, -camDist));
-    var eT = ray_vs_sphere(camPosT, dirT, rInner + atmThick);
-    if (eT.x < eT.y && eT.x > 0.0) {
-      let fT = ray_vs_sphere(camPosT, dirT, rInner);
-      if (fT.x < fT.y && fT.x > 0.0) {
-        eT.y = min(eT.y, fT.x);
-      }
-      if (eT.y > eT.x + 1e-4) {
-        var sunLocalT = vec3<f32>(
-          dot(sunDir0, body.camRight.xyz),
-          dot(sunDir0, body.camUp.xyz),
-          dot(sunDir0, camFwd),
-        );
-        let slT = length(sunLocalT);
-        sunLocalT = select(vec3<f32>(0.0, 0.0, 1.0), sunLocalT / max(slT, 1e-6), slT > 1e-5);
-        let scatterT = in_scatter(camPosT, dirT, eT, sunLocalT) * scatterBoostLod;
-        let gStrT = body.glowStr.w * glowMul;
-        atmTiny = scatterT * mix(vec3<f32>(1.0), glowCol, 0.35) * (0.85 + 0.55 * gStrT) * atmGain;
-      }
-    }
-    atmTiny = atmTiny * (1.0 - smoothstep(edgeOuter + 0.02, atmOuterRr, rr));
-    atmTiny = clamp(atmTiny, vec3<f32>(0.0), vec3<f32>(6.0));
+    if (includeAtmosphere) { atmTiny = discAtmosphere(in); }
     colTiny = colTiny * surfaceMask0 + atmTiny;
     return vec4<f32>(clamp(colTiny, vec3<f32>(0.0), vec3<f32>(6.0)), clamp(surfaceMask0, 0.0, 1.0));
   }
@@ -585,32 +615,8 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
         0.35 * dayM * body.look4.z * (1.0 - lavaS);
     }
     litM = mix(nightM * nightAmt, litM, dayM);
-    // Analytic scatter — same path as close-up (no look3*rim neon shell)
     var atmM = vec3<f32>(0.0);
-    let camPosM = vec3<f32>(0.0, 0.0, camDist);
-    let pM = vec2<f32>(local.x / discR, local.y / discR);
-    let dirM = normalize_fast(vec3<f32>(pM.x, pM.y, -camDist));
-    var eM = ray_vs_sphere(camPosM, dirM, rInner + atmThick);
-    if (eM.x < eM.y && eM.x > 0.0) {
-      let fM = ray_vs_sphere(camPosM, dirM, rInner);
-      if (fM.x < fM.y && fM.x > 0.0) {
-        eM.y = min(eM.y, fM.x);
-      }
-      if (eM.y > eM.x + 1e-4) {
-        var sunLocalM = vec3<f32>(
-          dot(sunDir0, body.camRight.xyz),
-          dot(sunDir0, body.camUp.xyz),
-          dot(sunDir0, camFwd),
-        );
-        let slM = length(sunLocalM);
-        sunLocalM = select(vec3<f32>(0.0, 0.0, 1.0), sunLocalM / max(slM, 1e-6), slM > 1e-5);
-        let scatterM = in_scatter(camPosM, dirM, eM, sunLocalM) * scatterBoostLod;
-        let gStrM = body.glowStr.w * glowMul;
-        atmM = scatterM * mix(vec3<f32>(1.0), glowCol, 0.35) * (0.85 + 0.55 * gStrM) * atmGain;
-      }
-    }
-    atmM = atmM * (1.0 - smoothstep(edgeOuter + 0.02, atmOuterRr, rr));
-    atmM = clamp(atmM, vec3<f32>(0.0), vec3<f32>(6.0));
+    if (includeAtmosphere) { atmM = discAtmosphere(in); }
     return vec4<f32>(
       litM * surfaceMask0 + atmM,
       clamp(surfaceMask0, 0.0, 1.0),
@@ -698,51 +704,18 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
     );
   }
 
-  // --- Atmosphere: analytic in_scatter only (layer D+ / E full) ---
-  // Local frame: +X camRight, +Y camUp, +Z toward camera (camFwd). View rays
-  // go -Z into the scene: dir = normalize(p.x, p.y, -camDist).
-  let camPos = vec3<f32>(0.0, 0.0, camDist);
-  let p = vec2<f32>(local.x / discR, local.y / discR);
-  let dir = normalize_fast(vec3<f32>(p.x, p.y, -camDist));
-  var e = ray_vs_sphere(camPos, dir, rInner + atmThick);
-  var atm = vec3<f32>(0.0);
-  // Mild boost restores limb energy after single-eval OD (not a sample lattice).
-  let scatterBoost = 1.15;
-  if (e.x < e.y && e.x > 0.0) {
-    let f = ray_vs_sphere(camPos, dir, rInner);
-    if (f.x < f.y && f.x > 0.0) {
-      e.y = min(e.y, f.x);
-    }
-    // Only integrate if we still have a forward segment
-    if (e.y > e.x + 1e-4) {
-      // Sun in the same local frame as camPos/dir (+Z = toward camera)
-      var sunLocal = vec3<f32>(
-        dot(sunDir, body.camRight.xyz),
-        dot(sunDir, body.camUp.xyz),
-        dot(sunDir, camFwd),
-      );
-      let sl = length(sunLocal);
-      // Avoid normalize(0) → NaN flash; prefer "sun toward camera" fallback
-      sunLocal = select(vec3<f32>(0.0, 0.0, 1.0), sunLocal / max(sl, 1e-6), sl > 1e-5);
-      let scatter = in_scatter(camPos, dir, e, sunLocal) * scatterBoost;
-      let gStr = body.glowStr.w * glowMul;
-      atm = scatter * mix(vec3<f32>(1.0, 1.0, 1.0), glowCol, 0.35) * (0.85 + 0.55 * gStr) * atmGain;
-    }
-  }
-
-  let atmFade = 1.0 - smoothstep(edgeOuter + 0.02, atmOuterRr, rr);
-  atm = atm * atmFade;
-  // Final safety: finite + soft HDR ceiling (stops one-frame white/blue pops)
-  atm = clamp(atm, vec3<f32>(0.0), vec3<f32>(6.0));
-
-  // Premultiplied output: rgb = lit*mask + atm, alpha = surface only.
-  // Atmosphere is light emission — must NOT raise alpha (that would form a
-  // dark halo over the sun via (1-α) darkening under src-alpha blend).
-  // Pipeline uses (one, one-minus-src-alpha) so atm-only pixels add light.
-  rgb = rgb + atm;
-  // alpha stays surfaceMask (set above); do not max with atm luminance.
-
+  if (includeAtmosphere) { rgb = rgb + discAtmosphere(in); }
   return vec4<f32>(rgb, clamp(alpha, 0.0, 1.0));
+}
+
+@fragment
+fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
+  return shadePlanet(in, true);
+}
+
+@fragment
+fn fs_scene_surface(in: VSOut) -> @location(0) vec4<f32> {
+  return shadePlanet(in, false);
 }
 
 // Band C only: ray-sphere + Dual() from the hit normal + @builtin(frag_depth).
@@ -819,7 +792,7 @@ fn fs_band_c(in : VSOut) -> BandCFSOut {
   nBody = rotateY(nBody, -spin);
   nBody = normalize_fast(nBody);
   let uv = sphereToUv(nBody);
-  let uvCloud = vec2<f32>(fract(uv.x + frame.timePad.x * 0.003), uv.y);
+  let uvCloud = vec2<f32>(fract(uv.x + frame.timePad.x * ${PLANET_CLOUD_DRIFT_UV_PER_SEC}), uv.y);
 
   let sunDir = normalize_fast(frame.sunPos.xyz - body.centerRadius.xyz);
 
@@ -890,6 +863,117 @@ fn fs_band_c(in : VSOut) -> BandCFSOut {
   o.color = vec4<f32>(rgb, clamp(surfaceMask, 0.0, 1.0));
   // Keep albedoBase reachable (gallery / smoke parity with fs_main).
   o.color = vec4<f32>(o.color.rgb + albedoBase * 0.0, o.color.a);
+  return o;
+}
+
+// The map's second pass writes only depth. Keep the full fs_band_c above intact
+// for lab color rendering and a direct GPU oracle; do not sample its materials
+// or atmosphere here. The ray, normal and depth arithmetic is identical.
+@fragment
+fn fs_band_c_depth(in : VSOut) -> BandCFSOut {
+  var o : BandCFSOut;
+  o.color = vec4<f32>(0.0);
+  let local = in.local;
+  let r = length(local);
+  let margin = body.spinOblMargin.z;
+  let discR = 1.0 / margin;
+  let rr = r / discR;
+  let atmOuterRr = body.look0.z;
+  if (rr > atmOuterRr) {
+    discard;
+  }
+
+  let rInner = body.look2.x;
+  let camDist = max(body.look1.w, 1.0);
+  let camPos = vec3<f32>(0.0, 0.0, camDist);
+  let p = vec2<f32>(local.x / discR, local.y / discR);
+  let dir = normalize_fast(vec3<f32>(p.x, p.y, -camDist));
+  let hit = ray_vs_sphere(camPos, dir, rInner);
+  let usedSphere = hit.x < hit.y && hit.x > 0.0;
+  // Ray misses inside the atmosphere boundary still write the original quad
+  // depth, including transparent halo pixels. Discarding them changes occlusion.
+  if (!usedSphere) {
+    o.depth = in.position.z;
+    return o;
+  }
+
+  let pHit = camPos + dir * hit.x;
+  let nLocal = normalize_fast(pHit);
+  let camFwd = normalize_fast(cross(body.camRight.xyz, body.camUp.xyz));
+  let nWorld = normalize_fast(
+    body.camRight.xyz * nLocal.x
+    + body.camUp.xyz * nLocal.y
+    + camFwd * nLocal.z
+  );
+  let radius = body.centerRadius.w;
+  let hitWorld = body.centerRadius.xyz + nWorld * radius;
+  let clip = frame.viewProjRel * vec4<f32>(hitWorld, 1.0);
+  o.depth = clamp(clip.z / max(clip.w, 1e-8), 0.0, 1.0);
+  return o;
+}
+// Add scattering after opaque ships. Testing the near shell against opaque
+// depth leaves foreground ships clear without turning the atmosphere opaque.
+@fragment
+fn fs_scene_atmosphere(in: VSOut) -> BandCFSOut {
+  let discR = 1.0 / body.spinOblMargin.z;
+  let rr = length(in.local) / discR;
+  if (rr > body.look0.z) { discard; }
+  let inner = body.look2.x;
+  let outer = inner + max(body.look0.w, 0.001);
+  let camDist = max(body.look1.w, 1.0);
+  let camPos = vec3<f32>(0.0, 0.0, camDist);
+  let p = in.local / discR;
+  let dir = normalize_fast(vec3<f32>(p.x, p.y, -camDist));
+  let hit = ray_vs_sphere(camPos, dir, outer);
+  if (hit.x >= hit.y || hit.x <= 0.0) { discard; }
+  let n = normalize_fast(camPos + dir * hit.x);
+  let forward = normalize_fast(cross(body.camRight.xyz, body.camUp.xyz));
+  let normal = normalize_fast(body.camRight.xyz * n.x + body.camUp.xyz * n.y + forward * n.z);
+  let world = body.centerRadius.xyz + normal * (body.centerRadius.w * outer / inner);
+  let clip = frame.viewProjRel * vec4<f32>(world, 1.0);
+  var o: BandCFSOut;
+  o.color = vec4<f32>(discAtmosphere(in), 0.0);
+  o.depth = clamp(clip.z / max(clip.w, 1e-8), 0.0, 1.0);
+  return o;
+}
+
+// Scene occlusion differs deliberately from the legacy lab halo-depth contract.
+@fragment
+fn fs_scene_depth(in : VSOut) -> BandCFSOut {
+  var o : BandCFSOut;
+  o.color = vec4<f32>(0.0);
+  let local = in.local;
+  let r = length(local);
+  let margin = body.spinOblMargin.z;
+  let discR = 1.0 / margin;
+  let rr = r / discR;
+  let atmOuterRr = body.look0.z;
+  if (rr > atmOuterRr) {
+    discard;
+  }
+
+  let rInner = body.look2.x;
+  let camDist = max(body.look1.w, 1.0);
+  let camPos = vec3<f32>(0.0, 0.0, camDist);
+  let p = vec2<f32>(local.x / discR, local.y / discR);
+  let dir = normalize_fast(vec3<f32>(p.x, p.y, -camDist));
+  let hit = ray_vs_sphere(camPos, dir, rInner);
+  let usedSphere = hit.x < hit.y && hit.x > 0.0;
+  // Transparent atmosphere is not an opaque occluder.
+  if (!usedSphere) { discard; }
+
+  let pHit = camPos + dir * hit.x;
+  let nLocal = normalize_fast(pHit);
+  let camFwd = normalize_fast(cross(body.camRight.xyz, body.camUp.xyz));
+  let nWorld = normalize_fast(
+    body.camRight.xyz * nLocal.x
+    + body.camUp.xyz * nLocal.y
+    + camFwd * nLocal.z
+  );
+  let radius = body.centerRadius.w;
+  let hitWorld = body.centerRadius.xyz + nWorld * radius;
+  let clip = frame.viewProjRel * vec4<f32>(hitWorld, 1.0);
+  o.depth = clamp(clip.z / max(clip.w, 1e-8), 0.0, 1.0);
   return o;
 }
 `;

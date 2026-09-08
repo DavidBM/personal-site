@@ -1,1 +1,1 @@
-{"version":3,"file":"fleet-spawner.js","sourceRoot":"","sources":["../../../js/worker/fleets/fleet-spawner.ts"],"names":[],"mappings":"AAAA,cAAc,6CAA6C,CAAC"}
+{"version":3,"file":"fleet-spawner.js","sourceRoot":"/js/","sources":["worker/fleets/fleet-spawner.ts"],"names":[],"mappings":"AAAA,cAAc,6CAA6C,CAAC"}

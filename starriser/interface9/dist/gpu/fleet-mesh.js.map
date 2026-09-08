@@ -1,1 +1,1 @@
-{"version":3,"file":"fleet-mesh.js","sourceRoot":"","sources":["../../js/gpu/fleet-mesh.ts"],"names":[],"mappings":"AAAA,cAAc,uCAAuC,CAAC"}
+{"version":3,"file":"fleet-mesh.js","sourceRoot":"/js/","sources":["gpu/fleet-mesh.ts"],"names":[],"mappings":"AAAA,cAAc,uCAAuC,CAAC"}

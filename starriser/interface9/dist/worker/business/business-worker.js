@@ -5,10 +5,11 @@ import { createBusinessWorld } from "./business-world.js";
 import { createEditModeController } from "./edit-mode-controller.js";
 import { createPointerInteractionController } from "./pointer-interactions.js";
 import { SelectionStore } from "./selection-store.js";
-export function busConstructor(bus) {
+export function busConstructor(bus, allowEditing = true) {
     const world = createBusinessWorld();
     const editMode = createEditModeController();
     const interactions = createPointerInteractionController({
+        allowEditing,
         world,
         editMode,
         publish: (topic, data, priority) => {
@@ -24,7 +25,7 @@ export function busConstructor(bus) {
         subscribeGalaxyMirror(bus, {
             onOps: interactions.handleOps,
             onClearGalaxy: interactions.handleClearGalaxy,
-        });
+        }, 'business');
     });
     bus.send("worker_ready", { role: "business" });
     return {

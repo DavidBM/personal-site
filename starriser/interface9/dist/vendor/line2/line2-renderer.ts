@@ -28,15 +28,13 @@ import {
   LINE2_TEMPLATE_INDEX_COUNT,
   LINE2_TEMPLATE_INDICES,
   packSegmentColors,
-  packSegmentPositions,
   polylineColorsToSegments,
-  polylineToSegments,
 } from "./line-geometry.js";
 import {
   applyMaterialParams,
   createDefaultMaterialState,
-  LINE2_UNIFORM_FLOATS,
   LINE2_UNIFORM_SIZE,
+  LINE2_SPLIT_UNIFORM_SIZE,
   type Line2MaterialState,
   writeMaterialUniforms,
   writeMat4,
@@ -51,6 +49,7 @@ import type {
   Line2MaterialParams,
   Line2RendererOptions,
 } from "./types.js";
+import { linePositionSegments, packSplitLinePositions } from "./line-position-pack.js";
 
 /** Re-export capacity helper (also on `line2-attr-state` / package index). */
 export { ensureSize } from "./line2-attr-state.js";
@@ -80,7 +79,8 @@ function createFilledBuffer(
 export class Line2Renderer {
   readonly device: GPUDevice;
   private readonly material: Line2MaterialState;
-  private readonly uniformData = new Float32Array(LINE2_UNIFORM_FLOATS);
+  private readonly uniformData: Float32Array;
+  private positionScratch: Float32Array = new Float32Array(0);
 
   private pipelineBundle: Line2PipelineBundle | null = null;
   private pipelineDepthWrite: boolean;
@@ -113,6 +113,7 @@ export class Line2Renderer {
   constructor(device: GPUDevice, options: Line2RendererOptions) {
     this.device = device;
     this.pipelineOpts = options;
+    this.uniformData = new Float32Array((options.splitPosition ? LINE2_SPLIT_UNIFORM_SIZE : LINE2_UNIFORM_SIZE) / 4);
     this.material = createDefaultMaterialState(options.material);
     this.pipelineDepthWrite = this.material.depthWrite;
     this.pipelineDepthTest = this.material.depthTest;
@@ -125,6 +126,7 @@ export class Line2Renderer {
       format: this.pipelineOpts.format,
       sampleCount: this.pipelineOpts.sampleCount,
       alphaToCoverage: this.pipelineOpts.alphaToCoverage,
+      splitPosition: this.pipelineOpts.splitPosition,
       // undefined → pipeline default null (no depthStencil; Galaxy color-only).
       depthFormat: this.pipelineOpts.depthFormat,
       depthWrite: this.material.depthWrite,
@@ -133,7 +135,7 @@ export class Line2Renderer {
 
     this.uniformBuffer = device.createBuffer({
       label: "line2-uniforms",
-      size: LINE2_UNIFORM_SIZE,
+      size: this.uniformData.byteLength,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
@@ -185,6 +187,7 @@ export class Line2Renderer {
       format: this.pipelineOpts.format,
       sampleCount: this.pipelineOpts.sampleCount,
       alphaToCoverage: this.pipelineOpts.alphaToCoverage,
+      splitPosition: this.pipelineOpts.splitPosition,
       depthFormat: this.pipelineOpts.depthFormat,
       depthWrite: this.material.depthWrite,
       depthCompare: this.material.depthTest ? "less" : "always",
@@ -205,7 +208,7 @@ export class Line2Renderer {
       this.instancePosBuffer?.destroy();
       this.instancePosBuffer = device.createBuffer({
         label: "line2-instance-pos",
-        size: cap * LINE2_POS_FLOATS * 4,
+        size: cap * LINE2_POS_FLOATS * 4 * (this.pipelineOpts.splitPosition ? 2 : 1),
         usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
       });
       this.posCapacity = cap;
@@ -297,13 +300,15 @@ export class Line2Renderer {
     },
   ): void {
     this.assertLive();
-    const packed = options?.polyline
-      ? polylineToSegments(positions)
-      : packSegmentPositions(positions);
+    const split = this.pipelineOpts.splitPosition === true;
+    const packed = linePositionSegments(positions, options?.polyline === true, split);
     const segmentCount = packed.length / LINE2_POS_FLOATS;
     this.ensureInstanceBuffers(Math.max(segmentCount, 1));
     if (segmentCount > 0) {
-      this.device.queue.writeBuffer(this.instancePosBuffer!, 0, packed);
+      if (split) {
+        this.positionScratch = packSplitLinePositions(packed, this.positionScratch);
+        this.device.queue.writeBuffer(this.instancePosBuffer!, 0, this.positionScratch, 0, packed.length * 2);
+      } else this.device.queue.writeBuffer(this.instancePosBuffer!, 0, packed as Float32Array);
     }
     this.segmentCount = segmentCount;
 
@@ -349,6 +354,72 @@ export class Line2Renderer {
       this.material.vertexColors = true;
       this.uniformsDirty = true;
     }
+  }
+
+  /**
+   * Update dirty ranges of an existing segment-pair data set. The caller keeps
+   * the complete CPU arrays so a capacity grow can repopulate the replacement
+   * GPU buffer; ordinary appends and edits upload only the touched segments.
+   */
+  setSegmentDataRanges(options: {
+    positions: ArrayLike<number>;
+    colors: Float32Array;
+    segmentCount: number;
+    positionStart: number;
+    positionCount: number;
+    colorStart: number;
+    colorCount: number;
+  }): void {
+    this.assertLive();
+    const total = options.segmentCount;
+    if (total < 0 || options.positions.length < total * LINE2_POS_FLOATS || options.colors.length < total * LINE2_COLOR_FLOATS) {
+      throw new Error("Line2Renderer.setSegmentDataRanges: incomplete segment arrays");
+    }
+    const oldPosCapacity = this.posCapacity;
+    const oldColorCapacity = this.colorCapacity;
+    const hadPositionBuffer = this.instancePosBuffer != null;
+    const hadColorBuffer = this.instanceColorBuffer != null;
+    this.ensureInstanceBuffers(Math.max(total, 1));
+
+    const posFull = !hadPositionBuffer || this.posCapacity !== oldPosCapacity;
+    const posStart = posFull ? 0 : Math.max(0, options.positionStart);
+    const posCount = posFull ? total : Math.max(0, Math.min(options.positionCount, total - posStart));
+    if (posCount > 0) {
+      const first = posStart * LINE2_POS_FLOATS;
+      const last = first + posCount * LINE2_POS_FLOATS;
+      const source = options.positions instanceof Float64Array || options.positions instanceof Float32Array
+        ? options.positions.subarray(first, last)
+        : Array.prototype.slice.call(options.positions, first, last) as number[];
+      if (this.pipelineOpts.splitPosition === true) {
+        this.positionScratch = packSplitLinePositions(source, this.positionScratch);
+        const floats = posCount * LINE2_POS_FLOATS * 2;
+        this.device.queue.writeBuffer(
+          this.instancePosBuffer!, posStart * LINE2_POS_FLOATS * 2 * 4,
+          this.positionScratch.subarray(0, floats),
+        );
+      } else {
+        this.device.queue.writeBuffer(
+          this.instancePosBuffer!, posStart * LINE2_POS_FLOATS * 4,
+          new Float32Array(source),
+        );
+      }
+    }
+
+    const colorFull = !hadColorBuffer || this.colorCapacity !== oldColorCapacity || !this.hasColors;
+    const colorStart = colorFull ? 0 : Math.max(0, options.colorStart);
+    const colorCount = colorFull ? total : Math.max(0, Math.min(options.colorCount, total - colorStart));
+    if (colorCount > 0) {
+      const first = colorStart * LINE2_COLOR_FLOATS;
+      const last = first + colorCount * LINE2_COLOR_FLOATS;
+      this.device.queue.writeBuffer(
+        this.instanceColorBuffer!, colorStart * LINE2_COLOR_FLOATS * 4,
+        options.colors.subarray(first, last),
+      );
+      this.hasColors = true;
+    }
+    this.segmentCount = total;
+    this.material.vertexColors = true;
+    this.uniformsDirty = true;
   }
 
   /**
@@ -450,13 +521,14 @@ export class Line2Renderer {
         this.originX,
         this.originY,
         this.originZ,
+        this.pipelineOpts.splitPosition,
       );
       this.device.queue.writeBuffer(
         this.uniformBuffer!,
         0,
         this.uniformData.buffer,
         this.uniformData.byteOffset,
-        LINE2_UNIFORM_SIZE,
+        this.uniformData.byteLength,
       );
       this.uniformsDirty = false;
     }
@@ -492,6 +564,7 @@ export class Line2Renderer {
     this.instancePosBuffer = null;
     this.instanceColorBuffer = null;
     this.instanceDistBuffer = null;
+    this.positionScratch = new Float32Array(0);
     this.bindGroup = null;
     this.pipelineBundle = null;
   }

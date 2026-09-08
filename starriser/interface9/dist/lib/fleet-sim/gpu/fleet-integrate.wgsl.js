@@ -43,6 +43,8 @@
  * Bindings:
  *   0 uniforms · 1 fleets · 2 instances · 3 shipSims · 4 trails · 5 trailLines
  */
+import { TRAIL_VISIBILITY_WGSL } from "./trail-visibility.wgsl.js";
+import { TRAIL_VISIBILITY_UNIFORM_BYTES } from "../visual/trail-visibility.js";
 import { RENDER_PLANE_Y } from "../../../contracts/render-constants.js";
 import { FLEET_GPU_STRIDE } from "../visual/fleet-layout.js";
 import { BASE_SHIP_SIZE, BLUE_SCALE, GREEN_SCALE, ICON_SCREEN_PX, RED_SCALE, } from "../visual/fleet-lod.js";
@@ -50,12 +52,13 @@ import { DEFAULT_TRAIL_LAYOUT, TRAIL_ALPHA_POWER, TRAIL_ALONG_POWER, TRAIL_LINE_
 import { TRAIL_TEMPLATE_INDEX_COUNT } from "./fleet-trails.wgsl.js";
 import { MODEL_TRAIL_EMITTER_COUNT, MODEL_TRAIL_EMITTERS, modelTrailExpandAlphaMul, } from "../visual/model-trail-config.js";
 import { SHIP_APPROACH_BRAKE_POWER, SHIP_BRAKE_DIST_MARGIN, SHIP_DEFAULT_BRAKE_DIST, SHIP_LAUNCH_ACCEL_MIN, SHIP_LAUNCH_SPEED_FRAC, SHIP_MAX_ACCEL, SHIP_MAX_SPEED, SHIP_MID_CRUISE_BOOST, SHIP_MIN_ALIGN, SHIP_MODE_JUMP, SHIP_MODE_ORBIT, SHIP_MODE_PAUSED, SHIP_MODE_SETTLE, SHIP_NOSE_OFFSET, CRUISE_ACCEL_SCALE, CRUISE_BRAKE_MULT, JUMP_BRAKE_MULT, V_OPEN_UNCAP, HOP_OPEN_SPEED_MUL, HOP_OPEN_SPEED_MIN, RESIDUAL_HIGH_MUL, RESIDUAL_CLEAR_MUL, RESIDUAL_FREEZE_OUT_K, } from "../visual/ship-flight-ref.js";
-import { ORBIT_CAPTURE_K, ORBIT_CAPTURE_OUT_K, ORBIT_DEFAULT_ACCEL, ORBIT_DEFAULT_OMEGA_MAX, ORBIT_ENTRANCE_EPS_TINY, ORBIT_ENTRANCE_REM_K, ORBIT_LEAD_RAD, ORBIT_NEAR_SPEED_SCALE, ORBIT_OMEGA_TURN_FRAC, ORBIT_R_EPS, ORBIT_R_MIN, SCENE_AGENT_SCALE, SCENE_SHIP_VISUAL_MUL, SCENE_TRAIL_WIDTH_MUL, SCENE_SPEED_SCALE, ORBIT_SPRING_K, ORBIT_V_RAD_MAX_FRAC, ORBIT_V_RAD_MAX_R_MUL, ORBIT_RESIDUAL_V_MUL, ORBIT_RESIDUAL_V_ADD, ORBIT_SINGULARITY_R_MUL, ORBIT_ESCAPE_V_RAD, ORBIT_SETTLED_R_FRAC, ORBIT_SETTLED_HEADING_RAD, ORBIT_HEIGHT_MAX, ORBIT_HEIGHT_BLEND_REM_K, ORBIT_HEIGHT_APPROACH_TAU_S, ORBIT_HEIGHT_CLIMB_SLOPE, ORBIT_HEIGHT_MAX_FRAME_FRAC, ORBIT_HEIGHT_MIN_RATE, V_TURN_ALLOW_R_FRAC, } from "../visual/ship-orbit-ref.js";
+import { ORBIT_CAPTURE_K, ORBIT_CAPTURE_OUT_K, ORBIT_DEFAULT_ACCEL, ORBIT_DEFAULT_OMEGA_MAX, ORBIT_ENTRANCE_EPS_TINY, ORBIT_ENTRANCE_REM_K, ORBIT_LEAD_RAD, ORBIT_NEAR_SPEED_SCALE, ORBIT_OMEGA_TURN_FRAC, ORBIT_R_EPS, ORBIT_R_MIN, SCENE_AGENT_SCALE, SCENE_ORBIT_SPEED_MUL, SCENE_SHIP_VISUAL_MUL, SCENE_TRAIL_WIDTH_MUL, SCENE_SPEED_SCALE, ORBIT_SPRING_K, ORBIT_V_RAD_MAX_FRAC, ORBIT_V_RAD_MAX_R_MUL, ORBIT_RESIDUAL_V_MUL, ORBIT_RESIDUAL_V_ADD, ORBIT_SINGULARITY_R_MUL, ORBIT_ESCAPE_V_RAD, ORBIT_SETTLED_R_FRAC, ORBIT_SETTLED_HEADING_RAD, ORBIT_HEIGHT_MAX, ORBIT_HEIGHT_BLEND_REM_K, ORBIT_HEIGHT_APPROACH_TAU_S, ORBIT_HEIGHT_CLIMB_SLOPE, ORBIT_HEIGHT_MAX_FRAME_FRAC, ORBIT_HEIGHT_MIN_RATE, V_TURN_ALLOW_R_FRAC, } from "../visual/ship-orbit-ref.js";
 import { SHIP_SIM_STRIDE } from "../visual/ship-sim-layout.js";
 import { TRAIL_META_WORD as META } from "../visual/trail-indirect-table.js";
 import { FLEET_SHIP_DRAW_STRIDE } from "./fleet-ships.wgsl.js";
 /**
- * Uniforms (96 bytes, 16-byte aligned):
+ * Uniforms (224 bytes): original 96-byte prefix + 128-byte trail visibility tail.
+ * Prefix fields (16-byte aligned):
  *   nowRel f32, fleetCount u32, dtMs f32, shipCount u32,
  *   cameraY f32, targetX f32, targetZ f32, viewportH f32,
  *   tanHalfFov f32, lodNearY f32, lodFarY f32, lodMidDist f32,
@@ -82,7 +85,9 @@ import { FLEET_SHIP_DRAW_STRIDE } from "./fleet-ships.wgsl.js";
  *       Each model ship expands the triangular pot (1 large + 2 small).
  * Age runs always. Pure sim benches may set 0.
  */
-export const FLEET_INTEGRATE_UNIFORM_SIZE = 96;
+export const FLEET_INTEGRATE_BASE_UNIFORM_SIZE = 96;
+/** The original prefix is unchanged; model-pot bounds use the appended block. */
+export const FLEET_INTEGRATE_UNIFORM_SIZE = FLEET_INTEGRATE_BASE_UNIFORM_SIZE + TRAIL_VISIBILITY_UNIFORM_BYTES;
 /**
  * Compute workgroup size for cs_fleets / cs_ships.
  * 128 balances occupancy vs register pressure on the heavy cs_ships agent
@@ -120,6 +125,7 @@ export function buildFleetIntegrateWgsl(trail = DEFAULT_TRAIL_LAYOUT) {
     return /* wgsl */ `
 // Flag bits — match fleet-layout.ts
 const FLEET_FLAG_ALIVE: u32 = 1u;
+const FLEET_FLAG_LOCAL_MOVE: u32 = 256u;
 const FLEET_FLAG_JUMPING: u32 = 2u;
 // FLEET_FLAG_COOLDOWN = 4u (not used for pose)
 const FLEET_FLAG_NO_TRAIL: u32 = 8u; // W4 icon — skip trail age/append/expand
@@ -181,6 +187,7 @@ const ICON_SCREEN_PX: f32 = ${ICON_SCREEN_PX};
 // Orbit constants — match ship-orbit-ref.ts (unified controller)
 const ORBIT_R_MIN: f32 = ${ORBIT_R_MIN};
 const SCENE_AGENT_SCALE: f32 = ${SCENE_AGENT_SCALE};
+const SCENE_ORBIT_SPEED_MUL: f32 = ${SCENE_ORBIT_SPEED_MUL};
 const SCENE_SHIP_VISUAL_MUL: f32 = ${SCENE_SHIP_VISUAL_MUL};
 const SCENE_TRAIL_WIDTH_MUL: f32 = ${SCENE_TRAIL_WIDTH_MUL};
 const SCENE_SPEED_SCALE: f32 = ${SCENE_SPEED_SCALE};
@@ -226,6 +233,8 @@ const TRAIL_LINE_FLOATS_PER_SHIP: u32 = ${layout.lineFloatsPerShip}u;
 // Alpha: age factor × along-trail factor (see fleet-trail-ref TRAIL_*_POWER).
 const TRAIL_ALPHA_POWER: f32 = ${Number(TRAIL_ALPHA_POWER)};
 const TRAIL_ALONG_POWER: f32 = ${Number(TRAIL_ALONG_POWER)};
+
+${TRAIL_VISIBILITY_WGSL}
 
 struct IntegrateUniforms {
   nowRel: f32,
@@ -275,6 +284,7 @@ struct IntegrateUniforms {
   hideNonSceneDraw: u32,
   _padPass1: u32,
   _padPass2: u32,
+  trailVisibility: TrailVisibilityUniforms,
 };
 
 // Scalar fields match writeFleetGpu DataView packing (stride 64).
@@ -1357,13 +1367,44 @@ fn integrateOrbitSeekStep(
 /**
  * Open speed for domain hop — match hopOpenSpeedFromDuration (TS).
  */
-fn hopOpenSpeed(pathLen: f32, durationMs: f32) -> f32 {
+fn hopOpenSpeed(pathLen: f32, durationMs: f32, flags: u32) -> f32 {
+  if ((flags & FLEET_FLAG_LOCAL_MOVE) != 0u) {
+    return max(1e-6, max(0.0, pathLen) / max(1e-3, durationMs / 1000.0) * HOP_OPEN_SPEED_MUL);
+  }
   if (durationMs <= 0.0 || pathLen <= 1e-6) {
     return SHIP_MAX_SPEED;
   }
   let durS = max(durationMs / 1000.0, 1e-3);
   let mean = pathLen / durS;
   return max(HOP_OPEN_SPEED_MIN, mean * HOP_OPEN_SPEED_MUL);
+}
+
+/** Local moves use canonical agent units around their sun-local target. This
+ * shares every capture/height/turn policy with the existing reference engine. */
+fn integratePresentedShip(shipIn: ShipSim, f: FleetGpu, dtMs: f32, centerY: f32, moving: bool, space3d: bool) -> ShipSim {
+  if ((f.flags & (FLEET_FLAG_LOCAL_MOVE | FLEET_FLAG_SYSTEM_SCENE)) != (FLEET_FLAG_LOCAL_MOVE | FLEET_FLAG_SYSTEM_SCENE)) {
+    return integrateShipAgent(shipIn, f.pathEndX, f.pathEndZ, centerY, 0.0, 0.0, 0.0,
+      dtMs, moving, space3d, f.pathStartX, f.pathStartZ, f.durationMs, f.flags);
+  }
+  var ship = shipIn;
+  ship.posX = (ship.posX - f.pathEndX) / SCENE_AGENT_SCALE;
+  ship.posZ = (ship.posZ - f.pathEndZ) / SCENE_AGENT_SCALE;
+  ship.posY = (ship.posY - centerY) / SCENE_AGENT_SCALE;
+  ship.speed = ship.speed / SCENE_AGENT_SCALE;
+  ship.accel = ship.accel / SCENE_AGENT_SCALE;
+  ship.cruiseV = ship.cruiseV / SCENE_AGENT_SCALE;
+  let orbitMul = select(1.0, SCENE_ORBIT_SPEED_MUL, ship.mode == SHIP_MODE_ORBIT);
+  let localDt = clamp(dtMs, 0.0, 50.0) * select(SCENE_SPEED_SCALE * orbitMul, 1.0, moving);
+  ship = integrateShipAgent(ship, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, localDt, moving, false,
+    (f.pathStartX - f.pathEndX) / SCENE_AGENT_SCALE,
+    (f.pathStartZ - f.pathEndZ) / SCENE_AGENT_SCALE, f.durationMs, f.flags & ~FLEET_FLAG_SYSTEM_SCENE);
+  ship.posX = f.pathEndX + ship.posX * SCENE_AGENT_SCALE;
+  ship.posZ = f.pathEndZ + ship.posZ * SCENE_AGENT_SCALE;
+  ship.posY = centerY + ship.posY * SCENE_AGENT_SCALE;
+  ship.speed = ship.speed * SCENE_AGENT_SCALE;
+  ship.accel = shipIn.accel;
+  ship.cruiseV = shipIn.cruiseV;
+  return ship;
 }
 
 /**
@@ -1442,7 +1483,7 @@ fn integrateShipAgent(
     let pdx = centerX - pathStartX;
     let pdz = centerZ - pathStartZ;
     let pLen = sqrt(pdx * pdx + pdz * pdz);
-    hopOpen = hopOpenSpeed(pLen, durationMs);
+    hopOpen = hopOpenSpeed(pLen, durationMs, flags);
     if (ship.cruiseV > hopOpen) {
       ship.cruiseV = hopOpen;
     }
@@ -1621,6 +1662,9 @@ fn tryAppendTrail(
   if (!allowAppend) {
     return ship;
   }
+  let stableScene = (flags & (FLEET_FLAG_LOCAL_MOVE | FLEET_FLAG_SYSTEM_SCENE)) ==
+    (FLEET_FLAG_LOCAL_MOVE | FLEET_FLAG_SYSTEM_SCENE);
+  let moveEps = select(0.05, 0.05 * SCENE_AGENT_SCALE, stableScene);
   let dist = ship.sinceSample + distMoved;
   let mask = TRAIL_RING_SIZE - 1u;
   // Fast path: minDist already satisfied → append without loading newest sample
@@ -1631,7 +1675,7 @@ fn tryAppendTrail(
     let newestBirth = trails[ringBase + newestIdx * TRAIL_SAMPLE_FLOATS + 2u];
     let newestAge = sampleAge01(newestBirth, u.nowRel);
     let timeOk =
-      distMoved > 0.05 &&
+      distMoved > moveEps &&
       newestAge * TRAIL_LIFETIME_MS + 0.001 >= TRAIL_MAX_INTERVAL_MS;
     if (!timeOk) {
       ship.sinceSample = dist;
@@ -1646,10 +1690,16 @@ fn tryAppendTrail(
     let sz = select(BASE_SHIP_SIZE, shipWorldSize, shipWorldSize > 1e-6);
     aft = triangleAftWorldOffset(ship.heading, sz);
   }
-  // pathEnd-relative samples. Planar CIRCULATE only: phase-local orbitLocalOffset
-  // (never fl(fl(C+L)−C)). Sphere SPACE3D ORBIT must keep pos−pathEnd (incl. Y).
-  // SEEK / residual: always pos − pathEnd. Then + aft for triangle trails.
-  if (ship.mode == SHIP_MODE_ORBIT && !space3d) {
+  // Compact-scene samples stay in their stable sun-local frame so a target
+  // change cannot drag prior history to the new pathEnd. Galaxy samples remain
+  // pathEnd-relative for large-coordinate precision.
+  if (stableScene) {
+    trails[base] = ship.posX + aft.x;
+    trails[base + 1u] = ship.posZ + aft.y;
+    trails[base + 3u] = ship.posY;
+  // Galaxy samples are pathEnd-relative. Planar CIRCULATE uses the phase-local
+  // orbit offset; sphere ORBIT and SEEK use pos-pathEnd. Then add triangle aft.
+  } else if (ship.mode == SHIP_MODE_ORBIT && !space3d) {
     let R = sceneScaleOrbitR(ship.orbitR, flags);
     let local = orbitLocalOffset(R, ship.orbitPhase);
     trails[base] = local.x + aft.x;
@@ -1716,15 +1766,9 @@ fn expandTrailLines(
   pathEndX: f32,
   pathEndZ: f32,
   pathEndY: f32,
+  stableScene: bool,
 ) {
-  // Dense pack for this frame's trail draw (no low-index bias).
-  // maxDrawSlots from host (table word 9 = line slot capacity) or caller.
-  let drawSlot = atomicAdd(&trailDrawMeta[${META.EXPAND_COUNT}u], 1u);
-  if (drawSlot >= maxDrawSlots) {
-    return;
-  }
   let mask = TRAIL_RING_SIZE - 1u;
-  let lineBase = drawSlot * TRAIL_LINE_FLOATS_PER_SHIP;
   // simIdx retained for future debug; samples already at ringBase.
   let _sim = simIdx;
   // Avoid /0 if TRAIL_SEGS ever 0 (layout always ≥ 3).
@@ -1742,6 +1786,15 @@ fn expandTrailLines(
     }
     nLive = d + 1u;
   }
+
+  let pathEnd = vec3<f32>(pathEndX, pathEndY, pathEndZ);
+  // Simulation and sample append have already completed. Only the visual
+  // emitter ribbon is rejected; hull visibility never controls this decision.
+  if (!trailRibbonVisible(ringBase, write, nLive, baseY, worldOff, pathEnd, stableScene)) { return; }
+  // Keep the existing dense atomic allocation and the same indirect draw.
+  let drawSlot = atomicAdd(&trailDrawMeta[${META.EXPAND_COUNT}u], 1u);
+  if (drawSlot >= maxDrawSlots) { return; }
+  let lineBase = drawSlot * TRAIL_LINE_FLOATS_PER_SHIP;
 
   // Walk newest→oldest. First dead pair ⇒ remaining older segs are dead too
   // (ring ages uniformly). Zero-fill the tail once and stop (big win when the
@@ -1767,22 +1820,10 @@ fn expandTrailLines(
       break;
     }
 
-    // Samples are pathEnd-relative (tryAppendTrail). Origin-relative endpoint:
-    //   f32(pathEnd − origin) + sample + pot
-    // Keeps O(R) lateral bits at large |pathEnd|; pot after small terms.
-    let ox = u.origin.x;
-    let oy = u.origin.y;
-    let oz = u.origin.z;
-    let peOx = pathEndX - ox;
-    let peOy = pathEndY - oy;
-    let peOz = pathEndZ - oz;
-    let x0 = peOx + trails[baseA] + worldOff.x;
-    let z0 = peOz + trails[baseA + 1u] + worldOff.z;
-    // Sample slot 3 = posY − pathEndY (planar 0); baseY is fleet plane offset.
-    let y0 = baseY + peOy + trails[baseA + 3u] + worldOff.y;
-    let x1 = peOx + trails[baseB] + worldOff.x;
-    let z1 = peOz + trails[baseB + 1u] + worldOff.z;
-    let y1 = baseY + peOy + trails[baseB + 3u] + worldOff.y;
+    let p0 = expandedTrailPoint(baseA, baseY, worldOff, pathEnd, stableScene);
+    let p1 = expandedTrailPoint(baseB, baseY, worldOff, pathEnd, stableScene);
+    let x0 = p0.x; let y0 = p0.y; let z0 = p0.z;
+    let x1 = p1.x; let y1 = p1.y; let z1 = p1.z;
     // along: 0 at newest sample, 1 at oldest expand tip
     let alongB = f32(seg) / segsF;
     let alongA = f32(seg + 1u) / segsF;
@@ -1797,9 +1838,8 @@ fn expandTrailLines(
     if (nLive >= seg + 3u) {
       let idxPrev = (write - 3u - seg) & mask;
       let basePrev = ringBase + idxPrev * TRAIL_SAMPLE_FLOATS;
-      px = peOx + trails[basePrev] + worldOff.x;
-      pz = peOz + trails[basePrev + 1u] + worldOff.z;
-      py = baseY + peOy + trails[basePrev + 3u] + worldOff.y;
+      let previous = expandedTrailPoint(basePrev, baseY, worldOff, pathEnd, stableScene);
+      px = previous.x; py = previous.y; pz = previous.z;
     }
     var nx = x1;
     var ny = y1;
@@ -1808,9 +1848,8 @@ fn expandTrailLines(
     if (seg > 0u) {
       let idxNext = (write - seg) & mask;
       let baseNext = ringBase + idxNext * TRAIL_SAMPLE_FLOATS;
-      nx = peOx + trails[baseNext] + worldOff.x;
-      nz = peOz + trails[baseNext + 1u] + worldOff.z;
-      ny = baseY + peOy + trails[baseNext + 3u] + worldOff.y;
+      let next = expandedTrailPoint(baseNext, baseY, worldOff, pathEnd, stableScene);
+      nx = next.x; ny = next.y; nz = next.z;
     }
 
     trailLines[vo] = x0;
@@ -1860,10 +1899,13 @@ fn expandShipTrails(
     maxSlots = u.shipCount;
   }
   let zeroOff = vec3<f32>(0.0, 0.0, 0.0);
+  let stableScene = ship.fleetIndex < arrayLength(&fleets) &&
+    (fleets[ship.fleetIndex].flags & (FLEET_FLAG_LOCAL_MOVE | FLEET_FLAG_SYSTEM_SCENE)) ==
+      (FLEET_FLAG_LOCAL_MOVE | FLEET_FLAG_SYSTEM_SCENE);
   if (u.expandTrails != 2u) {
     expandTrailLines(
       simIdx, ringBase, write, colorR, colorG, colorB, baseY,
-      zeroOff, 1.0, maxSlots, pathEndX, pathEndZ, pathEndY,
+      zeroOff, 1.0, maxSlots, pathEndX, pathEndZ, pathEndY, stableScene,
     );
     return;
   }
@@ -1883,15 +1925,15 @@ fn expandShipTrails(
   let o2 = quatRotateVec3(q, MODEL_TRAIL_E2_LOCAL * emitScale);
   expandTrailLines(
     simIdx, ringBase, write, colorR, colorG, colorB, baseY,
-    o0, MODEL_TRAIL_E0_ALPHA, maxSlots, pathEndX, pathEndZ, pathEndY,
+    o0, MODEL_TRAIL_E0_ALPHA, maxSlots, pathEndX, pathEndZ, pathEndY, stableScene,
   );
   expandTrailLines(
     simIdx, ringBase, write, colorR, colorG, colorB, baseY,
-    o1, MODEL_TRAIL_E1_ALPHA, maxSlots, pathEndX, pathEndZ, pathEndY,
+    o1, MODEL_TRAIL_E1_ALPHA, maxSlots, pathEndX, pathEndZ, pathEndY, stableScene,
   );
   expandTrailLines(
     simIdx, ringBase, write, colorR, colorG, colorB, baseY,
-    o2, MODEL_TRAIL_E2_ALPHA, maxSlots, pathEndX, pathEndZ, pathEndY,
+    o2, MODEL_TRAIL_E2_ALPHA, maxSlots, pathEndX, pathEndZ, pathEndY, stableScene,
   );
 }
 
@@ -2264,8 +2306,11 @@ fn cs_ships(@builtin(global_invocation_id) gid3: vec3<u32>) {
   let ringBase = simIdx * TRAIL_RING_SIZE * TRAIL_SAMPLE_FLOATS;
   var domainWarpActive = (f.flags & FLEET_FLAG_JUMPING) != 0u;
   let space3d = (f.flags & FLEET_FLAG_SPACE3D) != 0u;
-  // pathEndY lives in _pad0 when SPACE3D; else planar centerY = 0.
-  let pathEndY = select(0.0, f._pad0, space3d);
+  // Compact planets may have inclined planar centers even though ship motion
+  // remains a planar ring relative to that center.
+  let localScene = (f.flags & (FLEET_FLAG_LOCAL_MOVE | FLEET_FLAG_SYSTEM_SCENE)) ==
+    (FLEET_FLAG_LOCAL_MOVE | FLEET_FLAG_SYSTEM_SCENE);
+  let pathEndY = select(0.0, f._pad0, space3d || localScene);
 
   // Per-ship jump desync: hold agent until nowRel ≥ fleet.t0 + jumpStaggerMs
   // so members leave/arrive out of lockstep (≤ ~500 ms product).
@@ -2297,11 +2342,7 @@ fn cs_ships(@builtin(global_invocation_id) gid3: vec3<u32>) {
     if (simPaused) {
       ship.speed = 0.0;
     } else {
-      ship = integrateShipAgent(
-        ship, f.pathEndX, f.pathEndZ, pathEndY,
-        0.0, 0.0, 0.0, u.dtMs, domainWarpActive, space3d,
-        f.pathStartX, f.pathStartZ, f.durationMs, f.flags,
-      );
+      ship = integratePresentedShip(ship, f, u.dtMs, pathEndY, domainWarpActive, space3d);
     }
     if (noTrail) {
       shipSims[simIdx] = ship;
@@ -2315,20 +2356,21 @@ fn cs_ships(@builtin(global_invocation_id) gid3: vec3<u32>) {
       let iconZ = ship.posZ;
       let maskM = TRAIL_RING_SIZE - 1u;
       let newestM = (ship.trailWrite - 1u) & maskM;
-      // Samples are pathEnd-relative — compare in the same frame.
+      // Compare the current point and prior sample in their shared storage frame.
       let prevRelX = trails[ringBase + newestM * TRAIL_SAMPLE_FLOATS];
       let prevRelZ = trails[ringBase + newestM * TRAIL_SAMPLE_FLOATS + 1u];
-      let iconRelX = iconX - f.pathEndX;
-      let iconRelZ = iconZ - f.pathEndZ;
+      let iconRelX = select(iconX - f.pathEndX, iconX, localScene);
+      let iconRelZ = select(iconZ - f.pathEndZ, iconZ, localScene);
       let ddxI = iconRelX - prevRelX;
       let ddzI = iconRelZ - prevRelZ;
       let distIcon = sqrt(ddxI * ddxI + ddzI * ddzI);
+      let moveEps = select(0.05, 0.05 * SCENE_AGENT_SCALE, localScene);
       let saveX = ship.posX;
       let saveZ = ship.posZ;
       ship.posX = iconX;
       ship.posZ = iconZ;
       ship = tryAppendTrail(
-        ship, ringBase, distIcon, distIcon > 0.05,
+        ship, ringBase, distIcon, distIcon > moveEps,
         f.pathEndX, f.pathEndZ, pathEndY, space3d, instances[o + 7u], f.flags,
       );
       ship.posX = saveX;
@@ -2352,11 +2394,7 @@ fn cs_ships(@builtin(global_invocation_id) gid3: vec3<u32>) {
   if (simPaused) {
     ship.speed = 0.0;
   } else {
-    ship = integrateShipAgent(
-      ship, f.pathEndX, f.pathEndZ, pathEndY,
-      0.0, 0.0, 0.0, u.dtMs, domainWarpActive, space3d,
-      f.pathStartX, f.pathStartZ, f.durationMs, f.flags,
-    );
+    ship = integratePresentedShip(ship, f, u.dtMs, pathEndY, domainWarpActive, space3d);
   }
 
   // Instance bases are **origin-relative** (triangle VS uses base as-is, no
@@ -2401,8 +2439,10 @@ fn cs_ships(@builtin(global_invocation_id) gid3: vec3<u32>) {
     let ddx = ship.posX - oldX;
     let ddz = ship.posZ - oldZ;
     let distMoved = sqrt(ddx * ddx + ddz * ddz);
-    let trailActive =
-      ship.speed > TRAIL_APPEND_SPEED_EPS || distMoved > 0.05;
+    // Local ship speed is in compact scene units, unlike the canonical threshold.
+    let speedEps = select(TRAIL_APPEND_SPEED_EPS, TRAIL_APPEND_SPEED_EPS * SCENE_AGENT_SCALE, localScene);
+    let moveEps = select(0.05, 0.05 * SCENE_AGENT_SCALE, localScene);
+    let trailActive = ship.speed > speedEps || distMoved > moveEps;
     // Instance size = triangle world scale (formation/impostor); used for aft.
     let shipSz = instances[o + 7u];
     ship = tryAppendTrail(

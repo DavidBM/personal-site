@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Galaxy · Multiplayer</title>
+  <style>
+    body { margin:0; overflow:hidden; background:#05080e; color:#eaf2ff; font:14px system-ui,sans-serif }
+    .online-panel { position:fixed; top:16px; left:16px; z-index:8; width:280px; padding:20px; border:1px solid #354358;
+      border-radius:12px; background:rgba(8,15,26,.94); box-shadow:0 12px 36px #0007; max-height:calc(100vh - 72px); overflow:auto }
+    .online-panel h1 { margin:0; font-size:26px; letter-spacing:.05em }
+    .online-caption { color:#8fa7c7; margin:3px 0 20px }
+    .online-panel label { display:block; margin:12px 0; font-size:12px; color:#aebfd6 }
+    .online-panel input,.online-panel select { box-sizing:border-box; width:100%; margin-top:5px; padding:9px; border:1px solid #394b65;
+      border-radius:5px; background:#111e30; color:#ecf4ff; font:inherit }
+    .online-panel button { padding:9px 12px; margin:4px 3px 4px 0; border:1px solid #4a6c96; border-radius:5px; background:#234369; color:#fff; cursor:pointer }
+    .online-panel button:disabled { opacity:.4; cursor:default }
+    .online-status,.online-preview { line-height:1.5; color:#c7d9ee }
+    .online-target { display:flex; gap:10px }.online-target label { min-width:0 }
+    .online-recovery { padding-top:8px; border-top:1px solid #584c32; color:#eacb91; font-size:12px }
+    .online-panel :focus-visible { outline:2px solid #91bdf6; outline-offset:2px }
+    .online-overview { border-bottom:1px solid #354358; padding-bottom:12px }
+    .online-overview h2 { font-size:16px; margin:14px 0 6px }
+    .online-overview p { color:#aebfd6; font-size:12px }
+    .online-overview-scroll { max-height:240px; overflow:auto }
+    .online-overview table { width:100%; border-collapse:collapse; font-size:12px }
+    .online-overview th,.online-overview td { padding:5px 3px; text-align:left; border-bottom:1px solid #263449; overflow-wrap:anywhere }
+    .online-overview th { position:sticky; top:0; background:#101e30 }
+    .online-overview button { padding:6px; font-size:12px }
+  </style>
+  <script>
+    // Consume local launch links before module imports or application startup.
+    if (location.hash.startsWith('#galaxy-login=')) {
+      const fragment = location.hash;
+      history.replaceState(history.state, '', location.pathname + location.search);
+      if (fragment.length <= 2048) window.__galaxyDevLoginFragment = fragment;
+    }
+  </script>
+  <script type="module" src="./dist/main/online-entry.js"></script>
+</head>
+<body></body>
+</html>

@@ -1,1 +1,1 @@
-{"version":3,"file":"planet-catalog.js","sourceRoot":"","sources":["../../../js/gpu/solar-system/planet-catalog.ts"],"names":[],"mappings":"AAAA,cAAc,iCAAiC,CAAC"}
+{"version":3,"file":"planet-catalog.js","sourceRoot":"/js/","sources":["gpu/solar-system/planet-catalog.ts"],"names":[],"mappings":"AAAA,cAAc,iCAAiC,CAAC"}

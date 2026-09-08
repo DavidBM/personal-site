@@ -17,8 +17,9 @@ import { FLEET_SHIPS_WGSL, FLEET_SHIP_DRAW_STRIDE, FLEET_SHIP_UNIFORM_SIZE, } fr
 import { writeTrailVariantModulation, } from "../shaders/fleet-trails.wgsl.js";
 import { MODEL_TRAIL_EMITTER_COUNT, MODEL_TRAIL_EMITTERS, MODEL_TRAIL_VARIANTS, modelTrailDenseExpandBudget, modelTrailMaxWidthScale, } from "../../lib/fleet-sim/visual/model-trail-config.js";
 import { MODEL_LOD_MAX_INSTANCES, } from "../fleet-lod.js";
-import { buildFleetIntegrateWgsl, buildFleetIntegrateFastWgsl, FLEET_INTEGRATE_UNIFORM_SIZE, FLEET_INTEGRATE_WORKGROUP, FLEET_INTEGRATE_SHIP_SIM_STRIDE, } from "../shaders/fleet-integrate.wgsl.js";
+import { buildFleetIntegrateWgsl, buildFleetIntegrateFastWgsl, FLEET_INTEGRATE_UNIFORM_SIZE, FLEET_INTEGRATE_BASE_UNIFORM_SIZE, FLEET_INTEGRATE_WORKGROUP, FLEET_INTEGRATE_SHIP_SIM_STRIDE, } from "../shaders/fleet-integrate.wgsl.js";
 import { DEFAULT_TRAIL_TEXTURE_URL, FLEET_TRAILS_WGSL, TRAIL_TEMPLATE_INDEX_COUNT, TRAIL_TEMPLATE_INDICES, TRAIL_TEMPLATE_STRIDE, TRAIL_UNIFORM_FLOATS, TRAIL_UNIFORM_SIZE, TRAIL_WIDTH_HEAD_PX, TRAIL_WIDTH_TAIL_PX, TRAIL_WORLD_WIDTH_HEAD, TRAIL_WORLD_WIDTH_TAIL, buildTrailTemplateInterleaved, resolveTrailDrawWidths, writeTrailUniforms, writeTrailWidthMode, writeTrailExposure, TRAIL_EXPOSURE_DEFAULT, } from "../shaders/fleet-trails.wgsl.js";
+import { computeTrailScreenWidthCoefficient, writeTrailVisibilityUniform, TRAIL_VISIBILITY_UNIFORM_BYTES } from "../../lib/fleet-sim/visual/trail-visibility.js";
 import { SCENE_TRAIL_WIDTH_MUL } from "../ship-motion-config.js";
 import { TRAIL_SAMPLE_FLOATS, resolveTrailLayout, } from "../fleet-trail-ref.js";
 import { FLEET_FLAG_SYSTEM_SCENE, FLEET_GPU_STRIDE, FleetGpuFields, TRAIL_SAMPLE_STRIDE, } from "../fleet-layout.js";
@@ -33,7 +34,11 @@ const MESH_FLOATS = 9; // 3 verts × xyz
 export class FleetInstanceGpuLayer {
     constructor(bootstrap, options) {
         this.name = "fleet-ships";
+        this.disposed = false;
+        this.initialized = false;
+        this.trailLoadGeneration = 0;
         this.pipeline = null;
+        this.depthPipeline = null;
         /** Color-only trail pipeline (strategic NEAR/MID; no depth attachment). */
         this.trailPipeline = null;
         /**
@@ -150,6 +155,7 @@ export class FleetInstanceGpuLayer {
         this.integrateUniformBytes = new ArrayBuffer(FLEET_INTEGRATE_UNIFORM_SIZE);
         this.integrateUniformF32 = new Float32Array(this.integrateUniformBytes);
         this.integrateUniformU32 = new Uint32Array(this.integrateUniformBytes);
+        this.trailVisibilityUniform = new Float32Array(this.integrateUniformBytes, FLEET_INTEGRATE_BASE_UNIFORM_SIZE, TRAIL_VISIBILITY_UNIFORM_BYTES / 4);
         /** Scratch for dead-sample fill (age01 = 1). Grown as needed. */
         this.deadTrailScratch = new Float32Array(0);
         /**
@@ -162,6 +168,8 @@ export class FleetInstanceGpuLayer {
          * segment slots. Null = all trailShipCount ships (strategic / non-model path).
          */
         this.trailDrawShipIndices = null;
+        this.trailDrawIndexScratch = [];
+        this.modelHideIndexScratch = [];
         this.modelHideHandle = null;
         this.modelHideBuffer = null;
         this.modelHideCapacity = 0;
@@ -206,21 +214,26 @@ export class FleetInstanceGpuLayer {
             this.trailDrawShipIndices = null;
             return;
         }
-        const out = [];
-        for (let i = 0; i < indices.length; i++) {
-            const s = indices[i] | 0;
-            if (s >= 0)
-                out.push(s);
+        const out = this.trailDrawIndexScratch;
+        if (!sameValidIndices(out, indices)) {
+            out.length = 0;
+            for (let i = 0; i < indices.length; i++) {
+                const index = indices[i] | 0;
+                if (index >= 0)
+                    out.push(index);
+            }
         }
         this.trailDrawShipIndices = out.length > 0 ? out : null;
-        // Mode-2 pot expands 3 ribbons per model ship — grow **line** slots only
-        // (samples stay simIdx-indexed at ship high-water).
-        if (this.trailDrawShipIndices && this.trailPipeline) {
-            const budget = modelTrailDenseExpandBudget(this.trailDrawShipIndices.length);
-            const need = Math.max(this.trailShipCapacity, this.instanceCount, budget, this.trailDrawShipIndices.length * MODEL_TRAIL_EMITTER_COUNT);
-            if (need > 0)
-                this.ensureTrailLineSlots(need);
-        }
+        this.ensureModelTrailSlots();
+    }
+    ensureModelTrailSlots() {
+        const indices = this.trailDrawShipIndices;
+        if (!indices || !this.trailPipeline)
+            return;
+        const budget = modelTrailDenseExpandBudget(indices.length);
+        const need = Math.max(this.trailShipCapacity, this.instanceCount, budget, indices.length * MODEL_TRAIL_EMITTER_COUNT);
+        if (need > 0)
+            this.ensureTrailLineSlots(need);
     }
     getTrailDrawShipIndices() {
         return this.trailDrawShipIndices;
@@ -262,9 +275,33 @@ export class FleetInstanceGpuLayer {
     getTrailSegsPerShip() {
         return this.trailLayout.segsPerShip;
     }
+    /** Prepare before integrate; screen-width components opt in with projection and physical height. */
+    prepareTrailVisibility(viewProj, view, enabled, sceneTrailScale = true, projection, resolutionH) {
+        const modelPot = this.modelTrailPotActive();
+        const widths = this.trailDrawWidths(modelPot, sceneTrailScale, modelPot);
+        if (!modelPot) {
+            this.prepareScreenTrailVisibility(viewProj, view, enabled, widths, projection, resolutionH);
+            return;
+        }
+        writeTrailVisibilityUniform(this.trailVisibilityUniform, viewProj, view, Math.max(widths.widthHead, widths.widthTail) * 0.5, enabled);
+    }
+    prepareScreenTrailVisibility(viewProj, view, enabled, widths, projection, resolutionH) {
+        // These are the same f32 width values later written to the draw uniform.
+        const fullPx = Math.max(Math.fround(widths.widthHead), Math.fround(widths.widthTail));
+        const coefficient = computeTrailScreenWidthCoefficient(fullPx, resolutionH ?? NaN, projection?.[5] ?? NaN);
+        writeTrailVisibilityUniform(this.trailVisibilityUniform, viewProj, view, 0, enabled, coefficient);
+    }
+    trailDrawWidths(depthAware, sceneTrailScale, modelPot) {
+        const widthScale = (modelPot ? modelTrailMaxWidthScale() : 1) * this.trailWidthScale;
+        const sceneMul = sceneTrailScale ? SCENE_TRAIL_WIDTH_MUL : 1;
+        return resolveTrailDrawWidths({
+            depthAware, widthScale, screenHeadPx: TRAIL_WIDTH_HEAD_PX, screenTailPx: TRAIL_WIDTH_TAIL_PX,
+            worldHead: TRAIL_WORLD_WIDTH_HEAD * sceneMul, worldTail: TRAIL_WORLD_WIDTH_TAIL * sceneMul,
+        });
+    }
     /**
      * Dense expand count from last integrate (trailDrawMeta[0]).
-     * After model-only expand, equals number of model-owned ships that expanded.
+     * After model-only expand, counts accepted emitter ribbons (up to three per ship).
      */
     async readbackTrailDrawCount() {
         if (!this.trailIndirectBuffer)
@@ -289,30 +326,54 @@ export class FleetInstanceGpuLayer {
      * because the model path draws them. Clears all other hide flags.
      */
     setModelHideIndices(indices) {
-        const n = this.instanceCount | 0;
-        this.ensureModelHideCapacity(Math.max(n, 1));
-        this.modelHideCpu.fill(0);
-        const marked = [];
+        this.ensureModelHideCapacity(Math.max(this.instanceCount, 1));
+        if (sameValidIndices(this.lastModelHideIndices, indices, this.modelHideCpu.length))
+            return;
+        if (this.replaceModelMask(indices))
+            this.uploadModelMask();
+    }
+    /** Reuse index lists; changed order alone does not rewrite the GPU mask. */
+    replaceModelMask(indices) {
+        const previous = this.lastModelHideIndices, next = this.modelHideIndexScratch;
+        for (const index of previous)
+            this.modelHideCpu[index] = 2;
+        next.length = 0;
+        let changed = this.markModelIndices(indices, next);
+        for (const index of previous) {
+            if (this.modelHideCpu[index] !== 2)
+                continue;
+            this.modelHideCpu[index] = 0;
+            changed = true;
+        }
+        this.lastModelHideIndices = next;
+        this.modelHideIndexScratch = previous;
+        return changed;
+    }
+    markModelIndices(indices, next) {
+        let changed = false;
         for (let i = 0; i < indices.length; i++) {
-            const idx = indices[i] | 0;
-            if (idx >= 0 && idx < this.modelHideCpu.length) {
-                this.modelHideCpu[idx] = 1;
-                marked.push(idx);
-            }
+            const index = indices[i] | 0;
+            if (index < 0 || index >= this.modelHideCpu.length)
+                continue;
+            if (this.modelHideCpu[index] === 0)
+                changed = true;
+            this.modelHideCpu[index] = 1;
+            next.push(index);
         }
-        this.lastModelHideIndices = marked;
-        if (this.modelHideHandle) {
-            this.bootstrap.gpu.writeBuffer(this.modelHideHandle, 0, this.modelHideCpu, 0, this.modelHideCpu.byteLength);
-        }
+        return changed;
+    }
+    uploadModelMask() {
+        if (!this.modelHideHandle)
+            return;
+        this.bootstrap.gpu.writeBuffer(this.modelHideHandle, 0, this.modelHideCpu, 0, this.modelHideCpu.byteLength);
     }
     clearModelHide() {
-        this.lastModelHideIndices = [];
-        if (this.modelHideCpu.length > 0) {
-            this.modelHideCpu.fill(0);
-            if (this.modelHideHandle) {
-                this.bootstrap.gpu.writeBuffer(this.modelHideHandle, 0, this.modelHideCpu, 0, this.modelHideCpu.byteLength);
-            }
-        }
+        if (this.lastModelHideIndices.length === 0)
+            return;
+        for (const index of this.lastModelHideIndices)
+            this.modelHideCpu[index] = 0;
+        this.lastModelHideIndices.length = 0;
+        this.uploadModelMask();
     }
     /** Indices currently flagged for triangle hide (model-owned). */
     getLastModelHideIndices() {
@@ -333,7 +394,9 @@ export class FleetInstanceGpuLayer {
         });
         this.modelHideBuffer = gpu.getBuffer(this.modelHideHandle);
         this.modelHideCapacity = cap;
+        const previousMask = this.modelHideCpu;
         this.modelHideCpu = new Uint32Array(cap);
+        this.modelHideCpu.set(previousMask);
         gpu.writeBuffer(this.modelHideHandle, 0, this.modelHideCpu, 0, cap * 4);
         this.rebuildShipBindGroup();
         // cs_ships binds modelHide @8 for expandTrails mode 2.
@@ -369,15 +432,24 @@ export class FleetInstanceGpuLayer {
      *   Fleet sim tests pass `1` for a single-sample offscreen/swapchain pass.
      */
     init(options) {
+        this.assertTrailLoadAvailable(this.trailLoadGeneration);
+        if (this.initialized)
+            return;
         const { device, format, gpu } = this.bootstrap;
         const sampleCount = options?.sampleCount ?? MAP_MSAA_SAMPLES;
         const module = device.createShaderModule({
             label: "fleet-ships",
             code: FLEET_SHIPS_WGSL,
         });
-        this.pipeline = device.createRenderPipeline({
+        const shipLayout = device.createPipelineLayout({ bindGroupLayouts: [device.createBindGroupLayout({
+                    entries: [
+                        { binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } },
+                        { binding: 1, visibility: GPUShaderStage.VERTEX, buffer: { type: "read-only-storage" } },
+                    ],
+                })] });
+        const shipPipeline = {
             label: "fleet-ships-pipeline",
-            layout: "auto",
+            layout: shipLayout,
             vertex: {
                 module,
                 entryPoint: "vs_main",
@@ -426,6 +498,11 @@ export class FleetInstanceGpuLayer {
             },
             primitive: { topology: "triangle-list" },
             multisample: { count: sampleCount },
+        };
+        this.pipeline = device.createRenderPipeline(shipPipeline);
+        this.depthPipeline = device.createRenderPipeline({
+            ...shipPipeline, label: "fleet-ships-depth",
+            depthStencil: { format: "depth24plus", depthWriteEnabled: true, depthCompare: "less-equal" },
         });
         // Body-only trail quads: template (4 verts / 2 tris) + expand segs (per-instance).
         // Textured thruster atlas — blend only (no alphaToCoverage; soft alpha dithers badly).
@@ -641,23 +718,63 @@ export class FleetInstanceGpuLayer {
         // Trail thruster atlas: 1×1 white until production PNG loads (tests keep drawing).
         this.ensureTrailTextureResources();
         this.rebuildTrailBindGroups();
+        this.initialized = true;
         void this.loadTrailTexture(DEFAULT_TRAIL_TEXTURE_URL).catch(() => {
             /* optional in fixtures without images/ — white fallback remains */
         });
     }
     /**
      * Load a thruster trail atlas PNG/JPEG and bind it for all trail draws.
-     * Safe to call multiple times; last successful load wins.
+     * The newest request controls publication, including over the default load.
+     * Keep the installed atlas while a replacement is pending or fails.
      */
     async loadTrailTexture(url) {
+        this.assertTrailLoadAvailable(this.trailLoadGeneration);
+        const generation = ++this.trailLoadGeneration;
         const res = await fetch(url);
+        this.assertTrailLoadAvailable(generation);
         if (!res.ok) {
             throw new Error(`loadTrailTexture: ${url} → HTTP ${res.status}`);
         }
         const blob = await res.blob();
+        this.assertTrailLoadAvailable(generation);
         const bitmap = await createImageBitmap(blob);
+        try {
+            this.assertTrailLoadAvailable(generation);
+            this.installTrailTexture(bitmap, url, generation);
+        }
+        finally {
+            bitmap.close();
+        }
+    }
+    assertTrailLoadAvailable(generation) {
+        if (this.disposed)
+            throw new Error("Fleet trail layer is disposed");
+        if (this.bootstrap.isLost)
+            throw new Error("Fleet trail device is lost");
+        if (generation !== this.trailLoadGeneration)
+            throw new Error("Fleet trail atlas request was superseded");
+    }
+    installTrailTexture(bitmap, url, generation) {
+        const atlas = this.stageTrailTexture(bitmap, url, generation);
+        const previous = this.trailTexture;
+        this.trailTexture = atlas.texture;
+        this.trailTextureView = atlas.view;
+        this.trailSampler = atlas.sampler;
+        this.trailTextureUrl = url;
+        this.publishTrailBindGroups(atlas.bindings);
+        previous?.destroy();
+    }
+    destroyTrailTexture() {
+        this.trailTexture?.destroy();
+        this.trailTexture = null;
+        this.trailTextureView = null;
+        this.trailSampler = null;
+        this.trailTextureUrl = null;
+    }
+    stageTrailTexture(bitmap, url, generation) {
         const { device } = this.bootstrap;
-        const tex = device.createTexture({
+        const texture = device.createTexture({
             label: `fleet-trails-atlas:${url}`,
             size: [bitmap.width, bitmap.height],
             format: "rgba8unorm",
@@ -665,14 +782,18 @@ export class FleetInstanceGpuLayer {
                 GPUTextureUsage.COPY_DST |
                 GPUTextureUsage.RENDER_ATTACHMENT,
         });
-        device.queue.copyExternalImageToTexture({ source: bitmap }, { texture: tex }, [bitmap.width, bitmap.height]);
-        bitmap.close();
-        this.trailTexture?.destroy();
-        this.trailTexture = tex;
-        this.trailTextureView = tex.createView();
-        this.trailTextureUrl = url;
-        this.ensureTrailTextureResources();
-        this.rebuildTrailBindGroups();
+        try {
+            device.queue.copyExternalImageToTexture({ source: bitmap }, { texture }, [bitmap.width, bitmap.height]);
+            const view = texture.createView();
+            const sampler = this.trailSampler ?? this.createTrailSampler();
+            const bindings = this.createTrailBindGroups(view, sampler);
+            this.assertTrailLoadAvailable(generation);
+            return { texture, view, sampler, bindings };
+        }
+        catch (error) {
+            texture.destroy();
+            throw error;
+        }
     }
     /** URL of the currently bound thruster atlas (null = solid fallback). */
     getTrailTextureUrl() {
@@ -682,13 +803,7 @@ export class FleetInstanceGpuLayer {
     ensureTrailTextureResources() {
         const { device } = this.bootstrap;
         if (!this.trailSampler) {
-            this.trailSampler = device.createSampler({
-                label: "fleet-trails-sampler",
-                magFilter: "linear",
-                minFilter: "linear",
-                addressModeU: "clamp-to-edge",
-                addressModeV: "clamp-to-edge",
-            });
+            this.trailSampler = this.createTrailSampler();
         }
         if (!this.trailTexture || !this.trailTextureView) {
             const tex = device.createTexture({
@@ -705,15 +820,30 @@ export class FleetInstanceGpuLayer {
             this.trailTextureUrl = null;
         }
     }
+    createTrailSampler() {
+        return this.bootstrap.device.createSampler({
+            label: "fleet-trails-sampler",
+            magFilter: "linear",
+            minFilter: "linear",
+            addressModeU: "clamp-to-edge",
+            addressModeV: "clamp-to-edge",
+        });
+    }
     /** Bind each trail uniform slot to color-only and depth trail pipeline layouts. */
     rebuildTrailBindGroups() {
         if (!this.trailPipeline)
             return;
         this.ensureTrailTextureResources();
-        const texView = this.trailTextureView;
-        const sampler = this.trailSampler;
+        const bindings = this.createTrailBindGroups(this.trailTextureView, this.trailSampler);
+        this.publishTrailBindGroups(bindings);
+    }
+    /** Stage every slot before changing any live binding. */
+    createTrailBindGroups(texView, sampler) {
+        if (!this.trailPipeline)
+            return [];
         const layout = this.trailPipeline.getBindGroupLayout(0);
         const layoutDepth = this.trailPipelineDepth?.getBindGroupLayout(0) ?? null;
+        const bindings = [];
         for (let s = 0; s < this.trailUniformSlots.length; s++) {
             const slot = this.trailUniformSlots[s];
             const entries = [
@@ -721,21 +851,27 @@ export class FleetInstanceGpuLayer {
                 { binding: 1, resource: texView },
                 { binding: 2, resource: sampler },
             ];
-            slot.bindGroup = this.bootstrap.device.createBindGroup({
+            const bindGroup = this.bootstrap.device.createBindGroup({
                 label: `fleet-trails-bind-${s}`,
                 layout,
                 entries,
             });
-            if (layoutDepth) {
-                slot.bindGroupDepth = this.bootstrap.device.createBindGroup({
+            const bindGroupDepth = layoutDepth
+                ? this.bootstrap.device.createBindGroup({
                     label: `fleet-trails-bind-depth-${s}`,
                     layout: layoutDepth,
                     entries,
-                });
-            }
-            else {
-                slot.bindGroupDepth = null;
-            }
+                })
+                : null;
+            bindings.push({ bindGroup, bindGroupDepth });
+        }
+        return bindings;
+    }
+    publishTrailBindGroups(bindings) {
+        for (let s = 0; s < bindings.length; s++) {
+            const slot = this.trailUniformSlots[s];
+            slot.bindGroup = bindings[s].bindGroup;
+            slot.bindGroupDepth = bindings[s].bindGroupDepth;
         }
         // Keep legacy single-slot field in sync for any residual readers.
         this.trailBindGroup = this.trailUniformSlots[0]?.bindGroup ?? null;
@@ -1814,6 +1950,17 @@ export class FleetInstanceGpuLayer {
         }
         return readGpuBuffer(this.bootstrap.device, this.shipSimBuffer, i * FLEET_INTEGRATE_SHIP_SIM_STRIDE, FLEET_INTEGRATE_SHIP_SIM_STRIDE);
     }
+    /** Read one contiguous fleet formation for pointer picking/diagnostics. */
+    async readbackShipSimRange(instanceStart, shipCount) {
+        if (!this.shipSimBuffer)
+            throw new Error("readbackShipSimRange: ShipSim buffer missing");
+        const start = instanceStart | 0;
+        const count = shipCount | 0;
+        if (start < 0 || count < 0 || start + count > this.shipSimCapacity) {
+            throw new Error(`readbackShipSimRange: [${start}, ${start + count}) out of range [0, ${this.shipSimCapacity})`);
+        }
+        return readGpuBuffer(this.bootstrap.device, this.shipSimBuffer, start * FLEET_INTEGRATE_SHIP_SIM_STRIDE, count * FLEET_INTEGRATE_SHIP_SIM_STRIDE);
+    }
     async readbackShipSim(shipCount) {
         if (!this.shipSimBuffer) {
             throw new Error("readbackShipSim: ShipSim buffer missing (ensureShipSimCapacity / setShipSimData first)");
@@ -2446,92 +2593,71 @@ export class FleetInstanceGpuLayer {
         this.lastTrailEncodeVariants = [];
         const depthAware = options?.depthAware === true;
         const pipeline = depthAware ? this.trailPipelineDepth : this.trailPipeline;
-        if (!pipeline ||
-            this.trailUniformSlots.length === 0 ||
-            !this.trailLineBuffer ||
-            !this.trailTemplateVertBuffer ||
-            !this.trailTemplateIndexBuffer) {
+        if (!this.trailDrawReady(pipeline, cameraY))
             return;
-        }
-        // FAR band: no trails (icon only).
-        if (cameraY !== undefined && cameraY >= LOD_FAR_Y)
-            return;
-        const shipCount = this.trailShipCount;
-        if (shipCount <= 0)
-            return;
-        // Model pot when mode-2 indices are set (expand wrote N emitters / ship).
-        // Single draw — intensity/offset already in expand alphas + world offs.
-        const modelOwnedN = this.trailDrawShipIndices?.length ?? 0;
-        const modelPot = this.modelLodActive &&
-            modelOwnedN > 0 &&
-            this.trailDrawShipIndices != null;
-        // Ensure bind groups exist for both pipelines.
-        if (!this.trailUniformSlots[0]?.bindGroup ||
-            (depthAware && !this.trailUniformSlots[0]?.bindGroupDepth)) {
-            this.rebuildTrailBindGroups();
-        }
-        // One uniform write + one draw. Model pot: uniforms use max widthScale;
-        // expand bakes each emitter’s widthScale/max into endpoint α (width mix).
-        const slot = this.trailUniformSlots[0];
-        const bg = depthAware ? slot.bindGroupDepth : slot.bindGroup;
+        const bg = this.trailDrawBindGroup(depthAware);
         if (!bg)
             return;
-        const wScale = (modelPot ? modelTrailMaxWidthScale() : 1) * this.trailWidthScale;
-        // Jewel: galaxy world widths (0.09) vs Kepler hull (~0.0004) is a slab.
-        const sceneMul = options?.sceneTrailScale === true ? SCENE_TRAIL_WIDTH_MUL : 1;
-        // Model depthAware → world-unit width (ship-relative). Strategic → screen px.
-        const widths = resolveTrailDrawWidths({
-            depthAware,
-            widthScale: wScale,
-            screenHeadPx: TRAIL_WIDTH_HEAD_PX,
-            screenTailPx: TRAIL_WIDTH_TAIL_PX,
-            worldHead: TRAIL_WORLD_WIDTH_HEAD * sceneMul,
-            worldTail: TRAIL_WORLD_WIDTH_TAIL * sceneMul,
-        });
-        // Expand already wrote origin-relative endpoints (integrate origin).
-        // Pass residual origin 0 so VS does not double-subtract the frame origin.
-        writeTrailUniforms(this.trailUniformData, view, projection, resolutionW, resolutionH, widths.widthHead, widths.widthTail, 0, 0, 0);
-        writeTrailWidthMode(this.trailUniformData, widths.widthMode);
-        writeTrailExposure(this.trailUniformData, TRAIL_EXPOSURE_DEFAULT);
-        writeTrailVariantModulation(this.trailUniformData, 1, 0);
-        this.bootstrap.gpu.writeBuffer(slot.handle, 0, this.trailUniformData, 0, TRAIL_UNIFORM_SIZE);
+        const modelPot = this.modelTrailPotActive();
+        const widths = this.trailDrawWidths(depthAware, options?.sceneTrailScale === true, modelPot);
+        this.uploadTrailDrawUniforms(view, projection, resolutionW, resolutionH, widths);
         pass.setPipeline(pipeline);
         pass.setVertexBuffer(0, this.trailTemplateVertBuffer);
         pass.setVertexBuffer(1, this.trailLineBuffer);
         pass.setIndexBuffer(this.trailTemplateIndexBuffer, "uint16");
         pass.setBindGroup(0, bg);
-        // Always dense: expand packs drawSlot 0..n-1; indirect uses n*segs.
+        this.drawTrailRibbons(pass, modelPot);
+        this.recordTrailVariants(modelPot);
+    }
+    modelTrailPotActive() {
+        return this.modelLodActive && (this.trailDrawShipIndices?.length ?? 0) > 0;
+    }
+    trailDrawReady(pipeline, cameraY) {
+        if (cameraY !== undefined && cameraY >= LOD_FAR_Y)
+            return false;
+        return !!(pipeline && this.trailLineBuffer && this.trailTemplateVertBuffer &&
+            this.trailTemplateIndexBuffer && this.trailShipCount > 0 && this.trailUniformSlots.length > 0);
+    }
+    trailDrawBindGroup(depthAware) {
+        if (!this.trailUniformSlots[0]?.bindGroup || (depthAware && !this.trailUniformSlots[0]?.bindGroupDepth)) {
+            this.rebuildTrailBindGroups();
+        }
+        const slot = this.trailUniformSlots[0];
+        return depthAware ? slot.bindGroupDepth : slot.bindGroup;
+    }
+    uploadTrailDrawUniforms(view, projection, width, height, widths) {
+        // Expand already wrote origin-relative endpoints. Draw never subtracts twice.
+        writeTrailUniforms(this.trailUniformData, view, projection, width, height, widths.widthHead, widths.widthTail, 0, 0, 0);
+        writeTrailWidthMode(this.trailUniformData, widths.widthMode);
+        writeTrailExposure(this.trailUniformData, TRAIL_EXPOSURE_DEFAULT);
+        writeTrailVariantModulation(this.trailUniformData, 1, 0);
+        this.bootstrap.gpu.writeBuffer(this.trailUniformSlots[0].handle, 0, this.trailUniformData, 0, TRAIL_UNIFORM_SIZE);
+    }
+    drawTrailRibbons(pass, modelPot) {
+        // The same dense atomic ribbon table drives one draw before and after culling.
         if (this.trailIndirectBuffer) {
             pass.drawIndexedIndirect(this.trailIndirectBuffer, 0);
+            return;
         }
-        else {
-            const segs = this.trailLayout.segsPerShip;
-            const instances = modelPot
-                ? modelOwnedN * MODEL_TRAIL_EMITTER_COUNT * segs
-                : shipCount * segs;
-            pass.drawIndexed(TRAIL_TEMPLATE_INDEX_COUNT, instances, 0, 0, 0);
-        }
-        // Diagnostics: report pot emitters (or single default) for tests.
+        const modelOwnedN = this.trailDrawShipIndices?.length ?? 0;
+        const ribbons = modelPot ? modelOwnedN * MODEL_TRAIL_EMITTER_COUNT : this.trailShipCount;
+        pass.drawIndexed(TRAIL_TEMPLATE_INDEX_COUNT, ribbons * this.trailLayout.segsPerShip, 0, 0, 0);
+    }
+    recordTrailVariants(modelPot) {
+        // Ownership remains all selected models and all three physical emitters.
         if (modelPot) {
             for (const e of MODEL_TRAIL_EMITTERS) {
                 this.lastTrailEncodeVariants.push({
-                    intensity: e.intensity,
-                    minAlpha: Math.max(0, 1 - e.lengthScale),
-                    widthScale: e.widthScale * this.trailWidthScale,
-                    name: e.name,
+                    intensity: e.intensity, minAlpha: Math.max(0, 1 - e.lengthScale),
+                    widthScale: e.widthScale * this.trailWidthScale, name: e.name,
                 });
             }
         }
         else {
-            this.lastTrailEncodeVariants.push({
-                intensity: 1,
-                minAlpha: 0,
-                widthScale: this.trailWidthScale,
-                name: "default",
-            });
+            this.lastTrailEncodeVariants.push({ intensity: 1, minAlpha: 0, widthScale: this.trailWidthScale, name: "default" });
         }
     }
-    encode(pass, viewProj, opacity = 0.95, camera) {
+    encode(pass, viewProj, opacity = 0.95, camera, depthAware = false) {
         if (!this.pipeline || !this.bindGroup || !this.uniformHandle)
             return;
         if (this.instanceCount <= 0 || !this.instanceBuffer || !this.meshBuffer) {
@@ -2551,7 +2677,7 @@ export class FleetInstanceGpuLayer {
         this.uniformData[23] =
             this.modelLodActive && this.lastModelHideIndices.length > 0 ? 1 : 0;
         this.bootstrap.gpu.writeBuffer(this.uniformHandle, 0, this.uniformData, 0, RENDER_UNIFORM_SIZE);
-        pass.setPipeline(this.pipeline);
+        pass.setPipeline(depthAware ? this.depthPipeline : this.pipeline);
         pass.setBindGroup(0, this.bindGroup);
         pass.setVertexBuffer(0, this.meshBuffer);
         pass.setVertexBuffer(1, this.instanceBuffer);
@@ -2559,6 +2685,10 @@ export class FleetInstanceGpuLayer {
         pass.draw(3, this.instanceCount, 0, 0);
     }
     dispose() {
+        if (this.disposed)
+            return;
+        this.disposed = true;
+        this.trailLoadGeneration++;
         this.destroyInstances();
         this.destroyFleets();
         this.destroyShipSims();
@@ -2593,11 +2723,7 @@ export class FleetInstanceGpuLayer {
         }
         this.trailTemplateVertBuffer = null;
         this.trailTemplateIndexBuffer = null;
-        this.trailTexture?.destroy();
-        this.trailTexture = null;
-        this.trailTextureView = null;
-        this.trailSampler = null;
-        this.trailTextureUrl = null;
+        this.destroyTrailTexture();
         if (this.integrateUniformHandle) {
             this.bootstrap.gpu.destroyBuffer(this.integrateUniformHandle);
             this.integrateUniformHandle = null;
@@ -2616,6 +2742,7 @@ export class FleetInstanceGpuLayer {
         this.trailUniformBuffer = null;
         this.integrateUniformBuffer = null;
         this.pipeline = null;
+        this.depthPipeline = null;
         this.trailPipeline = null;
         this.trailPipelineDepth = null;
         this.computeFleetPipeline = null;
@@ -2629,5 +2756,17 @@ export class FleetInstanceGpuLayer {
         this.computeCompactBindGroup = null;
         this.computeTrailIndirectBindGroup = null;
     }
+}
+/** Compare normalized valid indices without allocating a temporary list. */
+function sameValidIndices(previous, indices, limit = Infinity) {
+    let count = 0;
+    for (let i = 0; i < indices.length; i++) {
+        const index = indices[i] | 0;
+        if (index < 0 || index >= limit)
+            continue;
+        if (previous[count++] !== index)
+            return false;
+    }
+    return previous.length === count;
 }
 //# sourceMappingURL=fleet-instance-gpu-layer.js.map

@@ -1,4 +1,5 @@
 import { distZX, lineIntersectsClusterZX, lineSegmentsCrossXZ, } from "../../../math/galaxy-xz-math.js";
+import { repairClusterConnectivity } from "./cluster-connectivity-repair.js";
 import { createJumpGatePlanner } from "./jump-gate-planner.js";
 export function planClusterConnections({ clusters, maxConnections, minDistance, connectionSet, nextSystemId, }) {
     const NEARBY_CANDIDATE_LIMIT = Math.max(12, maxConnections * 8);
@@ -64,6 +65,27 @@ export function planClusterConnections({ clusters, maxConnections, minDistance, 
                 break;
         }
     }
+    repairClusterConnectivity(clusters, validConnections, maxConnections, cluster => collectNearbyClusters(cluster, clusterGrid, cellSize, NEARBY_CANDIDATE_LIMIT * 2, 16)
+        .sort((a, b) => distZX(cluster.position, a.position) - distZX(cluster.position, b.position)), (clusterA, clusterB, removed) => {
+        const gateA = jumpGates.getOrCreateJumpGate(clusterA, clusterB);
+        const gateB = jumpGates.getOrCreateJumpGate(clusterB, clusterA);
+        const retained = validConnections.filter(edge => !removed.includes(edge));
+        if (isConnectionBlocked(clusterA, clusterB, gateA, gateB, clusters, retained))
+            return false;
+        for (const edge of removed) {
+            validConnections.splice(validConnections.indexOf(edge), 1);
+            connectionSet.delete(edge.key);
+            edge.clusterA.connectedTo.splice(edge.clusterA.connectedTo.indexOf(edge.clusterB.id), 1);
+            edge.clusterB.connectedTo.splice(edge.clusterB.connectedTo.indexOf(edge.clusterA.id), 1);
+        }
+        const key = `${Math.min(clusterA.id, clusterB.id)}:${Math.max(clusterA.id, clusterB.id)}`;
+        connectionSet.add(key);
+        clusterA.connectedTo.push(clusterB.id);
+        clusterB.connectedTo.push(clusterA.id);
+        validConnections.push({ clusterA, clusterB, gateA, gateB, key, gateAdditions: [] });
+        return true;
+    });
+    rebuildGateAdditions(clusters, validConnections);
     return {
         connections: validConnections,
         nextSystemId: jumpGates.getNextSystemId(),
@@ -83,11 +105,10 @@ function buildClusterGrid(clusters, cellSize) {
     }
     return clusterGrid;
 }
-function collectNearbyClusters(cluster, clusterGrid, cellSize, limit) {
+function collectNearbyClusters(cluster, clusterGrid, cellSize, limit, maxRing = 4) {
     const [cx, cz] = cellCoords(cluster.position, cellSize);
     const nearby = [];
     const seen = new Set();
-    const maxRing = 4;
     for (let ring = 0; ring <= maxRing && nearby.length < limit; ++ring) {
         for (let gx = cx - ring; gx <= cx + ring; ++gx) {
             for (let gz = cz - ring; gz <= cz + ring; ++gz) {
@@ -177,5 +198,21 @@ function gridKey(x, z, cellSize) {
 }
 function cellCoords(pos, cellSize) {
     return [Math.floor(pos.x / cellSize), Math.floor(pos.z / cellSize)];
+}
+/** Only retained edges own emitted gates; cycle removal must not leave invisible IDs. */
+function rebuildGateAdditions(clusters, edges) {
+    for (const cluster of clusters)
+        cluster.solarSystems = cluster.solarSystems.filter(system => !system.isJumpGate);
+    const emitted = new Set();
+    for (const edge of edges) {
+        edge.gateAdditions = [];
+        for (const [cluster, gate] of [[edge.clusterA, edge.gateA], [edge.clusterB, edge.gateB]]) {
+            if (emitted.has(gate.id))
+                continue;
+            emitted.add(gate.id);
+            cluster.solarSystems.push(gate);
+            edge.gateAdditions.push({ cluster, gate });
+        }
+    }
 }
 //# sourceMappingURL=cluster-connection-planner.js.map

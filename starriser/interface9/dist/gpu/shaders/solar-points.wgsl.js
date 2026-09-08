@@ -1,6 +1,6 @@
 /**
  * WGSL for instanced solar-system point billboards.
- * Positions + colors as interleaved instance attributes (float3 + float3).
+ * High positions, colors and low positions share one instance buffer.
  *
  * Billboard: camera-facing quads using cameraRight/cameraUp uniforms
  * (extracted from the view matrix on the CPU). Falls back cleanly when
@@ -11,7 +11,7 @@
  */
 /**
  * Billboard quads: each solar system is one instance; 6 verts (2 tris) per point.
- * Instance buffer: pos.xyz + color.rgb interleaved as 6 floats.
+ * Instance buffer: high.xyz + color.rgb + low.xyz, 9 floats.
  */
 export const SOLAR_POINTS_BILLBOARD_WGSL = /* wgsl */ `
 struct Uniforms {
@@ -31,6 +31,8 @@ struct Uniforms {
   origin : vec3<f32>,
   /** Galaxy fade while Kepler SCENE orbit eases in (1 = full, 0 = hidden). */
   galaxyFade : f32,
+  originLow : vec3<f32>,
+  _padLow : f32,
 };
 
 @group(0) @binding(0) var<uniform> u : Uniforms;
@@ -59,6 +61,7 @@ fn vs_main(
   @builtin(vertex_index) vid : u32,
   @location(0) center : vec3<f32>,
   @location(1) color : vec3<f32>,
+  @location(2) centerLow : vec3<f32>,
 ) -> VSOut {
   var out : VSOut;
   let corner = vid % 6u;
@@ -66,7 +69,7 @@ fn vs_main(
   let scale = u.worldScale;
   // Camera-facing billboard (right/up from view matrix). Origin-relative
   // so viewProj may be viewProjRel at galaxy |xz| ≳ 1e5.
-  let world = (center - u.origin)
+  let world = ((center - u.origin) + (centerLow - u.originLow))
     + u.cameraRight * (off.x * scale)
     + u.cameraUp * (off.y * scale);
   out.clip = u.viewProj * vec4<f32>(world, 1.0);

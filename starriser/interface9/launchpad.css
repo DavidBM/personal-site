@@ -1,0 +1,32 @@
+:root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; color: #e4eaf3; background: #080e19; }
+* { box-sizing: border-box; }
+body { margin: 0; background: radial-gradient(ellipse at 85% 0, #14324766, transparent 48%); }
+main { max-width: 1080px; margin: auto; padding: 64px 28px 28px; }
+a { color: #9edbd8; text-decoration: none; }
+a:hover { text-decoration: underline; }
+a:focus-visible, input:focus-visible { outline: 2px solid #9eece5; outline-offset: 5px; }
+.eyebrow { font-size: 11px; text-transform: uppercase; letter-spacing: .16em; color: #95b8c5; }
+h1 { font-size: clamp(32px, 5vw, 52px); font-weight: 560; letter-spacing: -.035em; margin: 20px 0 12px; }
+.intro { color: #a3b0c3; font-size: 17px; line-height: 1.7; }
+header > p:last-child { font-size: 14px; }
+.featured { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin: 36px 0 48px; }
+.featured > a { border: 1px solid #2b4657; background: linear-gradient(125deg, #142b3a, #0e1928); border-radius: 12px; padding: 26px; color: inherit; }
+.featured > a:hover { text-decoration: none; border-color: #87c9c9; }
+h2 { font-size: 20px; font-weight: 550; margin: 14px 0; }
+.featured h2 span { float: right; color: #8ac7cb; }
+.featured p { color: #a7b6c8; line-height: 1.65; font-size: 14px; margin-bottom: 0; }
+.catalog-heading { display: flex; align-items: center; justify-content: space-between; }
+#page-count, .hint, footer { color: #8f9db0; font-size: 12px; line-height: 1.7; }
+.search-label { display: block; margin: 12px 0 7px; font-size: 13px; color: #b6c4d6; }
+input { width: 100%; border: 1px solid #304254; border-radius: 8px; background: #101b2a; color: inherit; padding: 13px 16px; font: inherit; }
+.hint { margin: 14px 0 28px; }
+.page-group { margin: 28px 0; }
+h3 { color: #8da6bc; font-size: 12px; text-transform: uppercase; letter-spacing: .12em; font-weight: 500; }
+ul { list-style: none; padding: 0; margin: 0; }
+.page { display: grid; grid-template-columns: minmax(190px, .85fr) 1.4fr; gap: 24px; border-bottom: 1px solid #1d2939; padding: 17px 0; }
+.page a { font-size: 14px; overflow-wrap: anywhere; }
+.page small { display: block; font: 11px ui-monospace, monospace; color: #7f91a8; margin-top: 6px; overflow-wrap: anywhere; }
+.page p { margin: 0; color: #a7b2c3; font-size: 13px; line-height: 1.65; }
+footer { margin-top: 48px; padding-top: 20px; border-top: 1px solid #263448; }
+[hidden] { display: none !important; }
+@media (max-width: 600px) { main { padding: 32px 20px; } .featured, .page { grid-template-columns: 1fr; } .page { gap: 8px; } }

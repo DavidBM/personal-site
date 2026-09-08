@@ -1,1 +1,1 @@
-{"version":3,"file":"planet-atm-params.js","sourceRoot":"","sources":["../../../js/gpu/solar-system/planet-atm-params.ts"],"names":[],"mappings":"AAAA,cAAc,oCAAoC,CAAC"}
+{"version":3,"file":"planet-atm-params.js","sourceRoot":"/js/","sources":["gpu/solar-system/planet-atm-params.ts"],"names":[],"mappings":"AAAA,cAAc,oCAAoC,CAAC"}

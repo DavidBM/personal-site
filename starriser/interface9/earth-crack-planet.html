@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Galaxy — Earth + crack (full Azure disc · crack-only height)</title>
+    <style>
+      :root {
+        --bg: #040812;
+        --panel: rgba(6, 14, 28, 0.9);
+        --border: rgba(120, 180, 255, 0.32);
+        --text: #d8ecff;
+        --muted: #6e8eaa;
+        --accent: #8ec8ff;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: var(--bg);
+        color: var(--text);
+        font-family: ui-sans-serif, system-ui, sans-serif;
+        overflow: hidden;
+      }
+      #canvas {
+        display: block;
+        width: 100vw;
+        height: 100vh;
+        touch-action: none;
+        cursor: grab;
+      }
+      #canvas:active {
+        cursor: grabbing;
+      }
+      #hud {
+        position: fixed;
+        top: 10px;
+        right: 10px;
+        width: min(320px, 42vw);
+        padding: 12px 14px;
+        border-radius: 10px;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+        font-size: 12px;
+        line-height: 1.45;
+        z-index: 10;
+      }
+      #hud h1 {
+        margin: 0 0 6px;
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        color: var(--accent);
+      }
+      #hud p {
+        margin: 0 0 8px;
+        color: var(--muted);
+        font-size: 11px;
+      }
+      #hud .row {
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+        margin-bottom: 4px;
+      }
+      #hud .label {
+        color: var(--muted);
+      }
+      #hud .val {
+        color: var(--text);
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 10px;
+        text-align: right;
+        max-width: 62%;
+        word-break: break-all;
+      }
+      #hud button {
+        margin-top: 10px;
+        width: 100%;
+        padding: 7px 10px;
+        border-radius: 6px;
+        border: 1px solid var(--border);
+        background: rgba(40, 70, 110, 0.45);
+        color: var(--text);
+        font-size: 12px;
+        cursor: pointer;
+      }
+      #hud button:hover {
+        background: rgba(60, 100, 150, 0.55);
+      }
+      #hud .hint {
+        margin-top: 8px;
+        font-size: 10px;
+        color: var(--muted);
+        line-height: 1.4;
+      }
+      #hud .layers {
+        margin-top: 10px;
+        border-top: 1px solid rgba(120, 180, 255, 0.15);
+        padding-top: 8px;
+      }
+      #hud .layers h2 {
+        margin: 0 0 6px;
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--accent);
+      }
+      #hud .layer-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 5px;
+        font-size: 11px;
+        cursor: pointer;
+        user-select: none;
+      }
+      #hud .layer-row input[type="checkbox"] {
+        accent-color: var(--accent);
+        width: 14px;
+        height: 14px;
+        margin: 0;
+        cursor: pointer;
+      }
+      #hud .depth-row {
+        margin-top: 8px;
+      }
+      #hud .depth-row label {
+        display: block;
+        font-size: 11px;
+        color: var(--muted);
+        margin-bottom: 4px;
+      }
+      #hud .depth-row input[type="range"] {
+        width: 100%;
+        accent-color: var(--accent);
+        cursor: pointer;
+      }
+      #hud .depth-row .depth-val {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 10px;
+        color: var(--text);
+        text-align: right;
+      }
+      #status {
+        position: fixed;
+        left: 12px;
+        bottom: 12px;
+        font-size: 12px;
+        color: var(--muted);
+        background: rgba(0, 0, 20, 0.55);
+        padding: 6px 10px;
+        border-radius: 6px;
+        z-index: 10;
+        max-width: 70vw;
+      }
+      #status.error {
+        color: #ff8a8a;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="canvas"></canvas>
+    <aside id="hud">
+      <h1>Earth + crack planet</h1>
+      <p>
+        Full <strong>Azure multi-map disc</strong>. Land uses sphere-surface
+        <strong>classic ray-heightfield</strong> (hit = opaque crack surface,
+        miss = transparent depression). Trench floor goes black; clouds stay
+        geometric (not crack-walked).
+      </p>
+      <div class="row">
+        <span class="label">Albedo</span>
+        <span class="val" id="hud-albedo">…</span>
+      </div>
+      <div class="row">
+        <span class="label">Height</span>
+        <span class="val" id="hud-height">…</span>
+      </div>
+      <div class="row">
+        <span class="label">Surface</span>
+        <span class="val" id="hud-method">…</span>
+      </div>
+      <div class="row">
+        <span class="label">FPS</span>
+        <span class="val" id="hud-fps">…</span>
+      </div>
+      <div class="layers" id="shader-layers">
+        <h2>Shader layers</h2>
+        <label class="layer-row"
+          ><input type="checkbox" id="layer-land" checked /> Land / day</label
+        >
+        <label class="layer-row"
+          ><input type="checkbox" id="layer-night" checked /> Night lights</label
+        >
+        <label class="layer-row"
+          ><input type="checkbox" id="layer-clouds" checked /> Clouds</label
+        >
+        <label class="layer-row"
+          ><input type="checkbox" id="layer-atmosphere" checked /> Atmosphere</label
+        >
+        <label class="layer-row"
+          ><input type="checkbox" id="layer-parallax" checked /> Parallax / crack dig</label
+        >
+        <div class="depth-row">
+          <label for="parallax-depth"
+            >Parallax depth <span class="depth-val" id="parallax-depth-val">…</span></label
+          >
+          <input
+            type="range"
+            id="parallax-depth"
+            min="0"
+            max="0.45"
+            step="0.005"
+            value="0.20"
+          />
+        </div>
+      </div>
+      <button type="button" id="toggle-spin">Pause spin</button>
+      <div class="hint">
+        Drag to orbit · wheel to zoom. Toggle layers to isolate land, night,
+        clouds, atmosphere, and ray-heightfield dig. Depth slider sets dig scale
+        live (no atlas rebake).
+      </div>
+    </aside>
+    <div id="status">Loading WebGPU…</div>
+    <script
+      type="module"
+      src="./dist/gpu/earth-crack-planet/main.js?v=dig-limb-hold-1"
+    ></script>
+  </body>
+</html>

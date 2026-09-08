@@ -1,1 +1,1 @@
-{"version":3,"file":"fleet-integrate.wgsl.js","sourceRoot":"","sources":["../../../js/gpu/shaders/fleet-integrate.wgsl.ts"],"names":[],"mappings":"AAAA,cAAc,iDAAiD,CAAC"}
+{"version":3,"file":"fleet-integrate.wgsl.js","sourceRoot":"/js/","sources":["gpu/shaders/fleet-integrate.wgsl.ts"],"names":[],"mappings":"AAAA,cAAc,iDAAiD,CAAC"}

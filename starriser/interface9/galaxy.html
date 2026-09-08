@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Galaxy Map Generator</title>
+        <script type="module">
+            // Initialize the application when DOM is ready
+            document.addEventListener("DOMContentLoaded", async () => {
+                const { App } = await import("./dist/app.js");
+                try {
+                    const app = new App();
+                    await app.initialize();
+                    console.log(
+                        "Galaxy Map Generator initialized successfully",
+                    );
+                    document.getElementById("app-loader").remove();
+                } catch (error) {
+                    console.error(
+                        "Failed to initialize Galaxy Map Generator:",
+                        error,
+                    );
+                    alert(
+                        "Failed to initialize the application. Please refresh the page.",
+                    );
+                }
+            });
+        </script>
+        <style>
+            body {
+                margin: 0;
+                overflow: hidden;
+                background-color: #000;
+                color: #fff;
+                font-family: Arial, sans-serif;
+            }
+
+            canvas {
+                display: block;
+            }
+
+            canvas {
+                pointer-events: auto;
+                z-index: 1;
+            }
+        </style>
+    </head>
+    <body>
+        <div id="ui-root"></div>
+
+        <div
+            id="app-loader"
+            style="
+                position: fixed;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                text-align: center;
+                color: white;
+                font-size: 18px;
+                z-index: 1000;
+                background: rgba(0, 0, 0, 0.9);
+                padding: 30px;
+                border-radius: 10px;
+            "
+        >
+            <div style="font-size: 24px; margin-bottom: 15px">🌌</div>
+            <div>Loading Galaxy...</div>
+            <div
+                id="loading-status"
+                style="margin-top: 10px; font-size: 14px; opacity: 0.8"
+            >
+                Initializing systems...
+            </div>
+            <div
+                style="
+                    margin-top: 15px;
+                    width: 200px;
+                    height: 4px;
+                    background: #333;
+                    border-radius: 2px;
+                "
+            >
+                <div
+                    id="progress-bar"
+                    style="
+                        height: 100%;
+                        background: #1a3d66;
+                        width: 0%;
+                        border-radius: 2px;
+                        transition: width 0.3s ease;
+                    "
+                ></div>
+            </div>
+        </div>
+    </body>
+</html>

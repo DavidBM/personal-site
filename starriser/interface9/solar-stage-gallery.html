@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Galaxy — Solar stage gallery (WebGPU · 4K)</title>
+    <style>
+      :root {
+        --bg: #05070f;
+        --panel: rgba(8, 14, 28, 0.92);
+        --border: rgba(120, 180, 255, 0.28);
+        --text: #e2efff;
+        --muted: #7a96b0;
+        --accent: #ffc878;
+        --tile: #0a1220;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+        background: var(--bg);
+        color: var(--text);
+        font-family: ui-sans-serif, system-ui, sans-serif;
+      }
+      /* Off-screen-ish capture surface (still in document so WebGPU presents) */
+      #canvas-wrap {
+        position: fixed;
+        left: -9999px;
+        top: 0;
+        width: 384px;
+        height: 216px;
+        overflow: hidden;
+        opacity: 0.01;
+        pointer-events: none;
+      }
+      #canvas {
+        width: 384px;
+        height: 216px;
+        display: block;
+      }
+      /* Stub HUD nodes required by main.ts bootstrap */
+      #hud,
+      #body-list,
+      #hud-focus,
+      #hud-fps,
+      #hud-bodies {
+        display: none;
+      }
+      #status {
+        position: fixed;
+        top: 12px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 20;
+        padding: 8px 16px;
+        border-radius: 999px;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        font-size: 13px;
+        color: var(--muted);
+        max-width: min(90vw, 640px);
+        text-align: center;
+      }
+      #status.error {
+        color: #ff9a9a;
+        border-color: rgba(255, 100, 100, 0.45);
+      }
+      #stage-gallery {
+        max-width: 1480px;
+        margin: 0 auto;
+        padding: 56px 20px 48px;
+      }
+      .gallery-header {
+        margin-bottom: 22px;
+      }
+      .gallery-header h1 {
+        margin: 0 0 8px;
+        font-size: 1.35rem;
+        font-weight: 650;
+        letter-spacing: 0.02em;
+        color: var(--accent);
+      }
+      .gallery-section-title {
+        margin: 28px 0 12px;
+        font-size: 1.05rem;
+        font-weight: 600;
+        color: #9ec8ff;
+        letter-spacing: 0.02em;
+      }
+      /* Horizontal cost timeline: tile → Δms arrow → tile … */
+      .timeline-row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: stretch;
+        gap: 8px 4px;
+        margin-top: 14px;
+        margin-bottom: 8px;
+      }
+      .timeline-row .gallery-tile {
+        flex: 0 1 260px;
+        max-width: 300px;
+        min-width: 200px;
+      }
+      .timeline-arrow {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        flex: 0 0 auto;
+        min-width: 4.5rem;
+        padding: 0 4px;
+        color: var(--accent);
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 0.85rem;
+        font-weight: 600;
+      }
+      .timeline-delta {
+        white-space: nowrap;
+        color: #ffd08a;
+        letter-spacing: 0.02em;
+      }
+      .timeline-arrow-mark {
+        font-size: 1.35rem;
+        line-height: 1.1;
+        color: rgba(158, 200, 255, 0.85);
+      }
+      .gallery-grid--secondary {
+        opacity: 0.92;
+      }
+      .gallery-header p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 0.95rem;
+        line-height: 1.45;
+      }
+      .gallery-header a {
+        color: #9ec8ff;
+      }
+      .gallery-toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin: 16px 0 8px;
+        align-items: center;
+      }
+      .gallery-toolbar label {
+        font-size: 13px;
+        color: var(--muted);
+      }
+      .gallery-toolbar select,
+      .gallery-toolbar button {
+        background: #101a2c;
+        color: var(--text);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 7px 12px;
+        font-size: 13px;
+      }
+      .gallery-toolbar button {
+        cursor: pointer;
+        background: linear-gradient(
+          180deg,
+          rgba(255, 200, 120, 0.22),
+          rgba(40, 30, 10, 0.4)
+        );
+        border-color: rgba(255, 200, 120, 0.4);
+      }
+      .gallery-toolbar button:disabled {
+        opacity: 0.5;
+        cursor: wait;
+      }
+      .gallery-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+        gap: 18px;
+        margin-top: 18px;
+      }
+      .gallery-tile {
+        margin: 0;
+        background: var(--tile);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        overflow: hidden;
+        box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
+      }
+      .gallery-tile img {
+        display: block;
+        width: 100%;
+        aspect-ratio: 16 / 9;
+        object-fit: cover;
+        background: #000;
+      }
+      .gallery-tile img.missing {
+        min-height: 140px;
+        background: repeating-linear-gradient(
+          -45deg,
+          #111,
+          #111 8px,
+          #1a1a1a 8px,
+          #1a1a1a 16px
+        );
+      }
+      .gallery-tile figcaption {
+        padding: 10px 12px 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .stage-name {
+        font-size: 0.88rem;
+        font-weight: 600;
+        letter-spacing: 0.01em;
+        color: var(--accent);
+        text-transform: none;
+        line-height: 1.3;
+      }
+      .stage-ms {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 0.92rem;
+        color: #eef6ff;
+      }
+      .stage-footnote {
+        font-size: 0.78rem;
+        color: var(--muted);
+        line-height: 1.35;
+      }
+      .hint {
+        margin-top: 20px;
+        font-size: 12px;
+        color: var(--muted);
+        line-height: 1.5;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="canvas-wrap">
+      <canvas id="canvas"></canvas>
+    </div>
+    <!-- Stubs for solar-system main bootstrap -->
+    <div id="hud">
+      <span id="hud-focus">—</span>
+      <span id="hud-fps">—</span>
+      <span id="hud-bodies">—</span>
+      <div id="body-list"></div>
+    </div>
+    <div id="status">Starting WebGPU stage gallery…</div>
+
+    <main id="stage-gallery">
+      <header class="gallery-header">
+        <h1>Solar cost timeline · 4K</h1>
+        <p>
+          Cumulative render stills at <strong>3840×2160</strong> max zoom.
+          Each step adds one feature; arrows show
+          <strong>extra GPU ms</strong> vs the previous step
+          (two decimal places). First tile = baseline description; later tiles
+          = “+ …”. Absolute mean ms stays on each tile. Draw isolation at the
+          bottom is absolute times only (not a feature stack).
+        </p>
+        <div class="gallery-toolbar">
+          <label for="body-select">Focus body</label>
+          <select id="body-select">
+            <option value="azure" selected>Azure</option>
+            <option value="sol">Sol</option>
+            <option value="cinder">Cinder</option>
+            <option value="amber">Amber</option>
+            <option value="glacier">Glacier</option>
+          </select>
+          <button type="button" id="rerun-btn">Re-run gallery</button>
+        </div>
+      </header>
+      <p class="hint" id="gallery-hint">
+        Waiting for WebGPU capture… (first run is automatic)
+      </p>
+    </main>
+
+    <script type="module" src="dist/gpu/solar-system/stage-gallery.js"></script>
+    <script type="module" src="dist/gpu/solar-system/main.js"></script>
+  </body>
+</html>

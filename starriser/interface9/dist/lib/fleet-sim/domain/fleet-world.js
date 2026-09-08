@@ -1,4 +1,5 @@
 import { applyOps } from "../../../worker/galaxy/apply-ops.js";
+import { hasClusterEdge, hasFleetHop, hasFleetNode } from "./fleet-graph.js";
 export function createFleetWorld() {
     return {
         clusters: new Map(),
@@ -175,42 +176,29 @@ function removeDirectedEdge(world, fromId, toId, fromGate, toGate) {
     }
 }
 function isFleetValid(world, fleet) {
-    if (!hasNode(world, fleet.currentNode))
-        return false;
-    if (!hasNode(world, fleet.destination))
+    if (!hasFleetNode(world, fleet.currentNode) || !hasFleetNode(world, fleet.destination))
         return false;
     if (fleet.state.state === "jumping") {
-        if (!hasNode(world, fleet.state.startNode))
-            return false;
-        if (!hasNode(world, fleet.state.endNode))
+        if (!hasFleetHop(world, fleet.state.startNode, fleet.state.endNode))
             return false;
     }
-    else if (!hasNode(world, fleet.state.node)) {
+    else if (!hasFleetNode(world, fleet.state.node)) {
         return false;
     }
-    if (fleet.intraPath) {
-        const cluster = world.clusters.get(fleet.currentNode.clusterId);
-        if (!cluster)
+    return isCachedPathValid(world, fleet) && fleet.pendingEdges.every((edge) => hasClusterEdge(world, edge));
+}
+function isCachedPathValid(world, fleet) {
+    if (!fleet.intraPath)
+        return true;
+    // The active jump is checked separately. Consumed route history no longer
+    // constrains a fleet that has safely arrived beyond a removed edge.
+    let previous = fleet.state.state === "jumping" ? fleet.state.endNode : fleet.currentNode;
+    for (let i = fleet.intraIndex; i < fleet.intraPath.length; i++) {
+        const next = { clusterId: previous.clusterId, solarSystemId: fleet.intraPath[i] };
+        if (!hasFleetHop(world, previous, next))
             return false;
-        for (const solarSystemId of fleet.intraPath) {
-            if (!cluster.solarSystems.has(solarSystemId))
-                return false;
-        }
-    }
-    for (const edge of fleet.pendingEdges) {
-        if (!hasClusterGate(world, edge.fromClusterId, edge.fromGateId)) {
-            return false;
-        }
-        if (!hasClusterGate(world, edge.toClusterId, edge.toGateId)) {
-            return false;
-        }
+        previous = next;
     }
     return true;
-}
-function hasNode(world, node) {
-    return hasClusterGate(world, node.clusterId, node.solarSystemId);
-}
-function hasClusterGate(world, clusterId, solarSystemId) {
-    return (world.clusters.get(clusterId)?.solarSystems.has(solarSystemId) === true);
 }
 //# sourceMappingURL=fleet-world.js.map

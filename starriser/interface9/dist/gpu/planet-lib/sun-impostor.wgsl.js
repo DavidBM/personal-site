@@ -477,5 +477,26 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
   rgb = clamp(rgb, vec3<f32>(0.0), vec3<f32>(6.0));
   return vec4<f32>(rgb, clamp(alpha, 0.0, 1.0));
 }
+
+struct SunDepthOut {
+  @location(0) color : vec4<f32>,
+  @builtin(frag_depth) depth : f32,
+};
+
+// Photosphere only: corona remains transparent to ships behind it.
+@fragment
+fn fs_depth(in : VSOut) -> SunDepthOut {
+  let p = in.local * body.spinMarginT.y;
+  let r2 = dot(p, p);
+  if (r2 >= 1.0) { discard; }
+  let forward = normalize(cross(body.camRight.xyz, body.camUp.xyz));
+  let surface = body.centerRadius.xyz + body.centerRadius.w *
+    (p.x * body.camRight.xyz + p.y * body.camUp.xyz + sqrt(1.0 - r2) * forward);
+  let clip = frame.viewProjRel * vec4<f32>(surface, 1.0);
+  var out : SunDepthOut;
+  out.color = vec4<f32>(0.0);
+  out.depth = clamp(clip.z / max(clip.w, 1e-8), 0.0, 1.0);
+  return out;
+}
 `;
 //# sourceMappingURL=sun-impostor.wgsl.js.map

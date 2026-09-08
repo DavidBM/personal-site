@@ -1,7 +1,7 @@
 import { Bus } from "./Bus.js";
 // Create bus instance for this worker
 const bus = new Bus(self, {
-    debug: 1,
+    debug: 0,
     workerLabel: "BootstrapWorker",
 });
 let currentWorkerId = null;
@@ -14,6 +14,8 @@ bus.on("wrk_init", async ({ modulePath, workerId }) => {
         bus._options.workerId = workerId;
         bus._options.workerLabel = `Worker-${workerId}`;
         const module = (await import(modulePath));
+        if (bus.isDestroyed())
+            return;
         workerModule = module;
         if (typeof workerModule.busConstructor !== "function") {
             throw new Error(`Module ${modulePath} must export a busConstructor function`);
@@ -49,13 +51,15 @@ bus.on("setup_broker_port", () => {
     }
 });
 // Handle worker termination
-bus.on("terminate_worker", () => {
-    if (workerInstance && typeof workerInstance.destroy === "function") {
-        workerInstance.destroy();
+bus.signal.addEventListener("abort", () => {
+    try {
+        workerInstance?.destroy?.();
     }
-    bus.destroy();
-    self.close();
-});
+    finally {
+        self.close();
+    }
+}, { once: true });
+bus.on("terminate_worker", () => bus.destroy());
 // Error handling
 self.addEventListener("error", (errorEvent) => {
     bus.send_realtime("wrk_error", {

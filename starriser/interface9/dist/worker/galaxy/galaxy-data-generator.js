@@ -6,6 +6,7 @@ import { emitAddCluster, emitAddSolarSystem, emitClusterConnection, emitRemoveCl
 import { normalizeGalaxyParams, } from "./generation/generation-params.js";
 class GalaxyGenerator {
     constructor(params) {
+        this.readyBatches = [];
         this.params = normalizeGalaxyParams(params);
         this.globalSystemCounter = 1;
         this.globalClusterCounter = 1;
@@ -17,7 +18,7 @@ class GalaxyGenerator {
         this.clusterPositions = [];
         this.opBatcher = new OperationBatcher({
             batchSize: this.params.batchSize,
-            onBatch: this.params.onBatch,
+            onBatch: (ops) => this.readyBatches.push(ops),
         });
     }
     flush() {
@@ -39,9 +40,10 @@ class GalaxyGenerator {
         emitAddCluster(this.opBatcher, cluster);
         return cluster;
     }
-    generateAllClusters() {
+    *generateAllClusters() {
         for (let n = 0; n < this.params.numClusters; ++n) {
             this.generateCluster();
+            yield* this.takeBatches();
         }
     }
     generateSolarSystemsForCluster(cluster) {
@@ -106,12 +108,13 @@ class GalaxyGenerator {
         }
         cluster.maxSystemDistance = plan.maxSystemDistance;
     }
-    generateAllSolarSystems() {
+    *generateAllSolarSystems() {
         for (let cIdx = 0; cIdx < this.clusters.length; ++cIdx) {
             this.generateSolarSystemsForCluster(this.clusters[cIdx]);
+            yield* this.takeBatches();
         }
     }
-    connectClusters() {
+    *connectClusters() {
         const plan = planClusterConnections({
             clusters: this.clusters,
             maxConnections: this.params.maxConnections,
@@ -125,29 +128,52 @@ class GalaxyGenerator {
                 emitAddSolarSystem(this.opBatcher, cluster.id, gate);
             }
             emitClusterConnection(this.opBatcher, connection);
-            this.opBatcher.flush(true);
+            // Keep the configured batch budget; one round trip per edge starves throughput.
+            yield* this.takeBatches();
         }
+        this.flush();
+        yield* this.takeBatches();
     }
-    removeEmptyClusters() {
+    *removeEmptyClusters() {
         for (let k = this.clusters.length - 1; k >= 0; --k) {
             const cluster = this.clusters[k];
             if (cluster.connectedTo.length === 0) {
                 this.clusters.splice(k, 1);
                 emitRemoveCluster(this.opBatcher, cluster.id);
+                yield* this.takeBatches();
             }
         }
     }
-    generate() {
-        this.generateAllClusters();
-        this.connectClusters();
-        this.removeEmptyClusters();
-        this.generateAllSolarSystems();
+    takeBatches() {
+        if (!this.readyBatches.length)
+            return this.readyBatches;
+        const ready = this.readyBatches;
+        this.readyBatches = [];
+        return ready;
+    }
+    *generate() {
+        yield* this.generateAllClusters();
+        yield* this.connectClusters();
+        yield* this.removeEmptyClusters();
+        yield* this.generateAllSolarSystems();
         this.flush();
+        yield* this.takeBatches();
         return { clusters: this.clusters };
     }
 }
 export function generateGalaxyData(params) {
     const generator = new GalaxyGenerator(params);
-    return generator.generate();
+    const batches = generator.generate();
+    let next = batches.next();
+    while (!next.done) {
+        params.onBatch?.(next.value);
+        next = batches.next();
+    }
+    return next.value;
+}
+/** Pulling the next batch advances generation. A worker can await consumer
+ * credit between pulls without retaining an unbounded operation history. */
+export function generateGalaxyBatches(params) {
+    return new GalaxyGenerator(params).generate();
 }
 //# sourceMappingURL=galaxy-data-generator.js.map

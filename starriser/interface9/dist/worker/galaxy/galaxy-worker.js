@@ -1,58 +1,63 @@
-import { generateGalaxyData } from "./galaxy-data-generator.js";
+import { generateGalaxyBatches } from "./galaxy-data-generator.js";
+import { createGenerationDelivery } from "./generation-delivery.js";
 import { whenPubSubReady } from "../bus/when-pubsub-ready.js";
 import { publishTopic, subscribeTopic, Topics, } from "../protocol/topics.js";
 /**
  * Galaxy Worker Constructor - called by worker bootstrap.
- * Generation is currently synchronous; cancelGeneration only applies if a
- * future chunked path re-checks flags between batches.
+ * Generation advances only after all consumer projections release the batch.
  */
 export function busConstructor(bus) {
     let currentGeneration = null;
-    let isGenerating = false;
-    const handleGenerateGalaxy = (params) => {
-        if (isGenerating) {
+    let active;
+    let generationCounter = 0;
+    const handleGenerateGalaxy = async (params) => {
+        if (active && !active.signal.aborted) {
             publishTopic(bus, Topics.galaxyError, {
                 error: "Galaxy generation already in progress",
             });
             return;
         }
-        isGenerating = true;
-        currentGeneration = Date.now();
+        const lifetime = new AbortController();
+        active = lifetime;
+        const generationId = ++generationCounter;
+        currentGeneration = generationId;
+        const delivery = createGenerationDelivery(bus, generationId, lifetime.signal);
         publishTopic(bus, Topics.galaxyGenerationStarted, {
-            generationId: currentGeneration,
+            generationId,
             params,
             timestamp: Date.now(),
         });
         try {
-            generateGalaxyData({
-                ...params,
-                centerBias: params.centerBias,
-                onBatch: (ops) => {
-                    publishTopic(bus, Topics.galaxyOps, ops, 2);
-                },
-            });
+            // Amortize the all-mirror admission/application round trip. The producer
+            // still holds only one batch, and the Bus enforces its byte reservation.
+            for (const ops of generateGalaxyBatches({ ...params, batchSize: params.batchSize ?? 1000 })) {
+                lifetime.signal.throwIfAborted();
+                await delivery.send(ops);
+            }
+            lifetime.signal.throwIfAborted();
             // Single completion event (no parallel galaxyGenerationComplete).
             publishTopic(bus, Topics.galaxyComplete, {
-                generationId: currentGeneration,
+                generationId,
             }, 2);
         }
         catch (err) {
+            if (lifetime.signal.aborted)
+                return;
             const message = err instanceof Error ? err.message : String(err);
             publishTopic(bus, Topics.galaxyError, {
                 error: message,
-                generationId: currentGeneration,
+                generationId,
             });
         }
         finally {
-            isGenerating = false;
+            delivery.dispose();
+            if (active === lifetime)
+                active = undefined;
         }
     };
     const handleCancelGeneration = ({ generationId, }) => {
-        // Reserved: generation runs synchronously today, so cancel cannot
-        // interrupt mid-run. When batching becomes async, re-check isGenerating
-        // between onBatch calls.
         if (currentGeneration === generationId) {
-            isGenerating = false;
+            active?.abort();
             currentGeneration = null;
             publishTopic(bus, Topics.galaxyCancelled, { generationId });
         }
@@ -63,13 +68,14 @@ export function busConstructor(bus) {
         }
         subscribeTopic(bus, Topics.generateGalaxy, handleGenerateGalaxy);
         subscribeTopic(bus, Topics.cancelGeneration, handleCancelGeneration);
+        subscribeTopic(bus, Topics.clearGalaxy, () => { active?.abort(); });
     });
     bus.send("worker_ready", { role: "galaxy" });
     return {
-        isGenerating: () => isGenerating,
+        isGenerating: () => !!active && !active.signal.aborted,
         getCurrentGeneration: () => currentGeneration,
         destroy: () => {
-            isGenerating = false;
+            active?.abort();
             currentGeneration = null;
         },
     };

@@ -1,1 +1,1 @@
-{"version":3,"file":"ship-flight-ref.js","sourceRoot":"","sources":["../../js/gpu/ship-flight-ref.ts"],"names":[],"mappings":"AAAA,cAAc,4CAA4C,CAAC"}
+{"version":3,"file":"ship-flight-ref.js","sourceRoot":"/js/","sources":["gpu/ship-flight-ref.ts"],"names":[],"mappings":"AAAA,cAAc,4CAA4C,CAAC"}

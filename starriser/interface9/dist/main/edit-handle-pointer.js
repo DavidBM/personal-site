@@ -29,6 +29,10 @@ export function createEditHandlePointerController(options) {
     return {
         setActiveClusterId(clusterId) {
             activeClusterId = clusterId;
+            if (clusterId == null) {
+                downHandle = null;
+                downHandleKind = null;
+            }
         },
         handleDown(event) {
             if (!target.hasEditHandles())

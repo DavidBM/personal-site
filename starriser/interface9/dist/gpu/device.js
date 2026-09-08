@@ -4,56 +4,15 @@
  * Chromium-first. Fail loud when adapter/device cannot be created.
  * Does not construct Three; map/fleet layers will bind to this later.
  */
+import { createGpuBufferDevice } from "./device-buffers.js";
+import { buildRequiredLimits, requestDeviceWithFallback } from "./device-request.js";
+export { parseGpuBufferUsage } from "./device-buffers.js";
 const DEFAULT_CLEAR = { r: 0, g: 0, b: 21 / 255, a: 1 }; // 0x000015
-/** Parse pipe-separated usage hints into GPUBufferUsage bits. */
-export function parseGpuBufferUsage(usage) {
-    if (usage == null || usage.trim() === "") {
-        return GPUBufferUsage.COPY_DST | GPUBufferUsage.VERTEX;
-    }
-    let bits = 0;
-    for (const raw of usage.split("|")) {
-        const key = raw.trim().toLowerCase().replace(/-/g, "_");
-        if (!key)
-            continue;
-        switch (key) {
-            case "vertex":
-                bits |= GPUBufferUsage.VERTEX;
-                break;
-            case "index":
-                bits |= GPUBufferUsage.INDEX;
-                break;
-            case "uniform":
-                bits |= GPUBufferUsage.UNIFORM;
-                break;
-            case "storage":
-                bits |= GPUBufferUsage.STORAGE;
-                break;
-            case "copy_src":
-                bits |= GPUBufferUsage.COPY_SRC;
-                break;
-            case "copy_dst":
-                bits |= GPUBufferUsage.COPY_DST;
-                break;
-            case "map_read":
-                bits |= GPUBufferUsage.MAP_READ;
-                break;
-            case "map_write":
-                bits |= GPUBufferUsage.MAP_WRITE;
-                break;
-            case "indirect":
-                bits |= GPUBufferUsage.INDIRECT;
-                break;
-            case "query_resolve":
-                bits |= GPUBufferUsage.QUERY_RESOLVE;
-                break;
-            default:
-                throw new Error(`Unknown GPU buffer usage flag: "${raw.trim()}"`);
-        }
-    }
-    if (bits === 0) {
-        return GPUBufferUsage.COPY_DST | GPUBufferUsage.VERTEX;
-    }
-    return bits;
+function initialSurfaceSize(canvas) {
+    return {
+        width: ("clientWidth" in canvas ? canvas.clientWidth : 0) || canvas.width || 1,
+        height: ("clientHeight" in canvas ? canvas.clientHeight : 0) || canvas.height || 1,
+    };
 }
 /**
  * Feature-detect WebGPU in this environment (sync).
@@ -75,42 +34,8 @@ export async function createWebGpuBootstrap(options) {
     if (!adapter) {
         throw new Error("Galaxy requires WebGPU. requestAdapter() returned null (GPU blocked or unsupported).");
     }
-    // Default maxStorageBufferBindingSize is often 128 MiB; trail line buffers at
-    // high ship caps exceed that. Request the adapter's full limits when larger.
-    const label = options.label ?? "galaxy-webgpu";
     const requiredLimits = buildRequiredLimits(adapter);
-    // Optional: GPU pass timestamps for true render-time HUD (solar showcase, etc.)
-    // Optional GPU pass timestamps (solar HUD, etc.). Cast: ambient GPUFeatureName varies by @types.
-    const requiredFeatures = (adapter.features?.has?.("timestamp-query") ? ["timestamp-query"] : []);
-    let device;
-    try {
-        device = await adapter.requestDevice({
-            label,
-            requiredLimits,
-            ...(requiredFeatures?.length ? { requiredFeatures } : {}),
-        });
-    }
-    catch (err) {
-        // Some stacks reject partial limit bags — fall back to defaults, then clamp allocs.
-        console.warn("[WebGPU] requestDevice with raised limits failed; retrying defaults.", err);
-        try {
-            device = await adapter.requestDevice({
-                label,
-                ...(requiredFeatures?.length ? { requiredFeatures } : {}),
-            });
-        }
-        catch (err2) {
-            // Timestamp feature optional — last resort without it
-            try {
-                device = await adapter.requestDevice({ label });
-            }
-            catch (err3) {
-                const msg = err3 instanceof Error ? err3.message : String(err3);
-                throw new Error(`Galaxy requires WebGPU. requestDevice() failed: ${msg}`);
-            }
-            void err2;
-        }
-    }
+    const device = await requestDeviceWithFallback(adapter, options.label ?? "galaxy-webgpu");
     const limits = {
         maxStorageBufferBindingSize: device.limits.maxStorageBufferBindingSize,
         maxBufferSize: device.limits.maxBufferSize,
@@ -134,91 +59,12 @@ export async function createWebGpuBootstrap(options) {
     }
     const format = navigator.gpu.getPreferredCanvasFormat();
     const clearColor = options.clearColor ?? DEFAULT_CLEAR;
-    let nextBufferId = 1;
-    const buffers = new Map();
-    const gpu = {
-        createBuffer(params) {
-            if (bootstrapState.isLost) {
-                throw new Error("createBuffer: device is lost");
-            }
-            const usage = parseGpuBufferUsage(params.usage);
-            let buffer;
-            try {
-                buffer = device.createBuffer({
-                    label: params.label,
-                    size: params.size,
-                    usage,
-                });
-            }
-            catch (err) {
-                // OOM / invalid size often surfaces as device loss shortly after.
-                bootstrapState.isLost = true;
-                throw err;
-            }
-            const id = nextBufferId++;
-            buffers.set(id, buffer);
-            return { id, byteLength: params.size };
-        },
-        getBuffer(handle) {
-            const buffer = buffers.get(handle.id);
-            if (!buffer) {
-                throw new Error(`getBuffer: unknown buffer id ${handle.id}`);
-            }
-            return buffer;
-        },
-        writeBuffer(handle, bufferOffsetBytes, data, dataOffsetBytes = 0, sizeBytes) {
-            if (bootstrapState.isLost) {
-                // Soft no-op: bulk reserve / trail dead-init must not throw through
-                // App handlers and abort the whole generateFleetsBulk turn.
-                return;
-            }
-            const buffer = buffers.get(handle.id);
-            if (!buffer) {
-                throw new Error(`writeBuffer: unknown buffer id ${handle.id}`);
-            }
-            const byteLength = sizeBytes ?? data.byteLength - dataOffsetBytes;
-            if (bufferOffsetBytes < 0 || dataOffsetBytes < 0 || byteLength < 0) {
-                throw new Error("writeBuffer: negative offset or size");
-            }
-            if (bufferOffsetBytes % 4 !== 0 ||
-                dataOffsetBytes % 4 !== 0 ||
-                byteLength % 4 !== 0) {
-                throw new Error(`writeBuffer: offsets/size must be multiples of 4 (offset=${bufferOffsetBytes}, dataOffset=${dataOffsetBytes}, size=${byteLength})`);
-            }
-            if (bufferOffsetBytes + byteLength > handle.byteLength) {
-                throw new Error(`writeBuffer: range [${bufferOffsetBytes}, ${bufferOffsetBytes + byteLength}) exceeds buffer size ${handle.byteLength}`);
-            }
-            if (dataOffsetBytes + byteLength > data.byteLength) {
-                throw new Error(`writeBuffer: range exceeds data view (dataOffset=${dataOffsetBytes}, size=${byteLength}, data.byteLength=${data.byteLength})`);
-            }
-            device.queue.writeBuffer(buffer, bufferOffsetBytes, data.buffer, data.byteOffset + dataOffsetBytes, byteLength);
-        },
-        destroyBuffer(handle) {
-            const buffer = buffers.get(handle.id);
-            if (!buffer)
-                return;
-            buffer.destroy();
-            buffers.delete(handle.id);
-        },
-        destroy() {
-            for (const buffer of buffers.values())
-                buffer.destroy();
-            buffers.clear();
-            // Context must be unconfigured before device.destroy per WebGPU rules.
-            try {
-                context.unconfigure();
-            }
-            catch {
-                /* ignore if already unconfigured */
-            }
-            bootstrapState.isLost = true;
-            device.destroy();
-        },
-    };
-    const configureContext = (cssWidth, cssHeight) => {
+    const gpu = createGpuBufferDevice(device, context, bootstrapState);
+    const configureContext = (cssWidth, cssHeight, pixelRatio) => {
         if (bootstrapState.isLost)
             return;
-        const dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
+        const browserDpr = typeof devicePixelRatio === "number" ? devicePixelRatio : 1;
+        const dpr = pixelRatio ?? options.pixelRatio ?? browserDpr;
         const w = Math.max(1, Math.floor(cssWidth * dpr));
         const h = Math.max(1, Math.floor(cssHeight * dpr));
         options.canvas.width = w;
@@ -230,7 +76,8 @@ export async function createWebGpuBootstrap(options) {
             usage: GPUTextureUsage.RENDER_ATTACHMENT,
         });
     };
-    configureContext(options.canvas.clientWidth || options.canvas.width || 1, options.canvas.clientHeight || options.canvas.height || 1);
+    const initialSize = initialSurfaceSize(options.canvas);
+    configureContext(initialSize.width, initialSize.height);
     const destroy = () => {
         gpu.destroy();
     };
@@ -249,24 +96,6 @@ export async function createWebGpuBootstrap(options) {
         destroy,
     };
     return bootstrap;
-}
-/**
- * Raise storage/buffer limits to what this adapter allows so large trail/ship
- * storage buffers can bind. Never request above adapter.limits.
- */
-function buildRequiredLimits(adapter) {
-    const out = {};
-    const a = adapter.limits;
-    // Chromium default storage binding is 128 MiB (134217728).
-    const DEFAULT_STORAGE = 134217728;
-    const DEFAULT_BUFFER = 268435456;
-    if (a.maxStorageBufferBindingSize > DEFAULT_STORAGE) {
-        out.maxStorageBufferBindingSize = a.maxStorageBufferBindingSize;
-    }
-    if (a.maxBufferSize > DEFAULT_BUFFER) {
-        out.maxBufferSize = a.maxBufferSize;
-    }
-    return out;
 }
 /**
  * Encode a single clear pass to the current canvas texture (smoke / idle frame).

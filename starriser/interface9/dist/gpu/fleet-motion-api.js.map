@@ -1,1 +1,1 @@
-{"version":3,"file":"fleet-motion-api.js","sourceRoot":"","sources":["../../js/gpu/fleet-motion-api.ts"],"names":[],"mappings":"AAAA,cAAc,4BAA4B,CAAC"}
+{"version":3,"file":"fleet-motion-api.js","sourceRoot":"/js/","sources":["gpu/fleet-motion-api.ts"],"names":[],"mappings":"AAAA,cAAc,4BAA4B,CAAC"}

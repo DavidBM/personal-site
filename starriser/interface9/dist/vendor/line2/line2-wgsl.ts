@@ -15,7 +15,8 @@
  * Depth/log-depth/fog/clipping planes from Three are intentionally omitted.
  */
 
-export const LINE2_WGSL = /* wgsl */ `
+export function buildLine2Wgsl(splitPosition = false): string {
+  return /* wgsl */ `
 // Uniform layout must match line2-material.ts LINE2_UNIFORM_SIZE / writeMaterialUniforms.
 struct Line2Uniforms {
   modelView : mat4x4<f32>,
@@ -36,6 +37,7 @@ struct Line2Uniforms {
   /** Floating origin — VS forms (instanceStart/End − origin) then modelView (= viewRel). */
   origin : vec3<f32>,
   _padO : f32,
+  ${splitPosition ? "originLow : vec3<f32>, _padLow : f32," : ""}
 };
 
 @group(0) @binding(0) var<uniform> u : Line2Uniforms;
@@ -51,6 +53,7 @@ struct VSIn {
   @location(5) instanceColorEnd : vec3<f32>,
   @location(6) instanceDistanceStart : f32,
   @location(7) instanceDistanceEnd : f32,
+  ${splitPosition ? "@location(8) instanceStartLow : vec3<f32>, @location(9) instanceEndLow : vec3<f32>," : ""}
 };
 
 struct VSOut {
@@ -113,8 +116,8 @@ fn vs_main(input : VSIn) -> VSOut {
 
   // Camera / view space. Positions stay absolute on the GPU; subtract the
   // frame origin here so modelView can be viewRel (same pattern as solar-points).
-  let startRel = input.instanceStart - u.origin;
-  let endRel = input.instanceEnd - u.origin;
+  let startRel = (input.instanceStart - u.origin)${splitPosition ? " + (input.instanceStartLow - u.originLow)" : ""};
+  let endRel = (input.instanceEnd - u.origin)${splitPosition ? " + (input.instanceEndLow - u.originLow)" : ""};
   var start = u.modelView * vec4<f32>(startRel, 1.0);
   var end_ = u.modelView * vec4<f32>(endRel, 1.0);
 
@@ -341,3 +344,7 @@ fn fs_main(input : VSOut) -> @location(0) vec4<f32> {
   return vec4<f32>(rgb, alpha);
 }
 `;
+}
+
+/** Legacy overlay/lab layout; split positions are explicit pipeline opt-in. */
+export const LINE2_WGSL = buildLine2Wgsl();

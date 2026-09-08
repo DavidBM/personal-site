@@ -1,1 +1,1 @@
-{"version":3,"file":"fleet-ship-pack.js","sourceRoot":"","sources":["../../js/gpu/fleet-ship-pack.ts"],"names":[],"mappings":"AAAA,cAAc,4CAA4C,CAAC"}
+{"version":3,"file":"fleet-ship-pack.js","sourceRoot":"/js/","sources":["gpu/fleet-ship-pack.ts"],"names":[],"mappings":"AAAA,cAAc,4CAA4C,CAAC"}

@@ -1,1 +1,1 @@
-{"version":3,"file":"planet-look.js","sourceRoot":"","sources":["../../../js/gpu/solar-system/planet-look.ts"],"names":[],"mappings":"AAAA,cAAc,8BAA8B,CAAC"}
+{"version":3,"file":"planet-look.js","sourceRoot":"/js/","sources":["gpu/solar-system/planet-look.ts"],"names":[],"mappings":"AAAA,cAAc,8BAA8B,CAAC"}

@@ -1,1 +1,1 @@
-{"version":3,"file":"sun-look-params.js","sourceRoot":"","sources":["../../../js/gpu/solar-system/sun-look-params.ts"],"names":[],"mappings":"AAAA,cAAc,kCAAkC,CAAC"}
+{"version":3,"file":"sun-look-params.js","sourceRoot":"/js/","sources":["gpu/solar-system/sun-look-params.ts"],"names":[],"mappings":"AAAA,cAAc,kCAAkC,CAAC"}

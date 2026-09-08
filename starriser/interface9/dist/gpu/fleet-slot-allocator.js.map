@@ -1,1 +1,1 @@
-{"version":3,"file":"fleet-slot-allocator.js","sourceRoot":"","sources":["../../js/gpu/fleet-slot-allocator.ts"],"names":[],"mappings":"AAAA,cAAc,iDAAiD,CAAC"}
+{"version":3,"file":"fleet-slot-allocator.js","sourceRoot":"/js/","sources":["gpu/fleet-slot-allocator.ts"],"names":[],"mappings":"AAAA,cAAc,iDAAiD,CAAC"}

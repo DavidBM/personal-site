@@ -1,5 +1,6 @@
 /**
- * CPU-side solar-system point packing for GPU layers.
+ * CPU-side solar-system point data. Positions and hidden restore caches retain
+ * JS-double precision; the GPU layer splits them only on dirty uploads.
  * No GPU API imports — unit-testable under Node.
  */
 import { HIDDEN_COORDINATE, RENDER_PLANE_Y, } from "../contracts/render-constants.js";
@@ -18,12 +19,12 @@ function resolveRgb(source) {
 }
 export class SolarPointStore {
     constructor() {
-        this.positions = new Float32Array(0);
+        this.positions = new Float64Array(0);
         this.colors = new Float32Array(0);
         this.visibility = new Uint8Array(0);
         this.lodHidden = new Uint8Array(0);
-        this.lodRestoreX = new Float32Array(0);
-        this.lodRestoreZ = new Float32Array(0);
+        this.lodRestoreX = new Float64Array(0);
+        this.lodRestoreZ = new Float64Array(0);
         this.maxCount = 0;
         this.currentCount = 0;
         this.positionDirty = DIRTY_CLEAN;
@@ -38,12 +39,12 @@ export class SolarPointStore {
         this.colorDirty = markDirtyFull();
     }
     initialize(maxSolarSystems) {
-        this.positions = new Float32Array(maxSolarSystems * 3);
+        this.positions = new Float64Array(maxSolarSystems * 3);
         this.colors = new Float32Array(maxSolarSystems * 3);
         this.visibility = new Uint8Array(maxSolarSystems);
         this.lodHidden = new Uint8Array(maxSolarSystems);
-        this.lodRestoreX = new Float32Array(maxSolarSystems);
-        this.lodRestoreZ = new Float32Array(maxSolarSystems);
+        this.lodRestoreX = new Float64Array(maxSolarSystems);
+        this.lodRestoreZ = new Float64Array(maxSolarSystems);
         this.maxCount = maxSolarSystems;
         this.currentCount = 0;
         this.markFullDirty();
@@ -56,12 +57,12 @@ export class SolarPointStore {
         if (needed <= this.maxCount)
             return false;
         const newMax = Math.max(needed, Math.ceil(this.maxCount * 2) || 16);
-        const newPositions = new Float32Array(newMax * 3);
+        const newPositions = new Float64Array(newMax * 3);
         const newColors = new Float32Array(newMax * 3);
         const newVisibility = new Uint8Array(newMax);
         const newLodHidden = new Uint8Array(newMax);
-        const newRestoreX = new Float32Array(newMax);
-        const newRestoreZ = new Float32Array(newMax);
+        const newRestoreX = new Float64Array(newMax);
+        const newRestoreZ = new Float64Array(newMax);
         newPositions.set(this.positions);
         newColors.set(this.colors);
         newVisibility.set(this.visibility);
@@ -158,6 +159,41 @@ export class SolarPointStore {
         this.visibility[idx] = 1;
         this.positionDirty = expandDirtyRange(this.positionDirty, floatOffset, 3);
     }
+    /** Apply one cluster's LOD state with a single dirty-range update. */
+    setLodHiddenIndices(indices, hidden) {
+        if (indices.length === 0)
+            return;
+        let dirtyStart = Number.POSITIVE_INFINITY;
+        let dirtyEnd = 0;
+        for (const idx of indices) {
+            if (idx < 0 || idx >= this.currentCount)
+                continue;
+            if (this.visibility[idx] === 0 && !this.lodHidden[idx])
+                continue;
+            if ((this.lodHidden[idx] !== 0) === hidden)
+                continue;
+            const floatOffset = idx * 3;
+            if (hidden) {
+                this.positions[floatOffset] = HIDDEN_COORDINATE;
+                this.positions[floatOffset + 1] = HIDDEN_COORDINATE;
+                this.positions[floatOffset + 2] = HIDDEN_COORDINATE;
+                this.lodHidden[idx] = 1;
+                this.visibility[idx] = 0;
+            }
+            else {
+                this.positions[floatOffset] = this.lodRestoreX[idx];
+                this.positions[floatOffset + 1] = RENDER_PLANE_Y;
+                this.positions[floatOffset + 2] = this.lodRestoreZ[idx];
+                this.lodHidden[idx] = 0;
+                this.visibility[idx] = 1;
+            }
+            dirtyStart = Math.min(dirtyStart, floatOffset);
+            dirtyEnd = Math.max(dirtyEnd, floatOffset + 3);
+        }
+        if (dirtyEnd > dirtyStart) {
+            this.positionDirty = expandDirtyRange(this.positionDirty, dirtyStart, dirtyEnd - dirtyStart);
+        }
+    }
     /** Soft-delete: hide far off-camera (no compact). Zeros colors permanently. */
     hide(idx) {
         if (idx < 0 || idx >= this.maxCount)
@@ -180,12 +216,12 @@ export class SolarPointStore {
      */
     rebuild(writes) {
         const n = writes.length;
-        this.positions = new Float32Array(n * 3);
+        this.positions = new Float64Array(n * 3);
         this.colors = new Float32Array(n * 3);
         this.visibility = new Uint8Array(n);
         this.lodHidden = new Uint8Array(n);
-        this.lodRestoreX = new Float32Array(n);
-        this.lodRestoreZ = new Float32Array(n);
+        this.lodRestoreX = new Float64Array(n);
+        this.lodRestoreZ = new Float64Array(n);
         this.maxCount = n;
         this.currentCount = n;
         for (let i = 0; i < n; i++) {
@@ -206,7 +242,9 @@ export class SolarPointStore {
         this.markFullDirty();
     }
 }
-/** Stride constants for interop / WebGPU vertex layouts. */
+/** Legacy f32 vec3 component sizes; CPU positions are doubles.
+ * The interleaved GPU instance stride is defined in solar-point-pack.ts.
+ */
 export const SOLAR_POINT_FLOATS_PER_VERTEX = 3;
 export const SOLAR_POINT_POSITION_BYTES = 12;
 export const SOLAR_POINT_COLOR_BYTES = 12;

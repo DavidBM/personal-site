@@ -24,12 +24,13 @@
  *
  * flockForce reserved for L5d.
  */
+import { movementHopOpenSpeed } from './local-move-profile.js';
 import { ORBIT_CAPTURE_K, ORBIT_CAPTURE_OUT_K, ORBIT_ENTRANCE_EPS_TINY, ORBIT_ENTRANCE_REM_K, computeOrbitAimTarget, computeSphereOrbitAimTarget, integrateOrbitSeekStep, orbitFloorSpeed, orbitSideSign, ORBIT_DEFAULT_OMEGA_MAX, } from "./ship-orbit-ref.js";
 import { forwardFromQuat, quatFromYaw, quatIsZero, quatRotateVec3, yawFromQuat, } from "./quat.js";
 // Tune curves / ease / orbit here — not scattered through this file:
 //   js/gpu/ship-motion-config.ts
 export { SHIP_MAX_TURN_RAD_S, SHIP_MAX_ACCEL, SHIP_MAX_BRAKE, SHIP_MAX_SPEED, SHIP_ARRIVE_EPS, SHIP_SETTLE_TAU_S, SHIP_TRACK_TAU_S, SHIP_MIN_ALIGN, SHIP_AIM_BLEND_START, SHIP_SNAP_MS, SHIP_NOSE_OFFSET, SHIP_DEFAULT_BRAKE_DIST, SHIP_BRAKE_DIST_MARGIN, SHIP_APPROACH_BRAKE_POWER, SHIP_LAUNCH_ACCEL_MIN, SHIP_LAUNCH_SPEED_FRAC, SHIP_MID_CRUISE_BOOST, SHIP_HOP_ARRIVE_FRAC, SHIP_SETTLE_CRUISE_CAP, SHIP_AGENT_SETTLE_ENTER_DIST, SHIP_AGENT_ORBIT_ENTER_DIST, SHIP_AGENT_ORBIT_ENTER_SPEED, CRUISE_ACCEL_SCALE, CRUISE_BRAKE_MULT, JUMP_BRAKE_MULT, V_OPEN_UNCAP, hopOpenSpeedFromDuration, HOP_OPEN_SPEED_MUL, HOP_OPEN_SPEED_MIN, ORBIT_ENTRANCE_EPS_TINY, RESIDUAL_HIGH_MUL, RESIDUAL_CLEAR_MUL, RESIDUAL_FREEZE_OUT_K, } from "./ship-motion-config.js";
-import { SHIP_MAX_TURN_RAD_S, SHIP_MAX_ACCEL, SHIP_MAX_SPEED, SHIP_ARRIVE_EPS, SHIP_SETTLE_TAU_S, SHIP_TRACK_TAU_S, SHIP_MIN_ALIGN, SHIP_AIM_BLEND_START, SHIP_NOSE_OFFSET, SHIP_DEFAULT_BRAKE_DIST, SHIP_BRAKE_DIST_MARGIN, SHIP_APPROACH_BRAKE_POWER, SHIP_LAUNCH_ACCEL_MIN, SHIP_LAUNCH_SPEED_FRAC, SHIP_MID_CRUISE_BOOST, CRUISE_ACCEL_SCALE, CRUISE_BRAKE_MULT, JUMP_BRAKE_MULT, V_OPEN_UNCAP, hopOpenSpeedFromDuration, RESIDUAL_CLEAR_MUL, RESIDUAL_FREEZE_OUT_K, } from "./ship-motion-config.js";
+import { SHIP_MAX_TURN_RAD_S, SHIP_MAX_ACCEL, SHIP_MAX_SPEED, SHIP_ARRIVE_EPS, SHIP_SETTLE_TAU_S, SHIP_TRACK_TAU_S, SHIP_MIN_ALIGN, SHIP_AIM_BLEND_START, SHIP_NOSE_OFFSET, SHIP_DEFAULT_BRAKE_DIST, SHIP_BRAKE_DIST_MARGIN, SHIP_APPROACH_BRAKE_POWER, SHIP_LAUNCH_ACCEL_MIN, SHIP_LAUNCH_SPEED_FRAC, SHIP_MID_CRUISE_BOOST, CRUISE_ACCEL_SCALE, CRUISE_BRAKE_MULT, JUMP_BRAKE_MULT, V_OPEN_UNCAP, RESIDUAL_CLEAR_MUL, RESIDUAL_FREEZE_OUT_K, } from "./ship-motion-config.js";
 // hopOpenSpeedFromDuration used by integrateShipAgent (domain hop clock).
 // --- Ship modes (ShipSim.mode) — geometric band, NOT domain warp ---
 /** Hold pose; speed forced to 0. Impostor / icon. */
@@ -485,7 +486,7 @@ export function integrateShipAgent(ship, params) {
         params.pathStartX !== undefined &&
         params.pathStartZ !== undefined) {
         const pLen = Math.hypot(params.pathEndX - params.pathStartX, params.pathEndZ - params.pathStartZ);
-        hopOpen = hopOpenSpeedFromDuration(pLen, params.durationMs);
+        hopOpen = movementHopOpenSpeed(pLen, params.durationMs, params.localMovement);
         // Also soft-cap personal cruise so Cruise profile mid-hop isn't uncapped.
         if (ship.cruiseV > hopOpen)
             ship.cruiseV = hopOpen;

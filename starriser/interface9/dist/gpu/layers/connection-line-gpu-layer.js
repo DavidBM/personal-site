@@ -1,10 +1,10 @@
 /**
  * M2 — topology connection edges (cluster jump gates + solar links).
  * Draws via fat screen-space Line2 ribbons (not GPU line-list).
- * CPU store layout is already segment pairs: 6 pos floats + 6 color floats/edge.
+ * CPU store layout is segment pairs: 6 position doubles + 6 color floats/edge.
  *
- * GPU instance positions stay **absolute**. The frame origin is a Line2 uniform
- * (VS: instanceStart/End − origin, then viewRel). Upload only when the store
+ * Absolute GPU positions use high/low floats in one existing position buffer.
+ * The VS subtracts high/low origin before viewRel. Upload only when the store
  * is dirty — never rewrite the full topology from the color pass.
  */
 import { CONNECTION_FLOATS_PER_SLOT, } from "../connection-line-store.js";
@@ -32,6 +32,7 @@ export class ConnectionLineGpuLayer {
             format,
             sampleCount,
             alphaToCoverage: sampleCount > 1,
+            splitPosition: true,
             material: {
                 color: [1, 1, 1, 0.9],
                 linewidth: CONNECTION_LINEWIDTH_PX,
@@ -50,8 +51,8 @@ export class ConnectionLineGpuLayer {
         this.line2?.setResolution(width, height);
     }
     /**
-     * Upload store → Line2 when dirty. Positions and colors are always
-     * co-uploaded so a grow does not leave white vertex colors.
+     * Upload dirty store ranges to Line2. Capacity growth repopulates both
+     * positions and colors so replacement buffers retain the complete geometry.
      * Positions are absolute world coords (origin is a per-frame uniform).
      */
     syncFromStore(store) {
@@ -69,9 +70,26 @@ export class ConnectionLineGpuLayer {
             store.colorDirty.kind !== "clean";
         if (!dirty && edgeCount === this.segmentCount)
             return;
-        const nFloats = edgeCount * CONNECTION_FLOATS_PER_SLOT;
-        this.line2.setPositions(store.positions.subarray(0, nFloats));
-        this.line2.setColors(store.colors.subarray(0, nFloats));
+        const segmentRange = (state) => {
+            if (state.kind === "clean")
+                return [0, 0];
+            if (state.kind === "full")
+                return [0, edgeCount];
+            const start = Math.floor(state.start / CONNECTION_FLOATS_PER_SLOT);
+            const end = Math.min(edgeCount, Math.ceil((state.start + state.count) / CONNECTION_FLOATS_PER_SLOT));
+            return [start, Math.max(0, end - start)];
+        };
+        const [positionStart, positionCount] = segmentRange(store.positionDirty);
+        const [colorStart, colorCount] = segmentRange(store.colorDirty);
+        this.line2.setSegmentDataRanges({
+            positions: store.positions,
+            colors: store.colors,
+            segmentCount: edgeCount,
+            positionStart,
+            positionCount,
+            colorStart,
+            colorCount,
+        });
         this.segmentCount = edgeCount;
         store.clearDirty();
     }

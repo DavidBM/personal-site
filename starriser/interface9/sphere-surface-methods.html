@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Galaxy — Sphere surface methods (disc impostor · ray-heightfield)</title>
+    <style>
+      :root {
+        --bg: #050814;
+        --panel: rgba(6, 14, 28, 0.88);
+        --border: rgba(120, 180, 255, 0.32);
+        --text: #d8ecff;
+        --muted: #6e8eaa;
+        --accent: #8ec8ff;
+        --time: #ffd080;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: var(--bg);
+        color: var(--text);
+        font-family: ui-sans-serif, system-ui, sans-serif;
+        overflow: hidden;
+      }
+      #canvas {
+        display: block;
+        width: 100vw;
+        height: 100vh;
+        touch-action: none;
+        cursor: grab;
+      }
+      #canvas:active {
+        cursor: grabbing;
+      }
+      #method-grid {
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        z-index: 5;
+      }
+      .method-card {
+        position: absolute;
+        border: 1px solid rgba(120, 180, 255, 0.18);
+        padding: 8px 10px;
+        display: flex;
+        flex-direction: column;
+        justify-content: flex-start;
+        gap: 2px;
+      }
+      .method-card.solo-hidden {
+        display: none;
+      }
+      .method-card.is-solo {
+        border-color: rgba(142, 200, 255, 0.55);
+        z-index: 6;
+      }
+      .method-fs,
+      .method-swarm,
+      .method-mesh-swarm {
+        position: absolute;
+        top: 6px;
+        width: 28px;
+        height: 28px;
+        padding: 0;
+        margin: 0;
+        border-radius: 6px;
+        border: 1px solid rgba(120, 180, 255, 0.4);
+        background: rgba(6, 14, 28, 0.72);
+        color: var(--accent);
+        font-size: 11px;
+        font-weight: 600;
+        line-height: 1;
+        cursor: pointer;
+        pointer-events: auto;
+        z-index: 7;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .method-fs {
+        left: 6px;
+        font-size: 14px;
+      }
+      .method-swarm {
+        left: 38px;
+        min-width: 36px;
+        width: auto;
+        padding: 0 6px;
+        font-variant-numeric: tabular-nums;
+      }
+      .method-mesh-swarm {
+        left: 78px;
+        min-width: 42px;
+        width: auto;
+        padding: 0 6px;
+        font-variant-numeric: tabular-nums;
+      }
+      .method-swarm.is-on,
+      .method-mesh-swarm.is-on {
+        background: rgba(80, 120, 60, 0.75);
+        border-color: #a8e070;
+        color: #d8ffb0;
+      }
+      .method-mesh-swarm.is-disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+      .method-fs:hover,
+      .method-swarm:hover,
+      .method-mesh-swarm:hover:not(.is-disabled) {
+        background: rgba(40, 70, 110, 0.85);
+        border-color: var(--accent);
+      }
+      .method-fs:focus-visible,
+      .method-swarm:focus-visible,
+      .method-mesh-swarm:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 1px;
+      }
+      .method-swarm[hidden],
+      .method-mesh-swarm[hidden] {
+        display: none !important;
+      }
+      .method-label {
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+        color: var(--accent);
+        text-shadow: 0 1px 4px rgba(0, 0, 0, 0.85);
+        max-width: 95%;
+        margin-left: 32px;
+      }
+      .method-time {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 13px;
+        font-variant-numeric: tabular-nums;
+        color: var(--time);
+        text-shadow: 0 1px 4px rgba(0, 0, 0, 0.9);
+        margin-left: 32px;
+      }
+      body.solo-mode .method-label,
+      body.solo-mode .method-time {
+        margin-left: 128px;
+        font-size: 14px;
+      }
+      #hud {
+        position: fixed;
+        top: 10px;
+        right: 10px;
+        width: min(320px, 42vw);
+        padding: 12px 14px;
+        border-radius: 10px;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+        font-size: 12px;
+        line-height: 1.45;
+        z-index: 12;
+        pointer-events: auto;
+      }
+      #hud h1 {
+        margin: 0 0 6px;
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        color: var(--accent);
+      }
+      #hud p {
+        margin: 0 0 8px;
+        color: var(--muted);
+        font-size: 11px;
+      }
+      #hud .row {
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+        margin-bottom: 4px;
+      }
+      #hud .label {
+        color: var(--muted);
+      }
+      #hud .val {
+        color: var(--text);
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 11px;
+      }
+      #hud button,
+      #hud select {
+        margin-top: 8px;
+        width: 100%;
+        padding: 7px 10px;
+        border-radius: 6px;
+        border: 1px solid var(--border);
+        background: rgba(40, 70, 110, 0.45);
+        color: var(--text);
+        font-size: 12px;
+        cursor: pointer;
+      }
+      #hud button:hover,
+      #hud select:hover {
+        background: rgba(60, 100, 150, 0.55);
+      }
+      #hud select {
+        appearance: auto;
+      }
+      #hud .shape-row {
+        margin-top: 8px;
+      }
+      #hud .shape-row label {
+        display: block;
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--accent);
+        margin-bottom: 4px;
+      }
+      #hud .hint {
+        margin-top: 8px;
+        font-size: 10px;
+        color: var(--muted);
+        line-height: 1.4;
+      }
+      #hud .rank-title {
+        margin: 10px 0 4px;
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--accent);
+      }
+      #speed-rank {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 11px;
+        font-variant-numeric: tabular-nums;
+      }
+      #speed-rank li {
+        display: grid;
+        grid-template-columns: 1.4em 1fr auto auto;
+        gap: 6px;
+        align-items: baseline;
+        padding: 3px 0;
+        border-bottom: 1px solid rgba(120, 180, 255, 0.08);
+      }
+      #speed-rank li:last-child {
+        border-bottom: none;
+      }
+      #speed-rank .rank-n {
+        color: var(--muted);
+      }
+      #speed-rank .rank-name {
+        color: var(--text);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      #speed-rank .rank-ms {
+        color: var(--time);
+        text-align: right;
+      }
+      #speed-rank .rank-delta {
+        color: var(--muted);
+        text-align: right;
+        min-width: 4.5em;
+      }
+      #speed-rank .rank-delta.plus {
+        color: #ffb080;
+      }
+      #status {
+        position: fixed;
+        left: 12px;
+        bottom: 12px;
+        font-size: 12px;
+        color: var(--muted);
+        background: rgba(0, 0, 20, 0.55);
+        padding: 6px 10px;
+        border-radius: 6px;
+        z-index: 12;
+        max-width: 55vw;
+      }
+      #status.error {
+        color: #ff8a8a;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="canvas"></canvas>
+    <div id="method-grid" aria-hidden="true"></div>
+    <aside id="hud">
+      <h1>Sphere surface methods</h1>
+      <p>
+        <strong>Disc impostor</strong> + <strong>ray vs radial heightfield</strong>
+        on hard test shapes (not a plain sphere). Hit = opaque; miss = discard.
+        All eight methods share the active shape for fair timing.
+      </p>
+      <div class="shape-row">
+        <label for="shape-select">Test run shape</label>
+        <select id="shape-select" aria-label="Test run shape">
+          <!-- filled by main.ts from TEST_SHAPES -->
+        </select>
+      </div>
+      <div class="shape-row">
+        <label for="quality-select">March quality</label>
+        <select id="quality-select" aria-label="March quality profile">
+          <!-- filled by main.ts from QUALITY_PROFILES: performance · mid · quality -->
+        </select>
+      </div>
+      <div class="row">
+        <span class="label">Shape</span>
+        <span class="val" id="shape-run-val">…</span>
+      </div>
+      <div class="row">
+        <span class="label">Quality</span>
+        <span class="val" id="quality-run-val">…</span>
+      </div>
+      <div class="row">
+        <span class="label">Timed</span>
+        <span class="val" id="render-res">each method full 3840×2160 ×4 draws</span>
+      </div>
+      <div class="row">
+        <span class="label">Timing</span>
+        <span class="val" id="timing-mode">…</span>
+      </div>
+      <div class="rank-title">Speed rank (fast → slow)</div>
+      <ol id="speed-rank" aria-live="polite" aria-label="Methods ordered by render time">
+        <li class="rank-empty"><span class="rank-name">Waiting for samples…</span></li>
+      </ol>
+      <button type="button" id="toggle-spin">Pause spin</button>
+      <div class="hint">
+        Shapes: cube · pyramid · smaller sphere · asteroid · 3D cross · 3D heart.
+        March quality: <strong>performance</strong> · <strong>mid</strong> ·
+        <strong>quality</strong>. Per-tile <strong>⛶</strong> solos fullscreen;
+        <strong>500</strong> = disc-impostor swarm; <strong>M500</strong> = 3D
+        mesh asteroids (asteroid shape only, perf compare). Timing is full×500.
+        Exit fullscreen clears swarms. Optional
+        <code>?shape=asteroid&amp;quality=performance</code>.
+      </div>
+    </aside>
+    <div id="status">Loading WebGPU…</div>
+    <script type="module" src="./dist/gpu/sphere-surface-methods/main.js"></script>
+  </body>
+</html>

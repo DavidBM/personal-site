@@ -10,7 +10,7 @@
 import { SHIP_SIM_STRIDE } from "../visual/ship-sim-layout.js";
 import { MODEL_LOD_MAX_INSTANCES } from "../visual/fleet-lod.js";
 import { FLEET_GPU_STRIDE } from "../visual/fleet-layout.js";
-import { SCENE_AGENT_SCALE, SCENE_SHIP_VISUAL_MUL, } from "../visual/ship-motion-config.js";
+import { MODEL_SHIP_TYPES_WGSL, MODEL_SHIP_POSE_WGSL } from "./model-ship-pose.wgsl.js";
 export const FLEET_MODEL_VERTEX_STRIDE = 32; // 8 × f32
 /**
  * mat4 viewProjRel + origin.xyz + modelScale + fallbackLight.xyz + ambient +
@@ -56,52 +56,7 @@ struct ModelUniforms {
   _padPulse : vec3<f32>,
 };
 
-struct ShipSim {
-  posX: f32,
-  posY: f32,
-  posZ: f32,
-  speed: f32,
-  qx: f32,
-  qy: f32,
-  qz: f32,
-  qw: f32,
-  slotX: f32,
-  slotY: f32,
-  slotZ: f32,
-  heading: f32,
-  trailWrite: u32,
-  sinceSample: f32,
-  mode: u32,
-  fleetIndex: u32,
-  targetKind: u32,
-  orbitPhase: f32,
-  accel: f32,
-  cruiseV: f32,
-  orbitR: f32,
-  orbitOmega: f32,
-  omegaMax: f32,
-  _pad1: f32,
-};
-
-// FleetGpu stride 64 — pathEnd is the hop/orbit lamp for model lighting.
-struct FleetGpu {
-  posX: f32,
-  posZ: f32,
-  heading: f32,
-  pathEndY: f32, // _pad0: planar 0; SPACE3D pathEndY
-  pathStartX: f32,
-  pathStartZ: f32,
-  pathEndX: f32,
-  pathEndZ: f32,
-  t0: f32,
-  durationMs: f32,
-  flags: u32,
-  shipBudget: u32,
-  countsPacked: u32,
-  instanceStart: u32,
-  fleetIdHash: u32,
-  _pad1: u32,
-};
+${MODEL_SHIP_TYPES_WGSL}
 
 @group(0) @binding(0) var<uniform> u : ModelUniforms;
 @group(0) @binding(1) var<storage, read> ships : array<ShipSim>;
@@ -113,13 +68,7 @@ struct FleetGpu {
 /** Fleet pathEnd for per-ship point light (indexed by ShipSim.fleetIndex). */
 @group(0) @binding(7) var<storage, read> fleets : array<FleetGpu>;
 
-const SHIP_MODE_PAUSED: u32 = 0u;
-const SHIP_MODE_ORBIT: u32 = 3u;
-/** FleetGpu bit6 — sphere agent; pathEndY in _pad0. Match fleet-layout. */
-const FLEET_FLAG_SPACE3D: u32 = 64u;
-const FLEET_FLAG_SYSTEM_SCENE: u32 = 128u;
-const SCENE_AGENT_SCALE: f32 = ${SCENE_AGENT_SCALE};
-const SCENE_SHIP_VISUAL_MUL: f32 = ${SCENE_SHIP_VISUAL_MUL};
+${MODEL_SHIP_POSE_WGSL}
 const LIGHT_CENTER_EPS: f32 = ${FLEET_MODEL_LIGHT_CENTER_EPS};
 
 struct VSIn {
@@ -187,47 +136,13 @@ fn vs_main(input : VSIn) -> VSOut {
     q = vec4<f32>(0.0, sin(half), 0.0, cos(half));
   }
   let meshFix = vec4<f32>(0.0, sin(u.meshYawHalf), 0.0, cos(u.meshYawHalf));
-  let fi = ship.fleetIndex;
-  var pathEnd = vec3<f32>(ship.posX, ship.posY, ship.posZ);
-  var space3d = false;
-  var inScene = false;
-  if (fi < arrayLength(&fleets)) {
-    let f = fleets[fi];
-    pathEnd = vec3<f32>(f.pathEndX, f.pathEndY, f.pathEndZ);
-    space3d = (f.flags & FLEET_FLAG_SPACE3D) != 0u;
-    inScene = (f.flags & FLEET_FLAG_SYSTEM_SCENE) != 0u;
-  }
-  var hullScale = u.modelScale;
-  if (inScene) {
-    // Kepler BASE, not galaxy modelScale (0.25) — that stacked to a sub-pixel hull.
-    hullScale = SCENE_AGENT_SCALE * SCENE_SHIP_VISUAL_MUL;
-  }
-  let localMesh = quatRotate(meshFix, input.meshPos) * hullScale;
+  let pose = modelShipPose(ship, u.origin, u.modelScale);
+  let localMesh = quatRotate(meshFix, input.meshPos) * pose.hullScale;
   let nMesh = quatRotate(meshFix, input.meshNrm);
   let worldOff = quatRotate(q, localMesh);
 
-  // PathEnd + orbit phase for planar CIRCULATE: origin-relative without abs thrash.
-  // SPACE3D CIRCULATE stays on shipPos−origin (sphere agent; planar phase would snap).
-  var shipPos = vec3<f32>(ship.posX, ship.posY, ship.posZ);
-  var rel: vec3<f32>;
-  // Planar CIRCULATE only: reconstruct from phase (match triangle scatter gate).
-  // localOrb.y = live posY (approach ramp + settled personal height).
-  if (ship.mode == SHIP_MODE_ORBIT && !space3d) {
-    var R = select(2.0, ship.orbitR, ship.orbitR > 1e-6);
-    if (inScene) {
-      R = R * SCENE_AGENT_SCALE;
-    }
-    let sp = sin(ship.orbitPhase);
-    let cp = cos(ship.orbitPhase);
-    let localOrb = vec3<f32>(R * sp, ship.posY, R * cp);
-    // Draw: f32(pathEnd − origin) + local — keeps R-scale under follow-cam.
-    rel = (pathEnd - u.origin) + localOrb + worldOff;
-    // Light toward pathEnd from ship = −radial (precise, no absolute thrash).
-    out.lightDir = lightDirFromOrbitCenter(localOrb, vec3<f32>(0.0));
-  } else {
-    rel = shipPos - u.origin + worldOff;
-    out.lightDir = lightDirFromOrbitCenter(shipPos, pathEnd);
-  }
+  let rel = pose.centerRel + worldOff;
+  out.lightDir = lightDirFromOrbitCenter(pose.lightOffset, pose.lightCenter);
   let nWorld = quatRotate(q, nMesh);
   out.clip = u.viewProj * vec4<f32>(rel, 1.0);
   out.uv = input.meshUv;
