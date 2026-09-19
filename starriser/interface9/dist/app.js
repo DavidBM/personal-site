@@ -810,10 +810,7 @@ export class App {
         this.syncSceneFleetIds(node);
         const fleets = this.sceneFleetRows(snapshot);
         const cap = snapshot.metrics.graphicsCap;
-        const key = `${snapshot.systemId}:${snapshot.focusIndex}:${snapshot.selectedFleetId}:${snapshot.sceneFleetCount}:${cap?.shown}:${cap?.requested}:${snapshot.bodies.map((body) => body.catalogId).join("|")}:${fleets.map((fleet) => `${fleet.id}:${fleet.shipCount}:${fleet.state}:${fleet.planetName ?? ""}`).join("|")}`;
-        if (key === this.lastPlanetPanelKey)
-            return;
-        this.lastPlanetPanelKey = key;
+        this.lastPlanetPanelKey = `${snapshot.systemId}:${snapshot.focusIndex}:${snapshot.selectedFleetId}:${snapshot.sceneFleetCount}`;
         this.uiBindings.planetPanel.sync({ visible: true, bodies: snapshot.bodies, focusIndex: snapshot.focusIndex,
             fleets, fleetTotal: this.authority === "offline" ? fleets.length : snapshot.sceneFleetCount,
             selectedFleetId: snapshot.selectedFleetId, graphicsCap: snapshot.metrics.graphicsCap,

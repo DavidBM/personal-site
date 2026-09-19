@@ -3,7 +3,7 @@
 import { createRuntime, STRIDE } from "../../../lib/ship-runtime/engine.mjs";
 import { MAP_MSAA_SAMPLES } from "../../map-msaa.js";
 import { DENSITY_OVERLAY_WGSL, DENSITY_OVERLAY_SIDE, DENSITY_OVERLAY_CELL_LAB, DENSITY_OVERLAY_VERTICES, } from "./density-overlay.wgsl.js";
-import { DIRECTED_PRESENT_WGSL, DIRECTED_PRESENT_WORKGROUP, MAX_SCENE_FLEETS, SCENE_KERNEL_COUNT, MAX_GROUP_VISUAL, directedTickDecision, sceneFleetFingerprint, buildInstanceMap, seedDirectedShips, drainDirectedEncodeTick, labToCompact, compactToLab, occupancyForScene, occupancyVisuals, SCENE_VISUAL_CAP, warpEnterCommand, stageCommand, orbitCommand, pressurePlanetCommand, sceneMotionPlan, pickDensityFields, allocateKernelRanges, pickCompactMove, rangesOverlap, SCENE_SHIP_CHUNK, SCENE_CHUNK_BUDGET_MS, SCENE_LAB_SCALE, WARP_ENTER_SEC, TRAIL_COPY_SAMPLES, PRODUCTION_TRAIL_RING, } from "./directed-present.wgsl.js";
+import { DIRECTED_PRESENT_WGSL, DIRECTED_PRESENT_WORKGROUP, MAX_SCENE_FLEETS, SCENE_KERNEL_COUNT, MAX_GROUP_VISUAL, directedTickDecision, sceneFleetFingerprint, buildInstanceMap, seedDirectedShips, drainDirectedEncodeTick, labToCompact, compactToLab, occupancyForScene, occupancyVisuals, SCENE_VISUAL_CAP, warpEnterCommand, stageCommand, orbitCommand, pressurePlanetCommand, sceneMotionPlan, pickDensityFields, allocateKernelRanges, droppedInstanceIndices, pickCompactMove, rangesOverlap, SCENE_SHIP_CHUNK, SCENE_CHUNK_BUDGET_MS, SCENE_LAB_SCALE, WARP_ENTER_SEC, TRAIL_COPY_SAMPLES, PRODUCTION_TRAIL_RING, } from "./directed-present.wgsl.js";
 // @ts-expect-error JS helper copied into dist
 import { labPressureHalfExtent } from "../../../lib/ship-runtime/kepler-solar.mjs";
 export { MAX_SCENE_FLEETS, SCENE_KERNEL_COUNT, MAX_GROUP_VISUAL, directedTickDecision, sceneFleetFingerprint, buildInstanceMap, seedDirectedShips, SCENE_LAB_SCALE, };
@@ -518,10 +518,47 @@ export function createDirectedSceneHost(injected = null) {
             poseCpu = new ArrayBuffer(runtime.count * STRIDE);
         zeroKernelSlice(move.oldStart, move.cap);
     }
+    let instanceHide = new Float32Array(12 * 64);
+    function hideDroppedInstances(prev, next) {
+        if (!runtime || !instanceBuffer)
+            return;
+        const dropped = droppedInstanceIndices(prev, next);
+        if (dropped.length === 0)
+            return;
+        dropped.sort((a, b) => a - b);
+        const stride = 48;
+        const cap = Math.floor(instanceBuffer.size / stride);
+        let i = 0;
+        while (i < dropped.length) {
+            const start = dropped[i] >>> 0;
+            if (start >= cap) {
+                i++;
+                continue;
+            }
+            let count = 1;
+            i++;
+            while (i < dropped.length && dropped[i] === start + count && start + count < cap) {
+                count++;
+                i++;
+            }
+            const floats = count * 12;
+            if (instanceHide.length < floats)
+                instanceHide = new Float32Array(floats);
+            const bytes = floats * 4;
+            const offset = start * stride;
+            if (offset + bytes > instanceBuffer.size)
+                continue;
+            if (instanceHide.byteOffset + bytes > instanceHide.buffer.byteLength)
+                continue;
+            runtime.device.queue.writeBuffer(instanceBuffer, offset, instanceHide.buffer, instanceHide.byteOffset, bytes);
+        }
+    }
     function writeMapAndFleetTables() {
         if (!runtime)
             return;
+        const prevMap = mapCpu;
         mapCpu = buildInstanceMap(mappedFleets(), runtime.count, slotRanges);
+        hideDroppedInstances(prevMap, mapCpu);
         const bytes = mapCpu.byteLength;
         if (!mapBuffer || mapBuffer.size < bytes) {
             mapBuffer?.destroy();

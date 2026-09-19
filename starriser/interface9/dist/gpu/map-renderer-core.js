@@ -141,6 +141,7 @@ export class WebGpuMapView {
         this.targetZ = 0;
         this.cssWidth = 1;
         this.cssHeight = 1;
+        this.pendingResize = null;
         /** Projection clip planes — single source for resize + pick. */
         /** Near clip — below compact-planet boom at SPAN=0.1 (not MIN_ZOOM). */
         this.near = MAP_NEAR;
@@ -362,21 +363,46 @@ export class WebGpuMapView {
     resize(width, height, pixelRatio = this.pixelRatio) {
         if (this.bootstrap.isLost)
             return;
-        this.cssWidth = Math.max(1, width);
-        this.cssHeight = Math.max(1, height);
+        this.pendingResize = {
+            width: Math.max(1, width),
+            height: Math.max(1, height),
+            pixelRatio,
+        };
+        if (!this.loopRunning)
+            this.applyPendingResize();
+    }
+    /** Apply the last queued viewport at the start of a frame, never mid-encode. */
+    applyPendingResize() {
+        const next = this.pendingResize;
+        if (!next || this.bootstrap.isLost)
+            return;
+        this.pendingResize = null;
+        const width = next.width;
+        const height = next.height;
+        const pixelRatio = next.pixelRatio;
+        const bufW = Math.max(1, Math.floor(width * pixelRatio));
+        const bufH = Math.max(1, Math.floor(height * pixelRatio));
+        if (this.cssWidth === width &&
+            this.cssHeight === height &&
+            this.pixelRatio === pixelRatio &&
+            this.canvas.width === bufW &&
+            this.canvas.height === bufH) {
+            return;
+        }
+        this.cssWidth = width;
+        this.cssHeight = height;
         this.pixelRatio = pixelRatio;
         this.bootstrap.configureContext(this.cssWidth, this.cssHeight, pixelRatio);
         const aspect = this.cssWidth / this.cssHeight;
         this.coordinates.setPerspectives((this.fovyDeg * Math.PI) / 180, aspect, this.near, this.far, SCENE_NEAR, SCENE_FAR);
-        // Line2 expansion uses drawing-buffer pixels (DPR-scaled canvas size).
-        const bufW = this.canvas.width;
-        const bufH = this.canvas.height;
-        this.overlayLines.setResolution(bufW, bufH);
-        this.lines.setResolution(bufW, bufH);
-        this.schematics.orbitRings?.setResolution(bufW, bufH);
-        this.schematics.sceneGrid?.setResolution(bufW, bufH);
-        this.schematics.sceneJumpRays?.setResolution(bufW, bufH);
-        this.attachments.ensureMsaaColor(bufW, bufH);
+        const w = this.canvas.width;
+        const h = this.canvas.height;
+        this.overlayLines.setResolution(w, h);
+        this.lines.setResolution(w, h);
+        this.schematics.orbitRings?.setResolution(w, h);
+        this.schematics.sceneGrid?.setResolution(w, h);
+        this.schematics.sceneJumpRays?.setResolution(w, h);
+        this.attachments.ensureMsaaColor(w, h);
     }
     setCameraLookAt(eyeX, eyeY, eyeZ, targetX, targetZ, targetY = 0) {
         if (this.cameraX === eyeX &&
@@ -758,6 +784,7 @@ export class WebGpuMapView {
         this.frameState.referenceModelVisibility = options?.referenceModelVisibility === true;
         this.frameState.referenceTrailVisibility = options?.referenceTrailVisibility === true;
         try {
+            this.applyPendingResize();
             this.prepareCameraFrame();
             frameDebugTime("applyGalaxyPointLod", () => this.applyGalaxyPointLod());
             frameDebugTime("applyScenePlanetParking", () => this.fleetPresentation.scene.applyScenePlanetParking());
@@ -912,6 +939,7 @@ export class WebGpuMapView {
                 continue;
             this.sceneSlots.delete(id);
             this.sceneSlotLive[slot] = 0;
+            this.fleetPresentation.hideSceneTail(id, 0);
             this.fleetPresentation.ensureSceneVisualCount(id, null);
         }
     }
@@ -997,10 +1025,18 @@ export class WebGpuMapView {
         if (!this.directed)
             return;
         const wanted = this.collectSceneFleets();
-        const allocated = allocateSceneVisuals(wanted, { previous: this.lastOccupancy });
+        const previous = this.lastOccupancy;
+        const allocated = allocateSceneVisuals(wanted, { previous });
         this.lastOccupancy = allocated;
         if (allocated.key !== this.occupancyKey) {
             this.occupancyKey = allocated.key;
+            const live = new Set(allocated.fleets.map((f) => f.id ?? ""));
+            if (previous) {
+                for (const fleet of previous.fleets) {
+                    if (fleet.id && !live.has(fleet.id))
+                        this.sceneHideQueue.push({ id: fleet.id, live: 0 });
+                }
+            }
             for (const fleet of allocated.fleets) {
                 if (fleet.id)
                     this.sceneHideQueue.push({ id: fleet.id, live: fleet.shipCount | 0 });

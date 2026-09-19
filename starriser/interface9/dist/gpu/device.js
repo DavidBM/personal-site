@@ -67,6 +67,11 @@ export async function createWebGpuBootstrap(options) {
         const dpr = pixelRatio ?? options.pixelRatio ?? browserDpr;
         const w = Math.max(1, Math.floor(cssWidth * dpr));
         const h = Math.max(1, Math.floor(cssHeight * dpr));
+        // Assigning canvas.width even to the same value resets the OffscreenCanvas
+        // swapchain and can drop Dawn's instance mid-frame ("external Instance
+        // reference no longer exists").
+        if (options.canvas.width === w && options.canvas.height === h)
+            return;
         options.canvas.width = w;
         options.canvas.height = h;
         context.configure({

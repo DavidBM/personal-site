@@ -65,7 +65,15 @@ export class RenderClient {
         return { width: Math.max(1, rect.width), height: Math.max(1, rect.height), dpr: window.devicePixelRatio || 1 };
     }
     observeViewport(motion) {
-        const resize = () => this.send({ type: "viewport", viewport: this.viewport() });
+        let resizeRaf = 0;
+        const resize = () => {
+            if (resizeRaf)
+                return;
+            resizeRaf = requestAnimationFrame(() => {
+                resizeRaf = 0;
+                this.send({ type: "viewport", viewport: this.viewport() });
+            });
+        };
         const observer = new ResizeObserver(resize);
         observer.observe(this.canvas);
         window.addEventListener("resize", resize);
@@ -81,6 +89,8 @@ export class RenderClient {
         };
         watchDpr();
         this.cleanup.push(() => {
+            if (resizeRaf)
+                cancelAnimationFrame(resizeRaf);
             observer.disconnect();
             window.removeEventListener("resize", resize);
             resolution.removeEventListener("change", dprChanged);

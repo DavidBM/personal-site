@@ -445,6 +445,26 @@ export function buildInstanceMap(fleets, kernelCount, ranges = null) {
   return map;
 }
 
+/** Instance rows present-copy will no longer write after a map rebuild. */
+export function droppedInstanceIndices(prev, next) {
+  const keep = new Set();
+  const n = next?.length | 0;
+  for (let i = 0; i < n; i++) {
+    const inst = next[i];
+    if (inst !== 0xffffffff) keep.add(inst >>> 0);
+  }
+  const out = [];
+  const seen = new Set();
+  const m = prev?.length | 0;
+  for (let i = 0; i < m; i++) {
+    const inst = prev[i];
+    if (inst === 0xffffffff || keep.has(inst) || seen.has(inst)) continue;
+    seen.add(inst);
+    out.push(inst >>> 0);
+  }
+  return out;
+}
+
 export function holesFromRanges(ranges, kernelCount) {
   const used = [...ranges.values()].sort((a, b) => a.start - b.start);
   const holes = [];

@@ -291,8 +291,11 @@ export function buildSystemPlanetPanel(ctx, actions, opts) {
                 const fleet = fleets[i];
                 const el = rowEls.find((row) => row.dataset.fleetId === fleet.id);
                 const detail = el?.querySelector(".ui-planet-kind");
-                if (detail)
-                    detail.textContent = formatSceneFleetDetail(fleet);
+                if (!detail)
+                    continue;
+                const text = formatSceneFleetDetail(fleet);
+                if (detail.textContent !== text)
+                    detail.textContent = text;
             }
             if (next.focusIndex !== lastFocus || fleetId !== lastFleet) {
                 applySelected(rowEls, next.focusIndex, fleetId);

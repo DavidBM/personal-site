@@ -23,7 +23,7 @@ export const TRAIL_WORLD_WIDTH_TAIL = 0.024;
  * remain readable when the camera is far. Vertex shader clamps view half-width;
  * no extra pass.
  */
-export const TRAIL_WORLD_MIN_PX = 1.5;
+export const TRAIL_WORLD_MIN_PX = 2.5;
 /**
  * Clip-space half-width scale applied to a unit NDC side offset.
  *
