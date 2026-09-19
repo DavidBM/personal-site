@@ -1,4 +1,5 @@
-import { check, cursor, id, key, scope, ship, token } from "./validate-fields.js";
+import { validateViewEvent } from './views/validate.js';
+import { check, cursor, id, key, scope, fleet, token } from "./validate-fields.js";
 import { validateTopology } from './topology.js';
 import { validateStrategicSystems } from './validate-strategic.js';
 function welcome(value, generation) {
@@ -18,7 +19,14 @@ function admissionGrant(grant) {
     token(grant.token);
 }
 function admissionRenewed(value) {
-    id(value.receiptHomeShardId);
+    if (value.scope) {
+        scope(value.scope);
+        check(value.scope.shardId.every((b, i) => b === value.receiptHomeShardId[i]), "renewal scope home");
+    }
+    if (value.receiptHomeShardId.length === 0)
+        check(!value.scope && !value.grant, "unresolved renewal home");
+    else
+        id(value.receiptHomeShardId);
     check(value.requestId > 0n && value.serverTimeMs > 0n && value.retryAfterMs <= 30000, "renewal response");
     if (value.grant) {
         admissionGrant(value.grant);
@@ -40,18 +48,18 @@ function snapshot(value) {
     id(value.snapshotId);
     check(value.chunkCount > 0 && value.chunkCount <= 4096, "snapshot chunks");
     check(value.chunkIndex < value.chunkCount, "snapshot index");
-    check(value.ships.length <= 256, "snapshot ships");
-    for (const item of value.ships)
-        ship(item);
+    check(value.fleets.length <= 256, "snapshot fleets");
+    for (const item of value.fleets)
+        fleet(item);
 }
 function delta(value) {
     scope(value.scope);
     cursor(value.cursor);
     check(value.systemRevision > value.baseSystemRevision, "delta revision");
-    check(value.upserts.length + value.removedShipIds.length <= 256, "delta changes");
+    check(value.upserts.length + value.removedFleetIds.length <= 256, "delta changes");
     for (const item of value.upserts)
-        ship(item);
-    for (const removed of value.removedShipIds)
+        fleet(item);
+    for (const removed of value.removedFleetIds)
         id(removed);
 }
 function envelope(message) {
@@ -63,6 +71,20 @@ export function validateServerMessage(message) {
     envelope(message);
     const body = message.body;
     switch (body.case) {
+        case "viewPlacement": {
+            const p = body.value;
+            for (const v of [p.worldId, p.playerPartitionId, p.hostId, p.ownerId, p.playerId])
+                id(v);
+            check(p.ownerEpoch > 0n && p.recoveryGeneration > 0n, "placement authority");
+            placementUrl(p.websocketUrl, "wss:");
+            if (p.webtransportUrl !== undefined)
+                placementUrl(p.webtransportUrl, "https:");
+            check(p.certificateSha256.length === 0 || p.certificateSha256.length === 32, "placement certificate");
+            break;
+        }
+        case "viewEvent":
+            validateViewEvent(body.value);
+            break;
         case "welcome":
             welcome(body.value, message.connectionGeneration);
             break;
@@ -95,4 +117,5 @@ export function validateServerMessage(message) {
         default: throw new Error("Server message has no supported operation");
     }
 }
+function placementUrl(value, protocol) { const url = new URL(value); check(value.length <= 2048 && url.protocol === protocol && url.pathname === "/session" && !url.username && !url.password && !url.search && !url.hash, "placement endpoint"); }
 //# sourceMappingURL=validate-server.js.map

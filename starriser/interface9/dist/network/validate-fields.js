@@ -34,8 +34,8 @@ export function cursor(value) {
     id(item.subscriptionId);
     check(item.generation > 0n, "stream generation");
 }
-export function ship(value) {
-    id(value.shipId);
+export function fleet(value) {
+    id(value.fleetId);
     position(value.position);
     if (!value.movement)
         return;

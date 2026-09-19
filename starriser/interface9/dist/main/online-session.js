@@ -1,5 +1,6 @@
-import { ShipOrders, ShipProjection } from '../worker/protocol/services.js';
-import { NetworkEvents, OwnedShips, RememberIntent, NetworkDiagnostics, NetworkPlayback } from '../network/service-contracts.js';
+import { PlayerViews } from '../network/views/service-contracts.js';
+import { FleetOrders, FleetProjection } from '../worker/protocol/services.js';
+import { NetworkEvents, OwnedFleets, RememberIntent, NetworkDiagnostics, NetworkPlayback, ViewTopologyInstalled } from '../network/service-contracts.js';
 import { copyWatermark } from '../render/remote/projection-state.js';
 import { prepareNetworkServices } from './network-service-bootstrap.js';
 import { createStrategicClient } from './strategic-client.js';
@@ -19,12 +20,16 @@ export function createOnlineSession(options) {
     let resolveReady;
     let rejectReady;
     let disposePromise;
+    let selectionAttempt = 0, attachments = 0, welcomes = 0;
+    let overviewClosed = false;
+    let transport, wireConnection, lastError;
+    const portIdentity = crypto.randomUUID();
     const ready = new Promise((resolve, reject) => { resolveReady = resolve; rejectReady = reject; });
     void ready.catch(() => { });
     const startupTimer = setTimeout(() => fail(new Error('Online world did not become ready')), 20000);
     const binding = options.bus.bind({ service: 'online-session', instance: 'main', scope, source: 'js/main/online-session.ts' }, {
-        consumes: { ...NetworkEvents, move: ShipOrders.move, transfer: ShipOrders.transfer, retry: ShipOrders.retry, queryReceipt: ShipOrders.receipt,
-            ownedShips: OwnedShips, diagnostics: NetworkDiagnostics, projection: ShipProjection.batches, refreshPlayback: NetworkPlayback.refresh },
+        consumes: { replaceView: PlayerViews.replace, viewStatus: PlayerViews.status, ownedRoster: PlayerViews.owned, topologyInstalled: ViewTopologyInstalled, ...NetworkEvents, move: FleetOrders.move, transfer: FleetOrders.transfer, retry: FleetOrders.retry, queryReceipt: FleetOrders.receipt,
+            ownedFleets: OwnedFleets, diagnostics: NetworkDiagnostics, projection: FleetProjection.batches, refreshPlayback: NetworkPlayback.refresh },
         provides: { rememberIntent: RememberIntent },
     });
     binding.provides.rememberIntent.handle(async (event) => {
@@ -52,30 +57,87 @@ export function createOnlineSession(options) {
     async function topology(event) {
         if (event.generation !== generation || closed)
             return;
-        if (attached)
+        if (attached && !event.viewToken)
             throw new Error('Online topology attachment already exists');
         subscription = { ...event.subscription };
         const node = options.installTopology(event.topology, subscription);
         // Own the pending attachment before awaiting its acknowledgement. Disposal
         // queues clearFleets after attach on this same ordered renderer connection.
-        attached = true;
-        await options.renderer.attachProjection({ generation, identity: subscription, node, port: channel.port2 });
+        if (!attached && node) {
+            attached = true;
+            attachments++;
+            await options.renderer.attachProjection({ generation, identity: subscription, node, port: channel.port2, dynamic: !!event.viewToken });
+        }
+        if (event.viewToken) {
+            await options.renderer.query({ type: 'snapshot' });
+            if (closed)
+                return;
+            await binding.consumes.topologyInstalled.request(event.viewToken);
+            // Map usability is independent of detail permission and source readiness.
+            clearTimeout(startupTimer);
+            resolveReady(undefined);
+        }
     }
     function handleEvent(event) {
         if (closed)
             return;
+        recordLifetime(event);
         options.onEvent(event);
-        if (event.type === 'topology')
-            return topology(event).catch(fail);
-        if (event.type === 'received') {
-            received = copyWatermark(event.watermark);
-            if (event.snapshotComplete && !initialApplying) {
-                initialApplying = true;
-                void applied(event.watermark).catch(fail);
-            }
+        switch (event.type) {
+            case 'viewInterests':
+                overviewClosed = event.interests.slots.overview === null;
+                return;
+            case 'topology': return topology(event).catch(fail);
+            case 'viewBarrier':
+                selectionAttempt++;
+                received = undefined;
+                options.clearViews?.();
+                return;
+            case 'viewChanged':
+                viewChanged(event.status);
+                return;
+            case 'received':
+                projectionReceived(event);
+                return;
+            case 'state':
+                connectionState(event.state);
+                return;
         }
-        if (event.type === 'state' && event.state === 'closed')
-            fail(new Error('Online connection closed; pending outcomes need their original receipt keys'));
+    }
+    function connectionState(state) {
+        if (state === 'ready' && overviewClosed) {
+            clearTimeout(startupTimer);
+            resolveReady(undefined);
+        }
+        if (state === 'closed')
+            fail(new Error(lastError ?? 'Online connection closed; pending outcomes need their original receipt keys'));
+    }
+    function recordLifetime(event) {
+        if (event.type === 'error')
+            lastError = event.message;
+        if (event.type === 'welcome') {
+            welcomes++;
+            wireConnection = event.connectionGeneration;
+        }
+        if (event.type === 'state' && event.transport)
+            transport = event.transport;
+    }
+    function viewChanged(status) {
+        if (status.state === 'ready')
+            return;
+        if (status.slot === 'overview') {
+            received = undefined;
+            options.clearViews?.();
+        }
+        if (status.slot === 'detail')
+            received = undefined;
+    }
+    function projectionReceived(event) {
+        received = copyWatermark(event.watermark);
+        if (options.legacy && event.snapshotComplete && !initialApplying) {
+            initialApplying = true;
+            void applied(event.watermark).catch(fail);
+        }
     }
     async function applied(watermark) {
         await options.renderer.query({ type: 'projectionBarrier', required: watermark, timeoutMs: 10000 });
@@ -104,6 +166,7 @@ export function createOnlineSession(options) {
         await binding.ready();
         current();
         const bootstrap = { type: 'connect', generation, endpoints: options.endpoints, credential: options.credential,
+            playerViews: options.legacy ? undefined : {}, viewInterests: options.viewInterests,
             discovery: { subscriptionId: crypto.randomUUID().replace(/-/g, ''), preferredSystemId: options.preferredSystemId },
             ownedProjection: true, transfers: true, renewAdmissions: true, strategic: true, playbackCorrections: true,
             diagnostics: options.diagnostics, renderPort: channel.port1 };
@@ -129,12 +192,34 @@ export function createOnlineSession(options) {
     void start().catch(fail);
     return {
         ready, generation, scope, dispose,
+        lifetime: () => ({ generation, closed, transport, wireConnection, welcomes, attachments, portIdentity, lastError }),
+        replaceView(slot, selector) { current(); return binding.consumes.replaceView.request({ slot, selector }); },
+        viewStatus(slot) { current(); return binding.consumes.viewStatus.request(slot); },
+        ownedRoster(query = {}) { current(); return binding.consumes.ownedRoster.request(query); },
+        async selectSystem(systemId) {
+            current();
+            received = undefined;
+            const attempt = ++selectionAttempt;
+            try {
+                await binding.consumes.replaceView.request({ slot: 'detail', selector: { kind: 'detail', systemId } });
+            }
+            catch (error) {
+                if (closed || attempt !== selectionAttempt)
+                    return;
+                throw error;
+            }
+            if (closed || attempt !== selectionAttempt)
+                return;
+            if (subscription)
+                subscription = { ...subscription, systemId };
+            options.selectSystem?.(systemId);
+        },
         move(intent, context) { current(); return binding.consumes.move.request(intent, { context, timeoutMs: 15000 }); },
         transfer(intent, context) { current(); return binding.consumes.transfer.request(intent, { context, timeoutMs: 15000 }); },
         retry(command, context) { current(); return binding.consumes.retry.request(command, { context, timeoutMs: 15000 }); },
         queryReceipt(key, context) { current(); return binding.consumes.queryReceipt.request(key, { context, timeoutMs: 15000 }); },
         takeDiagnostics() { current(); return binding.consumes.diagnostics.request(undefined, { timeoutMs: 3000 }); },
-        ownedShips(query = {}) { current(); return binding.consumes.ownedShips.request(query); },
+        ownedFleets(query = {}) { current(); return binding.consumes.ownedFleets.request(query); },
         replaceStrategic(value) { current(); return strategic.replace(value); },
         strategicSnapshot() { current(); return strategic.query(); },
         received: () => received && copyWatermark(received),

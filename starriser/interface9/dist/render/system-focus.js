@@ -17,6 +17,8 @@
  */
 import { MAP_NEAR } from "../gpu/camera-zoom.js";
 import { systemOrbitBoomDistance, systemOrbitMinRadius, } from "../gpu/system-orbit-pose.js";
+// @ts-expect-error JS helper copied into dist; declarations live in kepler-solar.mjs.d.ts
+import { compactOrbitPad } from "../lib/ship-runtime/kepler-solar.mjs";
 import { rayFromLookAtCamera, screenToNdc } from "../gpu/math/ground-pick.js";
 import { pickBodyIndex } from "../gpu/planet-lib/solar-bodies.js";
 import { bodyScreenRadiusPx, cameraToPlaneDistance, composeCompactBodyWorld, } from "../gpu/solar-system-lod.js";
@@ -169,7 +171,7 @@ export function createSystemFocusController(opts) {
         const world = composeCompactBodyWorld(store, index, view.getSceneTimeSec());
         if (!world)
             return;
-        const boom = boomDistanceForLimbFill(store.radius[index], st.bufferW, st.bufferH, st.fovyDeg, 0.9, st.near);
+        const boom = boomDistanceForLimbFill(store.radius[index] + compactOrbitPad(4), st.bufferW, st.bufferH, st.fovyDeg, 0.9, st.near);
         const cam = opts.camera;
         if (cam && typeof cam.setSystemOrbitFocus === "function") {
             cam.setSystemOrbitFocus({

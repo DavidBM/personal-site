@@ -1,6 +1,18 @@
 /* tslint:disable */
 /* eslint-disable */
 
+export class PlanetaryModel {
+    free(): void;
+    [Symbol.dispose](): void;
+    constructor(version: number, epoch_ms: number, origin: Float64Array, bodies: Float64Array);
+    phase_records(time_ms: number): Float64Array;
+    /**
+     * Shared bounded local corridor planner; warp corridors are not queried.
+     */
+    plan_route(frame_body: number, at_ms: number, duration_seconds: number, start: Float64Array, destination: Float64Array, capability: Float64Array): Float64Array;
+    sample(time_ms: number): Float64Array;
+}
+
 /**
  * An immutable permitted topology, built once and released with its worker or
  * topology generation. Packed IDs and index pairs avoid a JSON object bridge.
@@ -27,7 +39,7 @@ export class RuleSystem {
     discard(): void;
     identities(): Uint8Array;
     /**
-     * Columns per ship: identities = ship/owner/order IDs (48 bytes; zero order
+     * Columns per fleet: identities = fleet/owner/order IDs (48 bytes; zero order
      * means idle); positions = x,z,targetX,targetZ; times = departure,arrival.
      * Revisions are u64, exposed as BigUint64Array. Rows restore in any order.
      */
@@ -50,11 +62,11 @@ export class RuleSystem {
     pending_revisions(): BigUint64Array;
     pending_times(): BigUint64Array;
     /**
-     * Source/destination/ship/owner full IDs, 64 bytes, or empty for no export.
+     * Source/destination/fleet/owner full IDs, 64 bytes, or empty for no export.
      */
     pending_transfer_ids(): Uint8Array;
     /**
-     * Base/new system revision, command time, departure, arrival, ship revision.
+     * Base/new system revision, command time, departure, arrival, fleet revision.
      */
     pending_transfer_meta(): BigUint64Array;
     /**
@@ -69,10 +81,12 @@ export class RuleSystem {
      * Stages the same sealed export as native. Route permission and receipt
      * dedup belong to the host; online preview callers discard this proposal.
      */
-    stage_export(actor_id: Uint8Array, ship_id: Uint8Array, destination_id: Uint8Array, target_x: number, target_z: number, now_ms: bigint, arrival_ms: bigint, expected_revision?: bigint | null): number;
-    stage_move(actor_id: Uint8Array, order_id: Uint8Array, ship_id: Uint8Array, target_x: number, target_z: number, now_ms: bigint, expected_revision?: bigint | null): number;
+    stage_export(actor_id: Uint8Array, fleet_id: Uint8Array, destination_id: Uint8Array, target_x: number, target_z: number, now_ms: bigint, arrival_ms: bigint, expected_revision?: bigint | null): number;
+    stage_move(actor_id: Uint8Array, order_id: Uint8Array, fleet_id: Uint8Array, target_x: number, target_z: number, now_ms: bigint, expected_revision?: bigint | null): number;
     times(): BigUint64Array;
 }
+
+export function ephemeris_version(): number;
 
 export function route_arrival_ms(now: bigint, legs: number): bigint;
 
@@ -84,8 +98,14 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
+    readonly __wbg_planetarymodel_free: (a: number, b: number) => void;
     readonly __wbg_ruleroutes_free: (a: number, b: number) => void;
     readonly __wbg_rulesystem_free: (a: number, b: number) => void;
+    readonly ephemeris_version: () => number;
+    readonly planetarymodel_new: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
+    readonly planetarymodel_phase_records: (a: number, b: number) => [number, number, number, number];
+    readonly planetarymodel_plan_route: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => [number, number, number, number];
+    readonly planetarymodel_sample: (a: number, b: number) => [number, number, number, number];
     readonly route_arrival_ms: (a: bigint, b: number) => [bigint, number, number];
     readonly rule_version: () => number;
     readonly ruleroutes_new: (a: number, b: number, c: number, d: number) => [number, number, number];
@@ -115,8 +135,8 @@ export interface InitOutput {
     readonly rulesystem_times: (a: number) => [number, number];
     readonly transfer_travel_ms: () => bigint;
     readonly __wbindgen_externrefs: WebAssembly.Table;
-    readonly __externref_table_dealloc: (a: number) => void;
     readonly __wbindgen_malloc: (a: number, b: number) => number;
+    readonly __externref_table_dealloc: (a: number) => void;
     readonly __wbindgen_free: (a: number, b: number, c: number) => void;
     readonly __wbindgen_start: () => void;
 }

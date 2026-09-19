@@ -8,19 +8,19 @@ function allocate(count, removed) {
         removedIds: new Uint8Array(buffer, count * 73, removed.length * 16),
     };
 }
-function packRows(ships, removed) {
-    const columns = allocate(ships.length, removed);
-    for (let i = 0; i < ships.length; i++) {
-        const ship = ships[i];
-        const from = ship.movement?.from ?? ship.position;
-        const target = ship.movement?.to ?? ship.position;
-        columns.ids.set(ship.shipId, i * 16);
-        columns.revisions[i] = ship.revision;
+function packRows(fleets, removed) {
+    const columns = allocate(fleets.length, removed);
+    for (let i = 0; i < fleets.length; i++) {
+        const fleet = fleets[i];
+        const from = fleet.movement?.from ?? fleet.position;
+        const target = fleet.movement?.to ?? fleet.position;
+        columns.ids.set(fleet.fleetId, i * 16);
+        columns.revisions[i] = fleet.revision;
         columns.positions.set([from.x, from.z], i * 2);
         columns.targets.set([target.x, target.z], i * 2);
-        if (ship.movement) {
-            columns.times[i * 2] = ship.movement.departureServerMs;
-            columns.times[i * 2 + 1] = ship.movement.arrivalServerMs;
+        if (fleet.movement) {
+            columns.times[i * 2] = fleet.movement.departureServerMs;
+            columns.times[i * 2 + 1] = fleet.movement.arrivalServerMs;
             columns.moving[i] = 1;
         }
     }
@@ -36,12 +36,12 @@ function metadata(scope, cursor) {
     };
 }
 export function packSnapshot(chunk) {
-    return { ...metadata(chunk.scope, chunk.cursor), ...packRows(chunk.ships, []),
+    return { ...metadata(chunk.scope, chunk.cursor), ...packRows(chunk.fleets, []),
         baseSystemRevision: chunk.systemRevision, systemRevision: chunk.systemRevision,
         snapshot: { id: opaqueIdAt(chunk.snapshotId), index: chunk.chunkIndex, count: chunk.chunkCount } };
 }
 export function packDelta(delta) {
-    return { ...metadata(delta.scope, delta.cursor), ...packRows(delta.upserts, delta.removedShipIds),
+    return { ...metadata(delta.scope, delta.cursor), ...packRows(delta.upserts, delta.removedFleetIds),
         baseSystemRevision: delta.baseSystemRevision, systemRevision: delta.systemRevision };
 }
 //# sourceMappingURL=projection-pack.js.map

@@ -1,3 +1,4 @@
+import { validateViewRequest } from './views/validate.js';
 import { check, cursor, id, key, position, scope, token } from "./validate-fields.js";
 import { validateSubscribeStrategic } from './validate-strategic.js';
 function hello(value) {
@@ -5,13 +6,13 @@ function hello(value) {
     check(value.supportedRuleVersions.length <= 16 && value.supportedRuleVersions.includes(1), "rule versions");
     check(value.requiredCapabilities.length <= 16, "capabilities length");
     for (const capability of value.requiredCapabilities)
-        check(capability >= 1 && capability <= 10, "required capability");
+        check(capability >= 1 && capability <= 11, "required capability");
     token(value.sessionCredential);
 }
 function move(value) {
     key(value.key);
     scope(value.scope);
-    id(value.shipId);
+    id(value.fleetId);
     position(value.target);
     token(value.admissionToken);
     if (value.expectedSystemRevision !== undefined) {
@@ -30,7 +31,7 @@ function subscribe(value) {
 function transfer(value) {
     key(value.key);
     scope(value.scope);
-    id(value.shipId);
+    id(value.fleetId);
     id(value.destinationSystemId);
     position(value.destinationPosition);
     token(value.admissionToken);
@@ -47,6 +48,9 @@ export function validateClientMessage(message) {
     }
     check(message.protocolVersion === 1 && message.connectionGeneration > 0n, "session envelope");
     switch (body.case) {
+        case "viewRequest":
+            validateViewRequest(body.value);
+            break;
         case "move":
             move(body.value);
             break;
@@ -58,7 +62,12 @@ export function validateClientMessage(message) {
             key(body.value.key);
             break;
         case "renewAdmission":
-            id(body.value.receiptHomeShardId);
+            if (body.value.systemId.length) {
+                id(body.value.systemId);
+                check(!body.value.receiptHomeShardId.length, "renewal selector");
+            }
+            else
+                id(body.value.receiptHomeShardId);
             check(body.value.requestId > 0n, "renewal request identity");
             break;
         case "playbackClock":

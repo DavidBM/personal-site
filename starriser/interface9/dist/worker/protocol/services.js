@@ -18,13 +18,13 @@ export const defineQuery = (id, options = {}) => descriptor('query', id, options
 export const defineEvent = (id, options = {}) => descriptor('event', id, options);
 /** Stream descriptors register ownership only. Payloads use their direct port and credit protocol. */
 export const defineStream = (id) => descriptor('stream', id, {});
-export const ShipOrders = {
-    move: defineCommand('shipOrders.move', { ordered: 'shipOrders', capacity: 128 }),
-    transfer: defineCommand('shipOrders.transfer', { ordered: 'shipOrders', capacity: 128 }),
-    retry: defineCommand('shipOrders.retry', { ordered: 'shipOrders', capacity: 128 }),
-    receipt: defineQuery('shipOrders.receipt'),
+export const FleetOrders = {
+    move: defineCommand('fleetOrders.move', { ordered: 'fleetOrders', capacity: 128 }),
+    transfer: defineCommand('fleetOrders.transfer', { ordered: 'fleetOrders', capacity: 128 }),
+    retry: defineCommand('fleetOrders.retry', { ordered: 'fleetOrders', capacity: 128 }),
+    receipt: defineQuery('fleetOrders.receipt'),
 };
-export const ShipProjection = { batches: defineStream('shipProjection.batches') };
+export const FleetProjection = { batches: defineStream('fleetProjection.batches') };
 export const FleetServices = {
     generate: defineCommand('fleets.generate', { ordered: 'fleets' }),
     generateBulk: defineCommand('fleets.generateBulk', { ordered: 'fleets' }),

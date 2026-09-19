@@ -1,6 +1,6 @@
 /** Explicit worker observations. Core measurement owns its success/failure lifecycle. */
 import { renderSnapshot, sceneDiagnostics, sceneFleetPage } from "./runtime-state.js";
-import { pickRuntimeSceneTarget } from './scene-picking.js';
+import { pickRuntimeSceneTarget, pickRuntimeFleetHalo } from './scene-picking.js';
 export async function queryRenderRuntime(state, query, remote = []) {
     switch (query.type) {
         case "snapshot": return renderSnapshot(state, remote);
@@ -9,6 +9,8 @@ export async function queryRenderRuntime(state, query, remote = []) {
         case "pickShip": return state.view.pickRandomShipPose();
         case "fleetSlot": return state.view.readFleetGpuSlot(query.id);
         case "pickSceneTarget": return pickRuntimeSceneTarget(state, remote, query.x, query.y);
+        case "pickFleetHalo": return pickRuntimeFleetHalo(state, query.x, query.y);
+        case "kernelFleetMap": return state.view.kernelFleetMap?.() ?? [];
         case "sceneFleetPage": return sceneFleetPage(state, remote, query.offset, query.limit);
         case "sceneDiagnostics": return sceneDiagnostics(state);
         case "colorReadback": return captureColor(state);

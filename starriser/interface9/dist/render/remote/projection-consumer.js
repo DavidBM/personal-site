@@ -7,7 +7,7 @@ import { appendSnapshot, copyWatermark, matchesSnapshot, readProjectionChanges, 
 export function createProjectionConsumer(expected, options) {
     if (![expected.worldId, expected.systemId, expected.subscriptionId].every(isOpaqueId))
         throw new Error("Invalid projection subscription");
-    let ships = new Map();
+    let fleets = new Map();
     let received = null;
     let applied = null;
     let assembly = null;
@@ -62,9 +62,9 @@ export function createProjectionConsumer(expected, options) {
         if (assembly.next !== assembly.count)
             return;
         const replacement = assembly;
-        await options.replace(replacement.ships, signal);
+        await options.replace(replacement.fleets, signal);
         signal.throwIfAborted();
-        ships = replacement.ships;
+        fleets = replacement.fleets;
         assembly = null;
         needsSnapshot = false;
         publish(replacement.watermark);
@@ -78,14 +78,14 @@ export function createProjectionConsumer(expected, options) {
     }
     async function applyDelta(batch, signal) {
         const change = readProjectionChanges(batch);
-        let count = ships.size;
+        let count = fleets.size;
         for (const id of change.removed)
-            if (ships.has(id))
+            if (fleets.has(id))
                 count--;
-        for (const ship of change.upserts) {
-            const before = ships.get(ship.id);
-            if (before && ship.revision <= before.revision)
-                throw new Error("Projection ship revision did not advance");
+        for (const fleet of change.upserts) {
+            const before = fleets.get(fleet.id);
+            if (before && fleet.revision <= before.revision)
+                throw new Error("Projection fleet revision did not advance");
             if (!before)
                 count++;
         }
@@ -94,9 +94,9 @@ export function createProjectionConsumer(expected, options) {
         received = watermark(batch);
         await apply(change, signal);
         for (const id of change.removed)
-            ships.delete(id);
-        for (const ship of change.upserts)
-            ships.set(ship.id, ship);
+            fleets.delete(id);
+        for (const fleet of change.upserts)
+            fleets.set(fleet.id, fleet);
         publish(watermark(batch));
     }
     return {
@@ -124,14 +124,14 @@ export function createProjectionConsumer(expected, options) {
             }
         },
         waitFor: barriers.wait,
-        inspect: () => ({ received: received && copyWatermark(received), applied: applied && copyWatermark(applied), entities: ships.size, snapshotEntities: assembly?.ships.size ?? 0 }),
-        ship: (id) => ships.get(id),
+        inspect: () => ({ received: received && copyWatermark(received), applied: applied && copyWatermark(applied), entities: fleets.size, snapshotEntities: assembly?.fleets.size ?? 0 }),
+        fleet: (id) => fleets.get(id),
         dispose() {
             closed = true;
             lifetime.abort();
             received = applied = null;
             assembly = null;
-            ships.clear();
+            fleets.clear();
             barriers.dispose();
         },
     };

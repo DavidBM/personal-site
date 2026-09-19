@@ -38,13 +38,28 @@ export function createRuntimeProjection(state, onError, onFollowRetired = () => 
                 return;
             }
         }
-        const adapter = createRemoteFleetAdapter(state.view.createRemoteFleetSlots(onFollowRetired), ship => {
+        const makeAdapter = () => createRemoteFleetAdapter(state.view.createRemoteFleetSlots(onFollowRetired), fleet => {
             if (!clock)
                 throw new Error('Projection has no server clock anchor');
             system(attachment);
-            return remotePresentationPath(ship, attachment.node, clock, state.view.remoteClockReference());
+            return remotePresentationPath(fleet, attachment.node, clock, state.view.remoteClockReference());
         }, `remote:${attachment.generation}`);
-        const consumer = createProjectionConsumer(attachment.identity, { apply: adapter.apply, replace: adapter.replace });
+        let adapter = makeAdapter();
+        let consumer = createProjectionConsumer(attachment.identity, { apply: adapter.apply, replace: adapter.replace });
+        function reset(value) {
+            consumer.dispose();
+            adapter.dispose();
+            clock = undefined;
+            playback = undefined;
+            if (value?.identity && value.node) {
+                if (value.identity.worldId !== attachment.identity.worldId || value.identity.subscriptionId !== attachment.identity.subscriptionId)
+                    throw new Error('Projection reset identity changed');
+                system({ ...attachment, node: value.node });
+                attachment = { ...attachment, identity: value.identity, node: value.node };
+            }
+            adapter = makeAdapter();
+            consumer = createProjectionConsumer(attachment.identity, { apply: adapter.apply, replace: adapter.replace });
+        }
         function appliedBatch(batch, signal) {
             const applied = consumer.inspect().applied;
             return !signal.aborted && applied?.streamGeneration === batch.streamGeneration && applied.sequence === batch.sequence;
@@ -60,6 +75,7 @@ export function createRuntimeProjection(state, onError, onFollowRetired = () => 
         }
         const receiver = createProjectionReceiver(attachment.port, {
             generation: attachment.generation,
+            reset: attachment.dynamic ? reset : undefined,
             async apply(batch, signal) {
                 const received = consumer.inspect().received;
                 if (received && batch.streamGeneration < received.streamGeneration)
@@ -80,7 +96,7 @@ export function createRuntimeProjection(state, onError, onFollowRetired = () => 
                 if (value.sequence <= correctionSequence || !matchesPlaybackBaseline(value.baseline, consumer.inspect().applied))
                     return;
                 clock = { ...value.clock };
-                await adapter.retime(consumer.ship, signal);
+                await adapter.retime(consumer.fleet, signal);
                 playback = value;
                 correctionSequence = value.sequence;
             },
@@ -100,26 +116,26 @@ export function createRuntimeProjection(state, onError, onFollowRetired = () => 
                 allocatedSlots: slots.allocated, lastCommitMs: slots.lastCommitMs,
                 ...(playback ? { playback: { sequence: correctionSequence, roundTripMs: playback.clock.roundTripMs } } : {}) };
         }
-        async function observeShip(id, readback) {
-            const ship = consumer.ship(id), visual = adapter.visual(id);
-            if (!ship || !visual || closed)
-                throw new Error('Remote ship is no longer visible');
+        async function observeFleet(id, readback) {
+            const fleet = consumer.fleet(id), visual = adapter.visual(id);
+            if (!fleet || !visual || closed)
+                throw new Error('Remote fleet is no longer visible');
             const row = state.view.readFleetGpuSlot(visual.id);
-            const result = { ship: { ...ship }, fleetSlot: row.fleetSlot, shipIndex: visual.instanceStart,
+            const result = { fleet: { ...fleet }, fleetSlot: row.fleetSlot, shipIndex: visual.instanceStart,
                 pathStartX: row.pathStartX, pathStartZ: row.pathStartZ, pathEndX: row.pathEndX, pathEndZ: row.pathEndZ, flags: row.flags };
             if (readback) {
                 const bytes = await state.view.fleetsLayer.readbackShipSimOne(visual.instanceStart);
-                assertObservationCurrent(id, visual, ship.revision);
+                assertObservationCurrent(id, visual, fleet.revision);
                 const gpu = readShipSim(new DataView(bytes), 0);
                 result.gpu = { posX: gpu.posX, posY: gpu.posY ?? 0, posZ: gpu.posZ, mode: gpu.mode, fleetIndex: gpu.fleetIndex };
                 result.gpuPath = await readPath(visual.fleetSlot);
-                assertObservationCurrent(id, visual, ship.revision);
+                assertObservationCurrent(id, visual, fleet.revision);
             }
             return result;
         }
         function assertObservationCurrent(id, visual, revision) {
-            if (closed || adapter.visual(id) !== visual || consumer.ship(id)?.revision !== revision)
-                throw new Error('Remote ship readback was superseded');
+            if (closed || adapter.visual(id) !== visual || consumer.fleet(id)?.revision !== revision)
+                throw new Error('Remote fleet readback was superseded');
         }
         async function readPath(slot) {
             const buffer = state.view.fleetsLayer.getFleetGpuBuffer();
@@ -140,13 +156,13 @@ export function createRuntimeProjection(state, onError, onFollowRetired = () => 
                 await consumer.waitFor(query.required, { timeoutMs: query.timeoutMs });
                 return inspect();
             }
-            const after = query.type === 'remoteShip' ? query.after : query.required;
+            const after = query.type === 'remoteFleet' ? query.after : query.required;
             if (after)
                 await consumer.waitFor(after);
-            const result = await observeShip(query.id, query.type === 'remoteShip' && query.readback === true);
-            if (query.type === 'followRemoteShip')
-                follow(query.id, result.ship.revision);
-            if (query.type === 'focusRemoteShip') {
+            const result = await observeFleet(query.id, query.type === 'remoteFleet' && query.readback === true);
+            if (query.type === 'followRemoteFleet')
+                follow(query.id, result.fleet.revision);
+            if (query.type === 'focusRemoteFleet') {
                 const sun = system(attachment).position;
                 const visual = adapter.visual(query.id);
                 const reference = state.view.remoteClockReference();
@@ -158,11 +174,11 @@ export function createRuntimeProjection(state, onError, onFollowRetired = () => 
         function follow(id, revision) {
             const visual = adapter.visual(id);
             if (!visual)
-                throw new Error('Remote ship is no longer visible');
+                throw new Error('Remote fleet is no longer visible');
             assertObservationCurrent(id, visual, revision);
             const scene = state.view.getSceneFleetNode();
             if (state.director.isPlaying() || scene?.clusterId !== attachment.node.clusterId || scene?.solarSystemId !== attachment.node.solarSystemId) {
-                throw new Error('Ship system scene is not ready for follow');
+                throw new Error('Fleet system scene is not ready for follow');
             }
             // Persistent ID resolves and camera ownership changes in one worker turn.
             state.view.setFollowShipIndex(visual.instanceStart);
@@ -174,7 +190,7 @@ export function createRuntimeProjection(state, onError, onFollowRetired = () => 
                     received: progressCursor(status.received), applied: progressCursor(status.applied),
                     queuedBytes: status.retainedBytes, queuedBatches: status.retainedBatches, inFlightBytes: 0, inFlightBatches: 0 } };
         }
-        return { query, inspect, dispose, takeDiagnostics, adapterEntries: adapter.entries,
+        return { query, inspect, dispose, takeDiagnostics, invalidate() { receiver.invalidate(); reset(); }, adapterEntries: () => adapter.entries(),
             adapterCount: () => adapter.inspect().active };
     }
     return {
@@ -209,6 +225,7 @@ export function createRuntimeProjection(state, onError, onFollowRetired = () => 
             return out;
         },
         sceneFleetCount: () => attached?.adapterCount() ?? 0,
+        invalidate() { attached?.invalidate(); },
         dispose() { attached?.dispose(); attached = null; },
     };
 }

@@ -2,7 +2,7 @@
 import { MODEL_SHIP_TYPES_WGSL, MODEL_SHIP_POSE_WGSL } from './model-ship-pose.wgsl.js';
 import { MODEL_VISIBILITY_EPSILON } from '../visual/model-visibility.js';
 export const MODEL_VISIBILITY_GROUP_SIZE = 64;
-export const MODEL_VISIBILITY_UNIFORM_BYTES = 128;
+export const MODEL_VISIBILITY_UNIFORM_BYTES = 256;
 export function buildModelVisibilityWgsl(capacity, indirectOffsetWords) {
     return /* wgsl */ `
 ${MODEL_SHIP_TYPES_WGSL}
@@ -10,6 +10,10 @@ struct VisibilityUniforms {
   planes: array<vec4<f32>, 6>,
   origin: vec3<f32>, modelScale: f32,
   meshRadius: f32, candidateCount: u32, indexCount: u32, groupCount: u32,
+  lodMask: u32,
+  _padA: u32,
+  _padB: u32,
+  _padC: u32,
 };
 @group(0) @binding(0) var<uniform> u: VisibilityUniforms;
 @group(0) @binding(1) var<storage, read> ships: array<ShipSim>;
@@ -33,7 +37,10 @@ fn sphereVisible(center: vec3<f32>, radius: f32) -> bool {
 }
 fn candidateVisible(index: u32) -> bool {
   if (index >= u.candidateCount) { return false; }
-  let ship = ships[candidates[index]];
+  let shipIdx = candidates[index];
+  if (shipIdx == 0xffffffffu) { return false; }
+  let ship = ships[shipIdx];
+  if (u.lodMask != 0u && (ship.fleetIndex >= arrayLength(&fleets) || (fleets[ship.fleetIndex].flags & u.lodMask) == 0u)) { return false; }
   if (ship.mode == SHIP_MODE_PAUSED) { return false; }
   let pose = modelShipPose(ship, u.origin, u.modelScale);
   return sphereVisible(pose.centerRel, u.meshRadius * abs(pose.hullScale));

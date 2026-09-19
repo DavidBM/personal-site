@@ -1,3 +1,4 @@
+import { createPlayerSession } from './views/session.js';
 import { createPlaybackCorrections } from './playback-corrections.js';
 import { createCorrectionSender } from '../render/remote/correction-sender.js';
 import { unframeMessage } from './framing.js';
@@ -32,6 +33,8 @@ function requireCapabilities(value, bootstrap) {
     }
 }
 export function createNetworkSession(options) {
+    if (options.bootstrap.playerViews)
+        return createPlayerSession(options);
     const { bootstrap, emit } = options;
     const controller = new AbortController();
     const now = options.now ?? (() => performance.now());
@@ -129,7 +132,7 @@ export function createNetworkSession(options) {
             renewal = createAdmissionRenewal({ grants: value.admissions, now, serverNow: clock.serverNow,
                 sample: clock.sample,
                 send: (home, requestId) => send(clientMessage(value.connectionGeneration, { case: 'renewAdmission',
-                    value: { $typeName: 'galaxy.v1.RenewAdmission', receiptHomeShardId: opaqueIdBytes(home), requestId } })),
+                    value: { $typeName: 'galaxy.v1.RenewAdmission', systemId: new Uint8Array(), receiptHomeShardId: opaqueIdBytes(home), requestId } })),
                 accept(grant) {
                     const index = value.admissions.findIndex(item => opaqueIdAt(item.receiptHomeShardId) === opaqueIdAt(grant.receiptHomeShardId));
                     if (index < 0)
@@ -422,13 +425,13 @@ export function createNetworkSession(options) {
         const value = strategic.replace(interest);
         await send(clientMessage(welcome.connectionGeneration, { case: 'subscribeStrategic', value: { $typeName: 'galaxy.v1.SubscribeStrategic', ...value } }));
     }
-    return { ready, control, dispose: () => dispose(), takeDiagnostics, replaceStrategic,
+    return { views: undefined, ready, control, dispose: () => dispose(), takeDiagnostics, replaceStrategic,
         strategicSnapshot() {
             if (!strategic)
                 throw new Error('Strategic summaries were not negotiated');
             return strategic.snapshot();
         },
-        ownedShips(query) {
+        ownedFleets(query) {
             if (closed || !owned)
                 throw new Error('Owned projection is not available');
             return owned.page(query, clock.serverNow());

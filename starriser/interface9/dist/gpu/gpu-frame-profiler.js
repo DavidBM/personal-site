@@ -46,6 +46,7 @@ export class FrameGpuProfiler {
     createEncoder(device, descriptor = {}) {
         if (device !== this.device)
             throw new Error('Frame profiler cannot mix GPU devices');
+        this.recorded.length = 0;
         const encoder = device.createCommandEncoder(descriptor);
         const beginCompute = encoder.beginComputePass;
         const beginRender = encoder.beginRenderPass;

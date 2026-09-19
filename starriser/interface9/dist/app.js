@@ -1,6 +1,6 @@
 import { UIController } from "./ui-controller.js";
 import { createOnlineSession } from './main/online-session.js';
-import { followOnlineShip } from './main/online-navigation.js';
+import { followOnlineFleet } from './main/online-navigation.js';
 import { createOnlineTopology } from './main/online-topology.js';
 import { Galaxy } from "./galaxy.js";
 import { GalaxyMetrics } from "./galaxy-metrics.js";
@@ -17,6 +17,7 @@ import { createRenderCameraInput } from "./main/render-camera-input.js";
 import { pickRenderBody } from "./main/render-picking.js";
 import { createScenePointerFeedback } from "./ui/scene-pointer-feedback.js";
 import { installAppRenderDiagnostics } from "./main/app-render-diagnostics.js";
+import { sceneFleetRemainingSec } from "./render/protocol.js";
 import { collectExtendedClusterIds, regenerateClusters, } from "./main/cluster-regenerator.js";
 import { createFleetStatusController, } from "./main/fleet-status-controller.js";
 import { beginBulkAdd, cancelGamePerfWork, endBulkAdd, installGamePerfGlobal, isBulkActive, noteBulkApplied, } from "./main/game-perf.js";
@@ -35,6 +36,7 @@ export class App {
         this.online = null;
         this.onlineAttempt = 0;
         this.onlineNode = null;
+        this.onlineTopology = null;
         this.lastSceneFleetIdsKey = "";
         this.scenePointerFeedback = null;
         this.scenePickBusy = false;
@@ -50,6 +52,7 @@ export class App {
         this.disposePromise = null;
         this.startupAbort = new AbortController();
         this.subscriptionDispose = null;
+        this.localShowSequence = 1;
         this.authority = options.authority ?? 'offline';
         this.statsPanels = [];
         this.uiRoot = createUIRoot();
@@ -62,10 +65,8 @@ export class App {
         this.pointerEventRouter = null;
         this.renderClient = null;
         this.editHandlePointer = null;
-        const statsBar = editorStatsContainer(this.uiBindings);
-        if (statsBar) {
-            this.statsPanels.push(createRenderPerformancePanel(statsBar));
-        }
+        const statsBar = editorStatsContainer(this.uiBindings) ?? ensureRenderPerfHost();
+        this.statsPanels.push(createRenderPerformancePanel(statsBar));
         this.stats = this.statsPanels[0] ?? null;
         this.metrics = new GalaxyMetrics();
         this.controlsManager = ControlsManager.getInstance();
@@ -214,13 +215,11 @@ export class App {
         this.contextMenu =
             this.uiBindings.mode === "editor" ? this.uiBindings.contextMenu : null;
         this.contextMenuController = this.createContextMenuController();
-        const statsBar = editorStatsContainer(this.uiBindings);
+        const statsBar = editorStatsContainer(this.uiBindings) ?? ensureRenderPerfHost();
         for (const panel of this.statsPanels)
             panel.dispose();
         this.statsPanels = [];
-        if (statsBar) {
-            this.statsPanels.push(createRenderPerformancePanel(statsBar));
-        }
+        this.statsPanels.push(createRenderPerformancePanel(statsBar));
         this.stats = this.statsPanels[0] ?? null;
         this.uiController.setStatsElements(this.uiBindings.stats);
         const statsContainer = editorStatsContainer(this.uiBindings);
@@ -262,7 +261,9 @@ export class App {
         if (this.disposed || attempt !== this.onlineAttempt)
             throw new Error('Online connection was superseded');
         const session = createOnlineSession({ ...options, bus: this.mainBus, renderer: this.renderClient,
-            installTopology: (view, subscription) => this.installServerTopology(view, subscription) });
+            installTopology: (view, subscription) => this.installServerTopology(view, subscription),
+            clearViews: () => this.clearOnlineViews(),
+            selectSystem: id => this.selectOnlineNode(id) });
         this.online = session;
         await session.ready;
         if (this.disposed || this.online !== session)
@@ -271,9 +272,10 @@ export class App {
     }
     installServerTopology(view, subscription) {
         const topology = createOnlineTopology(view);
-        const node = topology.node(subscription.systemId);
-        this.onlineNode = node;
-        this.renderClient?.send({ type: 'clear' });
+        const node = subscription.systemId ? topology.node(subscription.systemId) : undefined;
+        this.onlineTopology = topology;
+        this.onlineNode = node ?? null;
+        this.renderClient?.send({ type: 'clear', preserveProjection: true });
         this.galaxy.clear();
         this.maxSolarSystemId = 0;
         this.fleetStatus.clear();
@@ -283,20 +285,38 @@ export class App {
         this.processOps(topology.ops);
         publishTopic(this.mainBus, Topics.galaxyLocalOps, topology.ops, 0);
         this.renderClient?.send({ type: 'finalize' });
-        const system = this.galaxy.getSolarSystemById(node.clusterId, node.solarSystemId);
-        this.startDirectorFly({ ...node, x: system.position.x, z: system.position.z }, { durationMs: 750 });
+        if (node) {
+            const system = this.galaxy.getSolarSystemById(node.clusterId, node.solarSystemId);
+            this.startDirectorFly({ ...node, x: system.position.x, z: system.position.z }, { durationMs: 750 });
+        }
         this.updateStats();
         return node;
     }
-    async followOnlineShip(shipId) {
+    clearOnlineViews() {
+        this.onlineNode = null;
+        this.onlineTopology = null;
+        this.onlineSceneFleets.clear();
+        this.renderClient?.send({ type: 'clear', preserveProjection: true });
+        this.galaxy.clear();
+        this.fleetStatus.clear();
+    }
+    selectOnlineNode(systemId) {
+        if (!this.onlineTopology)
+            throw new Error('Overview is not installed');
+        const node = this.onlineTopology.node(systemId);
+        this.onlineNode = node;
+        const system = this.galaxy.getSolarSystemById(node.clusterId, node.solarSystemId);
+        this.startDirectorFly({ ...node, x: system.position.x, z: system.position.z }, { durationMs: 500 });
+    }
+    async followOnlineFleet(fleetId) {
         const renderer = this.renderClient, session = this.online, node = this.onlineNode;
         if (!renderer || !session || !node)
             throw new Error('Connect to a server first');
         const system = this.galaxy.getSolarSystemById(node.clusterId, node.solarSystemId);
-        await followOnlineShip({ renderer, session, node,
+        await followOnlineFleet({ renderer, session, node,
             current: () => !this.disposed && this.online === session,
             navigate: () => { this.startDirectorFly({ ...node, x: system.position.x, z: system.position.z }, { durationMs: 500 }); },
-        }, shipId);
+        }, fleetId);
     }
     async initializeWorkers() {
         try {
@@ -431,6 +451,9 @@ export class App {
                 updateSceneHover: (x, y) => this.updateSceneHover(x, y),
                 clearFocus: () => this.clearSceneSelection(),
                 isSceneActive: () => this.isSolarSceneActive(),
+                onSceneAttack: this.authority === "online"
+                    ? undefined
+                    : (x, y) => { void this.issueLocalShowAttack(x, y); },
             });
         }
     }
@@ -593,6 +616,14 @@ export class App {
     followRandomShip() {
         this.renderClient?.send({ type: "followRandomShip" });
     }
+    followSelectedFleet() {
+        const id = this.renderClient?.snapshot()?.selectedFleetId;
+        if (id)
+            this.renderClient?.send({ type: "followFleet", id });
+    }
+    setDebugDensityVoxels(on) {
+        this.renderClient?.send({ type: "debugDensityVoxels", on });
+    }
     selectSceneBody(index) {
         this.sceneSelectionGeneration++;
         const snapshot = this.renderClient?.snapshot();
@@ -649,6 +680,38 @@ export class App {
             return false;
         this.queueScenePick(x, y, true);
         return true;
+    }
+    async issueLocalShowAttack(clientX, clientY) {
+        if (this.authority === "online")
+            return;
+        const client = this.renderClient;
+        if (!client)
+            return;
+        const rect = client.canvas.getBoundingClientRect();
+        const target = await client.query({
+            type: "pickFleetHalo",
+            x: clientX - rect.left,
+            y: clientY - rect.top,
+        });
+        if (!target || target.kind !== "fleet")
+            return;
+        const selected = client.snapshot()?.selectedFleetId;
+        if (!selected || selected === target.id)
+            return;
+        const map = await client.query({ type: "kernelFleetMap" });
+        // @ts-expect-error JS helper copied into dist; declarations live in directed-map.mjs.d.ts
+        const { resolveLocalShowAttack } = await import("./gpu/map/fleets/directed-map.mjs");
+        const slots = resolveLocalShowAttack(map, selected, target);
+        if (!slots)
+            return;
+        const { encodeLocalShowAttack } = await import("./lib/ship-runtime/packet.js");
+        const packet = encodeLocalShowAttack({
+            attacker: slots.attacker,
+            target: slots.target,
+            sequence: this.localShowSequence++,
+            id: `local-show-${target.id}`,
+        });
+        client.sendDirectorPacket(packet);
     }
     updateSceneHover(x, y) {
         if (x < 0 || y < 0) {
@@ -746,13 +809,15 @@ export class App {
         const node = snapshot.sceneNode;
         this.syncSceneFleetIds(node);
         const fleets = this.sceneFleetRows(snapshot);
-        const key = `${snapshot.systemId}:${snapshot.focusIndex}:${snapshot.selectedFleetId}:${snapshot.sceneFleetCount}:${snapshot.bodies.map((body) => body.catalogId).join("|")}:${fleets.map((fleet) => `${fleet.id}:${fleet.shipCount}:${fleet.state}`).join("|")}`;
+        const cap = snapshot.metrics.graphicsCap;
+        const key = `${snapshot.systemId}:${snapshot.focusIndex}:${snapshot.selectedFleetId}:${snapshot.sceneFleetCount}:${cap?.shown}:${cap?.requested}:${snapshot.bodies.map((body) => body.catalogId).join("|")}:${fleets.map((fleet) => `${fleet.id}:${fleet.shipCount}:${fleet.state}:${fleet.planetName ?? ""}`).join("|")}`;
         if (key === this.lastPlanetPanelKey)
             return;
         this.lastPlanetPanelKey = key;
         this.uiBindings.planetPanel.sync({ visible: true, bodies: snapshot.bodies, focusIndex: snapshot.focusIndex,
             fleets, fleetTotal: this.authority === "offline" ? fleets.length : snapshot.sceneFleetCount,
-            selectedFleetId: snapshot.selectedFleetId });
+            selectedFleetId: snapshot.selectedFleetId, graphicsCap: snapshot.metrics.graphicsCap,
+            sceneDraw: snapshot.metrics.sceneDraw });
     }
     syncSceneFleetIds(node) {
         if (!node || this.authority !== "offline")
@@ -773,11 +838,22 @@ export class App {
             }
             for (const fleet of snapshot.sceneFleets)
                 this.onlineSceneFleets.set(fleet.id, fleet);
-            return [...this.onlineSceneFleets.values()].map((fleet) => ({ id: fleet.id, shipCount: fleet.shipCount, state: fleet.state }));
+            return [...this.onlineSceneFleets.values()].map((fleet) => ({
+                id: fleet.id, shipCount: fleet.shipCount, state: fleet.state,
+                remainingSec: fleet.remainingSec, planetName: fleet.planetName,
+            }));
         }
+        const observed = new Map(snapshot.sceneFleets.map((fleet) => [fleet.id, fleet]));
         return this.fleetStatus.fleetIdsAt(node.clusterId, node.solarSystemId).map((id) => {
             const fleet = this.fleetStatus.byId.get(id);
-            return { id, shipCount: fleet.counts.red + fleet.counts.blue + fleet.counts.green, state: fleet.state.state };
+            const snap = observed.get(id);
+            return {
+                id,
+                shipCount: fleet.counts.red + fleet.counts.blue + fleet.counts.green,
+                state: fleet.state.state,
+                remainingSec: snap?.remainingSec ?? sceneFleetRemainingSec(fleet.state, snapshot.wallMs),
+                planetName: snap?.planetName ?? null,
+            };
         });
     }
     /**
@@ -1077,6 +1153,18 @@ function isPositiveFinite(value) {
 }
 function editorStatsContainer(bindings) {
     return bindings.mode === "editor" ? bindings.stats.container ?? null : null;
+}
+function ensureRenderPerfHost() {
+    const existing = document.getElementById("ui-render-perf-host");
+    if (existing)
+        return existing;
+    const host = document.createElement("div");
+    host.id = "ui-render-perf-host";
+    Object.assign(host.style, {
+        position: "fixed", left: "12px", bottom: "12px", zIndex: "6", pointerEvents: "none",
+    });
+    document.body.appendChild(host);
+    return host;
 }
 const DEFAULT_GENERATION_PARAMS = {
     numClusters: 15000,

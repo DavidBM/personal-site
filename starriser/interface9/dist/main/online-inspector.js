@@ -59,6 +59,33 @@ export function createOnlineInspector(app) {
     document.body.append(button);
     return {
         ...source, open: viewer.open,
+        session: () => app.online?.lifetime(),
+        view: async (slot) => app.online?.viewStatus(slot),
+        async renderedView() {
+            const session = app.online, renderer = app.renderClient, required = session?.received();
+            if (!session || !renderer || !required)
+                throw new Error('No current detail watermark');
+            const projection = await renderer.query({ type: 'projectionBarrier', required, timeoutMs: 5000 });
+            const state = await renderer.query({ type: 'snapshot' });
+            if (app.online !== session || session.received()?.streamGeneration !== required.streamGeneration)
+                throw new Error('Detail changed during inspection');
+            return { required, projection, state };
+        },
+        async renderedPixels() {
+            if (!app.renderClient)
+                throw new Error('Renderer unavailable');
+            const color = await app.renderClient.query({ type: 'colorReadback' });
+            if (!color || typeof color !== 'object' || !('rgba' in color))
+                throw new Error('Color readback unavailable');
+            let colored = 0, contrast = 0;
+            for (let i = 0; i < color.rgba.length; i += 4) {
+                if (Math.max(color.rgba[i], color.rgba[i + 1], color.rgba[i + 2]) > 16)
+                    colored++;
+                if (Math.max(Math.abs(color.rgba[i] - color.rgba[0]), Math.abs(color.rgba[i + 1] - color.rgba[1]), Math.abs(color.rgba[i + 2] - color.rgba[2])) > 16)
+                    contrast++;
+            }
+            return { width: color.width, height: color.height, colored, contrast, scene: await app.renderClient.query({ type: 'sceneDiagnostics' }) };
+        },
         async command(commandId, send) {
             // Diagnostic identity creation is best effort. A missing inspector must
             // never prevent submission of the already captured player intent.

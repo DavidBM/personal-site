@@ -142,8 +142,14 @@ export function buildEditorGenerationPanel(ctx, actions) {
     ctx.button({
         id: "generateFleet",
         parent: buttonRow.element,
-        text: "Generate a Fleet",
+        text: "Create fleet in system",
         onClick: (event) => buttonHandlers(event, () => actions.generateFleet()),
+    });
+    ctx.button({
+        id: "followSelectedFleet",
+        parent: buttonRow.element,
+        text: "Follow selected fleet",
+        onClick: (event) => buttonHandlers(event, () => actions.followSelectedFleet?.()),
     });
     ctx.button({
         id: "generateFleetsBulk1k",
@@ -174,6 +180,25 @@ export function buildEditorGenerationPanel(ctx, actions) {
         parent: buttonRow.element,
         text: "Clear Galaxy",
         onClick: (event) => buttonHandlers(event, () => actions.clearGalaxy()),
+    });
+    const debugRow = ctx.row({
+        id: "row-debug-visual",
+        parent: controls.content,
+        template: "auto 1fr",
+    });
+    const densityBox = ctx.checkbox({
+        id: "debug-density-voxels",
+        parent: debugRow.element,
+        checked: false,
+    });
+    ctx.text({
+        id: "label-debug-density",
+        parent: debugRow.element,
+        text: "Debug: density volume voxels",
+        className: "ui-label",
+    });
+    densityBox.element.addEventListener("change", () => {
+        actions.setDebugDensityVoxels?.(densityBox.element instanceof HTMLInputElement && densityBox.element.checked);
     });
     return {
         panel: controls,

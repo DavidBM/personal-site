@@ -73,6 +73,8 @@ export const LOD_HOLD_MS = 2500;
 export const WARM_FRAMES = 4;
 /** Screen-space icon target diameter (px). Stored in draw size; pad marks SS. */
 export const ICON_SCREEN_PX = 15;
+/** Jewel triangle-band ship marker (px). Camera-facing; pad marks SS. */
+export const TRIANGLE_SCREEN_PX = 4;
 // ---------------------------------------------------------------------------
 // Model LOD (textured glTF) — additive near band; does not change 0/1/2
 // ---------------------------------------------------------------------------

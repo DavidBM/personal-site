@@ -1,7 +1,10 @@
 /**
  * Instanced textured ship mesh draw (model LOD band).
  *
- * Per instance: ShipSim storage row (pos + full quaternion).
+ * GPU owns poses: compute writes ShipSim (pos + quaternion), this VS
+ * `drawIndexed(mesh, N)` reads `ships[shipIndices[instance]]`. Host does not
+ * upload per-ship transforms; it only names which instances when that set changes.
+ *
  * Lighting: **point light at fleet pathEnd** (hop destination / orbit center)
  * via FleetGpu lookup on ship.fleetIndex. Ambient + small camera rim; no shadows/IBL.
  *
@@ -33,6 +36,10 @@ export const FLEET_MODEL_FLEET_GPU_STRIDE = FLEET_GPU_STRIDE;
 export const FLEET_MODEL_LIGHT_CENTER_EPS = 1e-3;
 /** Uniform float index for thruster pulse (after meshYawHalf @ 27). */
 export const FLEET_MODEL_U_THRUSTER_PULSE = 28;
+/** u32 lodMask in the same uniform (float slot 29 / byte 116). */
+export const FLEET_MODEL_U_LOD_MASK = 29;
+/** u32 hullBand in the same uniform (float slot 30 / byte 120). */
+export const FLEET_MODEL_U_HULL_BAND = 30;
 export const FLEET_MODEL_SHIPS_WGSL = /* wgsl */ `
 struct ModelUniforms {
   /** proj * lookAt(eye−origin, target−origin) — origin-relative viewProj. */
@@ -49,11 +56,11 @@ struct ModelUniforms {
   meshYawHalf : f32,
   /** Aft thruster light pulse (~0.86…1.14). @ offset 112. */
   thrusterPulse : f32,
-  /**
-   * Explicit vec3 pad: WGSL aligns it to 16 B → offset 128, struct size 144.
-   * Host buffer must be ≥ 144 or CreateBindGroup fails (minBindingSize).
-   */
-  _padPulse : vec3<f32>,
+  /** FleetGpu flag that must be set for this draw (LOW or HIGH). 0 = no filter. */
+  lodMask : u32,
+  /** 1 = jewel hull band (draw); 0 = triangle band (clip every hull). */
+  hullBand : u32,
+  _padLod : vec3<f32>,
 };
 
 ${MODEL_SHIP_TYPES_WGSL}
@@ -118,7 +125,25 @@ fn lightDirFromOrbitCenter(shipPos: vec3<f32>, center: vec3<f32>) -> vec3<f32> {
 fn vs_main(input : VSIn) -> VSOut {
   var out : VSOut;
   let shipIdx = shipIndices[input.inst];
+  if (shipIdx == 0xffffffffu || u.hullBand == 0u) {
+    out.clip = vec4<f32>(0.0, 0.0, 2.0, 1.0);
+    out.uv = input.meshUv;
+    out.worldNrm = vec3<f32>(0.0, 1.0, 0.0);
+    out.relPos = vec3<f32>(0.0);
+    out.lightDir = vec3<f32>(0.0, 1.0, 0.0);
+    out.aftLightDir = vec3<f32>(0.0, 0.0, -1.0);
+    return out;
+  }
   let ship = ships[shipIdx];
+  if (u.lodMask != 0u && (ship.fleetIndex >= arrayLength(&fleets) || (fleets[ship.fleetIndex].flags & u.lodMask) == 0u)) {
+    out.clip = vec4<f32>(0.0, 0.0, 2.0, 1.0);
+    out.uv = input.meshUv;
+    out.worldNrm = vec3<f32>(0.0, 1.0, 0.0);
+    out.relPos = vec3<f32>(0.0);
+    out.lightDir = vec3<f32>(0.0, 1.0, 0.0);
+    out.aftLightDir = vec3<f32>(0.0, 0.0, -1.0);
+    return out;
+  }
   if (ship.mode == SHIP_MODE_PAUSED) {
     out.clip = vec4<f32>(0.0, 0.0, 2.0, 1.0);
     out.uv = input.meshUv;

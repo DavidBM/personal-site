@@ -7,12 +7,12 @@ export function createDomainHost(rules, mode, onAccepted) {
     let system = null;
     let token = null;
     let playerId = '';
-    let ships = 0;
+    let fleets = 0;
     let closed = false;
     const version = rules.rule_version();
     const routes = createRoutePreview(rules);
     function status() {
-        return { mode, ruleVersion: version, token: token ? copyToken(token) : null, ships, nextDeadlineMs: system?.next_deadline_ms() ?? null };
+        return { mode, ruleVersion: version, token: token ? copyToken(token) : null, fleets, nextDeadlineMs: system?.next_deadline_ms() ?? null };
     }
     function seed(value) {
         validateSeed(value);
@@ -24,7 +24,7 @@ export function createDomainHost(rules, mode, onAccepted) {
         system = replacement;
         token = copyToken(value.token);
         playerId = value.playerId;
-        ships = value.revisions.length;
+        fleets = value.revisions.length;
         previous?.free();
         return status();
     }
@@ -35,7 +35,7 @@ export function createDomainHost(rules, mode, onAccepted) {
         return system;
     }
     function stageMove(state, move) {
-        return state.stage_move(opaqueIdBytes(playerId), opaqueIdBytes(move.orderId), opaqueIdBytes(move.shipId), move.targetX, move.targetZ, move.nowMs, move.expectedSystemRevision);
+        return state.stage_move(opaqueIdBytes(playerId), opaqueIdBytes(move.orderId), opaqueIdBytes(move.fleetId), move.targetX, move.targetZ, move.nowMs, move.expectedSystemRevision);
     }
     function preview(move) {
         const state = current(move.token);
@@ -98,7 +98,7 @@ export function createDomainHost(rules, mode, onAccepted) {
             routes.dispose();
             system = null;
             token = null;
-            ships = 0;
+            fleets = 0;
         },
     };
 }

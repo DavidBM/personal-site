@@ -17,7 +17,7 @@ export class PackedFleetStorage {
         this.fleetGpuView = new DataView(this.fleetGpuBytes);
         this.fleetGpuU8 = new Uint8Array(this.fleetGpuBytes);
         /**
-         * CPU ShipSim mirror (stride 96). One row per ship slot (high-water).
+         * CPU ShipSim mirror (stride 224). One row per ship slot (high-water).
          * Inited on spawn; compute integrates each frame (GPU is pose source of truth).
          */
         this.shipSimBytes = new ArrayBuffer(0);

@@ -11,7 +11,8 @@ export function createProjectionReceiver(port, options) {
     const maxBatches = options.maxBatches ?? MAX_STREAM_BATCHES;
     validStreamOptions(options.generation, maxBytes, maxBatches);
     const pending = new Set();
-    const controller = new AbortController();
+    let controller = new AbortController();
+    let viewGeneration = 0, accepting = true;
     let retainedBytes = 0;
     let lastTicket = 0;
     let closed = false;
@@ -50,13 +51,16 @@ export function createProjectionReceiver(port, options) {
         lastTicket = packet.ticket;
         retainedBytes += bytes;
         pending.add(packet.ticket);
+        const signal = controller.signal;
+        const current = accepting && (packet.batch.viewGeneration ?? 0) === viewGeneration;
         tail = tail.then(async () => {
             try {
-                if (!closed)
-                    await options.apply(packet.batch, controller.signal);
+                if (!closed && current && !signal.aborted)
+                    await options.apply(packet.batch, signal);
             }
             catch (error) {
-                fail(error);
+                if (!signal.aborted)
+                    fail(error);
             }
             finally {
                 release(packet, buffers, bytes);
@@ -90,11 +94,33 @@ export function createProjectionReceiver(port, options) {
             }
         }).catch(fail);
     }
+    function invalidate() {
+        accepting = false;
+        controller.abort();
+        controller = new AbortController();
+    }
+    function reset(packet) {
+        if (!options.reset || !Number.isSafeInteger(packet.viewGeneration) || packet.viewGeneration <= viewGeneration)
+            throw new Error('Invalid projection reset');
+        invalidate();
+        viewGeneration = packet.viewGeneration;
+        options.reset(packet);
+        accepting = !!packet.identity && !!packet.node;
+    }
     function onMessageError() { fail(new Error("Projection batch could not be deserialized")); }
     function onMessage(event) {
         const packet = event.data;
         if (closed || packet?.connectionGeneration !== options.generation)
             return;
+        if (packet.type === 'projectionReset') {
+            try {
+                reset(packet);
+            }
+            catch (error) {
+                fail(error);
+            }
+            return;
+        }
         if (packet.type === 'playbackCorrection') {
             correction(packet);
             return;
@@ -113,7 +139,7 @@ export function createProjectionReceiver(port, options) {
     port.start();
     return {
         inspect: () => ({ closed, retainedBytes, retainedBatches: pending.size }),
-        dispose,
+        dispose, invalidate,
     };
 }
 //# sourceMappingURL=transfer-receiver.js.map

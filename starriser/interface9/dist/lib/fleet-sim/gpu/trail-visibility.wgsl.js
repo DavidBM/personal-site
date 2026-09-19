@@ -11,21 +11,27 @@ struct TrailVisibilityUniforms {
 };
 
 fn expandedTrailPoint(sampleBase: u32, baseY: f32, worldOff: vec3<f32>, pathEnd: vec3<f32>, stableScene: bool) -> vec3<f32> {
-  // Preserve subtract-before-offset and the existing scalar addition order.
+  return expandedTrailSample(
+    vec4<f32>(trails[sampleBase], trails[sampleBase + 1u], trails[sampleBase + 2u], trails[sampleBase + 3u]),
+    baseY, worldOff, pathEnd, stableScene,
+  );
+}
+fn expandedTrailSample(s: vec4<f32>, baseY: f32, worldOff: vec3<f32>, pathEnd: vec3<f32>, stableScene: bool) -> vec3<f32> {
+  // Kernel present-copy writes sun-local compact XYZ. Do not add pathEnd or baseY.
   if (stableScene) {
     return vec3<f32>(
-      trails[sampleBase] - u.origin.x + worldOff.x,
-      baseY + trails[sampleBase + 3u] - u.origin.y + worldOff.y,
-      trails[sampleBase + 1u] - u.origin.z + worldOff.z,
+      s.x - u.origin.x + worldOff.x,
+      s.w - u.origin.y + worldOff.y,
+      s.y - u.origin.z + worldOff.z,
     );
   }
   let peOx = pathEnd.x - u.origin.x;
   let peOy = pathEnd.y - u.origin.y;
   let peOz = pathEnd.z - u.origin.z;
   return vec3<f32>(
-    peOx + trails[sampleBase] + worldOff.x,
-    baseY + peOy + trails[sampleBase + 3u] + worldOff.y,
-    peOz + trails[sampleBase + 1u] + worldOff.z,
+    peOx + s.x + worldOff.x,
+    baseY + peOy + s.w + worldOff.y,
+    peOz + s.y + worldOff.z,
   );
 }
 

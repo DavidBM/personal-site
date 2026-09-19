@@ -1,5 +1,5 @@
 import { hashStringSeed, FLEET_SHIP_DRAW_FLOATS } from "../../fleet-ship-pack.js";
-import { CAP_NEAR, GLOBAL_MAX_INSTANCES, WARM_FRAMES, countShips, scaleCountsToBudget, shouldResetFleetTrails } from "../../fleet-lod.js";
+import { CAP_NEAR, GLOBAL_MAX_INSTANCES, TRIANGLE_SCREEN_PX, WARM_FRAMES, countShips, scaleCountsToBudget, shouldResetFleetTrails } from "../../fleet-lod.js";
 import { createFleetSlotAllocator } from "../../fleet-slot-allocator.js";
 import { FLEET_GPU_STRIDE, FLEET_FLAG_ALIVE, FLEET_FLAG_WARM, FleetGpuFields } from "../../fleet-layout.js";
 import { SHIP_SIM_STRIDE, ShipSimFields } from "../../ship-sim-layout.js";
@@ -11,6 +11,7 @@ import { FleetSceneParking } from "./scene-parking.js";
 import { FleetFollowShadow } from "./follow-shadow.js";
 import { createFleetGpuUpload } from "./gpu-upload.js";
 import { createFleetPathPacking } from "./path-packing.js";
+import { sceneFleetCentroid } from "./directed-present.wgsl.js";
 /** Fleet lifecycle facade. Resource phases have separate, narrowly scoped owners. */
 const MAX_FLEET_SLOTS = 100000;
 export class FleetPresentation {
@@ -26,6 +27,7 @@ export class FleetPresentation {
     publishVisibleIndex(index) {
         this.visible.records = index.records;
         this.visible.warmingFleetIds = index.warmingFleetIds;
+        this.scene.rebuildLocIndex();
     }
     constructor(layer, isUnavailable, solarBodies, timeline) {
         this.visible = { records: new Map(), warmingFleetIds: new Set() };
@@ -79,6 +81,42 @@ export class FleetPresentation {
             pathEndY: this.storage.fleetGpuView.getFloat32(o + FleetGpuFields._pad0, true),
             fleetSlot: f.fleetSlot,
         };
+    }
+    sceneShipCentroid(id) {
+        const visual = this.records.get(id);
+        if (!visual || visual.instanceActive <= 0)
+            return null;
+        const start = visual.instanceStart;
+        const n = visual.instanceActive;
+        const inst = this.storage.instanceData;
+        const sim = this.storage.shipSimView;
+        return sceneFleetCentroid(n, (i) => {
+            const draw = (start + i) * FLEET_SHIP_DRAW_FLOATS;
+            if (draw + 8 > inst.length || !(inst[draw + 7] > 0))
+                return null;
+            const at = (start + i) * SHIP_SIM_STRIDE;
+            if (at + 12 > sim.byteLength)
+                return null;
+            return {
+                x: sim.getFloat32(at + ShipSimFields.posX, true),
+                y: sim.getFloat32(at + ShipSimFields.posY, true),
+                z: sim.getFloat32(at + ShipSimFields.posZ, true),
+            };
+        });
+    }
+    pinSceneCentroid(id) {
+        const visual = this.records.get(id);
+        const c = this.sceneShipCentroid(id);
+        if (!visual || !c)
+            return null;
+        const o = visual.fleetSlot * FLEET_GPU_STRIDE;
+        if (o + FLEET_GPU_STRIDE > this.storage.fleetGpuBytes.byteLength)
+            return c;
+        this.storage.fleetGpuView.setFloat32(o + FleetGpuFields.posX, c.x, true);
+        this.storage.fleetGpuView.setFloat32(o + FleetGpuFields.posZ, c.z, true);
+        this.storage.fleetGpuView.setFloat32(o + FleetGpuFields._pad0, c.y, true);
+        this.storage.markFleetDirty(visual.fleetSlot);
+        return c;
     }
     setFleetPositionProvider(lookup) {
         this.positionLookup = lookup;
@@ -159,6 +197,140 @@ export class FleetPresentation {
         return Math.max(1, n);
     }
     /**
+     * SCENE occupancy may need more (or fewer) instance slots than CAP_NEAR.
+     * `null` restores the spawn budget. Unmapped tail ships are size 0.
+     */
+    growSceneBuffers() {
+        this.storage.ensureCpuInstanceCapacity(this.slotAlloc.shipHighWater);
+        this.storage.ensureCpuShipSimCapacity(this.slotAlloc.shipHighWater);
+        this.storage.instanceLiveCount = this.slotAlloc.shipHighWater;
+        this.upload.ensureGpuShipCapacity(this.slotAlloc.shipHighWater);
+    }
+    ensureSceneVisualCount(id, n) {
+        const visual = this.records.get(id);
+        if (!visual)
+            return false;
+        const restoring = n == null;
+        const want = restoring ? this.spawnBudget(visual) : Math.max(0, n | 0);
+        const oldStart = visual.instanceStart;
+        const oldCount = visual.instanceCapacity;
+        if (restoring && oldCount > 0)
+            this.layer.killTrailRange(oldStart, oldCount);
+        if (want === oldCount) {
+            if (restoring) {
+                visual.instanceActive = want;
+                this.zeroShipDraw(oldStart, oldCount);
+                this.writeSceneBudget(visual);
+            }
+            return true;
+        }
+        return this.relocateSceneShips(visual, want, restoring, oldStart, oldCount);
+    }
+    relocateSceneShips(visual, want, restoring, oldStart, oldCount) {
+        const keep = restoring ? 0 : Math.min(oldCount, want);
+        const range = this.slotAlloc.resizeShipRange(oldStart, oldCount, want);
+        if (!range)
+            return false;
+        this.growSceneBuffers();
+        if (range.start !== oldStart && keep > 0)
+            this.copyShipRange(oldStart, range.start, keep);
+        this.zeroShipDraw(oldStart, oldCount);
+        visual.instanceStart = range.start;
+        visual.instanceCapacity = want;
+        visual.instanceActive = want;
+        if (want > keep && keep > 0)
+            this.copyShipRange(range.start, range.start + keep, 1, want - keep);
+        if (restoring)
+            this.zeroShipDraw(range.start, want);
+        else
+            this.writeSceneDrawSizes(visual, want);
+        this.writeSceneBudget(visual);
+        this.storage.markShipDirty(range.start, want);
+        this.storage.markFleetDirty(visual.fleetSlot);
+        return true;
+    }
+    hideSceneTail(id, live) {
+        const visual = this.records.get(id);
+        if (!visual)
+            return;
+        const liveN = Math.max(0, Math.min(visual.instanceCapacity, live | 0));
+        if (visual.instanceActive === liveN)
+            return;
+        visual.instanceActive = liveN;
+        const tail = visual.instanceCapacity - liveN;
+        if (tail > 0) {
+            this.zeroShipDraw(visual.instanceStart + liveN, tail);
+            this.layer.killTrailRange(visual.instanceStart + liveN, tail);
+        }
+        else
+            this.writeSceneDrawSizes(visual, liveN);
+        this.writeSceneBudget(visual);
+        this.storage.markFleetDirty(visual.fleetSlot);
+    }
+    spawnBudget(visual) {
+        return Math.max(1, Math.min(CAP_NEAR, countShips(visual.counts) || visual.instanceCapacity));
+    }
+    copyShipRange(src, dst, count, copies = 0) {
+        if (count <= 0)
+            return;
+        const inst = this.storage.instanceData;
+        const stride = FLEET_SHIP_DRAW_FLOATS;
+        if (copies <= 0 && src !== dst) {
+            inst.copyWithin(dst * stride, src * stride, (src + count) * stride);
+        }
+        const sim = new Uint8Array(this.storage.shipSimBytes);
+        const bytes = SHIP_SIM_STRIDE;
+        if (copies <= 0 && src !== dst) {
+            sim.copyWithin(dst * bytes, src * bytes, (src + count) * bytes);
+        }
+        const n = copies > 0 ? copies : 0;
+        for (let i = 0; i < n; i++) {
+            const from = src * stride;
+            const to = (dst + i) * stride;
+            inst.copyWithin(to, from, from + stride);
+            sim.copyWithin((dst + i) * bytes, src * bytes, src * bytes + bytes);
+            const simAt = (dst + i) * bytes;
+            this.storage.shipSimView.setUint32(simAt + ShipSimFields.trailWrite, 0, true);
+            this.storage.shipSimView.setFloat32(simAt + ShipSimFields.sinceSample, 0, true);
+        }
+    }
+    hideShipTail(visual, live) {
+        this.zeroShipDraw(visual.instanceStart + Math.max(0, live), visual.instanceCapacity - Math.max(0, live));
+    }
+    zeroShipDraw(start, count) {
+        const inst = this.storage.instanceData;
+        for (let i = 0; i < count; i++) {
+            const o = (start + i) * FLEET_SHIP_DRAW_FLOATS;
+            if (o + 12 > inst.length)
+                break;
+            inst[o + 7] = 0;
+            inst[o + 11] = 0;
+        }
+        if (count > 0)
+            this.storage.markShipDirty(start, count);
+    }
+    writeSceneDrawSizes(visual, live) {
+        const liveN = Math.max(0, Math.min(visual.instanceCapacity, live | 0));
+        const inst = this.storage.instanceData;
+        for (let i = 0; i < visual.instanceCapacity; i++) {
+            const o = (visual.instanceStart + i) * FLEET_SHIP_DRAW_FLOATS;
+            if (o + 12 > inst.length)
+                break;
+            inst[o + 3] = 0;
+            inst[o + 4] = 0;
+            inst[o + 5] = 0;
+            inst[o + 7] = i < liveN ? TRIANGLE_SCREEN_PX : 0;
+            inst[o + 11] = i < liveN ? 1 : 0;
+        }
+    }
+    writeSceneBudget(visual) {
+        const o = visual.fleetSlot * FLEET_GPU_STRIDE;
+        if (o + FLEET_GPU_STRIDE > this.storage.fleetGpuBytes.byteLength)
+            return;
+        this.storage.fleetGpuView.setUint32(o + FleetGpuFields.shipBudget, Math.max(0, visual.instanceActive | 0), true);
+        this.storage.fleetGpuView.setUint32(o + FleetGpuFields.instanceStart, visual.instanceStart, true);
+    }
+    /**
      * Free-list spawn: alloc fleetSlot + N ship slots (chooseShipBudget),
      * pack formation once, init ShipSim on CPU. GPU upload is **deferred** to the
      * next frame flush (coalesced) so bulk spawn is not N× writeBuffer.
@@ -201,9 +373,11 @@ export class FleetPresentation {
             instanceActive: N,
             poseInitialized: false,
             poseSystemId: null,
+            locSystemId: null,
             warmFramesLeft: N > 0 ? WARM_FRAMES : 0,
         };
         this.records.set(id, visual);
+        this.scene.indexVisual(visual);
         if (visual.warmFramesLeft > 0)
             this.warmingFleetIds.add(id);
         this.storage.ensureFleetGpuCapacity(this.slotAlloc.fleetHighWater);
@@ -265,6 +439,7 @@ export class FleetPresentation {
             return;
         const prev = f.state;
         f.state = state;
+        this.scene.indexVisual(f);
         this.storage.ensureFleetGpuCapacity(this.slotAlloc.fleetHighWater);
         // Skip mark on lookup miss — keep prior FleetGpu row (no origin teleport).
         if (this.packing.writeFleetGpuFromState(f, state, f.fleetSlot)) {
@@ -320,6 +495,7 @@ export class FleetPresentation {
         this.slotAlloc.freeShipRange(start, cap);
         this.slotAlloc.freeFleetSlot(slot);
         this.warmingFleetIds.delete(id);
+        this.scene.unindexVisual(f);
         this.records.delete(id);
         const followed = this.follow.followShipIndex;
         if (followed != null && followed >= start && followed < start + cap)
@@ -329,6 +505,7 @@ export class FleetPresentation {
         this.follow.resetTracking();
         this.records.clear();
         this.warmingFleetIds.clear();
+        this.scene.rebuildLocIndex();
         this.slotAlloc.reset();
         this.storage.instanceLiveCount = 0;
         this.storage.flushedShipHw = 0;

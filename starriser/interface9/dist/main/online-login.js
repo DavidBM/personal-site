@@ -10,6 +10,12 @@ function localEndpoint(value) {
         return;
     return endpoint.href;
 }
+/** Loopback launcher advertisement. Never carries access codes. */
+export function parseLauncherEndpoints(value, page) {
+    if (!localPage(page) || !value || typeof value !== 'object' || !('webSocketUrl' in value))
+        return;
+    return typeof value.webSocketUrl === 'string' ? localEndpoint(value.webSocketUrl) : undefined;
+}
 export function parseDevLogin(fragment, page) {
     if (!fragment || fragment.length > 2048)
         return;

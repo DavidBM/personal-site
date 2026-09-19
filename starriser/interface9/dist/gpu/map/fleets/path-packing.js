@@ -1,4 +1,4 @@
-import { FLEET_GPU_STRIDE, FLEET_FLAG_ALIVE, FLEET_FLAG_JUMPING, FLEET_FLAG_COOLDOWN, FLEET_FLAG_WARM, FLEET_FLAG_SYSTEM_SCENE, FleetGpuFields, hashFleetId } from "../../fleet-layout.js";
+import { FLEET_GPU_STRIDE, FLEET_FLAG_ALIVE, FLEET_FLAG_JUMPING, FLEET_FLAG_COOLDOWN, FLEET_FLAG_WARM, FLEET_FLAG_SYSTEM_SCENE, FLEET_FLAG_MODEL_LOD, FleetGpuFields, hashFleetId } from "../../fleet-layout.js";
 import { fleetCenter, initShipsFromFormation, writePathCommand } from "../../fleet-motion-api.js";
 import { RENDER_PLANE_Y } from "../../../contracts/render-constants.js";
 import { resolveFleetVisualPosition } from "../../fleet-motion-ref.js";
@@ -60,6 +60,7 @@ export function createFleetPathPacking(storage, getLookup, timeline, scene) {
             }
             : null;
         flags = scene.orSystemSceneFlag(visual, state, flags, prevFlags);
+        flags = (flags & ~FLEET_FLAG_MODEL_LOD) | (prevFlags & FLEET_FLAG_MODEL_LOD);
         const cmd = {
             from: { x: pathStartX, z: pathStartZ },
             target: { x: pathEndX, z: pathEndZ },

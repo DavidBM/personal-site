@@ -1,7 +1,7 @@
 import { opaqueIdAt } from '../contracts/opaque-id.js';
 function counts(value) {
     return value && { systemRevision: value.systemRevision, committedServerTimeMs: value.committedServerTimeMs,
-        presentShips: value.presentShips, movingShips: value.movingShips };
+        presentFleets: value.presentFleets, movingFleets: value.movingFleets };
 }
 function legacyRow(value) {
     const scope = value.scope;

@@ -20,7 +20,7 @@ function sameTarget(a, b) {
         && samePosition(a.target, b.target);
 }
 function sameIntent(a, b) {
-    return sameScope(a.scope, b.scope) && sameBytes(a.shipId, b.shipId) && sameBytes(a.admissionToken, b.admissionToken)
+    return sameScope(a.scope, b.scope) && sameBytes(a.fleetId, b.fleetId) && sameBytes(a.admissionToken, b.admissionToken)
         && a.expectedSystemRevision === b.expectedSystemRevision && sameTarget(a, b);
 }
 /** Page-lifetime recovery evidence. Reconnection keeps the original command;
@@ -56,7 +56,7 @@ export function createOnlineIntents() {
         },
         canIssue: () => pending.size < 128 && Array.from(pending.values()).every(value => value.continued),
         list: () => Array.from(pending, ([key, value]) => ({ key,
-            commandId: opaqueIdAt(value.command.key.commandId), shipId: opaqueIdAt(value.command.shipId), expired: value.expired, continued: value.continued })),
+            commandId: opaqueIdAt(value.command.key.commandId), fleetId: opaqueIdAt(value.command.fleetId), expired: value.expired, continued: value.continued })),
         get: (key) => { const value = pending.get(key); return value && structuredClone(value.command); },
         size: () => pending.size,
     };

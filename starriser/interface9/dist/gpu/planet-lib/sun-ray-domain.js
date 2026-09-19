@@ -246,18 +246,18 @@ export function streamerIntensitySphere(dir, time = 0) {
     lobes += 0.22 * Math.pow(Math.max(dot3(dir, { x: -ax5.x, y: -ax5.y, z: -ax5.z }), 0), 3.8);
     lobes += 0.2 * Math.pow(Math.max(dot3(dir, { x: -ax6.x, y: -ax6.y, z: -ax6.z }), 0), 3.5);
     const nBase = noise3({
-        x: dir.x * 2.6 + time * 0.03,
+        x: dir.x * 2.6 + time * 0.20,
         y: dir.y * 2.6 + 0.4,
-        z: dir.z * 2.6 + time * 0.02,
+        z: dir.z * 2.6 + time * 0.13,
     });
     const nMid = noise3({
-        x: dir.x * 5.5 + time * 0.04,
+        x: dir.x * 5.5 + time * 0.22,
         y: dir.y * 5.5 - 0.2,
         z: dir.z * 5.5 + 1.1,
     });
     const nFine = noise3({
-        x: dir.x * 11.0 - time * 0.08,
-        y: dir.y * 11.0 + time * 0.03,
+        x: dir.x * 11.0 - time * 0.24,
+        y: dir.y * 11.0 + time * 0.20,
         z: dir.z * 11.0 + 1.7,
     });
     const veil = 0.22 * smoothstep(0.28, 0.72, nBase) +

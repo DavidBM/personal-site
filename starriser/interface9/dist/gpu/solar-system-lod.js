@@ -8,7 +8,7 @@
  * Pixels are **drawing-buffer** height (canvas.height), not CSS viewportH.
  */
 import { RENDER_PLANE_Y } from "../contracts/render-constants.js";
-import { LOD_HOLD_MS, projectedWorldSizeAtDistanceToScreenPx } from "./fleet-lod.js";
+import { projectedWorldSizeAtDistanceToScreenPx } from "./fleet-lod.js";
 import { keplerOrbitLocalF32 } from "./math/world-origin.js";
 import { orbitPhaseAt } from "./planet-lib/solar-bodies.js";
 /**
@@ -28,10 +28,13 @@ export const KEPLER_SCALE = SYSTEM_LOCAL_SPAN / SHOWCASE_ORBIT_SPAN;
  * becomes a 5px sun rather than a 24px field pop.
  */
 export const SCENE_ENTER_PX = 50;
-/** Leave Band B only when projected span ≤ this (~30% Schmitt vs enter). */
-export const SCENE_EXIT_PX = 35;
-/** Demotion hold — same family as fleet model LOD. */
-export const SCENE_HOLD_MS = LOD_HOLD_MS;
+/** Leave Band B when projected span ≤ this (~12% Schmitt vs enter). */
+export const SCENE_EXIT_PX = 44;
+/**
+ * Exit hold so a single wheel notch at the gate does not flicker.
+ * Not fleet-lod `LOD_HOLD_MS` (budget demotion is 2500 ms).
+ */
+export const SCENE_HOLD_MS = 300;
 /** Band C limb enter (pure helper; live map is click-lock only). */
 export const FOCUS_ENTER_PX = 180;
 /** Band C limb exit. */
@@ -76,27 +79,67 @@ export function composeCompactBodyWorld(store, index, timeSec, out) {
  * Stable SCENE park body for a fleet. Skip the sun; if there are no planets,
  * fall back to index 0 (sun).
  */
+function compactOrbitOf(store, i) {
+    return (store.orbitRadius?.[i] ?? 0) * KEPLER_SCALE;
+}
+function sceneParkCandidates(store) {
+    const n = store.currentCount | 0;
+    let sunR = 0;
+    for (let i = 0; i < n; i++) {
+        if (store.isSun[i])
+            sunR = Math.max(sunR, store.radius?.[i] || 0);
+    }
+    const minOrbit = Math.max(sunR * 7, 0.038);
+    const picks = [];
+    for (let i = 0; i < n; i++) {
+        if (store.isSun[i])
+            continue;
+        const orbit = compactOrbitOf(store, i);
+        if (orbit > 0 && orbit < minOrbit)
+            continue;
+        picks.push(i);
+    }
+    return picks;
+}
+function furthestPlanet(store) {
+    let best = 0, bestOrbit = -1;
+    for (let i = 0; i < store.currentCount; i++) {
+        if (store.isSun[i])
+            continue;
+        const orbit = compactOrbitOf(store, i);
+        if (orbit > bestOrbit) {
+            bestOrbit = orbit;
+            best = i;
+        }
+    }
+    return best;
+}
 export function pickSceneParkBodyIndex(fleetIdHash, store) {
     const n = store.currentCount | 0;
     if (n <= 0)
         return 0;
-    let planets = 0;
-    for (let i = 0; i < n; i++) {
-        if (!store.isSun[i])
-            planets++;
-    }
-    if (planets <= 0)
-        return 0;
-    const pick = (fleetIdHash >>> 0) % planets;
-    let k = 0;
-    for (let i = 0; i < n; i++) {
-        if (store.isSun[i])
-            continue;
-        if (k === pick)
-            return i;
-        k++;
-    }
-    return 0;
+    const picks = sceneParkCandidates(store);
+    if (picks.length === 0)
+        return furthestPlanet(store);
+    return picks[(fleetIdHash >>> 0) % picks.length];
+}
+/** Display name of the parked Kepler body; omit the sun and unknown slots. */
+export function sceneParkPlanetName(fleetIdHash, store) {
+    const bodyIndex = pickSceneParkBodyIndex(fleetIdHash, store);
+    if ((store.isSun[bodyIndex] ?? 0) !== 0)
+        return null;
+    const name = store.defs?.[bodyIndex]?.name;
+    return name ? name : null;
+}
+/**
+ * One encounter planet for SCENE motion: outermost candidate so the sun stays
+ * off to the side (PoC look). Hashed parking scattered fleets onto inner orbits.
+ */
+export function pickSceneEncounterBodyIndex(store) {
+    const picks = sceneParkCandidates(store);
+    if (picks.length === 0)
+        return furthestPlanet(store);
+    return picks[picks.length - 1];
 }
 /**
  * World-space camera → body on the gameplay plane (y = {@link RENDER_PLANE_Y}).
@@ -209,7 +252,8 @@ export function fillSceneCandidatesForCluster(out, systemIds, recs, prevSceneId)
 /**
  * One sticky SCENE system (look-at winner).
  *
- * Enter when span ≥ 24 px; stay until span ≤ 16 px **and** hold 2500 ms.
+ * Enter when span ≥ {@link SCENE_ENTER_PX}; stay until span ≤
+ * {@link SCENE_EXIT_PX} **and** hold {@link SCENE_HOLD_MS}.
  * Switching look-at winner while still in-band is immediate (promote).
  */
 export function oneSceneWithHysteresis(input) {

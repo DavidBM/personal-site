@@ -11,7 +11,7 @@ export const GAME_STAGES = [
     { id: 'render.apply', service: 'render', source: 'js/render/remote/runtime-projection.ts' },
 ];
 export const GAME_DEPENDENCIES = [
-    { from: 'ui.intent', to: 'network.command', contract: 'shipOrders.move' },
+    { from: 'ui.intent', to: 'network.command', contract: 'fleetOrders.move' },
     { from: 'network.command', to: 'gateway.command', contract: 'galaxy.v1.ClientMessage' },
     { from: 'gateway.command', to: 'system.command' },
     { from: 'gateway.command', to: 'peer.forward' },
@@ -19,6 +19,6 @@ export const GAME_DEPENDENCIES = [
     { from: 'system.command', to: 'storage.queue' },
     { from: 'storage.queue', to: 'storage.commit' },
     { from: 'system.command', to: 'network.projection', contract: 'galaxy.v1.SystemDelta' },
-    { from: 'network.projection', to: 'render.apply', contract: 'shipProjection.batches' },
+    { from: 'network.projection', to: 'render.apply', contract: 'fleetProjection.batches' },
 ];
 //# sourceMappingURL=game-stages.js.map

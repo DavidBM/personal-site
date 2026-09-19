@@ -95,13 +95,20 @@ function wireRuntime(view, options) {
                 throw new Error('Render runtime is disposed');
             return remote.attach(attachment);
         },
+        receiveDirectorPacket(packet) {
+            if (disposed)
+                throw new Error("Render runtime is disposed");
+            return state.view.receiveDirectorPacket(packet);
+        },
         apply(sequence, commands) {
             if (disposed)
                 throw new Error("Render runtime is disposed");
             if (sequence <= state.sequence)
                 throw new Error(`Render sequence ${sequence} follows ${state.sequence}`);
             for (const command of commands) {
-                if (command.type === 'clear' || command.type === 'clearFleets')
+                if (command.type === 'clear' && command.preserveProjection)
+                    remote.invalidate();
+                else if (command.type === 'clear' || command.type === 'clearFleets')
                     remote.dispose();
                 applyRenderCommand(context, command);
             }

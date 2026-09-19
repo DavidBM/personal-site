@@ -9,7 +9,7 @@ a:focus-visible, input:focus-visible { outline: 2px solid #9eece5; outline-offse
 h1 { font-size: clamp(32px, 5vw, 52px); font-weight: 560; letter-spacing: -.035em; margin: 20px 0 12px; }
 .intro { color: #a3b0c3; font-size: 17px; line-height: 1.7; }
 header > p:last-child { font-size: 14px; }
-.featured { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin: 36px 0 48px; }
+.featured { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 18px; margin: 36px 0 48px; }
 .featured > a { border: 1px solid #2b4657; background: linear-gradient(125deg, #142b3a, #0e1928); border-radius: 12px; padding: 26px; color: inherit; }
 .featured > a:hover { text-decoration: none; border-color: #87c9c9; }
 h2 { font-size: 20px; font-weight: 550; margin: 14px 0; }

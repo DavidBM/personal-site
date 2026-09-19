@@ -1,4 +1,6 @@
 import { rayFromLookAtCamera, screenToNdc } from "../gpu/math/ground-pick.js";
+// @ts-expect-error JS helper copied into dist; declarations live in halo-pick.mjs.d.ts
+import { pickFleetHalo, cssPxToWorld, HALO_MIN_CSS_PX } from "../gpu/map/fleets/halo-pick.mjs";
 import { readShipSim, SHIP_SIM_STRIDE } from "../gpu/ship-sim-layout.js";
 import { SYSTEM_LOCAL_SPAN } from "../gpu/solar-system-lod.js";
 import { ORBIT_R_MAX, SCENE_AGENT_SCALE } from "../gpu/ship-motion-config.js";
@@ -41,13 +43,23 @@ function sceneRefs(state, remote) {
     }
     return refs;
 }
+function fleetLocalPos(state, visual, slot) {
+    const c = typeof state.view.sceneShipCentroid === "function"
+        ? state.view.sceneShipCentroid(visual.id)
+        : null;
+    if (c)
+        return c;
+    return { x: slot.pathEndX, y: slot.pathEndY, z: slot.pathEndZ };
+}
 function visualCenter(state, visual) {
     const slot = state.view.readFleetGpuSlot(visual.id);
     if (!slot)
         return null;
     const local = (slot.flags & 128) !== 0 && state.view.solarBodies.systemId != null;
-    return { slot, x: slot.pathEndX + (local ? state.view.solarBodies.systemX : 0),
-        y: local ? slot.pathEndY : 0, z: slot.pathEndZ + (local ? state.view.solarBodies.systemZ : 0), local };
+    const p = fleetLocalPos(state, visual, slot);
+    const dx = local ? state.view.solarBodies.systemX : 0;
+    const dz = local ? state.view.solarBodies.systemZ : 0;
+    return { slot, x: p.x + dx, y: local ? p.y : 0, z: p.z + dz, local };
 }
 function maxSceneOrbitRadius(state) {
     let radius = ORBIT_R_MAX * SCENE_AGENT_SCALE;
@@ -163,6 +175,15 @@ async function pickShips(state, candidates, camera, ray, maxDistance, stamp) {
         return null;
     state.sceneFleetRenderIds.set(hit.ref.id, hit.ref.visual.id);
     return hit.result;
+}
+export function pickRuntimeFleetHalo(state, x, y) {
+    if (typeof state.view.haloMarkers !== "function")
+        return null;
+    const { camera, ray } = rayFor(state, x, y);
+    const distance = Math.hypot(camera.eyeX - camera.targetX, camera.eyeY - camera.targetY, camera.eyeZ - camera.targetZ);
+    const minR = cssPxToWorld(HALO_MIN_CSS_PX, distance, Math.tan(camera.fovyDeg * Math.PI / 360), camera.viewportH);
+    const hit = pickFleetHalo(ray, state.view.haloMarkers(), minR);
+    return hit ? { kind: "fleet", id: hit.id, slot: hit.slot } : null;
 }
 export async function pickRuntimeSceneTarget(state, remote, x, y) {
     const { camera, ray } = rayFor(state, x, y);

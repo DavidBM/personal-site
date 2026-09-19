@@ -37,7 +37,7 @@ export const PLANET_ATM_DEFAULTS = Object.freeze({
     cloudAmount: 0.86,
     nightLights: 1.15,
     normalStrength: 0.04,
-    edgeAaPx: 1.5,
+    edgeAaPx: 1.0,
 });
 /** Alias — same shared Azure-derived preset (all bodies). */
 export const AZURE_ATM_PRESET = PLANET_ATM_DEFAULTS;

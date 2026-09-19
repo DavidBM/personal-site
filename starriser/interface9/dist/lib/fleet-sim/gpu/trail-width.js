@@ -19,6 +19,12 @@ export const TRAIL_WIDTH_MODE_WORLD = 1;
 export const TRAIL_WORLD_WIDTH_HEAD = 0.09;
 export const TRAIL_WORLD_WIDTH_TAIL = 0.024;
 /**
+ * World-mode ribbons stay at least this many CSS pixels so hull-band trails
+ * remain readable when the camera is far. Vertex shader clamps view half-width;
+ * no extra pass.
+ */
+export const TRAIL_WORLD_MIN_PX = 1.5;
+/**
  * Clip-space half-width scale applied to a unit NDC side offset.
  *
  * Screen: `(linewidthPx / resolutionY) * clipW`  (constant on-screen px)

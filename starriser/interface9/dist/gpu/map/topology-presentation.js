@@ -408,8 +408,8 @@ export class MapTopologyPresentation {
      * one systems+edges-sized CPU/upload spike.
      * Runs when camera distance / viewport / fovy change (not every frame if stable).
      * Band B (one SCENE) uses drawing-buffer height and the same d/H/fovy cadence
-     * plus look-at xz and a hold-pending tick (`holdStartMs > 0` only) so 2500 ms
-     * exit can fire without a camera nudge.
+     * plus look-at xz and a hold-pending tick (`holdStartMs > 0` only) so the
+     * SCENE hold can fire without a camera nudge.
      */
     updateLod(d, viewportH, bufferH, fovy, lookAtX, lookAtZ, nowMs) {
         this.pointWorldScale = billboardScaleForDiameterPx(SYSTEM_POINT_DIAMETER_PX, d, fovy, viewportH);

@@ -1,10 +1,10 @@
 /**
  * R0 / L5 / 3D — ShipSim GPU storage layout (per-ship continuous flight state).
  *
- * Host-shareable-friendly **stride 96** (16-byte aligned). Scalar fields only.
+ * Host-shareable-friendly **stride 224** (16-byte aligned). Pose prefix 96 B, then 8 knots.
  * Field order is the contract for TS packing, WGSL structs, and goldens.
  *
- * ShipSim (stride 96):
+ * ShipSim (stride 224):
  *  0  f32 posX
  *  4  f32 posY          // live height; 0 on planar SEEK; personal orbit height when CIRCULATE
  *  8  f32 posZ
@@ -18,7 +18,7 @@
  * 40  f32 slotZ
  * 44  f32 heading       // CACHED yaw from quat (heading 0 = +Z); draw + tests
  * 48  u32 trailWrite    // next ring index (L5b pure trail; power-of-2 ring)
- * 52  f32 sinceSample   // distance since last trail append
+ * 52  f32 sinceSample   // milliseconds since last fixed-cadence trail sample
  * 56  u32 mode          // SHIP_MODE_* (paused / seek-far=JUMP / seek-near=ORBIT)
  * 60  u32 fleetIndex
  * 64  u32 targetKind    // 0 FLEET_CENTER, 1 PATH_END, 2 WORLD
@@ -28,7 +28,12 @@
  * 80  f32 orbitR
  * 84  f32 orbitOmega    // signed rad/s
  * 88  f32 omegaMax         // turn rate cap (rad/s); was pad0
- * 92  f32 jumpStaggerMs    // visual hop start delay 0..JUMP_STAGGER_MS_MAX
+ * 92  u32 trailOwner       // ship id that owns the inline knot ring
+ * 96  vec4 knots[8]        // compact trail (x, z, birth, y); dies with trailOwner
+ *
+ * Array stride is 224 (96-byte pose prefix + 128-byte knot ring). Pose field
+ * offsets 0–92 are unchanged. SCENE present/expand index this record by kernel
+ * slot so the ribbon cannot outlive the occupant.
  *
  * omegaMax is stored per ship (from type config at pack). ≤0 → agents/GPU use
  * ORBIT_DEFAULT_OMEGA_MAX / SHIP_MAX_TURN_RAD_S.
@@ -37,8 +42,12 @@
  */
 import { quatFromYaw, quatIsZero } from "./quat.js";
 import { SHIP_MAX_TURN_RAD_S } from "./ship-motion-config.js";
-/** Bytes — must match WGSL `struct ShipSim` packing. */
-export const SHIP_SIM_STRIDE = 96;
+/** Pose prefix bytes (offsets 0–95). Knot ring follows. */
+export const SHIP_SIM_POSE_BYTES = 96;
+/** Compact trail knots stored on the visual ship (vec4 × 8). */
+export const SHIP_SIM_TRAIL_KNOTS = 8;
+/** Bytes — must match WGSL `struct ShipSim` packing (pose + knots). */
+export const SHIP_SIM_STRIDE = 224;
 export const ShipSimFields = {
     posX: 0,
     posY: 4,
@@ -72,6 +81,9 @@ export const ShipSimFields = {
      */
     jumpStaggerMs: 92,
     pad1: 92,
+    trailOwner: 92,
+    /** First knot: vec4(x, z, birth, y). Ring is 8 × 16 B. */
+    trailKnots: 96,
 };
 /** Target for agent seek: orbit around fleet center. */
 export const SHIP_TARGET_FLEET_CENTER = 0;
@@ -126,7 +138,7 @@ export function writeShipSim(view, byteOffset, ship) {
     view.setFloat32(o + ShipSimFields.omegaMax, ship.omegaMax ?? SHIP_SIM_DEFAULT_OMEGA_MAX, true);
     view.setFloat32(o + ShipSimFields.jumpStaggerMs, ship.jumpStaggerMs ?? ship.pad1 ?? 0, true);
 }
-/** Read one ShipSim record (all stride-96 fields). */
+/** Read one ShipSim pose prefix (offsets 0–95). */
 export function readShipSim(view, byteOffset) {
     const o = byteOffset;
     return {
@@ -181,8 +193,8 @@ function assertOffset(actual, expected, name) {
 }
 /** Assert ShipSim layout invariants (called from unit tests). */
 export function assertShipSimLayoutInvariants() {
-    if (SHIP_SIM_STRIDE !== 96) {
-        throw new Error(`SHIP_SIM_STRIDE ${SHIP_SIM_STRIDE} !== 96`);
+    if (SHIP_SIM_STRIDE !== 224) {
+        throw new Error(`SHIP_SIM_STRIDE ${SHIP_SIM_STRIDE} !== 224`);
     }
     if (SHIP_SIM_STRIDE % 16 !== 0) {
         throw new Error("SHIP_SIM_STRIDE must be 16-byte aligned");
@@ -212,8 +224,10 @@ export function assertShipSimLayoutInvariants() {
     assertOffset(ShipSimFields.omegaMax, 88, "ShipSim.omegaMax");
     assertOffset(ShipSimFields.pad0, 88, "ShipSim.pad0 (alias omegaMax)");
     assertOffset(ShipSimFields.pad1, 92, "ShipSim.pad1");
-    if (ShipSimFields.pad1 + 4 !== SHIP_SIM_STRIDE) {
-        throw new Error("ShipSim last field does not end at SHIP_SIM_STRIDE");
+    assertOffset(ShipSimFields.trailOwner, 92, "ShipSim.trailOwner");
+    assertOffset(ShipSimFields.trailKnots, 96, "ShipSim.trailKnots");
+    if (ShipSimFields.trailKnots + SHIP_SIM_TRAIL_KNOTS * 16 !== SHIP_SIM_STRIDE) {
+        throw new Error("ShipSim knot ring does not end at SHIP_SIM_STRIDE");
     }
 }
 //# sourceMappingURL=ship-sim-layout.js.map

@@ -10,10 +10,10 @@ export function createRemoteFleetAdapter(slots, map, prefix) {
     let retired = Promise.resolve();
     let closed = false;
     let lastCommitMs = 0;
-    function create(ship) {
+    function create(fleet) {
         if (closed || slots.unavailable())
             throw new Error('Remote renderer unavailable');
-        const visual = slots.create(`${prefix}:${++serial}:${ship.id}`, map(ship));
+        const visual = slots.create(`${prefix}:${++serial}:${fleet.id}`, map(fleet));
         owned.add(visual);
         return visual;
     }
@@ -43,13 +43,13 @@ export function createRemoteFleetAdapter(slots, map, prefix) {
         retire(previous.values());
     }
     return {
-        async replace(ships, signal) {
+        async replace(fleets, signal) {
             const alive = AbortSignal.any([signal, lifetime.signal]);
             await retired;
             const staged = new Map(), stagedMoving = new Set();
             try {
-                await runBounded(ships.values(), ship => { staged.set(ship.id, create(ship)); if (ship.moving)
-                    stagedMoving.add(ship.id); }, alive, slots.flush);
+                await runBounded(fleets.values(), fleet => { staged.set(fleet.id, create(fleet)); if (fleet.moving)
+                    stagedMoving.add(fleet.id); }, alive, slots.flush);
                 const publication = slots.preparePublication(active, staged);
                 await prepare(staged, alive, publication.stage);
                 alive.throwIfAborted();
@@ -69,13 +69,13 @@ export function createRemoteFleetAdapter(slots, map, prefix) {
             await retired;
             const additions = new Map();
             try {
-                await runBounded(change.upserts, ship => { if (!active.has(ship.id))
-                    additions.set(ship.id, create(ship)); }, alive);
+                await runBounded(change.upserts, fleet => { if (!active.has(fleet.id))
+                    additions.set(fleet.id, create(fleet)); }, alive);
                 await prepare(additions, alive);
                 alive.throwIfAborted();
                 const removed = remove(change.removed);
-                for (const ship of change.upserts)
-                    update(ship, additions);
+                for (const fleet of change.upserts)
+                    update(fleet, additions);
                 slots.flush();
                 retire(removed);
             }
@@ -91,9 +91,9 @@ export function createRemoteFleetAdapter(slots, map, prefix) {
             const alive = AbortSignal.any([signal, lifetime.signal]);
             await retired;
             await runBounded(moving, id => {
-                const ship = lookup(id);
-                if (ship?.moving)
-                    slots.update(active.get(id), map(ship));
+                const fleet = lookup(id);
+                if (fleet?.moving)
+                    slots.update(active.get(id), map(fleet));
             }, alive, slots.flush);
         },
         visual: (id) => active.get(id),
@@ -123,18 +123,18 @@ export function createRemoteFleetAdapter(slots, map, prefix) {
         }
         return removed;
     }
-    function update(ship, additions) {
-        if (ship.moving)
-            moving.add(ship.id);
+    function update(fleet, additions) {
+        if (fleet.moving)
+            moving.add(fleet.id);
         else
-            moving.delete(ship.id);
-        const existing = active.get(ship.id);
+            moving.delete(fleet.id);
+        const existing = active.get(fleet.id);
         if (existing)
-            slots.update(existing, map(ship));
+            slots.update(existing, map(fleet));
         else {
-            const visual = additions.get(ship.id);
+            const visual = additions.get(fleet.id);
             slots.publish(visual);
-            active.set(ship.id, visual);
+            active.set(fleet.id, visual);
         }
     }
 }

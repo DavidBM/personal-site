@@ -1,11 +1,10 @@
 import { computeJumpDuration, getNextNode } from "./fleet-pathfinding.js";
 /**
- * Post-jump dwell bounds (fleets **web worker** jump ownership — not GPU ship sim).
- * The fixed 30 s dwell gives the visual agents time to reach and settle into
- * their destination orbit before the next jump begins.
+ * Post-jump dwell (fleets **web worker** jump ownership — not GPU ship sim).
+ * 2 min parked so the 30 s hop is not immediately followed by another.
  */
-export const COOLDOWN_MS_MIN = 30000;
-export const COOLDOWN_MS_MAX = 30000;
+export const COOLDOWN_MS_MIN = 120000;
+export const COOLDOWN_MS_MAX = 120000;
 /** @deprecated use COOLDOWN_MS_MIN..MAX; kept for import stability. */
 export const COOLDOWN_MS = COOLDOWN_MS_MIN;
 /** Cooldown duration. The random argument remains for call-site compatibility. */

@@ -1,6 +1,6 @@
 import { ServiceError } from '../worker/bus/service-types.js';
 import { StrategicServices } from '../network/strategic-services.js';
-/** Optional registration: readiness or request failure never disposes ShipOrders. */
+/** Optional registration: readiness or request failure never disposes FleetOrders. */
 export function createStrategicClient(bus, scope, generation, changed) {
     try {
         return bindClient(bus, scope, generation, changed);

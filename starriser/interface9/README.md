@@ -3,7 +3,7 @@
 A browser space-strategy prototype with a WebGPU map, worker-based client, Rust
 authority and local SQLite persistence. You can explore the offline sandbox or
 run a local multiplayer universe. Economy, combat and public signup are future
-features; the playable multiplayer slice is ship movement and system transfers.
+features; the playable multiplayer slice is fleet movement and system transfers.
 
 ## Install once
 
@@ -41,14 +41,39 @@ The offline game now lives at `/galaxy.html`.
 Ctrl+C stops this frontend server and its watcher. Restart `./start.sh` after
 changing Rust rules; the TypeScript watcher does not rebuild Rust.
 
+## Ship motion system
+
+Open **Ship simulation lab** on the homepage, or visit
+[/tests/demo-ship-flight-poc/](tests/demo-ship-flight-poc/) on your local server.
+The six scenarios demonstrate individual 3D movement, mixed ship classes,
+planetary navigation, warp, director-controlled battles and scoped density at
+1,000–10,000 visual ships. The normal frontend build includes its required WASM.
+
+Start with the [ship motion system overview](docs/research/ship-motion/README.md)
+for the core ideas, supported primitives and control API, or the
+[runtime integration and tuning guide](docs/ship-runtime.md) for APIs and examples.
+The defined runtime is implemented in the lab; production renderer/network
+integration and full production-frame performance qualification remain separate work.
+The [research archive](docs/research/ship-motion/archive.md) preserves design studies,
+reviews and measurement evidence.
+
+Picking this up as an agent? Read the [personal ship-motion handoff](agent-to-agent/2026-09-13-ship-motion.md)
+for context, lessons learned and a suggested starting point from the agent who worked on it.
+The [agent-to-agent timeline](agent-to-agent/README.md) collects dated handoffs across the project.
+
 ## Start a local multiplayer universe
+
+For backend development, start with the [Rust backend README](crates/server/README.md).
+The [agent handoff](docs/backend/handoff.md) maps current code, measured results and
+remaining debugging work; the [full-run report](docs/evidence/multiplayer/2026-09-13-full-player-history-run.md)
+records the latest 1,000-user / 100-active API workload.
 
 ```sh
 ./start.sh online --users 2
 ```
 
 One command builds TypeScript, the shared Rust/WASM rules and the native backend,
-generates a new connected galaxy, creates one account and ship per player, and
+generates a new connected galaxy, creates one account and fleet per player, and
 starts both servers. Cargo reuses its incremental build cache. The terminal prints
 each player's access code and a link that signs in automatically. The first link
 opens in your browser. Online mode uses frontend port **8001**, leaving the offline
@@ -87,13 +112,12 @@ convenience for browser windows on this machine, not remote account signup.
 ## Play with two people or browser windows
 
 1. Run `./start.sh online --users 2` and open the two player links in separate
-   browser windows. Each account controls its own ship.
-2. To connect manually, open the printed online page, leave **Server** at its
-   default, paste the printed backend URL into **Fallback server**, and paste a
-   player access code.
+   browser windows. Each account controls its own fleet.
+2. To connect manually, open the printed online page and paste a player access
+   code. The local launcher fills the loopback backend address.
    The generated accounts can view every system in this local universe.
-3. Select a ship. Use **Follow selected ship** to find it. Inside a solar system,
-   drag to pan freely and scroll to zoom. Click a planet or ship, or choose a fleet
+3. Select a fleet. Use **Follow selected fleet** to find it. Inside a solar system,
+   drag to pan freely and scroll to zoom. Click a planet or fleet, or choose a fleet
    from the **System** panel, to orbit it. Selection keeps your viewing angle.
    **Free camera**, Escape, or clicking empty space releases the selection.
 4. Enter small local coordinates, for example **X 0.025, Z 0.015**. **Preview** runs
@@ -101,9 +125,9 @@ convenience for browser windows on this machine, not remote account signup.
    it. Wait for arrival before issuing another movement.
 5. Choose a **Route destination**, then **Preview route**. The preview shows the
    path, travel time and next jump. **Jump** sends that one leg. A departure receipt
-   confirms departure; the ship appears in the destination system after import.
+   confirms departure; the fleet appears in the destination system after import.
 6. Select the destination under **Choose a system**, then **View system** to see
-   the arriving ship. Jumps take 15 seconds, followed by a 30-second cooldown
+   the arriving fleet. Jumps take 15 seconds, followed by a 30-second cooldown
    before the next jump. Local movement remains available during cooldown.
    Multi-hop routes require a new explicit jump for each leg.
 
@@ -128,7 +152,7 @@ trusted WebTransport uses the managed fixture in the [multiplayer guide](docs/mu
   private temporary config; the saved host configuration stays unchanged.
 - A blank game page or WebGPU error: use a Chromium browser with hardware
   acceleration and check `chrome://gpu`. The launchpad itself requires no GPU.
-- No ships: choose the system where your account's ship currently lives.
+- No fleets: choose the system where your account's fleet currently lives.
 - A stale save lock after a crash: verify no backend uses that save before removing
   the `.lock` file named in the error. Never run two launchers against one save.
 
@@ -147,4 +171,6 @@ Some HTML pages are test fixtures needing a managed peer or prepared WASM vector
 use their runner rather than expecting every fixture to run standalone. See the
 [test guide](tests/README.md), [development commands](docs/development.md),
 [multiplayer setup](docs/multiplayer-local.md), [backend guide](crates/server/README.md)
-and [implementation status](docs/multiplayer-plan/execution.md).
+and [messaging/player-view status](docs/multiplayer-plan/messaging-execution.md).
+The earlier [multiplayer foundation record](docs/multiplayer-plan/execution.md)
+preserves its original integration evidence.

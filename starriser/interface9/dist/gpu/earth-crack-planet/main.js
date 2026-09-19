@@ -308,12 +308,7 @@ async function main() {
         bodyCPU[12] = spin;
         bodyCPU[13] = obliquity;
         bodyCPU[14] = DRAW_MARGIN * a.drawMarginMul;
-        {
-            const dist = Math.hypot(eyeX - cx, eyeY - cy, eyeZ - cz) || 1;
-            const worldPerPx = (2 * dist * Math.tan(FOVY / 2)) / Math.max(viewportH, 1);
-            const limbPx = PLANET_R / Math.max(worldPerPx, 1e-9);
-            bodyCPU[15] = Math.max(a.edgeAaPx, 0.25) / Math.max(limbPx, 1);
-        }
+        bodyCPU[15] = Math.max(a.edgeAaPx, 0.25);
         bodyCPU[16] = basis.camRight[0];
         bodyCPU[17] = basis.camRight[1];
         bodyCPU[18] = basis.camRight[2];

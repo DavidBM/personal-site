@@ -1,6 +1,6 @@
 import { isOpaqueId } from '../../../contracts/opaque-id.js';
-import { MAX_RULE_SEED_SHIPS } from './contracts.js';
-const MAX_SEED_BYTES = MAX_RULE_SEED_SHIPS * 112;
+import { MAX_RULE_SEED_FLEETS } from './contracts.js';
+const MAX_SEED_BYTES = MAX_RULE_SEED_FLEETS * 112;
 const u64 = (value) => typeof value === 'bigint' && value >= 0n && value <= 0xffffffffffffffffn;
 export function copyToken(token) {
     return { connectionGeneration: token.connectionGeneration, watermark: { ...token.watermark, scope: { ...token.watermark.scope } } };
@@ -50,8 +50,8 @@ export function seedBuffers(seed) {
     const views = [seed.identities, seed.revisions, seed.positions, seed.times];
     const types = [Uint8Array, BigUint64Array, Float64Array, BigUint64Array];
     const lengths = [48 * n, 8 * n, 32 * n, 24 * n];
-    if (n > MAX_RULE_SEED_SHIPS)
-        throw new Error('Domain seed exceeds 256 ships');
+    if (n > MAX_RULE_SEED_FLEETS)
+        throw new Error('Domain seed exceeds 256 fleets');
     const buffers = new Set();
     for (let i = 0; i < views.length; i++) {
         const view = views[i];

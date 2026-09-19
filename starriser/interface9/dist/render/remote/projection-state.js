@@ -29,11 +29,11 @@ export function readProjectionChanges(batch) {
     const upserts = [];
     const removed = [];
     for (let i = 0; i < batch.revisions.length; i++) {
-        const ship = readShip(batch, i);
-        if (seen.has(ship.id))
+        const fleet = readFleet(batch, i);
+        if (seen.has(fleet.id))
             throw new Error("Duplicate projection identity");
-        seen.add(ship.id);
-        upserts.push(ship);
+        seen.add(fleet.id);
+        upserts.push(fleet);
     }
     for (let offset = 0; offset < batch.removedIds.length; offset += 16) {
         const id = opaqueIdAt(batch.removedIds, offset);
@@ -44,14 +44,14 @@ export function readProjectionChanges(batch) {
     }
     return { upserts, removed };
 }
-function readShip(batch, i) {
+function readFleet(batch, i) {
     const row = { id: opaqueIdAt(batch.ids, i * 16), revision: batch.revisions[i],
         x: batch.positions[i * 2], z: batch.positions[i * 2 + 1],
         targetX: batch.targets[i * 2], targetZ: batch.targets[i * 2 + 1],
         departureMs: batch.times[i * 2], arrivalMs: batch.times[i * 2 + 1], moving: batch.moving[i] === 1 };
     if (!u64(row.revision) || batch.moving[i] > 1
         || ![row.x, row.z, row.targetX, row.targetZ].every(Number.isFinite))
-        throw new Error("Invalid projection ship");
+        throw new Error("Invalid projection fleet");
     if (row.moving && row.arrivalMs <= row.departureMs)
         throw new Error("Invalid projection movement interval");
     return row;
@@ -64,13 +64,13 @@ export function appendSnapshot(current, batch) {
         throw new Error("Snapshot chunk does not follow its watermark");
     const change = readProjectionChanges(batch);
     const bytes = bufferBytes(projectionBuffers(batch));
-    if (change.removed.length || assembly.ships.size + change.upserts.length > MAX_SNAPSHOT_ENTITIES
+    if (change.removed.length || assembly.fleets.size + change.upserts.length > MAX_SNAPSHOT_ENTITIES
         || assembly.bytes + bytes > MAX_SNAPSHOT_BYTES)
         throw new Error("Snapshot assembly capacity exceeded");
-    for (const ship of change.upserts) {
-        if (assembly.ships.has(ship.id))
+    for (const fleet of change.upserts) {
+        if (assembly.fleets.has(fleet.id))
             throw new Error("Duplicate snapshot identity");
-        assembly.ships.set(ship.id, ship);
+        assembly.fleets.set(fleet.id, fleet);
     }
     assembly.bytes += bytes;
     assembly.next++;
@@ -91,6 +91,6 @@ function startSnapshot(batch) {
     if (batch.snapshot.index !== 0)
         throw new Error("Snapshot must start at chunk zero");
     return { id: batch.snapshot.id, count: batch.snapshot.count, next: 0, bytes: 0,
-        watermark: watermark(batch), ships: new Map() };
+        watermark: watermark(batch), fleets: new Map() };
 }
 //# sourceMappingURL=projection-state.js.map

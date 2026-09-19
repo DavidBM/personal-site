@@ -503,7 +503,7 @@ export async function createAuthoringPlanetGpu(canvas, opts) {
         bodyCpu[12] = 0;
         bodyCpu[13] = 0;
         bodyCpu[14] = drawMargin;
-        bodyCpu[15] = Math.max(atm.edgeAaPx, 0.25) / Math.max(screenRpx, 1);
+        bodyCpu[15] = Math.max(atm.edgeAaPx, 0.25);
         bodyCpu[16] = camRight[0];
         bodyCpu[17] = camRight[1];
         bodyCpu[18] = camRight[2];

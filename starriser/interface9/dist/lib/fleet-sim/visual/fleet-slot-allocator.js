@@ -17,6 +17,26 @@ export function createFleetSlotAllocator(opts) {
     const fleetLive = new Uint8Array(maxFleets);
     /** Sorted, non-overlapping free ship ranges (coalesced). */
     let shipFree = [];
+    function extendShipRange(start, oldCount, need) {
+        const edge = start + oldCount;
+        for (let i = 0; i < shipFree.length; i++) {
+            const r = shipFree[i];
+            if (r.start !== edge || r.count < need)
+                continue;
+            if (r.count === need)
+                shipFree.splice(i, 1);
+            else {
+                r.start += need;
+                r.count -= need;
+            }
+            return { start, count: oldCount + need };
+        }
+        if (edge === alloc.shipHighWater && alloc.shipHighWater + need <= maxShips) {
+            alloc.shipHighWater += need;
+            return { start, count: oldCount + need };
+        }
+        return null;
+    }
     const alloc = {
         fleetHighWater: 0,
         shipHighWater: 0,
@@ -131,6 +151,24 @@ export function createFleetSlotAllocator(opts) {
                 }
             }
         },
+        resizeShipRange(start, oldCount, newCount) {
+            const s = start | 0;
+            const old = oldCount | 0;
+            const next = newCount | 0;
+            if (s < 0 || old < 0 || next < 0)
+                return null;
+            if (next === old)
+                return { start: s, count: next };
+            if (next < old) {
+                alloc.freeShipRange(s + next, old - next);
+                return { start: s, count: next };
+            }
+            const grown = extendShipRange(s, old, next - old);
+            if (grown)
+                return grown;
+            alloc.freeShipRange(s, old);
+            return alloc.allocShipRange(next);
+        },
         reset() {
             alloc.fleetHighWater = 0;
             alloc.shipHighWater = 0;
@@ -240,5 +278,15 @@ export function selfTestFleetSlotAllocator() {
     const r6 = a.allocShipRange(2);
     eq(r6?.start, 8, "prefers higher free hole [7,10) carved high → [8,10)");
     eq(a.shipHighWater, 10, "no grow when higher hole fits");
+    a.reset();
+    const grow = a.allocShipRange(4);
+    const grown = a.resizeShipRange(grow.start, 4, 8);
+    eq(grown?.start, 0, "resize extends high-water in place");
+    eq(grown?.count, 8, "resize grow count");
+    eq(a.shipHighWater, 8, "resize grow high-water");
+    const shrunk = a.resizeShipRange(0, 8, 3);
+    eq(shrunk?.count, 3, "resize shrinks in place");
+    const reuse = a.allocShipRange(5);
+    eq(reuse?.start, 3, "shrink freed the tail for reuse");
 }
 //# sourceMappingURL=fleet-slot-allocator.js.map

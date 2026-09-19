@@ -302,6 +302,58 @@ fn hillaire_in_scatter(o : vec3<f32>, dir : vec3<f32>, e : vec2<f32>, l : vec3<f
   return intensity * min(scatter, vec3<f32>(8.0));
 }
 
+fn hillaireAtmosphereAt(local : vec2<f32>) -> vec3<f32> {
+  let discR = 1.0 / body.spinOblMargin.z;
+  let rr = length(local) / discR;
+  let edgeOuter = body.look0.y;
+  let atmOuterRr = body.look0.z;
+  let rInner = body.look2.x;
+  let atmThick = max(body.look0.w, 0.001);
+  let camDist = max(body.look1.w, 1.0);
+  let atmGain = body.look1.z;
+  let glowMul = body.look2.y;
+  let glowCol = body.glowStr.xyz;
+  let camFwd = normalize_fast(cross(body.camRight.xyz, body.camUp.xyz));
+  let sunDir = normalize_fast(frame.sunPos.xyz - body.centerRadius.xyz);
+  let camPos = vec3<f32>(0.0, 0.0, camDist);
+  let p = vec2<f32>(local.x / discR, local.y / discR);
+  let dir = normalize_fast(vec3<f32>(p.x, p.y, -camDist));
+  var e = ray_vs_sphere(camPos, dir, rInner + atmThick);
+  var atm = vec3<f32>(0.0);
+  if (e.x < e.y && e.x > 0.0) {
+    let f = ray_vs_sphere(camPos, dir, rInner);
+    if (f.x < f.y && f.x > 0.0) {
+      e.y = min(e.y, f.x);
+    }
+    if (e.y > e.x + 1e-4) {
+      var sunLocal = vec3<f32>(
+        dot(sunDir, body.camRight.xyz),
+        dot(sunDir, body.camUp.xyz),
+        dot(sunDir, camFwd),
+      );
+      let sl = length(sunLocal);
+      sunLocal = select(vec3<f32>(0.0, 0.0, 1.0), sunLocal / max(sl, 1e-6), sl > 1e-5);
+      let scatter = hillaire_in_scatter(camPos, dir, e, sunLocal) * 1.15;
+      let gStr = body.glowStr.w * glowMul;
+      atm = scatter * mix(vec3<f32>(1.0), glowCol, 0.35) * (0.85 + 0.55 * gStr) * atmGain;
+    }
+  }
+  atm = atm * (1.0 - smoothstep(edgeOuter + 0.02, atmOuterRr, rr));
+  return clamp(atm, vec3<f32>(0.0), vec3<f32>(6.0));
+}
+
+fn hillaireAtmosphereFiltered(local : vec2<f32>, aaRr : f32) -> vec3<f32> {
+  let discR = 1.0 / body.spinOblMargin.z;
+  let rr = length(local) / discR;
+  let edgeOuter = body.look0.y;
+  let r2 = dot(local, local);
+  if (abs(rr - edgeOuter) < 2.0 * aaRr && r2 > 1e-10) {
+    let dLocal = local * inverseSqrt(r2) * (aaRr * discR * 0.5);
+    return 0.5 * (hillaireAtmosphereAt(local - dLocal) + hillaireAtmosphereAt(local + dLocal));
+  }
+  return hillaireAtmosphereAt(local);
+}
+
 @fragment
 fn fs_band_c_lut(in : VSOut) -> BandCFSOut {
   var o : BandCFSOut;
@@ -312,6 +364,8 @@ fn fs_band_c_lut(in : VSOut) -> BandCFSOut {
   let rr = r / discR;
   let edgeOuter = body.look0.y;
   let atmOuterRr = body.look0.z;
+  let aaRr = limbAaRr(rr);
+  let surfaceMask = limbSurfaceMask(rr);
   if (rr > atmOuterRr) {
     discard;
   }
@@ -333,7 +387,6 @@ fn fs_band_c_lut(in : VSOut) -> BandCFSOut {
   let cloudAmt = body.look5.x;
   let nightAmt = body.look5.y;
   let nrmStr = body.look5.z;
-  let edgeInner = body.look0.x;
 
   let camPos = vec3<f32>(0.0, 0.0, camDist);
   let p = vec2<f32>(local.x / discR, local.y / discR);
@@ -342,11 +395,9 @@ fn fs_band_c_lut(in : VSOut) -> BandCFSOut {
   let usedSphere = hit.x < hit.y && hit.x > 0.0;
 
   var nLocal : vec3<f32>;
-  var surfaceMask : f32;
   if (usedSphere) {
     let pHit = camPos + dir * hit.x;
     nLocal = normalize_fast(pHit);
-    surfaceMask = 1.0;
   } else {
     let zSphere = sqrt_fast(max(0.0, 1.0 - min(rr * rr, 1.0)));
     nLocal = normalize_fast(vec3<f32>(
@@ -354,8 +405,6 @@ fn fs_band_c_lut(in : VSOut) -> BandCFSOut {
       local.y / discR,
       select(0.12, zSphere, rr <= edgeOuter),
     ));
-    let softEdge = max(edgeOuter - edgeInner, max(body.spinOblMargin.w, 1e-4));
-    surfaceMask = 1.0 - smoothstep(edgeOuter - softEdge, edgeOuter, rr);
   }
 
   let camFwd = normalize_fast(cross(body.camRight.xyz, body.camUp.xyz));
@@ -405,28 +454,7 @@ fn fs_band_c_lut(in : VSOut) -> BandCFSOut {
   lit = lit + vec3<f32>(1.0, 0.94, 0.82) * spec;
   lit = mix(nightCol * nightAmt, lit, day);
 
-  var atm = vec3<f32>(0.0);
-  var e = ray_vs_sphere(camPos, dir, rInner + atmThick);
-  if (e.x < e.y && e.x > 0.0) {
-    let f = ray_vs_sphere(camPos, dir, rInner);
-    if (f.x < f.y && f.x > 0.0) {
-      e.y = min(e.y, f.x);
-    }
-    if (e.y > e.x + 1e-4) {
-      var sunLocal = vec3<f32>(
-        dot(sunDir, body.camRight.xyz),
-        dot(sunDir, body.camUp.xyz),
-        dot(sunDir, camFwd),
-      );
-      let sl = length(sunLocal);
-      sunLocal = select(vec3<f32>(0.0, 0.0, 1.0), sunLocal / max(sl, 1e-6), sl > 1e-5);
-      let scatter = hillaire_in_scatter(camPos, dir, e, sunLocal) * 1.15;
-      let gStr = body.glowStr.w * glowMul;
-      atm = scatter * mix(vec3<f32>(1.0), glowCol, 0.35) * (0.85 + 0.55 * gStr) * atmGain;
-    }
-  }
-  atm = atm * (1.0 - smoothstep(edgeOuter + 0.02, atmOuterRr, rr));
-  atm = clamp(atm, vec3<f32>(0.0), vec3<f32>(6.0));
+  let atm = hillaireAtmosphereFiltered(local, aaRr);
   let rgb = clamp(lit * surfaceMask + atm, vec3<f32>(0.0), vec3<f32>(6.0));
 
   if (usedSphere) {

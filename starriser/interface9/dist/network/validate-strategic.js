@@ -36,8 +36,8 @@ function counts(availability, value) {
     const item = present(value, 'available counts');
     u64(item.systemRevision, true);
     u64(item.committedServerTimeMs, false);
-    check(Number.isInteger(item.presentShips) && Number.isInteger(item.movingShips), 'summary integer counts');
-    check(item.movingShips >= 0 && item.movingShips <= item.presentShips && item.presentShips <= 16384, 'summary counts');
+    check(Number.isInteger(item.presentFleets) && Number.isInteger(item.movingFleets), 'summary integer counts');
+    check(item.movingFleets >= 0 && item.movingFleets <= item.presentFleets && item.presentFleets <= 16384, 'summary counts');
 }
 function compact(view) {
     check(view.groups.length <= 32, 'strategic group limit');

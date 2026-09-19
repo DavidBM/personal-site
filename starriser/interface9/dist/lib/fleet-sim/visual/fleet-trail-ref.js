@@ -1,5 +1,6 @@
 /**
- * L5b — pure CPU trail ring (age + distance-gated append) + expand layout.
+ * Legacy age-based CPU trail helpers and shared trail configuration/layout.
+ * Production birth-time sampling is mirrored in timed-trail-ref.ts.
  *
  * P1: pure age/append/segments for goldens.
  * P2–P4: GPU integrate + fixed-slot line expand + draw match these formulas.
@@ -35,15 +36,13 @@ import { TRAIL_SAMPLE_STRIDE } from "./fleet-layout.js";
  */
 export const DEFAULT_TRAIL_CONFIG = {
     // Power-of-2 ring (bitwise wrap). Short ring = cheap expand + fewer ghosts.
-    // 8 samples is enough for multi-segment ribbons once hop speed matches the
-    // 15s domain clock (fast uncapped hop was filling/overwriting every frame).
+    // One live head + seven cadence samples; bounded geometry at every FPS.
     ringSize: 8,
     lifetimeMs: 1400,
-    // No distance gate: append every moving integrate step (follow-cam / hop
-    // visibility). Re-introduce a floor if short rings thrash at high speed.
+    // Retained only for legacy age-based CPU golden helpers.
     minDist: 0,
-    // Time gate only when still under minDist (overrides); not used for minDist=0.
-    maxIntervalMs: 48,
+    // Historical points at 60 Hz; the live emitter point updates every frame.
+    maxIntervalMs: 1000 / 60,
 };
 /**
  * Age factor: (1 − age01)^power. Secondary — short rings often never reach
@@ -81,10 +80,14 @@ export const TRAIL_SEGMENT_STRIDE = TRAIL_SEGMENT_FLOATS * 4;
 export const TRAIL_SAMPLE_FLOATS = TRAIL_SAMPLE_STRIDE / 4;
 function assertPowerOfTwoRing(ringSize) {
     const n = Math.floor(ringSize);
-    if (n < 4 || (n & (n - 1)) !== 0) {
+    if (!Number.isSafeInteger(n) || n < 4 || (n & (n - 1)) !== 0) {
         throw new Error(`trail ringSize must be power of 2 ≥ 4 (got ${ringSize})`);
     }
     return n;
+}
+/** Reject nonfinite/unsupported tuning before interpolating shader constants. */
+function finiteTrailValue(value, fallback, minimum) {
+    return value !== undefined && Number.isFinite(value) && value >= minimum ? value : fallback;
 }
 /**
  * Resolve a full trail layout. Omits fall back to {@link DEFAULT_TRAIL_CONFIG}
@@ -93,15 +96,9 @@ function assertPowerOfTwoRing(ringSize) {
 export function resolveTrailLayout(partial) {
     const base = DEFAULT_TRAIL_CONFIG;
     const ringSize = assertPowerOfTwoRing(partial?.ringSize ?? base.ringSize);
-    const lifetimeMs = partial?.lifetimeMs !== undefined && partial.lifetimeMs > 0
-        ? partial.lifetimeMs
-        : base.lifetimeMs;
-    const minDist = partial?.minDist !== undefined && partial.minDist >= 0
-        ? partial.minDist
-        : base.minDist;
-    const maxIntervalMs = partial?.maxIntervalMs !== undefined && partial.maxIntervalMs > 0
-        ? partial.maxIntervalMs
-        : base.maxIntervalMs;
+    const lifetimeMs = finiteTrailValue(partial?.lifetimeMs, base.lifetimeMs, Number.MIN_VALUE);
+    const minDist = finiteTrailValue(partial?.minDist, base.minDist, 0);
+    const maxIntervalMs = finiteTrailValue(partial?.maxIntervalMs, base.maxIntervalMs, 1);
     const segsPerShip = ringSize - 1;
     const vertsPerShip = segsPerShip * 2;
     const lineFloatsPerVert = TRAIL_LINE_FLOATS_PER_VERT;
@@ -168,7 +165,7 @@ export function ageTrailRing(samples, sampleStart, ringSize, dtMs, lifetimeMs = 
     }
 }
 /**
- * Distance + time gated append into a ring of `ringSize` TrailSamples (stride 4 f32).
+ * Legacy age-based distance + time gated append into a ring of `ringSize` TrailSamples (stride 4 f32).
  * Returns new `{ write, sinceSample }`. Does not append when `!allowAppend`.
  *
  * Trails are **not** jump-only: GPU calls this whenever a formation ship is
@@ -184,7 +181,7 @@ export function tryAppendTrailSample(samples, ringBaseFloat, write, sinceSample,
 pathEndX = 0, pathEndZ = 0, pathEndY = 0, posY = 0, 
 /**
  * Settled CIRCULATE: write phase-local (R·sin/cos) — never pos−pathEnd after
- * absolute reconstruct (f32 thrash at large |C|). Matches GPU tryAppendTrail.
+ * absolute reconstruct (f32 thrash at large |C|).
  * Optional `height` = personal orbit height (slotY); default 0.
  */
 orbitLocal, 

@@ -65,6 +65,33 @@
         color: #6a88a8;
         line-height: 1.35;
       }
+      #hud .mesh-row {
+        margin: 0 0 10px;
+        pointer-events: auto;
+      }
+      #hud .mesh-row label {
+        display: block;
+        font-size: 11px;
+        color: #7a9ab8;
+        margin-bottom: 4px;
+      }
+      #hud select {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 6px 8px;
+        border-radius: 6px;
+        border: 1px solid rgba(120, 180, 255, 0.35);
+        background: rgba(12, 24, 48, 0.9);
+        color: #e8f4ff;
+        font-size: 12px;
+        font-family: inherit;
+        cursor: pointer;
+        color-scheme: dark;
+        appearance: auto;
+      }
+      #hud select:hover {
+        background: rgba(20, 40, 72, 0.95);
+      }
       #status {
         position: fixed;
         left: 12px;
@@ -86,6 +113,19 @@
     <canvas id="canvas"></canvas>
     <aside id="hud" aria-live="polite">
       <h1>Attach point (world)</h1>
+      <div class="mesh-row">
+        <label for="mesh-select">Mesh</label>
+        <select id="mesh-select" aria-label="Ship mesh">
+          <option value="simplify3">Low-poly 3% (272 tris, rebaked UVs)</option>
+          <option value="simplify50">Game high-poly 50% (4.6k, original UVs)</option>
+          <option value="glb">Source high-poly (9.1k)</option>
+          <option value="simplify5">Smart 5% (456 tris, original UVs)</option>
+          <option value="simplify10">Smart 10% (913 tris, original UVs)</option>
+          <option value="simplify1">Smart 1% (90 tris, original UVs)</option>
+          <option value="voxel_chunky">Voxel remesh chunky (0.7k, baked)</option>
+          <option value="lowpoly">Dart (8 tris)</option>
+        </select>
+      </div>
       <div class="row"><span class="label">X</span><span class="val" id="hx">—</span></div>
       <div class="row"><span class="label">Y</span><span class="val" id="hy">—</span></div>
       <div class="row"><span class="label">Z</span><span class="val" id="hz">—</span></div>

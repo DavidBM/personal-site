@@ -1,0 +1,1 @@
+{"version":3,"file":"density-overlay.wgsl.js","sourceRoot":"/js/","sources":["gpu/map/fleets/density-overlay.wgsl.ts"],"names":[],"mappings":"AAAA,6DAA6D;AAC7D,MAAM,CAAC,MAAM,oBAAoB,GAAG,EAAE,CAAC;AACvC,MAAM,CAAC,MAAM,wBAAwB,GAAG,CAAC,CAAC;AAC1C,MAAM,CAAC,MAAM,wBAAwB,GAAG,EAAE,CAAC;AAE3C,MAAM,CAAC,MAAM,oBAAoB,GAAG,UAAU,CAAC;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;CAuC9C,CAAC"}

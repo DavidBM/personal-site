@@ -1,8 +1,14 @@
 /* tslint:disable */
 /* eslint-disable */
 export const memory: WebAssembly.Memory;
+export const __wbg_planetarymodel_free: (a: number, b: number) => void;
 export const __wbg_ruleroutes_free: (a: number, b: number) => void;
 export const __wbg_rulesystem_free: (a: number, b: number) => void;
+export const ephemeris_version: () => number;
+export const planetarymodel_new: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
+export const planetarymodel_phase_records: (a: number, b: number) => [number, number, number, number];
+export const planetarymodel_plan_route: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => [number, number, number, number];
+export const planetarymodel_sample: (a: number, b: number) => [number, number, number, number];
 export const route_arrival_ms: (a: bigint, b: number) => [bigint, number, number];
 export const rule_version: () => number;
 export const ruleroutes_new: (a: number, b: number, c: number, d: number) => [number, number, number];
@@ -32,7 +38,7 @@ export const rulesystem_stage_move: (a: number, b: number, c: number, d: number,
 export const rulesystem_times: (a: number) => [number, number];
 export const transfer_travel_ms: () => bigint;
 export const __wbindgen_externrefs: WebAssembly.Table;
-export const __externref_table_dealloc: (a: number) => void;
 export const __wbindgen_malloc: (a: number, b: number) => number;
+export const __externref_table_dealloc: (a: number) => void;
 export const __wbindgen_free: (a: number, b: number, c: number) => void;
 export const __wbindgen_start: () => void;

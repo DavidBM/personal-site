@@ -1,6 +1,6 @@
 /**
- * Full-screen ship model viewer: production GLB + game-style lighting,
- * orbit camera, ray hit red ball, always-on XYZ gizmo, tether line, HUD coords.
+ * Full-screen ship model viewer: high-poly, Meshopt simplify, voxel remesh, or dart + game-style
+ * lighting, orbit camera, ray hit red ball, always-on XYZ gizmo, tether, HUD.
  *
  * Entry: model-viewer.html → dist/gpu/model-viewer/main.js
  */
@@ -8,7 +8,8 @@ import { createWebGpuBootstrap } from "../device.js";
 import { mat4LookAt, mat4Perspective, mat4ViewProj, mat4Invert, } from "../math/mat4.js";
 import { screenToNdc, rayFromNdc } from "../math/ground-pick.js";
 import { parseGlb, gltfHasColorAndNormal, } from "../../lib/fleet-sim/visual/gltf-static-mesh.js";
-import { GLB_MESH_YAW_HALF } from "../../lib/fleet-sim/visual/mesh-yaw-facing.js";
+import { createLowPolyShipMesh } from "../../lib/fleet-sim/visual/lowpoly-ship-mesh.js";
+import { GLB_MESH_YAW_HALF, LOWPOLY_MESH_YAW_HALF, } from "../../lib/fleet-sim/visual/mesh-yaw-facing.js";
 import { MODEL_LOD_DEFAULT_SCALE } from "../../lib/fleet-sim/visual/fleet-lod.js";
 import { buildViewerWorldPositions, rayMeshHit, } from "./ray-mesh.js";
 import { createOrbitState, orbitApplyDrag, orbitApplyZoom, orbitEye, } from "./orbit-camera.js";
@@ -19,12 +20,24 @@ const GLB_URL = "models/spaceship_fighter__-_version_1_meshy_6.glb";
 const AXIS_LEN = 0.55;
 const BALL_R = 0.04 / 25; // 0.0016 — small marker for thruster attach
 const HIT_R = 0.025 / 25; // original hit marker, same scale factor
+const VIEWER_MESHES = [
+    { id: "simplify3", label: "Low-poly 3% (272 tris, rebaked UVs)", url: "models/spaceship_fighter_simplify3.glb" },
+    { id: "simplify50", label: "Game high-poly 50% (4.6k, original UVs)", url: "models/spaceship_fighter_simplify50.glb" },
+    { id: "glb", label: "Source high-poly (9.1k)", url: GLB_URL },
+    { id: "simplify5", label: "Smart 5% (456 tris, original UVs)", url: "models/spaceship_fighter_simplify5.glb" },
+    { id: "simplify10", label: "Smart 10% (913 tris, original UVs)", url: "models/spaceship_fighter_simplify10.glb" },
+    { id: "simplify1", label: "Smart 1% (90 tris, original UVs)", url: "models/spaceship_fighter_simplify1.glb" },
+    { id: "voxel_chunky", label: "Voxel remesh chunky (0.7k, baked)", url: "models/spaceship_fighter_voxel_chunky.glb" },
+    { id: "lowpoly", label: "Dart (8 tris)", url: null },
+];
+const VIEWER_MESH_IDS = new Set(VIEWER_MESHES.map((m) => m.id));
 const canvas = document.getElementById("canvas");
 const statusEl = document.getElementById("status");
 const hx = document.getElementById("hx");
 const hy = document.getElementById("hy");
 const hz = document.getElementById("hz");
 const hhit = document.getElementById("hhit");
+const meshSelect = document.getElementById("mesh-select");
 function setStatus(msg, error = false) {
     statusEl.textContent = msg;
     statusEl.classList.toggle("error", error);
@@ -148,6 +161,108 @@ function solidTex(device, r, g, b, a = 255) {
     device.queue.writeTexture({ texture: tex }, new Uint8Array([r, g, b, a]), { bytesPerRow: 4 }, [1, 1]);
     return tex;
 }
+function selectedMeshId() {
+    const v = meshSelect?.value ?? "";
+    return VIEWER_MESH_IDS.has(v) ? v : "simplify3";
+}
+function viewerMeshYawHalf(id) {
+    return id === "lowpoly" ? LOWPOLY_MESH_YAW_HALF : GLB_MESH_YAW_HALF;
+}
+function meshLoadLabel(id) {
+    const row = VIEWER_MESHES.find((m) => m.id === id);
+    return row ? `Loading ${row.label}…` : "Loading mesh…";
+}
+async function resolveViewerMesh(id) {
+    if (id === "lowpoly")
+        return createLowPolyShipMesh();
+    const row = VIEWER_MESHES.find((m) => m.id === id);
+    const url = row?.url ?? GLB_URL;
+    const res = await fetch(url);
+    if (!res.ok)
+        throw new Error(`Failed to fetch ${url} (${res.status})`);
+    return parseGlb(await res.arrayBuffer());
+}
+function destroyViewerGpuMesh(gpu) {
+    if (!gpu)
+        return;
+    gpu.vbo.destroy();
+    gpu.ibo.destroy();
+    gpu.baseTex.destroy();
+    gpu.nrmTex.destroy();
+    gpu.specTex.destroy();
+}
+function createModelBindGroup(device, pipeline, uniform, sampler, base, nrm, spec) {
+    return device.createBindGroup({
+        layout: pipeline.getBindGroupLayout(0),
+        entries: [
+            { binding: 0, resource: { buffer: uniform } },
+            { binding: 1, resource: base.createView() },
+            { binding: 2, resource: nrm.createView() },
+            { binding: 3, resource: spec.createView() },
+            { binding: 4, resource: sampler },
+        ],
+    });
+}
+/** Decode glTF images when present; otherwise keep solid cool defaults. */
+async function loadMeshTextures(device, mesh) {
+    let base = null;
+    let nrm = null;
+    let spec = null;
+    try {
+        const colorIm = mesh.images[mesh.baseColorImage];
+        if (colorIm)
+            base = await decodeImage(device, colorIm.data, colorIm.mimeType);
+        const nrmIm = mesh.images[mesh.normalImage];
+        if (nrmIm)
+            nrm = await decodeImage(device, nrmIm.data, nrmIm.mimeType);
+        const specIm = mesh.images[mesh.diffuseSpecularImage];
+        if (specIm)
+            spec = await decodeImage(device, specIm.data, specIm.mimeType);
+    }
+    catch (e) {
+        console.warn("texture decode failed", e);
+    }
+    return {
+        base: base ?? solidTex(device, 90, 170, 220),
+        nrm: nrm ?? solidTex(device, 128, 128, 255),
+        spec: spec ?? solidTex(device, 255, 255, 255),
+    };
+}
+async function loadMesh(device, pipeline, sampler, uniform, id, modelScale) {
+    const mesh = await resolveViewerMesh(id);
+    const meshYawHalf = viewerMeshYawHalf(id);
+    const worldPositions = buildViewerWorldPositions(mesh.interleaved, mesh.floatsPerVertex, meshYawHalf, modelScale);
+    const vbo = device.createBuffer({
+        size: Math.max(4, mesh.interleaved.byteLength),
+        usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+    });
+    if (mesh.interleaved.byteLength > 0) {
+        device.queue.writeBuffer(vbo, 0, mesh.interleaved);
+    }
+    const ibo = device.createBuffer({
+        size: Math.max(4, mesh.indices.byteLength),
+        usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
+    });
+    if (mesh.indices.byteLength > 0) {
+        device.queue.writeBuffer(ibo, 0, mesh.indices);
+    }
+    const tex = await loadMeshTextures(device, mesh);
+    return {
+        mesh,
+        worldPositions,
+        meshYawHalf,
+        vbo,
+        ibo,
+        baseTex: tex.base,
+        nrmTex: tex.nrm,
+        specTex: tex.spec,
+        bind: createModelBindGroup(device, pipeline, uniform, sampler, tex.base, tex.nrm, tex.spec),
+    };
+}
+function readyStatus(gpu) {
+    const tris = (gpu.mesh.indexCount / 3) | 0;
+    return `Ready — ${gpu.mesh.vertexCount} verts, ${tris} tris. Click to pick.`;
+}
 async function main() {
     if (!navigator.gpu) {
         setStatus("WebGPU not available (use Chromium).", true);
@@ -160,21 +275,8 @@ async function main() {
     });
     const { device, context, format } = boot;
     boot.configureContext(window.innerWidth, window.innerHeight);
-    setStatus("Loading GLB…");
-    const res = await fetch(GLB_URL);
-    if (!res.ok) {
-        setStatus(`Failed to fetch ${GLB_URL} (${res.status})`, true);
-        return;
-    }
-    const glbBuf = await res.arrayBuffer();
-    const mesh = parseGlb(glbBuf);
-    if (!gltfHasColorAndNormal(mesh)) {
-        setStatus("GLB missing baseColor or normal map", true);
-    }
-    const meshYawHalf = GLB_MESH_YAW_HALF;
     const modelScale = MODEL_LOD_DEFAULT_SCALE;
-    const worldPositions = buildViewerWorldPositions(mesh.interleaved, mesh.floatsPerVertex, meshYawHalf, modelScale);
-    // --- Model GPU ---
+    // --- Model GPU (mesh uploaded via loadMesh) ---
     const modelModule = device.createShaderModule({
         label: "viewer-model",
         code: VIEWER_MODEL_WGSL,
@@ -208,56 +310,15 @@ async function main() {
             depthCompare: "less",
         },
     });
-    const modelVbo = device.createBuffer({
-        size: mesh.interleaved.byteLength,
-        usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-    });
-    device.queue.writeBuffer(modelVbo, 0, mesh.interleaved);
-    const modelIbo = device.createBuffer({
-        size: mesh.indices.byteLength,
-        usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
-    });
-    device.queue.writeBuffer(modelIbo, 0, mesh.indices);
     const sampler = device.createSampler({
         magFilter: "linear",
         minFilter: "linear",
         addressModeU: "repeat",
         addressModeV: "repeat",
     });
-    let baseTex = solidTex(device, 90, 170, 220);
-    let nrmTex = solidTex(device, 128, 128, 255);
-    let specTex = solidTex(device, 255, 255, 255);
-    try {
-        if (mesh.baseColorImage >= 0 && mesh.images[mesh.baseColorImage]) {
-            const im = mesh.images[mesh.baseColorImage];
-            baseTex = await decodeImage(device, im.data, im.mimeType);
-        }
-        if (mesh.normalImage >= 0 && mesh.images[mesh.normalImage]) {
-            const im = mesh.images[mesh.normalImage];
-            nrmTex = await decodeImage(device, im.data, im.mimeType);
-        }
-        if (mesh.diffuseSpecularImage >= 0 &&
-            mesh.images[mesh.diffuseSpecularImage]) {
-            const im = mesh.images[mesh.diffuseSpecularImage];
-            specTex = await decodeImage(device, im.data, im.mimeType);
-        }
-    }
-    catch (e) {
-        console.warn("texture decode failed", e);
-    }
     const modelUniform = device.createBuffer({
         size: VIEWER_MODEL_UNIFORM_SIZE,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    });
-    const modelBind = device.createBindGroup({
-        layout: modelPipeline.getBindGroupLayout(0),
-        entries: [
-            { binding: 0, resource: { buffer: modelUniform } },
-            { binding: 1, resource: baseTex.createView() },
-            { binding: 2, resource: nrmTex.createView() },
-            { binding: 3, resource: specTex.createView() },
-            { binding: 4, resource: sampler },
-        ],
     });
     // --- Overlay (depth always) ---
     const ovModule = device.createShaderModule({
@@ -377,6 +438,43 @@ async function main() {
     let lastX = 0;
     let lastY = 0;
     let t0 = performance.now();
+    let gpuMesh = null;
+    let meshLoadGen = 0;
+    function clearPick() {
+        originalHit = null;
+        ball = null;
+        dragMode = null;
+        dragAxis = null;
+        updateHud(null, null);
+    }
+    async function applyMesh(id) {
+        const gen = ++meshLoadGen;
+        setStatus(meshLoadLabel(id));
+        try {
+            const next = await loadMesh(device, modelPipeline, sampler, modelUniform, id, modelScale);
+            if (gen !== meshLoadGen) {
+                destroyViewerGpuMesh(next);
+                return gpuMesh != null;
+            }
+            const prev = gpuMesh;
+            gpuMesh = next;
+            destroyViewerGpuMesh(prev);
+            clearPick();
+            if (id !== "lowpoly" && !gltfHasColorAndNormal(next.mesh)) {
+                setStatus("GLB missing baseColor or normal map", true);
+            }
+            else {
+                setStatus(readyStatus(next));
+            }
+            return true;
+        }
+        catch (err) {
+            if (gen !== meshLoadGen)
+                return gpuMesh != null;
+            setStatus(String(err?.message ?? err), true);
+            return false;
+        }
+    }
     const view = new Float32Array(16);
     const proj = new Float32Array(16);
     const viewProj = new Float32Array(16);
@@ -438,6 +536,8 @@ async function main() {
             }
         }
         // Ray vs mesh
+        if (!gpuMesh)
+            return;
         const ray = pickRay(p.x, p.y);
         const hit = rayMeshHit({
             origin: ray.origin,
@@ -446,7 +546,7 @@ async function main() {
                 y: ray.direction.y,
                 z: ray.direction.z,
             },
-        }, worldPositions, mesh.indices, false);
+        }, gpuMesh.worldPositions, gpuMesh.mesh.indices, false);
         if (hit) {
             originalHit = { ...hit.point };
             ball = { ...hit.point };
@@ -492,12 +592,17 @@ async function main() {
         e.preventDefault();
         orbit = orbitApplyZoom(orbit, e.deltaY);
     }, { passive: false });
-    updateHud(null, null);
-    setStatus(`Ready — ${mesh.vertexCount} verts, ${mesh.indexCount / 3 | 0} tris. Click to pick.`);
+    meshSelect?.addEventListener("change", () => {
+        void applyMesh(selectedMeshId());
+    });
+    if (!(await applyMesh(selectedMeshId())))
+        return;
     function frame(now) {
         if (boot.isLost)
             return;
         requestAnimationFrame(frame);
+        if (!gpuMesh)
+            return;
         const tSec = (now - t0) / 1000;
         buildViewProj();
         const eye = orbitEye(orbit);
@@ -514,7 +619,7 @@ async function main() {
         modelU[20] = eye.eyeX;
         modelU[21] = eye.eyeY;
         modelU[22] = eye.eyeZ;
-        modelU[23] = meshYawHalf;
+        modelU[23] = gpuMesh.meshYawHalf;
         modelU[VIEWER_MODEL_U_MODEL_SCALE] = modelScale;
         modelU[25] = 0;
         modelU[26] = 0;
@@ -568,10 +673,10 @@ async function main() {
         });
         // Model
         pass.setPipeline(modelPipeline);
-        pass.setBindGroup(0, modelBind);
-        pass.setVertexBuffer(0, modelVbo);
-        pass.setIndexBuffer(modelIbo, "uint32");
-        pass.drawIndexed(mesh.indexCount);
+        pass.setBindGroup(0, gpuMesh.bind);
+        pass.setVertexBuffer(0, gpuMesh.vbo);
+        pass.setIndexBuffer(gpuMesh.ibo, "uint32");
+        pass.drawIndexed(gpuMesh.mesh.indexCount);
         // Overlays always on top of depth (depthCompare always)
         if (ball && lineCount > 0) {
             pass.setPipeline(linePipe);

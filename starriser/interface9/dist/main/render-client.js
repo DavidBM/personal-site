@@ -90,6 +90,7 @@ export class RenderClient {
     snapshot() { return this.state; }
     isDeviceLost() { return this.lost || (this.state?.metrics.deviceLost ?? true); }
     send(command) { this.connection.send(command); }
+    sendDirectorPacket(packet) { this.connection.sendDirectorPacket(packet); }
     query(query, options) { return this.connection.query(query, options); }
     attachProjection(attachment) { return this.connection.attachProjection(attachment); }
     resize(width, height) {

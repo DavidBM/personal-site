@@ -1,6 +1,6 @@
 /** Navigation waits for the scene, then the render worker resolves the persistent
  * ID and takes follow ownership atomically. Main never retains a reusable slot. */
-export async function followOnlineShip(options, shipId) {
+export async function followOnlineFleet(options, fleetId) {
     const { renderer, session, node } = options;
     function arrived() {
         const state = renderer.snapshot();
@@ -15,14 +15,14 @@ export async function followOnlineShip(options, shipId) {
         if (!options.current())
             throw new Error('Online navigation was superseded');
         if (performance.now() >= deadline)
-            throw new Error('The ship system scene did not become ready');
+            throw new Error('The fleet system scene did not become ready');
         await new Promise(resolve => setTimeout(resolve, 25));
     }
     if (!options.current())
         throw new Error('Online navigation was superseded');
     const required = session.received();
     if (!required)
-        throw new Error('Ship projection is not ready');
-    await renderer.query({ type: 'followRemoteShip', id: shipId, required });
+        throw new Error('Fleet projection is not ready');
+    await renderer.query({ type: 'followRemoteFleet', id: fleetId, required });
 }
 //# sourceMappingURL=online-navigation.js.map

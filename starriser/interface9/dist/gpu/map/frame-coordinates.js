@@ -5,12 +5,14 @@
  * projection without a canvas/device, and cannot mistake a sun anchor for the
  * origin used by the galaxy or the origin of sun-local ship buffers.
  */
-import { mat4Identity, mat4LookAt, mat4ViewProj, mat4CameraRight, mat4CameraUp } from "../math/mat4.js";
+import { mat4Identity, mat4LookAt, mat4Perspective, mat4ViewProj, mat4CameraRight, mat4CameraUp } from "../math/mat4.js";
 import { chooseFrameOrigin, mat4LookAtRelative } from "../math/world-origin.js";
 import { buildSystemSceneView } from "../system-scene/view.js";
 export class MapFrameCoordinates {
     constructor() {
         this.projection = mat4Identity();
+        /** Jewel clip (SCENE_NEAR / SCENE_FAR). Identity until {@link setPerspectives}. */
+        this.sceneProjection = mat4Identity();
         /** Absolute matrices are retained for the legacy ground-pick API only. */
         this.absoluteView = mat4Identity();
         this.absoluteViewProj = mat4Identity();
@@ -27,6 +29,14 @@ export class MapFrameCoordinates {
         };
         this.eye = { x: 0, y: 0, z: 0 };
         this.target = { x: 0, y: 0, z: 0 };
+    }
+    setPerspectives(fovyRad, aspect, galaxyNear, galaxyFar, sceneNear, sceneFar) {
+        mat4Perspective(this.projection, fovyRad, aspect, galaxyNear, galaxyFar);
+        mat4Perspective(this.sceneProjection, fovyRad, aspect, sceneNear, sceneFar);
+    }
+    /** Jewel clip when written; otherwise the shared galaxy projection (tests). */
+    sceneClip() {
+        return this.sceneProjection[15] === 0 ? this.sceneProjection : this.projection;
     }
     updateCamera(eyeX, eyeY, eyeZ, targetX, targetY, targetZ, follow, systemOpen) {
         this.eye.x = eyeX;
@@ -57,7 +67,7 @@ export class MapFrameCoordinates {
         system.target.x = target.x - sunX;
         system.target.y = target.y;
         system.target.z = target.z - sunZ;
-        buildSystemSceneView(system.view, system.viewProj, this.projection, eye.x, eye.y, eye.z, target.x, target.y, target.z, sunX, sunZ);
+        buildSystemSceneView(system.view, system.viewProj, this.sceneClip(), eye.x, eye.y, eye.z, target.x, target.y, target.z, sunX, sunZ);
     }
 }
 //# sourceMappingURL=frame-coordinates.js.map

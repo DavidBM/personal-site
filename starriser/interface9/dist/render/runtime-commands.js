@@ -1,6 +1,5 @@
 import { replayGalaxyOps } from "../galaxy/galaxy-op-replayer.js";
 import { createCameraDirectorHost } from "../render/camera-director-host.js";
-import { SCENE_FLEET_ORBIT_MAX_RADIUS, SCENE_FLEET_ORBIT_MIN_RADIUS, SCENE_FLEET_ORBIT_RADIUS, } from "../gpu/camera-zoom.js";
 function moveCluster(ctx, command) {
     const { state, dragStarts } = ctx;
     const cluster = state.galaxy.getClusterById(command.clusterId);
@@ -95,6 +94,7 @@ function clearFleets(state) {
     state.sceneFleetIds.clear();
     state.sceneFleetRenderIds.clear();
     state.selectedFleetId = null;
+    state.view.setSelectedFleetId(null);
     state.camera.setFollowShip(null);
     state.view.setFollowShipIndex(null);
 }
@@ -148,6 +148,7 @@ function selectBody(ctx, command) {
     if (command.catalogId != null && command.catalogId !== catalogId)
         return;
     ctx.state.selectedFleetId = null;
+    view.setSelectedFleetId(null);
     view.setFollowShipIndex(null);
     if (store.isSun[command.index]) {
         ctx.focus.clearFocus();
@@ -177,10 +178,44 @@ function liveFleetTarget(state, renderId, shipIndex) {
     const pose = state.view.getLiveShipPose(shipIndex);
     return pose ? { x: pose.posX, y: pose.posY, z: pose.posZ } : fleetTargetPosition(state, renderId);
 }
+function sceneFleetFocusPoint(state, renderId) {
+    const parked = fleetTargetPosition(state, renderId);
+    const local = typeof state.view.sceneShipCentroid === "function"
+        ? state.view.sceneShipCentroid(renderId)
+        : null;
+    if (!local)
+        return parked;
+    return {
+        x: local.x + state.view.solarBodies.systemX,
+        y: local.y,
+        z: local.z + state.view.solarBodies.systemZ,
+    };
+}
 function selectFleet(ctx, id) {
     const { state } = ctx;
     if (id == null) {
         state.selectedFleetId = null;
+        state.view.setSelectedFleetId(null);
+        state.view.setFollowShipIndex(null);
+        state.camera.setSystemOrbitFree();
+        return;
+    }
+    const renderId = state.sceneFleetRenderIds.get(id) ?? id;
+    const visual = state.view.getFleetVisual(renderId);
+    const parked = sceneFleetFocusPoint(state, renderId);
+    if (!visual || !parked)
+        return;
+    ctx.focus.clearFocus();
+    state.selectedFleetId = id;
+    state.view.setSelectedFleetId(renderId);
+    if (state.view.solarBodies.systemId == null)
+        return;
+    state.camera.setSystemOrbitFree();
+    state.camera.focusOnPoint(parked.x, parked.z, state.camera.targetHeight());
+}
+function followFleet(ctx, id) {
+    const { state } = ctx;
+    if (id == null) {
         state.view.setFollowShipIndex(null);
         state.camera.setSystemOrbitFree();
         return;
@@ -189,17 +224,9 @@ function selectFleet(ctx, id) {
     const visual = state.view.getFleetVisual(renderId);
     if (!visual || !fleetTargetPosition(state, renderId))
         return;
-    ctx.focus.clearFocus();
-    state.selectedFleetId = id;
+    selectFleet(ctx, id);
     state.view.setFollowShipIndex(visual.instanceStart);
     state.view.refreshFollowPoseFromGpu(visual.instanceStart);
-    state.camera.setSystemOrbitTarget({
-        targetId: visual.fleetSlot + 1000000,
-        getPosition: () => liveFleetTarget(state, renderId, visual.instanceStart),
-        radius: SCENE_FLEET_ORBIT_RADIUS,
-        minRadius: SCENE_FLEET_ORBIT_MIN_RADIUS,
-        maxRadius: SCENE_FLEET_ORBIT_MAX_RADIUS,
-    });
 }
 function setSceneFleetIds(ctx, ids) {
     const { state } = ctx;
@@ -219,12 +246,19 @@ function applyFocus(ctx, command) {
         case "selectFleet":
             selectFleet(ctx, command.id);
             return true;
+        case "followFleet":
+            followFleet(ctx, command.id);
+            return true;
+        case "debugDensityVoxels":
+            state.view.setDebugDensityVoxels?.(command.on);
+            return true;
         case "pickBody":
             ctx.focus.tryPickBody(command.x, command.y);
             return true;
         case "clearFocus":
             ctx.focus.clearFocus();
             state.selectedFleetId = null;
+            state.view.setSelectedFleetId(null);
             state.view.setFollowShipIndex(null);
             return true;
         case "followShip":

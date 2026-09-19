@@ -152,6 +152,12 @@ export function createRenderConnection(options) {
             scheduled = true;
             queueMicrotask(flush);
         },
+        sendDirectorPacket(packet) {
+            if (closed || stopping)
+                return;
+            flush();
+            post({ type: "directorPacket", packet }, [packet]);
+        },
         query(query, options = {}) {
             return request(query.type, id => ({ type: 'query', id, query }), [], options.timeoutMs === undefined ? timeoutMs : options.timeoutMs, options.signal);
         },

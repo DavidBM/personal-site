@@ -9,8 +9,9 @@
  * mask only**. Atmosphere is emissive light; raising alpha from atm luminance used
  * to darken the sun under src-alpha blend. Pipeline: (one, one-minus-src-alpha).
  *
- * Radial convention: `rr = |local| / discR` with **rr = 1** = unit sphere limb for
- * both surface soft-edge and scatter `R_INNER` (no second `/0.9` inflate).
+ * Radial convention: `rr = |local| / discR` with **rr = 1** = unit sphere limb
+ * (`limbSurfaceMask` 1 px derivative AA; atmosphere 2-taps the planet-clip
+ * at the same width; scatter `R_INNER`; no `/0.9` inflate).
  *
  * Band-C FOCUS may sample a Hillaire/Bruneton LUT via `fs_band_c_lut` (bind
  * group 1). `fs_main` / `fs_band_c` stay O’Neil `in_scatter` (RecurseDraw).
@@ -55,7 +56,7 @@ struct BodyUniforms {
   centerRadius : vec4<f32>,
   albedoKind   : vec4<f32>,
   glowStr      : vec4<f32>,
-  // x=spin y=obliquity z=drawMargin w=edgeAaRr
+  // x=spin y=obliquity z=drawMargin w=edgeAaPx (pixel width; derivatives scale rr)
   spinOblMargin: vec4<f32>,
   camRight     : vec4<f32>,
   camUp        : vec4<f32>,
@@ -274,6 +275,19 @@ fn Dual(
   return sampleDual(texBelly, texN, texS, uv, nBody);
 }
 
+// Land silhouette: edgeAaPx isotropic pixels, constant on screen at any zoom.
+// Call before any discard — dpdx/dpdy are undefined in non-uniform control flow.
+fn limbAaRr(rr : f32) -> f32 {
+  let aaPx = max(body.spinOblMargin.w, 0.25);
+  return max(aaPx * length(vec2<f32>(dpdx(rr), dpdy(rr))), 1e-4);
+}
+
+fn limbSurfaceMask(rr : f32) -> f32 {
+  let edgeOuter = body.look0.y;
+  let aaRr = limbAaRr(rr);
+  return 1.0 - smoothstep(edgeOuter - aaRr, edgeOuter, rr);
+}
+
 // --- Analytic atmosphere (disc-local; R_INNER matches surface limb rr=1) ---
 // SCATTER_ANALYTIC: O(1) OD + single midpoint in-scatter (no nested sample lattice).
 
@@ -415,8 +429,9 @@ fn proceduralAlbedo(kind : f32, nBody : vec3<f32>, base : vec3<f32>, t : f32) ->
 }
 
 // Shared scattering for the combined lab shader and the depth-tested map shell.
-fn discAtmosphere(in: VSOut) -> vec3<f32> {
-  let local = in.local;
+// One ray. Planet-clip of the view segment is binary — do not call this at the
+// limb without discAtmosphereFiltered (2-tap across the hit/miss jump).
+fn atmosphereAt(local : vec2<f32>) -> vec3<f32> {
   let discR = 1.0 / body.spinOblMargin.z;
   let rr = length(local) / discR;
   let edgeOuter = body.look0.y;
@@ -466,6 +481,24 @@ fn discAtmosphere(in: VSOut) -> vec3<f32> {
   return atm;
 }
 
+// 2-tap across the land limb so the planet-clip brightness jump is ~1 px.
+// aaRr must be computed before discard (derivatives). No derivatives here.
+fn discAtmosphereFiltered(local : vec2<f32>, aaRr : f32) -> vec3<f32> {
+  let discR = 1.0 / body.spinOblMargin.z;
+  let rr = length(local) / discR;
+  let edgeOuter = body.look0.y;
+  let r2 = dot(local, local);
+  if (abs(rr - edgeOuter) < 2.0 * aaRr && r2 > 1e-10) {
+    let dLocal = local * inverseSqrt(r2) * (aaRr * discR * 0.5);
+    return 0.5 * (atmosphereAt(local - dLocal) + atmosphereAt(local + dLocal));
+  }
+  return atmosphereAt(local);
+}
+
+fn discAtmosphere(in: VSOut) -> vec3<f32> {
+  return atmosphereAt(in.local);
+}
+
 fn shadePlanet(in: VSOut, includeAtmosphere: bool) -> vec4<f32> {
   let local = in.local;
   let r = length(local);
@@ -473,6 +506,9 @@ fn shadePlanet(in: VSOut, includeAtmosphere: bool) -> vec4<f32> {
   // |local| = discR  ⇔  rr = 1  ⇔  unit-sphere limb (R_INNER) for surface + scatter
   let discR = 1.0 / margin;
   let rr = r / discR;
+  // Pixel-constant limb AA. Derivatives must run before discard.
+  let aaRr = limbAaRr(rr);
+  let surfaceMask = limbSurfaceMask(rr);
 
   let edgeOuter = body.look0.y;
   let atmOuterRr = body.look0.z;
@@ -490,7 +526,6 @@ fn shadePlanet(in: VSOut, includeAtmosphere: bool) -> vec4<f32> {
   let obl = body.spinOblMargin.y;
   let k = i32(kind + 0.5);
 
-  let edgeInner = body.look0.x;
   let rInner = body.look2.x;
   let atmThick = max(body.look0.w, 0.001);
   let camDist = max(body.look1.w, 1.0);
@@ -546,16 +581,14 @@ fn shadePlanet(in: VSOut, includeAtmosphere: bool) -> vec4<f32> {
   // sunRel − centerRel (both origin-relative; lab origin=0).
   let sunDir0 = normalize_fast(frame.sunPos.xyz - body.centerRadius.xyz);
   let sunDir = sunDir0;
-  let softEdge = max(edgeOuter - edgeInner, max(body.spinOblMargin.w, 1e-4));
-  let surfaceMask0 = 1.0 - smoothstep(edgeOuter - softEdge, edgeOuter, rr);
 
   // --- Layer A only: solid lit disc (sphere + day), no maps / no atmosphere ---
   if (layerMax <= 1) {
     let dayA = smoothstep(-0.12, 0.18, dot(nWorld, sunDir0));
     let litA = albedoBase * (ambient + dayStr * dayA) * texI;
     return vec4<f32>(
-      clamp(litA * surfaceMask0, vec3<f32>(0.0), vec3<f32>(6.0)),
-      clamp(surfaceMask0, 0.0, 1.0),
+      clamp(litA * surfaceMask, vec3<f32>(0.0), vec3<f32>(6.0)),
+      clamp(surfaceMask, 0.0, 1.0),
     );
   }
 
@@ -568,9 +601,9 @@ fn shadePlanet(in: VSOut, includeAtmosphere: bool) -> vec4<f32> {
     let dayTiny = smoothstep(-0.15, 0.2, dot(nWorld, sunDir0));
     var colTiny = albedoBase * (body.look4.x + body.look4.y * dayTiny) * body.look3.w;
     var atmTiny = vec3<f32>(0.0);
-    if (includeAtmosphere) { atmTiny = discAtmosphere(in); }
-    colTiny = colTiny * surfaceMask0 + atmTiny;
-    return vec4<f32>(clamp(colTiny, vec3<f32>(0.0), vec3<f32>(6.0)), clamp(surfaceMask0, 0.0, 1.0));
+    if (includeAtmosphere) { atmTiny = discAtmosphereFiltered(local, aaRr); }
+    colTiny = colTiny * surfaceMask + atmTiny;
+    return vec4<f32>(clamp(colTiny, vec3<f32>(0.0), vec3<f32>(6.0)), clamp(surfaceMask, 0.0, 1.0));
   }
 
   // --- Medium LOD (~12–48px): cheaper surface (no normal TBN); SAME analytic atm ---
@@ -616,10 +649,10 @@ fn shadePlanet(in: VSOut, includeAtmosphere: bool) -> vec4<f32> {
     }
     litM = mix(nightM * nightAmt, litM, dayM);
     var atmM = vec3<f32>(0.0);
-    if (includeAtmosphere) { atmM = discAtmosphere(in); }
+    if (includeAtmosphere) { atmM = discAtmosphereFiltered(local, aaRr); }
     return vec4<f32>(
-      litM * surfaceMask0 + atmM,
-      clamp(surfaceMask0, 0.0, 1.0),
+      litM * surfaceMask + atmM,
+      clamp(surfaceMask, 0.0, 1.0),
     );
   }
 
@@ -680,11 +713,6 @@ fn shadePlanet(in: VSOut, includeAtmosphere: bool) -> vec4<f32> {
     lit = mix(nightCol * nightAmt, lit, day);
   }
 
-  // Soft limb: geometric soft band + screen-space ~1px AA (PoC-style alpha edge).
-  // Use edge0 < edge1 form (WGSL smoothstep is undefined if edge0 >= edge1).
-  let aaRr = max(body.spinOblMargin.w, 1e-4);
-  let soft = max(edgeOuter - edgeInner, aaRr);
-  let surfaceMask = 1.0 - smoothstep(edgeOuter - soft, edgeOuter, rr);
   var rgb = lit * surfaceMask;
   var alpha = surfaceMask;
 
@@ -704,7 +732,7 @@ fn shadePlanet(in: VSOut, includeAtmosphere: bool) -> vec4<f32> {
     );
   }
 
-  if (includeAtmosphere) { rgb = rgb + discAtmosphere(in); }
+  if (includeAtmosphere) { rgb = rgb + discAtmosphereFiltered(local, aaRr); }
   return vec4<f32>(rgb, clamp(alpha, 0.0, 1.0));
 }
 
@@ -735,6 +763,8 @@ fn fs_band_c(in : VSOut) -> BandCFSOut {
   let rr = r / discR;
   let edgeOuter = body.look0.y;
   let atmOuterRr = body.look0.z;
+  let aaRr = limbAaRr(rr);
+  let surfaceMask = limbSurfaceMask(rr);
   if (rr > atmOuterRr) {
     discard;
   }
@@ -756,7 +786,6 @@ fn fs_band_c(in : VSOut) -> BandCFSOut {
   let cloudAmt = body.look5.x;
   let nightAmt = body.look5.y;
   let nrmStr = body.look5.z;
-  let edgeInner = body.look0.x;
 
   let camPos = vec3<f32>(0.0, 0.0, camDist);
   let p = vec2<f32>(local.x / discR, local.y / discR);
@@ -765,11 +794,9 @@ fn fs_band_c(in : VSOut) -> BandCFSOut {
   let usedSphere = hit.x < hit.y && hit.x > 0.0;
 
   var nLocal : vec3<f32>;
-  var surfaceMask : f32;
   if (usedSphere) {
     let pHit = camPos + dir * hit.x;
     nLocal = normalize_fast(pHit);
-    surfaceMask = 1.0;
   } else {
     let zSphere = sqrt_fast(max(0.0, 1.0 - min(rr * rr, 1.0)));
     nLocal = normalize_fast(vec3<f32>(
@@ -777,8 +804,6 @@ fn fs_band_c(in : VSOut) -> BandCFSOut {
       local.y / discR,
       select(0.12, zSphere, rr <= edgeOuter),
     ));
-    let softEdge = max(edgeOuter - edgeInner, max(body.spinOblMargin.w, 1e-4));
-    surfaceMask = 1.0 - smoothstep(edgeOuter - softEdge, edgeOuter, rr);
   }
 
   let camFwd = normalize_fast(cross(body.camRight.xyz, body.camUp.xyz));
@@ -828,28 +853,7 @@ fn fs_band_c(in : VSOut) -> BandCFSOut {
   lit = lit + vec3<f32>(1.0, 0.94, 0.82) * spec;
   lit = mix(nightCol * nightAmt, lit, day);
 
-  var atm = vec3<f32>(0.0);
-  var e = ray_vs_sphere(camPos, dir, rInner + atmThick);
-  if (e.x < e.y && e.x > 0.0) {
-    let f = ray_vs_sphere(camPos, dir, rInner);
-    if (f.x < f.y && f.x > 0.0) {
-      e.y = min(e.y, f.x);
-    }
-    if (e.y > e.x + 1e-4) {
-      var sunLocal = vec3<f32>(
-        dot(sunDir, body.camRight.xyz),
-        dot(sunDir, body.camUp.xyz),
-        dot(sunDir, camFwd),
-      );
-      let sl = length(sunLocal);
-      sunLocal = select(vec3<f32>(0.0, 0.0, 1.0), sunLocal / max(sl, 1e-6), sl > 1e-5);
-      let scatter = in_scatter(camPos, dir, e, sunLocal) * 1.15;
-      let gStr = body.glowStr.w * glowMul;
-      atm = scatter * mix(vec3<f32>(1.0), glowCol, 0.35) * (0.85 + 0.55 * gStr) * atmGain;
-    }
-  }
-  atm = atm * (1.0 - smoothstep(edgeOuter + 0.02, atmOuterRr, rr));
-  atm = clamp(atm, vec3<f32>(0.0), vec3<f32>(6.0));
+  let atm = discAtmosphereFiltered(local, aaRr);
   let rgb = clamp(lit * surfaceMask + atm, vec3<f32>(0.0), vec3<f32>(6.0));
 
   if (usedSphere) {
@@ -917,6 +921,7 @@ fn fs_band_c_depth(in : VSOut) -> BandCFSOut {
 fn fs_scene_atmosphere(in: VSOut) -> BandCFSOut {
   let discR = 1.0 / body.spinOblMargin.z;
   let rr = length(in.local) / discR;
+  let aaRr = limbAaRr(rr);
   if (rr > body.look0.z) { discard; }
   let inner = body.look2.x;
   let outer = inner + max(body.look0.w, 0.001);
@@ -932,7 +937,7 @@ fn fs_scene_atmosphere(in: VSOut) -> BandCFSOut {
   let world = body.centerRadius.xyz + normal * (body.centerRadius.w * outer / inner);
   let clip = frame.viewProjRel * vec4<f32>(world, 1.0);
   var o: BandCFSOut;
-  o.color = vec4<f32>(discAtmosphere(in), 0.0);
+  o.color = vec4<f32>(discAtmosphereFiltered(in.local, aaRr), 0.0);
   o.depth = clamp(clip.z / max(clip.w, 1e-8), 0.0, 1.0);
   return o;
 }

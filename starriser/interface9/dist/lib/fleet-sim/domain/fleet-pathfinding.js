@@ -2,13 +2,13 @@ import { distZX } from "../../../math/galaxy-xz-math.js";
 import { getSolarPosition } from "./fleet-world.js";
 import { hasClusterEdge, hasClusterEdgeEndpoints, hasFleetHop, hasFleetNode } from "./fleet-graph.js";
 /**
- * Domain hop duration (ms). Product: 15 s per jump so strategic travel is
- * readable; visual fleet ease uses the same durationMs from the worker.
+ * Domain hop duration (ms). Product: 30 s jumping; visual ease uses this
+ * durationMs from the fleets worker.
  */
-export const JUMP_DURATION_MS = 15000;
+export const JUMP_DURATION_MS = 30000;
 /**
- * @deprecated Prefer {@link JUMP_DURATION_MS}. Kept as the same 15s floor for
- * import stability / older call sites that treated this as a minimum.
+ * @deprecated Prefer {@link JUMP_DURATION_MS}. Same value; older call sites
+ * treated this as a minimum.
  */
 export const MIN_JUMP_MS = JUMP_DURATION_MS;
 /**

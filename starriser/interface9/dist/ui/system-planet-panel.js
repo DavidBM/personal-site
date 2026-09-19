@@ -2,6 +2,31 @@
  * Right-side sun + planet list while a compact Kepler SCENE is loaded.
  * Click → UIActions.selectSceneBody (sun orbit / planet lockBody + 4K).
  */
+export function stationedByPlanet(fleets) {
+    const out = new Map();
+    for (let i = 0; i < fleets.length; i++) {
+        const name = fleets[i].planetName;
+        if (!name)
+            continue;
+        let row = out.get(name);
+        if (!row) {
+            row = { fleets: 0, ships: 0 };
+            out.set(name, row);
+        }
+        row.fleets++;
+        row.ships += fleets[i].shipCount | 0;
+    }
+    return out;
+}
+/** Right-side fleet meta: `12 · jumping 12s Inferno`. */
+export function formatSceneFleetDetail(fleet) {
+    let detail = `${fleet.shipCount} · ${fleet.state}`;
+    if (fleet.remainingSec != null)
+        detail += ` ${fleet.remainingSec}s`;
+    if (fleet.planetName)
+        detail += ` ${fleet.planetName}`;
+    return detail;
+}
 const PANEL_WIDTH = 240;
 /** Editor Stats is `top:12px; right:12px; width:300` — sit to its left. */
 const EDITOR_STATS_RIGHT_PX = 12;
@@ -89,7 +114,7 @@ function ensurePlanetPanelStyles() {
 `;
     document.head.appendChild(style);
 }
-function listIdentity(bodies, fleets) {
+function listIdentity(bodies, fleets, cap) {
     let s = String(bodies.length);
     for (let i = 0; i < bodies.length; i++) {
         const b = bodies[i];
@@ -97,9 +122,16 @@ function listIdentity(bodies, fleets) {
     }
     for (let i = 0; i < fleets.length; i++) {
         const f = fleets[i];
-        s += `|f:${f.id}:${f.shipCount}:${f.state}`;
+        s += `|f:${f.id}:${f.shipCount}:${f.state}:${f.planetName ?? ""}`;
     }
+    if (cap && cap.requested > cap.shown)
+        s += `|cap:${cap.shown}:${cap.requested}:${cap.cap}`;
     return s;
+}
+function formatStationed(count) {
+    if (!count || count.fleets <= 0)
+        return "";
+    return `${count.fleets}f · ${count.ships}`;
 }
 function applySelected(rows, focusIndex, fleetId) {
     for (let i = 0; i < rows.length; i++) {
@@ -143,7 +175,7 @@ export function buildSystemPlanetPanel(ctx, actions, opts) {
     let lastIdentity = "";
     let lastFocus;
     let lastFleet;
-    const rebuild = (bodies, fleets, fleetTotal, focusIndex, selectedFleetId) => {
+    const rebuild = (bodies, fleets, fleetTotal, focusIndex, selectedFleetId, graphicsCap, sceneDraw) => {
         for (const c of rowComponents)
             c.destroy();
         rowComponents.length = 0;
@@ -158,8 +190,10 @@ export function buildSystemPlanetPanel(ctx, actions, opts) {
             list.element.appendChild(label);
         };
         addLabel("Celestial bodies");
+        const stationed = stationedByPlanet(fleets);
         for (let i = 0; i < bodies.length; i++) {
             const body = bodies[i];
+            const parked = stationed.get(body.name);
             const btn = ctx.button({
                 id: `planet-row-${body.index}`,
                 parent: list.element,
@@ -176,7 +210,8 @@ export function buildSystemPlanetPanel(ctx, actions, opts) {
             nameEl.textContent = body.name;
             const kindEl = document.createElement("span");
             kindEl.className = "ui-planet-kind";
-            kindEl.textContent = body.kind;
+            const parkedText = formatStationed(parked);
+            kindEl.textContent = parkedText ? `${body.kind} · ${parkedText}` : body.kind;
             btn.element.appendChild(nameEl);
             btn.element.appendChild(kindEl);
             rowComponents.push(btn);
@@ -194,7 +229,7 @@ export function buildSystemPlanetPanel(ctx, actions, opts) {
                 id: `system-fleet-${fleet.id}`,
                 parent: list.element,
                 text: fleet.id,
-                title: `Orbit fleet ${fleet.id}`,
+                title: `Select fleet ${fleet.id}`,
                 className: "ui-planet-row ui-fleet-row",
                 onClick: () => actions.selectSceneFleet?.(fleet.id),
             });
@@ -204,7 +239,7 @@ export function buildSystemPlanetPanel(ctx, actions, opts) {
             nameEl.textContent = fleet.id;
             const detailEl = document.createElement("span");
             detailEl.className = "ui-planet-kind";
-            detailEl.textContent = `${fleet.shipCount} · ${fleet.state}`;
+            detailEl.textContent = formatSceneFleetDetail(fleet);
             btn.element.append(nameEl, detailEl);
             rowComponents.push(btn);
             rowEls.push(btn.element);
@@ -215,6 +250,19 @@ export function buildSystemPlanetPanel(ctx, actions, opts) {
                 title: "Load the next fleets in this system", className: "ui-planet-row",
                 onClick: () => actions.loadMoreSceneFleets?.() });
             rowComponents.push(more);
+        }
+        if (graphicsCap && graphicsCap.requested > graphicsCap.shown) {
+            const cap = document.createElement("div");
+            cap.className = "ui-system-empty";
+            cap.textContent = `Graphics cap · ${graphicsCap.shown} of ${graphicsCap.requested} ships`;
+            list.element.appendChild(cap);
+        }
+        if (sceneDraw) {
+            addLabel("Draw");
+            const stats = document.createElement("div");
+            stats.className = "ui-system-empty";
+            stats.textContent = `${sceneDraw.fleets} fleets · ${sceneDraw.ships} ships · high ${sceneDraw.highFleets} · low ${sceneDraw.lowFleets}`;
+            list.element.appendChild(stats);
         }
         applySelected(rowEls, focusIndex, selectedFleetId);
     };
@@ -236,8 +284,16 @@ export function buildSystemPlanetPanel(ctx, actions, opts) {
         const fleets = next.fleets ?? [];
         const fleetTotal = next.fleetTotal ?? fleets.length;
         const fleetId = next.selectedFleetId ?? null;
-        const identity = listIdentity(next.bodies, fleets);
+        const identity = listIdentity(next.bodies, fleets, next.graphicsCap)
+            + (next.sceneDraw ? `|d:${next.sceneDraw.fleets}:${next.sceneDraw.ships}:${next.sceneDraw.highFleets}:${next.sceneDraw.lowFleets}` : "");
         if (identity === lastIdentity) {
+            for (let i = 0; i < fleets.length; i++) {
+                const fleet = fleets[i];
+                const el = rowEls.find((row) => row.dataset.fleetId === fleet.id);
+                const detail = el?.querySelector(".ui-planet-kind");
+                if (detail)
+                    detail.textContent = formatSceneFleetDetail(fleet);
+            }
             if (next.focusIndex !== lastFocus || fleetId !== lastFleet) {
                 applySelected(rowEls, next.focusIndex, fleetId);
                 lastFocus = next.focusIndex;
@@ -245,7 +301,7 @@ export function buildSystemPlanetPanel(ctx, actions, opts) {
             }
             return;
         }
-        rebuild(next.bodies, fleets, fleetTotal, next.focusIndex, fleetId);
+        rebuild(next.bodies, fleets, fleetTotal, next.focusIndex, fleetId, next.graphicsCap, next.sceneDraw);
         lastIdentity = identity;
         lastFocus = next.focusIndex;
         lastFleet = fleetId;

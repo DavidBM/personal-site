@@ -224,8 +224,8 @@ fn ray_heightfield_classic(
     code = code.replace("@fragment", classicHelpers + "@fragment");
     // Match PLANET_DISC_WGSL UV block (cloud drift rate may change with product).
     const oldUv = `  let uv = sphereToUv(nBody);
-  // Slow cloud drift over land (longitude only; ~1 full turn per ~5–6 min)
-  let uvCloud = vec2<f32>(fract(uv.x + frame.timePad.x * 0.003), uv.y);`;
+  // Slow cloud drift over land (longitude only; one extra turn in ~55 min).
+  let uvCloud = vec2<f32>(fract(uv.x + frame.timePad.x * 0.0003), uv.y);`;
     const hMin = CRACK_DEPTH_H_MIN.toFixed(4);
     const albedoFloor = CRACK_DEPTH_ALBEDO_FLOOR.toFixed(4);
     const digHoleH = DIG_HOLE_H_MAX.toFixed(4);
@@ -340,12 +340,10 @@ fn ray_heightfield_classic(
     // Full-path: Azure land+atm composite + dig-only alpha (no limb RGB hacks).
     // Limb dark is day N·L (same as Azure). Prior limbTex/limbBlue/grazeFill made
     // a black trench under the shell that never matched the Azure reference.
-    const oldMask = `  let surfaceMask = 1.0 - smoothstep(edgeOuter - soft, edgeOuter, rr);
-  var rgb = lit * surfaceMask;
+    const oldMask = `  var rgb = lit * surfaceMask;
   var alpha = surfaceMask;`;
     const newMask = `  // CRACK_AZURE_COMPOSITE + CRACK_DIG_ONLY_TRANSPARENCY
-  // Same soft limb as Azure planet-disc (no artificial softLimb cap).
-  let surfaceMask = 1.0 - smoothstep(edgeOuter - soft, edgeOuter, rr);
+  // Same 1px limb as Azure planet-disc (limbSurfaceMask already applied).
   let cloudCoverA = textureSampleLevel(texCloud, samp, uvCloud, 0.0).a * cloudAmt;
   // Dig holes transparent; non-dig full geometric land (surface digs always solid)
   let landMask = surfaceMask * max(surfHitLand, cloudCoverA);
@@ -361,20 +359,28 @@ fn ray_heightfield_classic(
     code = code.replace(`atm = scatter * mix(vec3<f32>(1.0, 1.0, 1.0), glowCol, 0.35) * (0.85 + 0.55 * gStr) * atmGain;`, `// CRACK_ATM_AZURE + CRACK_ATM_BLUE_LAYER(compat): identical Azure scatter
       atm = scatter * mix(vec3<f32>(1.0, 1.0, 1.0), glowCol, 0.35) * (0.85 + 0.55 * gStr) * atmGain;`);
     // Azure full atm on land; mute only dig interiors away from limb
-    code = code.replace(`rgb = rgb + atm;`, `// CRACK_ATM_AZURE + CRACK_ATM_DIG_MUTE + CRACK_ATM_HOLE_GATE
-  let coverAtm = max(surfHitLand, cloudCoverA);
-  let awayFromLimb = 1.0 - smoothstep(edgeOuter - 0.12, edgeOuter - 0.02, rr);
-  let digMute = (1.0 - coverAtm) * awayFromLimb;
-  let atmHoleGate = (1.0 - digMute) * uiAtm;
-  let atmOut = atm * atmHoleGate;
-  rgb = rgb + atmOut;`);
+    const oldAtmAdd = `if (includeAtmosphere) { rgb = rgb + discAtmosphereFiltered(local, aaRr); }`;
+    const newAtmAdd = `if (includeAtmosphere) {
+    // CRACK_ATM_AZURE + CRACK_ATM_DIG_MUTE + CRACK_ATM_HOLE_GATE
+    let atm = discAtmosphereFiltered(local, aaRr);
+    let coverAtm = max(surfHitLand, cloudCoverA);
+    let awayFromLimb = 1.0 - smoothstep(edgeOuter - 0.12, edgeOuter - 0.02, rr);
+    let digMute = (1.0 - coverAtm) * awayFromLimb;
+    let atmHoleGate = (1.0 - digMute) * uiAtm;
+    let atmOut = atm * atmHoleGate;
+    rgb = rgb + atmOut;
+  }`;
+    if (!code.includes(oldAtmAdd)) {
+        throw new Error("planet-crack-disc: atmosphere add not found");
+    }
+    code = code.replace(oldAtmAdd, newAtmAdd);
     // Mid-LOD: dig alpha + Azure atm (no limb RGB hacks)
     code = code.replace(`return vec4<f32>(
-      litM * surfaceMask0 + atmM,
-      clamp(surfaceMask0, 0.0, 1.0),
+      litM * surfaceMask + atmM,
+      clamp(surfaceMask, 0.0, 1.0),
     );`, `let cloudCoverMGate = textureSampleLevel(texCloud, samp, uvCloud, 0.0).a * cloudAmt;
     let coverM = max(surfHitLand, cloudCoverMGate);
-    let landMaskM = surfaceMask0 * coverM;
+    let landMaskM = surfaceMask * coverM;
     let awayFromLimbM = 1.0 - smoothstep(edgeOuter - 0.12, edgeOuter - 0.02, rr);
     let digMuteM = (1.0 - coverM) * awayFromLimbM;
     let atmHoleGateM = (1.0 - digMuteM) * uiAtm;
@@ -384,7 +390,7 @@ fn ray_heightfield_classic(
       clamp(landMaskM, 0.0, 1.0),
     );`);
     // Tiny-screen LOD: keep full geometric surface (clouds+land soft) — no dig gate
-    // (LOD path has no crack composite; leave surfaceMask0 so planet does not shrink)
+    // (LOD path has no crack composite; leave surfaceMask so planet does not shrink)
     // Guards
     if (!code.includes("ray_heightfield_classic")) {
         throw new Error("planet-crack-disc: classic ray_heightfield missing");

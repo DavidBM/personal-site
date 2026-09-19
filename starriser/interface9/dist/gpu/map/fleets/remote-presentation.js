@@ -13,6 +13,7 @@ export function createRemoteFleetSlots(fleets, onFollowRetired) {
     function hide(visual) {
         retireFollow(visual);
         setRemoteFleetAlive(fleets.storage, visual, false);
+        fleets.scene.unindexVisual(visual);
         fleets.records.delete(visual.id);
         fleets.warmingFleetIds.delete(visual.id);
     }
@@ -36,11 +37,14 @@ export function createRemoteFleetSlots(fleets, onFollowRetired) {
         for (const visual of previous.values()) {
             if (fleets.records.get(visual.id) !== visual)
                 continue;
+            fleets.scene.unindexVisual(visual);
             fleets.records.delete(visual.id);
             fleets.warmingFleetIds.delete(visual.id);
         }
-        for (const visual of next.records.values())
+        for (const visual of next.records.values()) {
             fleets.records.set(visual.id, visual);
+            fleets.scene.indexVisual(visual);
+        }
         for (const id of next.warmingFleetIds)
             fleets.warmingFleetIds.add(id);
     }
@@ -91,6 +95,7 @@ export function createRemoteFleetSlots(fleets, onFollowRetired) {
         publish(visual) {
             setRemoteFleetAlive(fleets.storage, visual, true);
             fleets.records.set(visual.id, visual);
+            fleets.scene.indexVisual(visual);
             if (visual.warmFramesLeft > 0)
                 fleets.warmingFleetIds.add(visual.id);
         },

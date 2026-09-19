@@ -34,13 +34,13 @@ export function createSystemStream(subscription, requestSnapshot) {
             || opaqueIdAt(chunk.snapshotId) !== current.id || chunk.chunkCount !== current.count)
             throw new Error('Snapshot metadata changed between chunks');
         current.bytes += encodedBytes;
-        current.entities += chunk.ships.length;
+        current.entities += chunk.fleets.length;
         if (current.bytes > MAX_SNAPSHOT_BYTES || current.entities > MAX_SNAPSHOT_ENTITIES)
             throw new Error('Snapshot aggregate budget exceeded');
-        for (const ship of chunk.ships) {
-            const id = opaqueIdAt(ship.shipId);
+        for (const fleet of chunk.fleets) {
+            const id = opaqueIdAt(fleet.fleetId);
             if (current.ids.has(id))
-                throw new Error('Duplicate ship in snapshot');
+                throw new Error('Duplicate fleet in snapshot');
             current.ids.add(id);
         }
     }

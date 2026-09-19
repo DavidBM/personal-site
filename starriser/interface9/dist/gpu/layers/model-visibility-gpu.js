@@ -67,18 +67,18 @@ export class ModelVisibilityGpu {
         this.candidateBuffer = candidates;
     }
     clearFrame() { this.candidateCount = 0; }
-    encode(encoder, viewProj, origin, modelScale, meshRadius, count, indexCount) {
+    encode(encoder, viewProj, origin, modelScale, meshRadius, count, indexCount, lodMask = 0) {
         this.assertAvailable();
         this.candidateCount = Math.min(count, this.capacity);
         if (!this.bindGroup || this.candidateCount === 0)
             return;
-        this.writeUniforms(viewProj, origin, modelScale, meshRadius, indexCount);
+        this.writeUniforms(viewProj, origin, modelScale, meshRadius, indexCount, lodMask);
         const groups = Math.ceil(this.candidateCount / MODEL_VISIBILITY_GROUP_SIZE);
         this.dispatch(encoder, this.pipelines.classify, groups, 'model-visibility-classify');
         this.dispatch(encoder, this.pipelines.scan, 1, 'model-visibility-prefix');
         this.dispatch(encoder, this.pipelines.scatter, groups, 'model-visibility-scatter');
     }
-    writeUniforms(viewProj, origin, modelScale, meshRadius, indexCount) {
+    writeUniforms(viewProj, origin, modelScale, meshRadius, indexCount, lodMask) {
         writeModelFrustumPlanes(this.floats, 0, viewProj);
         this.floats[24] = origin.x;
         this.floats[25] = origin.y;
@@ -88,9 +88,12 @@ export class ModelVisibilityGpu {
         this.words[29] = this.candidateCount;
         this.words[30] = indexCount;
         this.words[31] = Math.ceil(this.candidateCount / MODEL_VISIBILITY_GROUP_SIZE);
+        this.words[32] = lodMask >>> 0;
         this.bootstrap.device.queue.writeBuffer(this.buffers.uniform, 0, this.uniformData);
     }
     dispatch(encoder, pipeline, groups, label) {
+        if (groups <= 0)
+            return;
         const pass = encoder.beginComputePass({ label });
         pass.setPipeline(pipeline);
         pass.setBindGroup(0, this.bindGroup);

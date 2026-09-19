@@ -11,6 +11,7 @@
  *  - Streamer intensity: seamless **sphere field** (soft body-frame cones +
  *    noise3). Do NOT use multi-lobe sin(k · bodyLongitude) — that phase
  *    bunches vs screen azimuth when poles enter the silhouette / under pitch.
+ *    Existing corona noise is lightly displaced with time (same 3D field).
  *
  * Perf rules:
  *  - Interior (rr ≲ 0.9): photosphere only (cheap body-frame fbm)
@@ -303,9 +304,9 @@ fn angularRays3d(dir : vec3<f32>, time : f32) -> f32 {
   lobes = lobes + 0.34 * pow(max(dot(dir, -ax2), 0.0), 4.2);
   lobes = lobes * 1.18;
 
-  // Continuous sphere noise base — energy between cones (anti hard-pop)
-  let nBase = noise3(dir * 2.6 + vec3<f32>(time * 0.03, 0.4, time * 0.02));
-  let nMid = noise3(dir * 5.5 + vec3<f32>(time * 0.04, -0.2, 1.1));
+  // Same 3D field as before; light time slide so idle camera is not frozen.
+  let nBase = noise3(dir * 2.6 + vec3<f32>(time * 0.20, 0.4, time * 0.13));
+  let nMid = noise3(dir * 5.5 + vec3<f32>(time * 0.22, -0.2, 1.1));
   let veil =
     0.28 * smoothstep(0.28, 0.72, nBase) +
     0.22 * smoothstep(0.35, 0.78, nMid);
@@ -433,7 +434,7 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
     // Layer C+: sheath
     let sheath = smoothstep(0.96, 1.03, rr) * exp(-max(rr - 1.0, 0.0) * 7.5);
     if (sheath > 0.002) {
-      let sn = noise3(edgeBody * 7.0 + vec3<f32>(time * 0.04, rr * 10.0, 1.2));
+      let sn = noise3(edgeBody * 7.0 + vec3<f32>(time * 0.22, rr * 10.0, 1.2));
       let sheathCol = mix(tempNear, glowWarm, 0.25 + 0.35 * cool);
       rgb = rgb + sheathCol * sheath * (0.65 + 0.55 * sn) * sheathGain * glowStr * sFade;
     }
@@ -458,7 +459,7 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
         rgb = rgb + rayCore * fineRay * rayGain * 0.5 * glowStr;
 
         let veil = exp(-max(rr - 0.95, 0.0) * 0.65) * rayAttach * sFade;
-        let veilN = noise3(edgeBody * 1.8 + vec3<f32>(time * 0.03, rr * 1.2, 0.4));
+        let veilN = noise3(edgeBody * 1.8 + vec3<f32>(time * 0.20, rr * 1.2, 0.4));
         rgb = rgb + mix(tempFar, glowCol, cool * 0.5) * veil * (0.55 + 0.45 * veilN) * veilGain * glowStr;
       }
     }

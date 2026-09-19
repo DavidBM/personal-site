@@ -3,6 +3,10 @@
 Scenario tests that run production modules from `dist/` inside Chromium (WebGPU).
 Agents and CI drive them via CDP over Node 22 built-ins — **no npm test dependencies**.
 
+For native Rust checks, real multi-host API workloads and recorded performance
+results, use the [backend testing guide](../docs/backend/testing.md). It separates
+functional, history, latency and loaded-browser evidence.
+
 ## Working in parallel
 
 `./tests/run.sh <scenario>` builds into an owned temporary directory, mounts that

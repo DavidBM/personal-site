@@ -111,6 +111,11 @@ export const FLEET_FLAG_SPACE3D = 1 << 6;
 export const FLEET_FLAG_SYSTEM_SCENE = 1 << 7; // 128
 /** Explicit sun-local movement; preserves duration coupling without galaxy hop floors. */
 export const FLEET_FLAG_LOCAL_MOVE = 1 << 8;
+/** SCENE 3% hull. GPU VS/visibility reads this; CPU sets it per fleet. */
+export const FLEET_FLAG_MODEL_LOW = 1 << 9;
+/** SCENE 50% hull for the focused planet. */
+export const FLEET_FLAG_MODEL_HIGH = 1 << 10;
+export const FLEET_FLAG_MODEL_LOD = FLEET_FLAG_MODEL_LOW | FLEET_FLAG_MODEL_HIGH;
 /**
  * Ship instance for instanced draw (vertex-step-mode instance). Stride 48.
  *

@@ -2,11 +2,28 @@ import { SYSTEM_LOCAL_SPAN, pickSceneParkBodyIndex } from "../../solar-system-lo
 import { FLEET_SHIP_DRAW_FLOATS } from "../../fleet-ship-pack.js";
 import { WARM_FRAMES, shouldForceIncludeFollowedFleet } from "../../fleet-lod.js";
 import { SCENE_AGENT_SCALE } from "../../ship-motion-config.js";
+// @ts-expect-error JS helper copied into dist; declarations live in kepler-solar.mjs.d.ts
+import { compactOrbitPad } from "../../../lib/ship-runtime/kepler-solar.mjs";
+const ORBIT_MULTIPLIERS = [4, 5, 10, 20, 35, 50];
+function sceneParkOffset(hash, bodyRadius) {
+    const r = Math.max(bodyRadius * 3, bodyRadius + compactOrbitPad(ORBIT_MULTIPLIERS[0], bodyRadius));
+    const angle = (hash / 4294967296) * Math.PI * 2;
+    return { x: r * Math.sin(angle), z: r * Math.cos(angle), r };
+}
 import { FLEET_GPU_STRIDE, FLEET_FLAG_JUMPING, FLEET_FLAG_WARM, FLEET_FLAG_SYSTEM_SCENE, FLEET_FLAG_LOCAL_MOVE, FleetGpuFields } from "../../fleet-layout.js";
 import { SHIP_SIM_STRIDE, readShipSim, writeShipSim } from "../../ship-sim-layout.js";
 import { SHIP_MODE_JUMP, SHIP_MODE_ORBIT } from "../../ship-flight-ref.js";
 import { compactBodySunLocal } from "../../system-scene/frame.js";
 import { initializeRemoteShipPose, writeRemoteFleetPath } from "./remote-path.js";
+const EMPTY_FLEETS = new Map();
+/** Inbound hops occupy the destination system. */
+export function fleetLocSystemId(state) {
+    const node = state.state === "jumping" ? state.endNode : state.node;
+    const id = node?.solarSystemId;
+    if (id == null || !Number.isFinite(id))
+        return null;
+    return id | 0;
+}
 /** Compact-scene membership, local parking and transition resets. */
 export class FleetSceneParking {
     get records() { return this.visible.records; }
@@ -18,6 +35,12 @@ export class FleetSceneParking {
          */
         this.systemSceneIds = new Set();
         this.revision = 0;
+        /**
+         * Same `FleetVisual` objects as `records`, keyed by topology solarSystemId
+         * (jumping uses endNode). Jewel work is `fleetsInJewel().get(id)`, not a scan.
+         */
+        this.bySolarSystem = new Map();
+        this.flaggedSystemId = null;
         /** Scratch world pose for SCENE planet parking (no per-fleet alloc). */
         this.parkWorldScratch = { x: 0, y: 0, z: 0 };
         this.storage = storage;
@@ -63,9 +86,62 @@ export class FleetSceneParking {
      * {@link fleetTopologyLocFromState}.
      */
     fleetLocMatchesKepler(state) {
-        const node = state.state === "jumping" ? state.endNode : state.node;
+        const id = fleetLocSystemId(state);
+        if (id == null)
+            return false;
         const keplerId = this.solarBodies.systemId;
-        return keplerId == null ? this.systemSceneIds.has(node.solarSystemId) : node.solarSystemId === keplerId;
+        return keplerId == null ? this.systemSceneIds.has(id) : id === keplerId;
+    }
+    /** Topology system this fleet occupies (inbound hops use the destination). */
+    indexVisual(visual) {
+        this.unindexVisual(visual);
+        const id = fleetLocSystemId(visual.state);
+        visual.locSystemId = id;
+        if (id == null)
+            return;
+        let bucket = this.bySolarSystem.get(id);
+        if (!bucket) {
+            bucket = new Map();
+            this.bySolarSystem.set(id, bucket);
+        }
+        bucket.set(visual.id, visual);
+    }
+    unindexVisual(visual) {
+        const id = visual.locSystemId;
+        if (id == null)
+            return;
+        const bucket = this.bySolarSystem.get(id);
+        if (bucket) {
+            bucket.delete(visual.id);
+            if (bucket.size === 0)
+                this.bySolarSystem.delete(id);
+        }
+        visual.locSystemId = null;
+    }
+    rebuildLocIndex() {
+        this.bySolarSystem.clear();
+        this.flaggedSystemId = null;
+        for (const visual of this.records.values()) {
+            visual.locSystemId = null;
+            this.indexVisual(visual);
+        }
+    }
+    /** Fleets whose loc is the loaded jewel (or CPU scene set). Empty map if none. */
+    fleetsInJewel() {
+        const id = this.jewelSystemId();
+        if (id == null)
+            return EMPTY_FLEETS;
+        return this.bySolarSystem.get(id) ?? EMPTY_FLEETS;
+    }
+    jewelSystemId() {
+        const keplerId = this.solarBodies.systemId;
+        if (keplerId != null)
+            return keplerId | 0;
+        if (this.systemSceneIds.size === 1) {
+            const only = this.systemSceneIds.values().next().value;
+            return only == null ? null : only | 0;
+        }
+        return null;
     }
     /**
      * Whole-hop inbound uses endNode via {@link fleetTopologyLocFromState}.
@@ -91,7 +167,7 @@ export class FleetSceneParking {
     isFollowedFleetInSystemScene() {
         if (this.followIndex() == null)
             return false;
-        for (const f of this.records.values()) {
+        for (const f of this.fleetsInJewel().values()) {
             if (!this.isFollowedVisual(f))
                 continue;
             if (this.fleetLocMatchesKepler(f.state))
@@ -128,30 +204,40 @@ export class FleetSceneParking {
      * stays put — never a host re-pack.
      */
     reapplySystemSceneFlags() {
-        if (this.records.size === 0)
-            return;
-        for (const f of this.records.values()) {
-            if (f.remote) {
-                this.updateRemoteSpace(f);
-                continue;
-            }
-            const slot = f.fleetSlot;
-            const o = slot * FLEET_GPU_STRIDE;
-            if (o + 4 > this.storage.fleetGpuBytes.byteLength)
-                continue;
-            const flags = this.storage.fleetGpuView.getUint32(o + FleetGpuFields.flags, true);
-            const next = this.fleetInSystemScene(f.state, f)
-                ? this.orSystemSceneFlag(f, f.state, flags, flags)
-                : (flags & ~FLEET_FLAG_SYSTEM_SCENE) >>> 0;
-            if (next !== flags) {
-                this.storage.fleetGpuView.setUint32(o + FleetGpuFields.flags, next >>> 0, true);
-                if ((flags & FLEET_FLAG_SYSTEM_SCENE) !== 0 &&
-                    (next & FLEET_FLAG_SYSTEM_SCENE) === 0) {
-                    this.restoreTopologyPathEnd(f);
-                }
-                this.storage.markFleetDirty(slot);
-            }
+        const nextId = this.jewelSystemId();
+        if (this.flaggedSystemId != null && this.flaggedSystemId !== nextId) {
+            for (const f of this.bucket(this.flaggedSystemId).values())
+                this.writeSceneMembership(f, false);
         }
+        if (nextId != null) {
+            for (const f of this.bucket(nextId).values())
+                this.writeSceneMembership(f, true);
+        }
+        this.flaggedSystemId = nextId;
+    }
+    bucket(systemId) {
+        return this.bySolarSystem.get(systemId) ?? EMPTY_FLEETS;
+    }
+    writeSceneMembership(f, inJewel) {
+        if (f.remote) {
+            this.updateRemoteSpace(f);
+            return;
+        }
+        const slot = f.fleetSlot;
+        const o = slot * FLEET_GPU_STRIDE;
+        if (o + 4 > this.storage.fleetGpuBytes.byteLength)
+            return;
+        const flags = this.storage.fleetGpuView.getUint32(o + FleetGpuFields.flags, true);
+        const next = inJewel && this.fleetInSystemScene(f.state, f)
+            ? this.orSystemSceneFlag(f, f.state, flags, flags)
+            : (flags & ~FLEET_FLAG_SYSTEM_SCENE) >>> 0;
+        if (next === flags)
+            return;
+        this.storage.fleetGpuView.setUint32(o + FleetGpuFields.flags, next >>> 0, true);
+        if ((flags & FLEET_FLAG_SYSTEM_SCENE) !== 0 && (next & FLEET_FLAG_SYSTEM_SCENE) === 0) {
+            this.restoreTopologyPathEnd(f);
+        }
+        this.storage.markFleetDirty(slot);
     }
     updateRemoteSpace(visual) {
         const offset = visual.fleetSlot * FLEET_GPU_STRIDE + FleetGpuFields.flags;
@@ -216,52 +302,60 @@ export class FleetSceneParking {
         visual.poseSystemId = null;
     }
     /**
-     * Visual-only: SCENE fleets CIRCULATE a hashed compact planet, not the
-     * system node. Stored pathStart/pathEnd are **sun-relative** (no unit).
-     * Topology dest stays SolarSystem.position. Formation
-     * (instanceStart / shipBudget) is not touched. On first entry, moving fleets
-     * begin just outside the destination and seek its orbit. Later frames update
-     * only the moving Kepler target, preserving the approach and orbit phase.
+     * Join seed only: hashed compact planet, sun-relative path. Kepler follow
+     * after that is GPU `body(planetId, now)`. Formation is not touched.
      */
     writeParkedPathEnd(visual, timeSec) {
         if (visual.remote)
             return;
+        const park = this.sceneParkPose(visual, timeSec);
+        if (!park)
+            return;
+        const { o, hash, lx, ly, lz, slot } = park;
+        const systemId = this.solarBodies.systemId;
+        const prevFlags = this.storage.fleetGpuView.getUint32(o + FleetGpuFields.flags, true);
+        const nextFlags = this.sceneParkFlags(visual, prevFlags);
+        const entering = visual.poseInitialized && visual.poseSystemId !== systemId;
+        // Kepler follow is GPU `body(planetId, now)`. CPU pathEnd is a join seed.
+        if (visual.poseInitialized && visual.poseSystemId === systemId && !entering)
+            return;
+        if (this.parkedPathMatches(o, lx, ly, lz, nextFlags) && !entering)
+            return;
+        this.writeScenePath(visual, o, hash, lx, ly, lz, nextFlags, !visual.poseInitialized || entering, visual.state.state !== "awaiting");
+        this.storage.markFleetDirty(slot);
+        this.seedSceneEntry(visual, entering);
+        if (visual.poseInitialized)
+            visual.poseSystemId = systemId;
+    }
+    sceneParkPose(visual, timeSec) {
         const store = this.solarBodies;
         if (store.systemId == null || store.currentCount <= 0)
-            return;
+            return null;
         const slot = visual.fleetSlot;
         const o = slot * FLEET_GPU_STRIDE;
         if (o + FLEET_GPU_STRIDE > this.storage.fleetGpuBytes.byteLength)
-            return;
+            return null;
         const hash = this.storage.fleetGpuView.getUint32(o + FleetGpuFields.fleetIdHash, true);
         const idx = pickSceneParkBodyIndex(hash, store);
         const local = compactBodySunLocal(store, idx, timeSec, this.parkWorldScratch);
         if (!local)
-            return;
-        // Reuse the pose scratch; this runs for every visible fleet each frame.
-        const lx = local.x, ly = local.y, lz = local.z;
-        const systemId = store.systemId;
-        const prevFlags = this.storage.fleetGpuView.getUint32(o + FleetGpuFields.flags, true);
-        const movingToOrbit = visual.state.state !== "awaiting";
-        const nextFlags = this.orSystemSceneFlag(visual, visual.state, visual.state.state === "jumping"
+            return null;
+        const park = sceneParkOffset(hash, store.radius[idx] ?? 0);
+        return { o, hash, slot, lx: local.x + park.x, ly: local.y, lz: local.z + park.z };
+    }
+    sceneParkFlags(visual, prevFlags) {
+        const jumping = visual.state.state === "jumping";
+        const next = jumping
             ? (prevFlags | FLEET_FLAG_JUMPING | FLEET_FLAG_LOCAL_MOVE) >>> 0
-            : ((prevFlags & ~FLEET_FLAG_JUMPING) | FLEET_FLAG_LOCAL_MOVE) >>> 0, prevFlags);
-        const entering = visual.poseInitialized && visual.poseSystemId !== systemId;
-        if (this.parkedPathMatches(o, lx, ly, lz, nextFlags) && !entering)
+            : ((prevFlags & ~FLEET_FLAG_JUMPING) | FLEET_FLAG_LOCAL_MOVE) >>> 0;
+        return this.orSystemSceneFlag(visual, visual.state, next, prevFlags);
+    }
+    seedSceneEntry(visual, entering) {
+        if (!entering || visual.instanceCapacity <= 0)
             return;
-        const seedPath = !visual.poseInitialized || entering;
-        this.writeScenePath(visual, o, hash, lx, ly, lz, nextFlags, seedPath, movingToOrbit);
-        this.storage.markFleetDirty(slot);
-        // Only a coordinate-space transition seeds ShipSim. Target distance is not
-        // lifecycle evidence: a same-system retarget must steer from the live pose.
-        if (visual.instanceCapacity > 0 &&
-            entering) {
-            this.layer.killTrailRange(visual.instanceStart, visual.instanceCapacity);
-            this.positionShipsForSceneState(visual);
-            this.storage.markShipDirty(visual.instanceStart, visual.instanceCapacity);
-        }
-        if (visual.poseInitialized)
-            visual.poseSystemId = systemId;
+        this.layer.killTrailRange(visual.instanceStart, visual.instanceCapacity);
+        this.positionShipsForSceneState(visual);
+        this.storage.markShipDirty(visual.instanceStart, visual.instanceCapacity);
     }
     writeScenePath(visual, o, hash, x, y, z, flags, entering, moving) {
         if (entering && moving) {
@@ -276,6 +370,8 @@ export class FleetSceneParking {
         this.storage.fleetGpuView.setFloat32(o + FleetGpuFields.pathEndX, x, true);
         this.storage.fleetGpuView.setFloat32(o + FleetGpuFields.pathEndZ, z, true);
         this.storage.fleetGpuView.setFloat32(o + FleetGpuFields._pad0, y, true);
+        this.storage.fleetGpuView.setFloat32(o + FleetGpuFields.posX, x, true);
+        this.storage.fleetGpuView.setFloat32(o + FleetGpuFields.posZ, z, true);
         this.storage.fleetGpuView.setUint32(o + FleetGpuFields.flags, flags, true);
     }
     sceneApproachStart(visual, targetX, targetZ, hash) {
@@ -300,7 +396,7 @@ export class FleetSceneParking {
             dx /= len;
             dz /= len;
         }
-        const approachDistance = SYSTEM_LOCAL_SPAN * 0.25;
+        const approachDistance = SYSTEM_LOCAL_SPAN * 0.85;
         return {
             x: targetX + dx * approachDistance,
             z: targetZ + dz * approachDistance,
@@ -311,16 +407,11 @@ export class FleetSceneParking {
      * Followed fleets outside the SCENE keep galaxy pathEnd (bit 7 is agents only).
      */
     applyScenePlanetParking() {
-        if (this.records.size === 0)
-            return;
         const store = this.solarBodies;
         if (store.systemId == null || store.currentCount <= 0)
             return;
         const timeSec = this.timeline.seconds;
-        for (const f of this.records.values()) {
-            // Loc-only: do not park a followed galaxy fleet onto compact planets.
-            if (!this.fleetLocMatchesKepler(f.state))
-                continue;
+        for (const f of this.fleetsInJewel().values()) {
             this.writeParkedPathEnd(f, timeSec);
         }
     }
@@ -391,10 +482,7 @@ export class FleetSceneParking {
         }
     }
     positionShipsForSceneState(visual) {
-        if (visual.state.state === "awaiting")
-            this.snapShipsToSceneOrbit(visual);
-        else
-            this.placeShipsAtSceneApproach(visual);
+        this.placeShipsAtSceneApproach(visual);
     }
     /** Planet-relative altitude keeps every hull clear of the body surface. */
     sceneOrbitRadiusCanonical(visual, shipIndex, fallback) {
@@ -407,8 +495,8 @@ export class FleetSceneParking {
         if (!(bodyRadius > 0))
             return fallback;
         const mixed = Math.imul((hash ^ shipIndex) >>> 0, 0x9e3779b1) >>> 0;
-        const altitudeMul = 2.2 + (mixed / 4294967296) * 1.2;
-        return (bodyRadius * altitudeMul) / SCENE_AGENT_SCALE;
+        const classMul = ORBIT_MULTIPLIERS[mixed % ORBIT_MULTIPLIERS.length];
+        return (bodyRadius + compactOrbitPad(classMul, bodyRadius)) / SCENE_AGENT_SCALE;
     }
     parkedPathMatches(o, x, y, z, flags) {
         const row = this.storage.fleetGpuView;

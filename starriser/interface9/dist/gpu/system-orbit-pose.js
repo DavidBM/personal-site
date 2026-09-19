@@ -5,7 +5,7 @@
  * controller owns the mode — do not import `js/gpu/solar-system/`.
  * Look-at is the compact body; floating origin stays pathEnd / ship / eye.
  */
-import { MAP_NEAR } from "./camera-zoom.js";
+import { MAP_NEAR, TAU_S, dampTowardExp } from "./camera-zoom.js";
 import { SCENE_EXIT_PX, SYSTEM_LOCAL_SPAN, distanceForSpanPx, } from "./solar-system-lod.js";
 export const SYSTEM_ORBIT_DEFAULT_YAW = 0.55;
 export const SYSTEM_ORBIT_DEFAULT_PITCH = 0.32;
@@ -22,8 +22,11 @@ export const SYSTEM_ORBIT_BODY_MIN_R_MUL = 1.1;
 /** Surface-to-eye clearance also stays beyond the near plane with headroom. */
 export const SYSTEM_ORBIT_SURFACE_NEAR_MUL = 1.25;
 export const SYSTEM_ORBIT_NEAR_MUL = 3;
-/** Exit map height = dAt(SCENE_EXIT_PX) × this (span ≲ 3px, 5px language). */
-export const SYSTEM_ORBIT_EXIT_HEIGHT_MUL = 12;
+/**
+ * Galaxy-pan rest height after orbit exit, as a multiple of dAt(EXIT).
+ * ~1.15 lands just past the 44px gate (no 50px re-enter) instead of 12× out.
+ */
+export const SYSTEM_ORBIT_EXIT_HEIGHT_MUL = 1.15;
 export function defaultSystemOrbitRadius() {
     return SYSTEM_ORBIT_RADIUS_SPAN_MUL * SYSTEM_LOCAL_SPAN;
 }
@@ -98,6 +101,21 @@ export function systemOrbitApplyWheel(pose, ds, minR, maxR) {
         radius = lo;
     return { pose: { ...pose, radius }, pastMax };
 }
+/**
+ * Log-radius ease toward a wheel target. Same τ as map height ({@link TAU_S}).
+ */
+export function systemOrbitDampRadius(current, target, dtSec, minR, maxR) {
+    const lo = Math.max(1e-9, minR);
+    const hi = Math.max(lo, maxR);
+    const c = Math.min(hi, Math.max(lo, current));
+    const t = Math.min(hi, Math.max(lo, target));
+    let radius = Math.exp(dampTowardExp(Math.log(c), Math.log(t), dtSec, TAU_S));
+    if (radius < lo)
+        radius = lo;
+    if (radius > hi)
+        radius = hi;
+    return radius;
+}
 export function systemOrbitSetFocus(pose, fx, fy, fz, focusIndex, radius) {
     return {
         ...pose,
@@ -127,8 +145,8 @@ export function systemOrbitMaxRadius(viewportH, fovyDeg) {
     return distanceForSpanPx(SCENE_EXIT_PX, viewportH, fovyDeg);
 }
 /**
- * Galaxy-pan rest height after orbit exit. 12× dAt(EXIT) so span ≲ 3px
- * and we do not re-trigger the 50px Schmitt enter.
+ * Galaxy-pan rest height after orbit exit. Just past {@link SCENE_EXIT_PX}
+ * so Schmitt does not re-enter, without dumping the camera into the map.
  */
 export function systemOrbitExitHeight(viewportH, fovyDeg) {
     return (distanceForSpanPx(SCENE_EXIT_PX, viewportH, fovyDeg) *

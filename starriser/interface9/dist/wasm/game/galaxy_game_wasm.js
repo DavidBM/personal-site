@@ -1,5 +1,89 @@
 /* @ts-self-types="./galaxy_game_wasm.d.ts" */
 
+export class PlanetaryModel {
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        PlanetaryModelFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_planetarymodel_free(ptr, 0);
+    }
+    /**
+     * @param {number} version
+     * @param {number} epoch_ms
+     * @param {Float64Array} origin
+     * @param {Float64Array} bodies
+     */
+    constructor(version, epoch_ms, origin, bodies) {
+        const ptr0 = passArrayF64ToWasm0(origin, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passArrayF64ToWasm0(bodies, wasm.__wbindgen_malloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ret = wasm.planetarymodel_new(version, epoch_ms, ptr0, len0, ptr1, len1);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        this.__wbg_ptr = ret[0];
+        PlanetaryModelFinalization.register(this, this.__wbg_ptr, this);
+        return this;
+    }
+    /**
+     * @param {number} time_ms
+     * @returns {Float64Array}
+     */
+    phase_records(time_ms) {
+        const ret = wasm.planetarymodel_phase_records(this.__wbg_ptr, time_ms);
+        if (ret[3]) {
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        var v1 = getArrayF64FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 8, 8);
+        return v1;
+    }
+    /**
+     * Shared bounded local corridor planner; warp corridors are not queried.
+     * @param {number} frame_body
+     * @param {number} at_ms
+     * @param {number} duration_seconds
+     * @param {Float64Array} start
+     * @param {Float64Array} destination
+     * @param {Float64Array} capability
+     * @returns {Float64Array}
+     */
+    plan_route(frame_body, at_ms, duration_seconds, start, destination, capability) {
+        const ptr0 = passArrayF64ToWasm0(start, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passArrayF64ToWasm0(destination, wasm.__wbindgen_malloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ptr2 = passArrayF64ToWasm0(capability, wasm.__wbindgen_malloc);
+        const len2 = WASM_VECTOR_LEN;
+        const ret = wasm.planetarymodel_plan_route(this.__wbg_ptr, frame_body, at_ms, duration_seconds, ptr0, len0, ptr1, len1, ptr2, len2);
+        if (ret[3]) {
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        var v4 = getArrayF64FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 8, 8);
+        return v4;
+    }
+    /**
+     * @param {number} time_ms
+     * @returns {Float64Array}
+     */
+    sample(time_ms) {
+        const ret = wasm.planetarymodel_sample(this.__wbg_ptr, time_ms);
+        if (ret[3]) {
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        var v1 = getArrayF64FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 8, 8);
+        return v1;
+    }
+}
+if (Symbol.dispose) PlanetaryModel.prototype[Symbol.dispose] = PlanetaryModel.prototype.free;
+
 /**
  * An immutable permitted topology, built once and released with its worker or
  * topology generation. Packed IDs and index pairs avoid a JSON object bridge.
@@ -96,7 +180,7 @@ export class RuleSystem {
         return v1;
     }
     /**
-     * Columns per ship: identities = ship/owner/order IDs (48 bytes; zero order
+     * Columns per fleet: identities = fleet/owner/order IDs (48 bytes; zero order
      * means idle); positions = x,z,targetX,targetZ; times = departure,arrival.
      * Revisions are u64, exposed as BigUint64Array. Rows restore in any order.
      * @param {Uint8Array} system_id
@@ -200,7 +284,7 @@ export class RuleSystem {
         return v1;
     }
     /**
-     * Source/destination/ship/owner full IDs, 64 bytes, or empty for no export.
+     * Source/destination/fleet/owner full IDs, 64 bytes, or empty for no export.
      * @returns {Uint8Array}
      */
     pending_transfer_ids() {
@@ -210,7 +294,7 @@ export class RuleSystem {
         return v1;
     }
     /**
-     * Base/new system revision, command time, departure, arrival, ship revision.
+     * Base/new system revision, command time, departure, arrival, fleet revision.
      * @returns {BigUint64Array}
      */
     pending_transfer_meta() {
@@ -267,7 +351,7 @@ export class RuleSystem {
      * Stages the same sealed export as native. Route permission and receipt
      * dedup belong to the host; online preview callers discard this proposal.
      * @param {Uint8Array} actor_id
-     * @param {Uint8Array} ship_id
+     * @param {Uint8Array} fleet_id
      * @param {Uint8Array} destination_id
      * @param {number} target_x
      * @param {number} target_z
@@ -276,10 +360,10 @@ export class RuleSystem {
      * @param {bigint | null} [expected_revision]
      * @returns {number}
      */
-    stage_export(actor_id, ship_id, destination_id, target_x, target_z, now_ms, arrival_ms, expected_revision) {
+    stage_export(actor_id, fleet_id, destination_id, target_x, target_z, now_ms, arrival_ms, expected_revision) {
         const ptr0 = passArray8ToWasm0(actor_id, wasm.__wbindgen_malloc);
         const len0 = WASM_VECTOR_LEN;
-        const ptr1 = passArray8ToWasm0(ship_id, wasm.__wbindgen_malloc);
+        const ptr1 = passArray8ToWasm0(fleet_id, wasm.__wbindgen_malloc);
         const len1 = WASM_VECTOR_LEN;
         const ptr2 = passArray8ToWasm0(destination_id, wasm.__wbindgen_malloc);
         const len2 = WASM_VECTOR_LEN;
@@ -289,19 +373,19 @@ export class RuleSystem {
     /**
      * @param {Uint8Array} actor_id
      * @param {Uint8Array} order_id
-     * @param {Uint8Array} ship_id
+     * @param {Uint8Array} fleet_id
      * @param {number} target_x
      * @param {number} target_z
      * @param {bigint} now_ms
      * @param {bigint | null} [expected_revision]
      * @returns {number}
      */
-    stage_move(actor_id, order_id, ship_id, target_x, target_z, now_ms, expected_revision) {
+    stage_move(actor_id, order_id, fleet_id, target_x, target_z, now_ms, expected_revision) {
         const ptr0 = passArray8ToWasm0(actor_id, wasm.__wbindgen_malloc);
         const len0 = WASM_VECTOR_LEN;
         const ptr1 = passArray8ToWasm0(order_id, wasm.__wbindgen_malloc);
         const len1 = WASM_VECTOR_LEN;
-        const ptr2 = passArray8ToWasm0(ship_id, wasm.__wbindgen_malloc);
+        const ptr2 = passArray8ToWasm0(fleet_id, wasm.__wbindgen_malloc);
         const len2 = WASM_VECTOR_LEN;
         const ret = wasm.rulesystem_stage_move(this.__wbg_ptr, ptr0, len0, ptr1, len1, ptr2, len2, target_x, target_z, now_ms, !isLikeNone(expected_revision), isLikeNone(expected_revision) ? BigInt(0) : expected_revision);
         return ret >>> 0;
@@ -317,6 +401,14 @@ export class RuleSystem {
     }
 }
 if (Symbol.dispose) RuleSystem.prototype[Symbol.dispose] = RuleSystem.prototype.free;
+
+/**
+ * @returns {number}
+ */
+export function ephemeris_version() {
+    const ret = wasm.ephemeris_version();
+    return ret >>> 0;
+}
 
 /**
  * @param {bigint} now
@@ -357,6 +449,11 @@ function __wbg_get_imports() {
             const ret = arg0;
             return ret;
         },
+        __wbindgen_generic_0000000000000002: function(arg0, arg1) {
+            // Cast intrinsic for `Ref(String) -> Externref`.
+            const ret = getStringFromWasm0(arg0, arg1);
+            return ret;
+        },
         __wbindgen_init_externref_table: function() {
             const table = wasm.__wbindgen_externrefs;
             const offset = table.grow(4);
@@ -373,6 +470,9 @@ function __wbg_get_imports() {
     };
 }
 
+const PlanetaryModelFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_planetarymodel_free(ptr, 1));
 const RuleRoutesFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_ruleroutes_free(ptr, 1));

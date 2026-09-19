@@ -25,10 +25,11 @@
  */
 import { DEFAULT_TRAIL_LAYOUT, TRAIL_LINE_FLOATS_PER_SHIP, TRAIL_LINE_FLOATS_PER_VERT, TRAIL_LINE_STRIDE, TRAIL_SEGMENT_FLOATS, TRAIL_SEGMENT_STRIDE, TRAIL_SEGS_PER_SHIP, TRAIL_VERTS_PER_SHIP, } from "../visual/fleet-trail-ref.js";
 import { TRAIL_EXPOSURE_DEFAULT } from "./trail-fragment-color.js";
+import { TRAIL_WORLD_MIN_PX } from "./trail-width.js";
 /** Default thruster atlas for production fleet ribbons (repo-root relative). */
 export const DEFAULT_TRAIL_TEXTURE_URL = "images/engine-trail-01.png";
 export { TRAIL_LINE_FLOATS_PER_SHIP, TRAIL_LINE_FLOATS_PER_VERT, TRAIL_LINE_STRIDE, TRAIL_SEGMENT_FLOATS, TRAIL_SEGMENT_STRIDE, TRAIL_SEGS_PER_SHIP as TRAIL_DRAW_SEGS, TRAIL_VERTS_PER_SHIP, };
-export { TRAIL_WIDTH_MODE_SCREEN, TRAIL_WIDTH_MODE_WORLD, TRAIL_WORLD_WIDTH_HEAD, TRAIL_WORLD_WIDTH_TAIL, trailClipWidthScale, resolveTrailDrawWidths, } from "./trail-width.js";
+export { TRAIL_WIDTH_MODE_SCREEN, TRAIL_WIDTH_MODE_WORLD, TRAIL_WORLD_WIDTH_HEAD, TRAIL_WORLD_WIDTH_TAIL, TRAIL_WORLD_MIN_PX, trailClipWidthScale, resolveTrailDrawWidths, } from "./trail-width.js";
 export { trailAtlasUv, trailAtlasUFromAlpha, trailAtlasVFromSide, trailAtlasUvPolylineContinuity, trailPathCorrectAtlasUv, trailPathCorrectCenterlineCheck, } from "./trail-atlas-uv.js";
 export { TRAIL_EXPOSURE_DEFAULT, TRAIL_BLEND_COLOR, TRAIL_BLEND_ALPHA, trailFragmentColor, trailFragmentColorDim, solidTrailEdgeMask, compositeTrailAdditive, compositeTrailAlphaOver, } from "./trail-fragment-color.js";
 /** Game-default ring for static checks. Runtime uses layer.trailLayout. */
@@ -546,37 +547,35 @@ fn trailMiterScreen(
 
 /**
  * View-space half-width from full linewidth (world units or screen px).
+ * World mode: metres, then clamp so the ribbon is at least TRAIL_WORLD_MIN_PX
+ * on screen. Camera-facing expand already uses trailViewSideAxis; this clamp
+ * is one max() per vertex — no extra pass.
  */
 fn trailViewHalfWidth(fullWidth: f32, viewZ: f32) -> f32 {
-  if (u.widthMode >= 0.5) {
-    return max(fullWidth, 0.0) * 0.5;
-  }
   let resY = max(u.resolution.y, 1.0);
   let p11 = max(abs(u.projection[1][1]), 1e-5);
+  let minHalf = (${TRAIL_WORLD_MIN_PX} / resY) * abs(viewZ) / p11;
+  if (u.widthMode >= 0.5) {
+    return max(max(fullWidth, 0.0) * 0.5, minHalf);
+  }
   return (max(fullWidth, 0.0) / resY) * abs(viewZ) / p11;
 }
 
 /**
- * Camera-facing side axis in view space (unit). Stable under follow cam.
+ * Camera-facing side axis in view space (unit).
  *
- * Camera is at origin looking −Z. Prefer cross(trail, toCamera) with
- * toCamera = −normalize(center). When follow floating-origin puts the ship at
- * the look-at, center≈0 and trail often ‖ view — never rely on fixed −Z alone
- * (that flickered). Fall back to camera-up, then +X.
+ * Camera is at origin looking −Z. The ribbon plane is cross(trail, toCamera)
+ * with toCamera = −center. A 1e-3 cutoff used camera-up once jewel zoom put
+ * the segment closer than that, which expanded along view Z (a 2D card).
+ * Degenerate (on the lens) uses optical +Z; trail ‖ view then camera-up, then +X.
  */
 fn trailViewSideAxis(trailDir: vec3<f32>, center: vec3<f32>) -> vec3<f32> {
   let cLen = length(center);
-  var side: vec3<f32>;
-  if (cLen > 1e-3) {
-    let toCam = -center / cLen;
-    side = cross(trailDir, toCam);
-  } else {
-    // Near view origin (follow ship): use camera up, not optical −Z.
-    side = cross(trailDir, vec3<f32>(0.0, 1.0, 0.0));
-  }
+  let toCam = select(vec3<f32>(0.0, 0.0, 1.0), -center / max(cLen, 1e-8), cLen > 1e-6);
+  var side = cross(trailDir, toCam);
   var sl = length(side);
   if (sl < 1e-4) {
-    side = cross(trailDir, vec3<f32>(0.0, 0.0, -1.0));
+    side = cross(trailDir, vec3<f32>(0.0, 1.0, 0.0));
     sl = length(side);
   }
   if (sl < 1e-4) {
@@ -698,7 +697,8 @@ fn fs_main(input : VSOut) -> @location(0) vec4<f32> {
       let sm = uu * uu * (3.0 - 2.0 * uu);
       edge = 1.0 - sm;
     }
-    let a = clamp(input.vColor.a, 0.0, 1.0) * edge;
+    let inten = select(1.0, u.intensity, u.intensity > 0.0);
+    let a = clamp(input.vColor.a, 0.0, 1.0) * edge * inten;
     if (a <= 0.001) {
       discard;
     }

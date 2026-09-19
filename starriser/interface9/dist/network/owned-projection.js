@@ -1,25 +1,25 @@
 import { copyWatermark, sameScope } from '../render/remote/projection-state.js';
 import { MAX_SNAPSHOT_ENTITIES } from '../render/remote/contracts.js';
 import { opaqueIdAt, opaqueIdBytes } from '../contracts/opaque-id.js';
-import { MAX_RULE_SEED_SHIPS } from '../features/fleets/domain/contracts.js';
-function row(ship) {
-    const move = ship.movement;
-    const base = { id: opaqueIdAt(ship.shipId), revision: ship.revision, x: ship.position.x, z: ship.position.z };
+import { MAX_RULE_SEED_FLEETS } from '../features/fleets/domain/contracts.js';
+function row(fleet) {
+    const move = fleet.movement;
+    const base = { id: opaqueIdAt(fleet.fleetId), revision: fleet.revision, x: fleet.position.x, z: fleet.position.z };
     if (!move)
-        return { ...base, targetX: base.x, targetZ: base.z, moving: false, departureMs: 0n, arrivalMs: 0n, transferReadyMs: ship.transferReadyServerMs };
+        return { ...base, targetX: base.x, targetZ: base.z, moving: false, departureMs: 0n, arrivalMs: 0n, transferReadyMs: fleet.transferReadyServerMs };
     const orderId = opaqueIdAt(move.orderId);
     opaqueIdBytes(orderId);
     return { ...base, targetX: move.to.x, targetZ: move.to.z, moving: true, orderId,
-        departureMs: move.departureServerMs, arrivalMs: move.arrivalServerMs, transferReadyMs: ship.transferReadyServerMs };
+        departureMs: move.departureServerMs, arrivalMs: move.arrivalServerMs, transferReadyMs: fleet.transferReadyServerMs };
 }
-function change(rows, ships, removed) {
+function change(rows, fleets, removed) {
     for (const id of removed)
         rows.delete(opaqueIdAt(id));
-    for (const ship of ships) {
-        if (ship.controllable)
-            rows.set(opaqueIdAt(ship.shipId), row(ship));
+    for (const fleet of fleets) {
+        if (fleet.controllable)
+            rows.set(opaqueIdAt(fleet.fleetId), row(fleet));
         else
-            rows.delete(opaqueIdAt(ship.shipId));
+            rows.delete(opaqueIdAt(fleet.fleetId));
         if (rows.size > MAX_SNAPSHOT_ENTITIES)
             throw new Error('Owned projection entity budget exceeded');
     }
@@ -46,7 +46,7 @@ export function createOwnedProjection(connectionGeneration, playerId) {
                 staged = { rows: new Map(), watermark: copyWatermark(watermark), committedTimeMs: time };
             if (!staged || staged.committedTimeMs !== time)
                 throw new Error('Owned snapshot metadata changed');
-            change(staged.rows, value.ships, []);
+            change(staged.rows, value.fleets, []);
             if (value.chunkIndex + 1 === value.chunkCount) {
                 current = staged;
                 staged = undefined;
@@ -56,20 +56,20 @@ export function createOwnedProjection(connectionGeneration, playerId) {
             const time = requireTime(value.committedTimeMs);
             if (!current || staged || time < current.committedTimeMs)
                 throw new Error('Owned delta has no valid current baseline');
-            change(current.rows, value.upserts, value.removedShipIds);
+            change(current.rows, value.upserts, value.removedFleetIds);
             current.watermark = copyWatermark(watermark);
             current.committedTimeMs = time;
         },
         page(query, serverNowMs) {
             if (!current || staged)
-                throw new Error('Owned ships need a complete current snapshot');
+                throw new Error('Owned fleets need a complete current snapshot');
             const required = query.required;
             if (required && (required.connectionGeneration !== connectionGeneration || !sameWatermark(required.watermark, current.watermark))) {
-                throw new Error('Owned ship page belongs to a different projection revision');
+                throw new Error('Owned fleet page belongs to a different projection revision');
             }
             const { rows, nextOffset } = select(current.rows, query);
             const seed = pack(rows, current, connectionGeneration, playerId);
-            return { seed, ships: rows.map(({ id, revision, x, z, targetX, targetZ, moving }) => ({ id, revision, x, z, targetX, targetZ, moving })),
+            return { seed, fleets: rows.map(({ id, revision, x, z, targetX, targetZ, moving }) => ({ id, revision, x, z, targetX, targetZ, moving })),
                 nextOffset, total: current.rows.size, serverNowMs };
         },
         dispose() { current = undefined; staged = undefined; },
@@ -77,11 +77,11 @@ export function createOwnedProjection(connectionGeneration, playerId) {
     };
 }
 function select(all, query) {
-    if (query.shipId) {
-        const ship = all.get(query.shipId);
-        if (!ship)
-            throw new Error('Ship is outside the owned projection');
-        return { rows: [ship], nextOffset: null };
+    if (query.fleetId) {
+        const fleet = all.get(query.fleetId);
+        if (!fleet)
+            throw new Error('Fleet is outside the owned projection');
+        return { rows: [fleet], nextOffset: null };
     }
     const offset = query.offset ?? 0;
     const limit = query.limit ?? 64;
@@ -95,18 +95,18 @@ function select(all, query) {
 function pageRows(all, offset, limit) {
     const rows = [];
     let index = 0;
-    for (const ship of all.values()) {
+    for (const fleet of all.values()) {
         if (index++ < offset)
             continue;
-        rows.push(ship);
+        rows.push(fleet);
         if (rows.length === limit)
             break;
     }
     return rows;
 }
 function pageBounds(offset, limit, total) {
-    if (!Number.isInteger(offset) || offset < 0 || offset > total || !Number.isInteger(limit) || limit < 1 || limit > MAX_RULE_SEED_SHIPS) {
-        throw new Error('Owned ship page budget exceeded');
+    if (!Number.isInteger(offset) || offset < 0 || offset > total || !Number.isInteger(limit) || limit < 1 || limit > MAX_RULE_SEED_FLEETS) {
+        throw new Error('Owned fleet page budget exceeded');
     }
 }
 function pack(rows, state, generation, playerId) {
@@ -117,15 +117,15 @@ function pack(rows, state, generation, playerId) {
     const positions = new Float64Array(bytes, n * 56, n * 4);
     const times = new BigUint64Array(bytes, n * 88, n * 3);
     const owner = opaqueIdBytes(playerId);
-    rows.forEach((ship, i) => {
-        identities.set(opaqueIdBytes(ship.id), i * 48);
+    rows.forEach((fleet, i) => {
+        identities.set(opaqueIdBytes(fleet.id), i * 48);
         identities.set(owner, i * 48 + 16);
-        if (ship.orderId)
-            identities.set(opaqueIdBytes(ship.orderId), i * 48 + 32);
-        revisions[i] = ship.revision;
-        // Rust's scalar ABI uses zero order/target/deadline columns for idle ships.
-        positions.set([ship.x, ship.z, ship.moving ? ship.targetX : 0, ship.moving ? ship.targetZ : 0], i * 4);
-        times.set([ship.departureMs, ship.arrivalMs, ship.transferReadyMs], i * 3);
+        if (fleet.orderId)
+            identities.set(opaqueIdBytes(fleet.orderId), i * 48 + 32);
+        revisions[i] = fleet.revision;
+        // Rust's scalar ABI uses zero order/target/deadline columns for idle fleets.
+        positions.set([fleet.x, fleet.z, fleet.moving ? fleet.targetX : 0, fleet.moving ? fleet.targetZ : 0], i * 4);
+        times.set([fleet.departureMs, fleet.arrivalMs, fleet.transferReadyMs], i * 3);
     });
     return { token: { connectionGeneration: generation, watermark: copyWatermark(state.watermark) }, playerId,
         ruleVersion: 1, committedTimeMs: state.committedTimeMs, identities, revisions, positions, times };

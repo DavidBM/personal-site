@@ -35,15 +35,14 @@ export class FleetFollowShadow {
      * Returns a stable shipIndex; use {@link getLiveShipPose} each frame.
      */
     pickRandomShipPose() {
-        const all = [...this.records.values()].filter((f) => f.instanceActive > 0);
+        const jewelOpen = this.solarBodies.systemId != null || this.scene.systemSceneIds.size > 0;
+        const poolSource = jewelOpen
+            ? this.scene.fleetsInJewel().values()
+            : this.records.values();
+        const all = [...poolSource].filter((f) => f.instanceActive > 0);
         if (all.length === 0)
             return null;
-        // Jewel: prefer parked Kepler loc; fallback to any multi-ship fleet.
-        const jewelOpen = this.solarBodies.systemId != null || this.scene.systemSceneIds.size > 0;
-        const scene = jewelOpen
-            ? all.filter((f) => this.scene.fleetLocMatchesKepler(f.state))
-            : [];
-        const fromSceneOrAll = scene.length > 0 ? scene : all;
+        const fromSceneOrAll = all;
         const multi = fromSceneOrAll.filter((f) => f.instanceCapacity > 1);
         const pool = multi.length > 0 ? multi : fromSceneOrAll;
         const f = pool[(Math.random() * pool.length) | 0];
@@ -319,17 +318,6 @@ export class FleetFollowShadow {
         this.followPoseLastGood = pose;
         this.followShadowLive = true;
         return true;
-    }
-    /**
-     * Upload followed-ship pose so model draw matches the camera shadow.
-     * Must **not** full-row upload — that clobbers GPU trailWrite/sinceSample and
-     * kills pot trails on the chased ship only (see uploadShipSimFollowShadowPose).
-     */
-    uploadFollowShipShadowToGpu() {
-        const i = this.followShipIndex;
-        if (i == null || i < 0 || !this.followShadowLive)
-            return;
-        this.layer.uploadShipSimFollowShadowPose(this.storage.shipSimU8, i);
     }
 }
 //# sourceMappingURL=follow-shadow.js.map

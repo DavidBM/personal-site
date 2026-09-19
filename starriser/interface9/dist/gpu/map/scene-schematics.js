@@ -104,7 +104,7 @@ export class SceneSchematics {
         if (!line)
             return;
         line.setResolution(this.canvas.width, this.canvas.height);
-        line.writeViewProjection(this.coordinates.system.view, this.coordinates.projection, this.coordinates.system.origin);
+        line.writeViewProjection(this.coordinates.system.view, this.coordinates.sceneClip(), this.coordinates.system.origin);
         line.encode(pass);
     }
     /** Draw before discs; geometry is already sun-local, only matrices change. */

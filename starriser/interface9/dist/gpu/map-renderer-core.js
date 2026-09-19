@@ -2,6 +2,15 @@ import { measureIsolatedFrame } from "./map/frame-measurement.js";
 import { createMapFrameState } from "./map/frame-state.js";
 import { createMapFrameEncoder } from "./map/frame-encoder.js";
 import { createFleetFrameEncoding } from "./map/fleets/frame-encoding.js";
+import { createDirectedSceneHost, MAX_SCENE_FLEETS, SCENE_KERNEL_COUNT, MAX_GROUP_VISUAL, seedDirectedShips, SCENE_LAB_SCALE } from "./map/fleets/directed-scene-host.js";
+import { countShips } from "./fleet-lod.js";
+import { compactOrbitPad, allocateSceneVisuals, sceneModelScale, fleetModelLodBits } from "./map/fleets/directed-present.wgsl.js";
+import { pickSceneParkBodyIndex, KEPLER_SCALE } from "./solar-system-lod.js";
+import { compactBodySunLocal } from "./system-scene/frame.js";
+import { keplerOrbitLocalF32 } from "./math/world-origin.js";
+import { orbitPhaseAt, SOLAR_ORBIT_SPEED_SCALE } from "./planet-lib/solar-bodies.js";
+import { FLEET_GPU_STRIDE, FleetGpuFields, FLEET_FLAG_ALIVE, FLEET_FLAG_SYSTEM_SCENE, FLEET_FLAG_SIM_PAUSED, FLEET_FLAG_MODEL_LOW, FLEET_FLAG_MODEL_HIGH, FLEET_FLAG_MODEL_LOD } from "./fleet-layout.js";
+import { SHIP_SIM_STRIDE, ShipSimFields } from "./ship-sim-layout.js";
 import { createGalaxyEncoding } from "./map/galaxy-encoding.js";
 import { createSolarScenePresentation } from "./map/solar-scene-presentation.js";
 import { createFrameGpuProfiler } from "./gpu-frame-profiler.js";
@@ -35,8 +44,8 @@ import { MapOverlayGpuLayer } from "./layers/map-overlay-gpu-layer.js";
 import { MAP_MSAA_SAMPLES } from "./map-msaa.js";
 import { Line2Renderer } from "../vendor/line2/index.js";
 import { MODEL_LOD_DEFAULT_SCALE, MODEL_LOD_MAX_INSTANCES } from "./fleet-lod.js";
-import { MAP_NEAR } from "./camera-zoom.js";
-import { mat4LookAt, mat4Perspective, mat4ViewProj } from "./math/mat4.js";
+import { MAP_NEAR, SCENE_FAR, SCENE_NEAR } from "./camera-zoom.js";
+import { mat4LookAt, mat4ViewProj } from "./math/mat4.js";
 import { frameDebugBegin, frameDebugFrameTotal, frameDebugTime } from "./frame-debug.js";
 import { rebuildWebGpuConnectionsFromGalaxy } from "../render/topology-view-bridge.js";
 /** Screen-space overlay stroke width (buffer pixels; Line2 `worldUnits=false`). */
@@ -44,6 +53,41 @@ import { rebuildWebGpuConnectionsFromGalaxy } from "../render/topology-view-brid
 const OVERLAY_LINEWIDTH_PX = 3.5;
 /** Skip Kepler discs/schematics while orbit exit is almost done (fade < 1). */
 const KEPLER_ENCODE_FADE_MAX = 0.88;
+function keplerAxes(catalogId) {
+    const u = keplerOrbitLocalF32(1, 1, 0, catalogId);
+    const v = keplerOrbitLocalF32(1, 1, Math.PI * 0.5, catalogId);
+    return { u: [u.x, u.y, u.z], v: [v.x, v.y, v.z] };
+}
+function keplerLocalPose(store, index, timeSec) {
+    const local = compactBodySunLocal(store, index, timeSec);
+    return { x: local?.x ?? 0, y: local?.y ?? 0, z: local?.z ?? 0 };
+}
+function keplerBodyRecord(store, index, timeSec) {
+    const isSun = !!store.isSun[index];
+    const period = store.orbitPeriod[index] || 1;
+    const axes = keplerAxes(store.catalogIds[index]);
+    const pose = keplerLocalPose(store, index, timeSec);
+    if (isSun) {
+        return { ...pose, radius: store.radius[index] ?? 0, isSun, orbitRadius: 0, rate: 0, phase: 0, uAxis: axes.u, vAxis: axes.v };
+    }
+    return {
+        ...pose,
+        radius: store.radius[index] ?? 0,
+        isSun,
+        orbitRadius: (store.orbitRadius[index] || 0) * KEPLER_SCALE,
+        rate: (SOLAR_ORBIT_SPEED_SCALE / Math.max(1e-6, period)) * Math.PI * 2,
+        phase: orbitPhaseAt(store.phase0[index], period, timeSec),
+        uAxis: axes.u,
+        vAxis: axes.v,
+    };
+}
+function keplerBodiesForStore(store, timeSec) {
+    const n = Math.min(store.currentCount, 16);
+    const bodies = [];
+    for (let i = 0; i < n; i++)
+        bodies.push(keplerBodyRecord(store, i, timeSec));
+    return bodies;
+}
 export class WebGpuMapView {
     constructor(canvas, bootstrap, fovyDeg, skipShipModel = false, clock) {
         this.surfaceCleanup = null;
@@ -58,6 +102,19 @@ export class WebGpuMapView {
          * Skip unused encode; do not allocate PassData / a plan per rAF.
          */
         this.frameState = createMapFrameState();
+        this.directed = null;
+        this.sceneSlots = new Map();
+        this.sceneSlotLive = new Uint8Array(MAX_SCENE_FLEETS);
+        this.sceneCollectCached = null;
+        this.hullLodKey = "";
+        this.lastHullHighOn = false;
+        this.liveGpuProfiler = null;
+        this.gpuSamplePending = false;
+        this.framesSinceGpuSample = 0;
+        this.selectedFleetId = null;
+        this.occupancyKey = "";
+        this.lastOccupancy = null;
+        this.sceneHideQueue = [];
         this.statsPanels = [];
         this.coordinates = new MapFrameCoordinates();
         this.proj = this.coordinates.projection;
@@ -135,11 +192,13 @@ export class WebGpuMapView {
             modelScale: MODEL_LOD_DEFAULT_SCALE,
             meshYawHalf: 0, // low-poly +Z forward
         });
-        const fleetPresentation = this.fleetPresentation;
+        this.modelLowLayer = new FleetModelGpuLayer(bootstrap, {
+            maxInstances: MODEL_LOD_MAX_INSTANCES,
+            modelScale: MODEL_LOD_DEFAULT_SCALE,
+            meshYawHalf: 0,
+        });
         this.modelPresentation = new FleetModelPresentation({
-            get records() { return fleetPresentation.records; }, storage: this.fleetPresentation.storage,
-            scene: this.fleetPresentation.scene, follow: this.fleetPresentation.follow,
-            topology: this.topology, ships: this.fleetsLayer, models: this.modelLayer,
+            ships: this.fleetsLayer, models: this.modelLayer, modelsLow: this.modelLowLayer,
         });
         this.overlay = new MapOverlayGpuLayer(bootstrap);
         // Color-only map pass: depthFormat null. MSAA + a2c for Line2 long edges.
@@ -165,10 +224,17 @@ export class WebGpuMapView {
         this.frameEncoder = createMapFrameEncoder({
             bootstrap, surface: canvas, coordinates: this.coordinates, attachments: this.attachments,
             galaxy: this.galaxyEncoding, solar: this.solarPresentation,
-            fleets: createFleetFrameEncoding(this.fleetsLayer, this.modelLayer, this.coordinates, canvas),
+            fleets: createFleetFrameEncoding(this.fleetsLayer, this.modelLayer, this.coordinates, canvas, {
+                encodeTick: (encoder, timeSec, dtSec, sceneOpen, nowMs) => {
+                    this.directed?.encodeTick(encoder, timeSec, dtSec, sceneOpen, nowMs);
+                },
+                encodeDensity: (pass, viewProj, focusedBodyIndex) => {
+                    this.directed?.encodeDensity?.(pass, viewProj, focusedBodyIndex);
+                },
+            }, this.modelLowLayer),
             schematics: this.schematics, overlay: this.overlayPresentation,
             tickWarmFleets: () => this.fleetPresentation.tickWarmFleets(),
-            uploadFollowShadow: () => this.fleetPresentation.follow.uploadFollowShipShadowToGpu(),
+            commitDirectedTick: () => { this.directed?.commitTick(); },
         });
         this.points.init(msaa);
         this.impostorPoints.init(msaa);
@@ -176,12 +242,14 @@ export class WebGpuMapView {
         this.lines.init(msaa);
         this.fleetsLayer.init(msaa);
         this.modelLayer.init(msaa);
+        this.modelLowLayer.init(msaa);
         this.overlay.init(msaa);
+        this.liveGpuProfiler = createFrameGpuProfiler(bootstrap.device);
         // Best-effort ship model for near LOD (no-op if asset missing).
         // Tests that MAP_READ on this device skip the fetch — concurrent glTF
         // upload + mapAsync destroys the device on this Chromium.
         if (!skipShipModel) {
-            void this.loadShipModel("models/spaceship_fighter__-_version_1_meshy_6.glb").catch(() => {
+            void this.loadShipModels().catch(() => {
                 /* optional asset — triangle LOD remains the fallback */
             });
         }
@@ -191,6 +259,15 @@ export class WebGpuMapView {
      * Safe to call multiple times; last successful load wins.
      */
     async loadShipModel(url) {
+        await this.loadGlbInto(this.modelLayer, url);
+    }
+    async loadShipModels() {
+        await Promise.all([
+            this.loadGlbInto(this.modelLayer, "models/spaceship_fighter_simplify50.glb"),
+            this.loadGlbInto(this.modelLowLayer, "models/spaceship_fighter_simplify3.glb"),
+        ]);
+    }
+    async loadGlbInto(layer, url) {
         this.assertModelLoadAvailable();
         const res = await fetch(url);
         this.assertModelLoadAvailable();
@@ -199,14 +276,15 @@ export class WebGpuMapView {
         }
         const buf = await res.arrayBuffer();
         this.assertModelLoadAvailable();
-        await this.modelLayer.loadGlb(buf);
+        await layer.loadGlb(buf);
         this.assertModelLoadAvailable();
+        layer.setModelScale(sceneModelScale(layer.getMeshOriginRadius()));
         const sim = this.fleetsLayer.getShipSimBuffer();
         if (sim)
-            this.modelLayer.setShipSimBuffer(sim);
+            layer.setShipSimBuffer(sim);
         const fleetGpu = this.fleetsLayer.getFleetGpuBuffer?.();
         if (fleetGpu)
-            this.modelLayer.setFleetGpuBuffer(fleetGpu);
+            layer.setFleetGpuBuffer(fleetGpu);
     }
     assertModelLoadAvailable() {
         if (this.isDeviceLost())
@@ -226,6 +304,8 @@ export class WebGpuMapView {
             view = new WebGpuMapView(canvas, bootstrap, options.fovyDeg ?? 60, options.skipShipModel === true, options.clock);
             view.surfaceCleanup = options.onDispose ?? null;
             view.onRenderError = options.onRenderError;
+            view.directed = createDirectedSceneHost();
+            view.fleetsLayer.setShipWorkgroupsSource(() => view.directed?.lastShipWorkgroups() ?? 0);
             view.resize(options.width, options.height, options.dpr);
             return view;
         }
@@ -259,8 +339,8 @@ export class WebGpuMapView {
             targetY: this.targetY,
             targetZ: this.targetZ,
             fovyDeg: this.fovyDeg,
-            near: this.near,
-            far: this.far,
+            near: this.solarBodies.systemId != null ? SCENE_NEAR : this.near,
+            far: this.solarBodies.systemId != null ? SCENE_FAR : this.far,
             viewportW: this.cssWidth,
             viewportH: this.cssHeight,
             bufferW: this.canvas.width,
@@ -287,7 +367,7 @@ export class WebGpuMapView {
         this.pixelRatio = pixelRatio;
         this.bootstrap.configureContext(this.cssWidth, this.cssHeight, pixelRatio);
         const aspect = this.cssWidth / this.cssHeight;
-        mat4Perspective(this.proj, (this.fovyDeg * Math.PI) / 180, aspect, this.near, this.far);
+        this.coordinates.setPerspectives((this.fovyDeg * Math.PI) / 180, aspect, this.near, this.far, SCENE_NEAR, SCENE_FAR);
         // Line2 expansion uses drawing-buffer pixels (DPR-scaled canvas size).
         const bufW = this.canvas.width;
         const bufH = this.canvas.height;
@@ -339,6 +419,10 @@ export class WebGpuMapView {
     /** Wall-relative seconds used for Kepler phase (same clock as disc encode). */
     getSceneTimeSec() {
         return this.timeline.seconds;
+    }
+    /** Domain wall clock (epoch + elapsed); same sample as FleetGpu `toGpuMs`. */
+    getSceneWallMs() {
+        return this.timeline.wallMs;
     }
     getViewProj() {
         mat4LookAt(this.view, this.cameraX, this.cameraY, this.cameraZ, this.targetX, this.targetY, this.targetZ);
@@ -520,8 +604,12 @@ export class WebGpuMapView {
     getBulkShipBudgetHint() { return this.fleetPresentation.getBulkShipBudgetHint(); }
     pickRandomShipPose() { return this.fleetPresentation.follow.pickRandomShipPose(); }
     getLiveShipPose(shipIndex) { return this.fleetPresentation.follow.getLiveShipPose(shipIndex); }
+    sceneShipCentroid(id) {
+        return this.fleetPresentation.sceneShipCentroid(id);
+    }
     refreshFollowPoseFromGpu(shipIndex) { return this.fleetPresentation.follow.refreshFollowPoseFromGpu(shipIndex); }
     setFollowShipIndex(shipIndex) { return this.fleetPresentation.follow.setFollowShipIndex(shipIndex); }
+    setSelectedFleetId(id) { this.selectedFleetId = id; }
     getFleetCount() { return this.fleetPresentation.getFleetCount(); }
     getFleetVisual(id) {
         return this.fleetPresentation.getVisual(id);
@@ -637,7 +725,10 @@ export class WebGpuMapView {
             }
             for (const panel of this.statsPanels)
                 panel.begin();
-            this.renderMeasuredCpu();
+            const gpu = this.takeLiveGpuProfiler();
+            this.renderMeasuredCpu(gpu);
+            if (gpu)
+                this.finishLiveGpuSample();
             this.catalogResidency.pumpPreviewLoads();
             this.catalogResidency.pumpHiLoad();
             // CPU counters describe this frame before observers publish its snapshot.
@@ -725,6 +816,7 @@ export class WebGpuMapView {
         frame.targetZ = this.targetZ;
         frame.distance = Math.hypot(this.cameraX - this.targetX, this.cameraY - this.targetY, this.cameraZ - this.targetZ);
         frame.tanHalfFov = Math.tan(this.fovyDeg * Math.PI / 360);
+        frame.cssWidth = this.cssWidth;
         frame.cssHeight = this.cssHeight;
         frame.fovyDeg = this.fovyDeg;
         frame.galaxyFade = this.galaxyFade;
@@ -734,12 +826,312 @@ export class WebGpuMapView {
         frame.timeSec = this.timeline.seconds;
         frame.fleetHighWater = this.fleetPresentation.slotAlloc.fleetHighWater;
         frame.shipHighWater = this.fleetPresentation.storage.instanceLiveCount;
+        this.sceneCollectCached = null;
         if (frame.sceneOpen) {
             this.sceneSunX = this.solarBodies.systemX;
             this.sceneSunZ = this.solarBodies.systemZ;
             this.coordinates.updateSystem(this.sceneSunX, this.sceneSunZ);
+            void this.directed?.ensure(this.bootstrap.device, this.bootstrap.format);
+            this.syncKeplerBodies(frame.timeSec);
+            this.syncDirectedScene();
+            this.modelLayer.setModelScale(sceneModelScale(this.modelLayer.getMeshOriginRadius()));
+            this.modelLowLayer.setModelScale(sceneModelScale(this.modelLowLayer.getMeshOriginRadius()));
         }
-        frame.modelIndices = this.modelPresentation.update(frame.sceneOpen, frame.distance, this.cssHeight, frame.tanHalfFov, this.coordinates.system, this.targetX, this.targetZ);
+        else {
+            this.modelLayer.setModelScale(MODEL_LOD_DEFAULT_SCALE);
+            this.modelLowLayer.setModelScale(MODEL_LOD_DEFAULT_SCALE);
+            this.releaseSceneSlots(new Set());
+            this.lastOccupancy = null;
+            this.occupancyKey = "";
+            this.directed?.syncSceneFleets([], null);
+        }
+        const mapBuf = this.directed?.mapStorage?.() ?? null;
+        const meshesReady = this.modelLayer.isReady() && this.modelLowLayer.isReady() && !!mapBuf;
+        const hullsOn = this.modelPresentation.update(frame.sceneOpen, frame.distance, meshesReady);
+        const gen = this.directed?.mappedGeneration?.() ?? 0;
+        const key = `${this.focusedBodyIndex}|${this.selectedFleetId ?? ""}|${gen}`;
+        if (this.hullLodKey !== key) {
+            this.hullLodKey = key;
+            this.lastHullHighOn = this.applyFleetHullLod();
+        }
+        this.modelLayer.setLodMask(FLEET_FLAG_MODEL_HIGH);
+        this.modelLowLayer.setLodMask(FLEET_FLAG_MODEL_LOW);
+        if (mapBuf) {
+            this.modelLayer.setKernelIdentitySource(SCENE_KERNEL_COUNT);
+            this.modelLowLayer.setKernelIdentitySource(SCENE_KERNEL_COUNT);
+        }
+        frame.hullsOn = hullsOn;
+        frame.hullHighOn = hullsOn && this.lastHullHighOn;
+        this.fleetPresentation.upload.flushFleetGpuDirt();
+    }
+    applyFleetHullLod() {
+        const focus = this.focusedBodyIndex;
+        const selected = this.selectedFleetId;
+        const view = this.fleetPresentation.storage.fleetGpuView;
+        const bytes = this.fleetPresentation.storage.fleetGpuBytes.byteLength;
+        let anyHigh = false;
+        for (const fleet of this.collectSceneFleets()) {
+            const slot = (fleet.gpuSlot ?? -1) | 0;
+            const o = slot * FLEET_GPU_STRIDE;
+            if (slot < 0 || o + FLEET_GPU_STRIDE > bytes)
+                continue;
+            const prev = view.getUint32(o + FleetGpuFields.flags, true);
+            const bits = fleetModelLodBits({
+                selected: selected != null && fleet.id === selected,
+                bodyIndex: fleet.bodyIndex,
+                focusedBodyIndex: focus,
+            });
+            if ((bits & FLEET_FLAG_MODEL_HIGH) !== 0)
+                anyHigh = true;
+            const next = (prev & ~FLEET_FLAG_MODEL_LOD) | bits;
+            if (next === prev)
+                continue;
+            view.setUint32(o + FleetGpuFields.flags, next >>> 0, true);
+            this.fleetPresentation.storage.markFleetDirty(slot);
+        }
+        return anyHigh;
+    }
+    allocSceneSlot(id) {
+        const have = this.sceneSlots.get(id);
+        if (have != null && this.sceneSlotLive[have])
+            return have;
+        if (this.sceneSlots.size >= MAX_SCENE_FLEETS)
+            return -1;
+        for (let slot = 0; slot < MAX_SCENE_FLEETS; slot++) {
+            if (this.sceneSlotLive[slot])
+                continue;
+            this.sceneSlotLive[slot] = 1;
+            this.sceneSlots.set(id, slot);
+            return slot;
+        }
+        return -1;
+    }
+    releaseSceneSlots(live) {
+        for (const [id, slot] of [...this.sceneSlots]) {
+            if (live.has(id))
+                continue;
+            this.sceneSlots.delete(id);
+            this.sceneSlotLive[slot] = 0;
+            this.fleetPresentation.ensureSceneVisualCount(id, null);
+        }
+    }
+    sceneFleetPark(hash) {
+        const bodyIndex = pickSceneParkBodyIndex(hash, this.solarBodies);
+        const toward = compactBodySunLocal(this.solarBodies, bodyIndex, this.timeline.seconds)
+            ?? { x: 0, y: 0, z: 0 };
+        return { bodyIndex, toward, bodyRadius: this.solarBodies.radius[bodyIndex] ?? 0 };
+    }
+    collectSceneFleets() {
+        if (this.sceneCollectCached)
+            return this.sceneCollectCached;
+        const storage = this.fleetPresentation.storage;
+        const fleets = [];
+        for (const visual of this.fleetPresentation.scene.fleetsInJewel().values()) {
+            const mapped = this.mapSceneVisual(visual, storage);
+            if (mapped)
+                fleets.push(mapped);
+        }
+        this.releaseSceneSlots(new Set(fleets.map((f) => f.id ?? "")));
+        fleets.sort((a, b) => ((a.slot ?? 0) | 0) - ((b.slot ?? 0) | 0));
+        this.sceneCollectCached = fleets;
+        return fleets;
+    }
+    mapSceneVisual(visual, storage) {
+        const o = visual.fleetSlot * FLEET_GPU_STRIDE;
+        if (o + FLEET_GPU_STRIDE > storage.fleetGpuBytes.byteLength)
+            return null;
+        const flags = storage.fleetGpuView.getUint32(o + FleetGpuFields.flags, true);
+        if ((flags & FLEET_FLAG_ALIVE) === 0)
+            return null;
+        if ((flags & FLEET_FLAG_SYSTEM_SCENE) === 0)
+            return null;
+        const hadSlot = this.sceneSlots.has(visual.id);
+        const slot = this.allocSceneSlot(visual.id);
+        if (slot < 0)
+            return null;
+        const domain = countShips(visual.counts);
+        const want = Math.min(MAX_GROUP_VISUAL, Math.max(0, domain));
+        if (!hadSlot)
+            this.fleetPresentation.ensureSceneVisualCount(visual.id, want);
+        const grown = this.fleetPresentation.records.get(visual.id);
+        if (!grown)
+            return null;
+        const hash = storage.fleetGpuView.getUint32(o + FleetGpuFields.fleetIdHash, true);
+        const park = this.sceneFleetPark(hash);
+        const systemId = this.solarBodies.systemId;
+        const sunX = this.solarBodies.systemX;
+        const sunZ = this.solarBodies.systemZ;
+        const lookup = this.fleetPresentation.scene.lookup();
+        const localOf = (node) => {
+            if (!node || !lookup)
+                return { x: 0, z: 0 };
+            const p = lookup(node);
+            if (!p)
+                return { x: 0, z: 0 };
+            return { x: p.x - sunX, z: p.z - sunZ };
+        };
+        const st = grown.state;
+        const from = st.state === "jumping" ? localOf(st.startNode) : { x: 0, z: 0 };
+        const to = st.state === "jumping" ? localOf(st.endNode) : { x: 0, z: 0 };
+        return {
+            id: grown.id,
+            slot,
+            gpuSlot: grown.fleetSlot,
+            groupId: slot,
+            instanceStart: grown.instanceStart,
+            shipCount: want,
+            paused: (flags & FLEET_FLAG_SIM_PAUSED) !== 0,
+            bodyIndex: park.bodyIndex,
+            toward: park.toward,
+            bodyRadius: park.bodyRadius,
+            systemId,
+            nowMs: this.timeline.wallMs,
+            fromX: from.x,
+            fromZ: from.z,
+            toX: to.x,
+            toZ: to.z,
+            state: st,
+        };
+    }
+    syncDirectedScene() {
+        if (!this.directed)
+            return;
+        const wanted = this.collectSceneFleets();
+        const allocated = allocateSceneVisuals(wanted, { previous: this.lastOccupancy });
+        this.lastOccupancy = allocated;
+        if (allocated.key !== this.occupancyKey) {
+            this.occupancyKey = allocated.key;
+            for (const fleet of allocated.fleets) {
+                if (fleet.id)
+                    this.sceneHideQueue.push({ id: fleet.id, live: fleet.shipCount | 0 });
+            }
+        }
+        this.drainSceneHideQueue();
+        const paused = allocated.fleets.length > 0 && allocated.fleets.every((f) => f.paused || f.shipCount <= 0);
+        const storage = this.fleetPresentation.storage;
+        const poses = paused ? seedDirectedShips(SCENE_KERNEL_COUNT, allocated.fleets, (index) => {
+            const at = index * SHIP_SIM_STRIDE;
+            if (at + 12 > storage.shipSimBytes.byteLength)
+                return { x: 0, y: 0, z: 0 };
+            return {
+                x: storage.shipSimView.getFloat32(at + ShipSimFields.posX, true),
+                y: storage.shipSimView.getFloat32(at + ShipSimFields.posY, true),
+                z: storage.shipSimView.getFloat32(at + ShipSimFields.posZ, true),
+            };
+        }, SCENE_LAB_SCALE) : null;
+        this.directed.syncSceneFleets(allocated.fleets, this.fleetsLayer.getInstanceBuffer(), poses, this.fleetsLayer.getShipSimBuffer(), this.fleetsLayer.getTrailSampleBuffer());
+        this.fleetPresentation.upload.flushFleetGpuDirt();
+    }
+    drainSceneHideQueue() {
+        const budgetMs = 1;
+        while (this.sceneHideQueue.length) {
+            const t0 = performance.now();
+            const next = this.sceneHideQueue.shift();
+            if (next)
+                this.fleetPresentation.hideSceneTail(next.id, next.live);
+            if (performance.now() - t0 >= budgetMs)
+                break;
+        }
+    }
+    syncKeplerBodies(timeSec) {
+        if (this.solarBodies.systemId == null || typeof this.directed?.syncKeplerBodies !== "function")
+            return;
+        this.directed.syncKeplerBodies(keplerBodiesForStore(this.solarBodies, timeSec), timeSec);
+    }
+    async ensureDirectedRuntime() {
+        await this.directed?.ensure(this.bootstrap.device, this.bootstrap.format);
+    }
+    haloCentroid(id, storage, o) {
+        const c = this.fleetPresentation.sceneShipCentroid(id);
+        if (c)
+            return c;
+        return {
+            x: storage.fleetGpuView.getFloat32(o + FleetGpuFields.posX, true),
+            y: storage.fleetGpuView.getFloat32(o + FleetGpuFields._pad0, true),
+            z: storage.fleetGpuView.getFloat32(o + FleetGpuFields.posZ, true),
+        };
+    }
+    haloMarkers() {
+        const out = [];
+        for (const fleet of this.collectSceneFleets()) {
+            const visual = this.fleetPresentation.records.get(fleet.id ?? "");
+            if (!visual)
+                continue;
+            const o = visual.fleetSlot * FLEET_GPU_STRIDE;
+            const storage = this.fleetPresentation.storage;
+            if (o + FLEET_GPU_STRIDE > storage.fleetGpuBytes.byteLength)
+                continue;
+            const c = this.haloCentroid(visual.id, storage, o);
+            out.push({
+                id: visual.id,
+                slot: fleet.slot ?? out.length,
+                x: c.x,
+                y: c.y,
+                z: c.z,
+                radius: Math.max(0.002, compactOrbitPad(4)),
+            });
+        }
+        return out;
+    }
+    kernelFleetMap() {
+        return this.collectSceneFleets().map((f) => ({ id: f.id ?? "", slot: f.slot ?? 0 }));
+    }
+    receiveDirectorPacket(packet) {
+        return this.directed?.receive?.(packet) ?? { status: "closed" };
+    }
+    setDebugDensityVoxels(on) {
+        this.directed?.setDensityVisible?.(on);
+    }
+    visualCap() {
+        return this.directed?.visualCap?.() ?? null;
+    }
+    sceneDrawStats() {
+        const allocated = this.lastOccupancy?.fleets;
+        if (!allocated?.length)
+            return { fleets: 0, ships: 0, highFleets: 0, lowFleets: 0 };
+        const view = this.fleetPresentation.storage.fleetGpuView;
+        const bytes = this.fleetPresentation.storage.fleetGpuBytes.byteLength;
+        let fleets = 0, ships = 0, highFleets = 0, lowFleets = 0;
+        for (const fleet of allocated) {
+            const n = fleet.shipCount | 0;
+            if (n <= 0)
+                continue;
+            fleets++;
+            ships += n;
+            const slot = (fleet.gpuSlot ?? -1) | 0;
+            const o = slot * FLEET_GPU_STRIDE;
+            if (slot < 0 || o + FLEET_GPU_STRIDE > bytes)
+                continue;
+            const flags = view.getUint32(o + FleetGpuFields.flags, true);
+            if ((flags & FLEET_FLAG_MODEL_HIGH) !== 0)
+                highFleets++;
+            else
+                lowFleets++;
+        }
+        return { fleets, ships, highFleets, lowFleets };
+    }
+    takeLiveGpuProfiler() {
+        if (this.gpuSamplePending || !this.liveGpuProfiler)
+            return;
+        if (++this.framesSinceGpuSample < 20)
+            return;
+        this.framesSinceGpuSample = 0;
+        this.gpuSamplePending = true;
+        return this.liveGpuProfiler;
+    }
+    finishLiveGpuSample() {
+        const profiler = this.liveGpuProfiler;
+        if (!profiler) {
+            this.gpuSamplePending = false;
+            return;
+        }
+        void profiler.complete().then((timing) => {
+            this.recordGpuSample(timing);
+        }).catch(() => {
+            /* timestamp readback is best-effort */
+        }).finally(() => {
+            this.gpuSamplePending = false;
+        });
     }
     dispose() {
         if (this.disposed)
@@ -752,7 +1144,12 @@ export class WebGpuMapView {
         this.schematics.dispose();
         this.catalogResidency.dispose();
         this.lines.dispose();
+        this.liveGpuProfiler?.dispose();
+        this.liveGpuProfiler = null;
         this.modelLayer.dispose();
+        this.modelLowLayer.dispose();
+        this.directed?.destroy();
+        this.directed = null;
         this.fleetsLayer.dispose();
         this.overlayLines.dispose();
         this.overlay.dispose();

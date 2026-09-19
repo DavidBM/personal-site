@@ -31,6 +31,14 @@ function smoothstep(edge0, edge1, x) {
     return t * t * (3 - 2 * t);
 }
 /**
+ * CPU coverage of the disc limb given an already-converted `aaRr`.
+ * WGSL `limbSurfaceMask` produces `aaRr` from `edgeAaPx * length(dpdx(rr), dpdy(rr))`.
+ */
+export function limbSurfaceMask(rr, edgeOuter, aaRr) {
+    const aa = Math.max(aaRr, 1e-4);
+    return 1 - smoothstep(edgeOuter - aa, edgeOuter, rr);
+}
+/**
  * WGSL snippet constants — must match {@link atmosphereSunFactor}.
  * Used by smoke to assert the shipped shader still encodes day/term/night.
  */
@@ -45,5 +53,13 @@ export const SURFACE_SEAM_SAFE_MARKERS = [
     "noise3",
     "nBody",
     // must not drive primary fbm from sphereToUv wrap alone
+];
+/** WGSL limb AA — pixel derivatives, not a geometric edgeInner band. */
+export const LIMB_SURFACE_MASK_MARKERS = [
+    "fn limbSurfaceMask",
+    "fn limbAaRr",
+    "fn discAtmosphereFiltered",
+    "dpdx(rr)",
+    "dpdy(rr)",
 ];
 //# sourceMappingURL=planet-look.js.map

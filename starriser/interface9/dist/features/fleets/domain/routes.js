@@ -73,7 +73,7 @@ function preview(rules, routes, state, playerId, input) {
         const arrivalMs = rules.route_arrival_ms(input.nowMs, legs);
         const firstLeg = { destinationSystemId: opaqueIdAt(path, 16), targetX: legs === 1 ? input.targetX : 0,
             targetZ: legs === 1 ? input.targetZ : 0, arrivalMs: rules.route_arrival_ms(input.nowMs, 1) };
-        const code = state.stage_export(opaqueIdBytes(playerId), opaqueIdBytes(input.shipId), opaqueIdBytes(firstLeg.destinationSystemId), firstLeg.targetX, firstLeg.targetZ, input.nowMs, firstLeg.arrivalMs, input.expectedSystemRevision);
+        const code = state.stage_export(opaqueIdBytes(playerId), opaqueIdBytes(input.fleetId), opaqueIdBytes(firstLeg.destinationSystemId), firstLeg.targetX, firstLeg.targetZ, input.nowMs, firstLeg.arrivalMs, input.expectedSystemRevision);
         if (code !== 0)
             return rejected(code);
         return { ...base, code, path, totalTravelMs: arrivalMs - input.nowMs, arrivalMs, firstLeg,

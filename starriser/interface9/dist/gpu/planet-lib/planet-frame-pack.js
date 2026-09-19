@@ -59,20 +59,6 @@ export function writePlanetFrameUniforms(out, viewProjRel, eyeRel, sunRel, origi
         out[i] = 0;
     return out;
 }
-/**
- * ~N screen pixels expressed in disc `rr` units at this body (for limb AA).
- * limbWorld = radius → rr=1; worldPerPx from perspective at camera distance.
- * Pass origin-relative pose + eyeRel (same origin) — distance is invariant.
- */
-export function edgeAaRrForBody(pose, eye, viewportH, look, fovyRad = LAB_PLANET_FOVY_RAD) {
-    const dx = pose.x - eye.eyeX;
-    const dy = pose.y - eye.eyeY;
-    const dz = pose.z - eye.eyeZ;
-    const dist = Math.hypot(dx, dy, dz) || 1;
-    const worldPerPx = (2 * dist * Math.tan(fovyRad / 2)) / Math.max(viewportH, 1);
-    const limbPx = pose.def.radius / Math.max(worldPerPx, 1e-9);
-    return Math.max(look.edgeAaPx, 0.25) / Math.max(limbPx, 1);
-}
 /** Pack one planet BodyUniforms (256 bytes). `cpu[0..2]` = centerRel. */
 export function fillPlanetBody(cpu, pose, opts) {
     const a = opts.look;
@@ -96,7 +82,8 @@ export function fillPlanetBody(cpu, pose, opts) {
     cpu[12] = pose.spin;
     cpu[13] = pose.def.obliquity;
     cpu[14] = pose.def.drawMargin * a.drawMarginMul;
-    cpu[15] = edgeAaRrForBody(pose, eye, opts.viewportH, a, fovy);
+    // Shader scales this by length(dpdx(rr), dpdy(rr)) — pack pixels, not rr.
+    cpu[15] = Math.max(a.edgeAaPx, 0.25);
     cpu[16] = opts.camRight[0];
     cpu[17] = opts.camRight[1];
     cpu[18] = opts.camRight[2];

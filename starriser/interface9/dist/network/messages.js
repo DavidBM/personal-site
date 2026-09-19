@@ -24,7 +24,7 @@ export function moveCommand(control, scope, admissions, serverNow) {
     const grant = admission(scope, admissions, serverNow);
     return create(MoveCommandSchema, {
         key: { commandId: opaqueIdBytes(control.commandId), receiptHomeShardId: grant.receiptHomeShardId, admissionGeneration: grant.generation },
-        scope, shipId: opaqueIdBytes(control.shipId), target: control.target,
+        scope, fleetId: opaqueIdBytes(control.fleetId), target: control.target,
         expectedSystemRevision: control.expectedSystemRevision, admissionToken: grant.token,
     });
 }
@@ -32,7 +32,7 @@ export function transferCommand(control, scope, admissions, serverNow) {
     const grant = admission(scope, admissions, serverNow);
     return create(TransferCommandSchema, {
         key: { commandId: opaqueIdBytes(control.commandId), receiptHomeShardId: grant.receiptHomeShardId, admissionGeneration: grant.generation },
-        scope, shipId: opaqueIdBytes(control.shipId), destinationSystemId: opaqueIdBytes(control.destinationSystemId), destinationPosition: control.target,
+        scope, fleetId: opaqueIdBytes(control.fleetId), destinationSystemId: opaqueIdBytes(control.destinationSystemId), destinationPosition: control.target,
         expectedSystemRevision: control.expectedSystemRevision, admissionToken: grant.token,
     });
 }

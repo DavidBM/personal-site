@@ -7,6 +7,7 @@ export function createOnlinePanel(parent) {
     <form class="online-connect">
       <label>Server<input name="server" type="url" value="https://localhost:4433/session" required></label>
       <label>Fallback server<input name="fallback" type="url" value="ws://127.0.0.1:4435/session" required></label>
+      <label>Server certificate SHA-256 (optional)<input name="pin" spellcheck="false" autocomplete="off"></label>
       <label>Access code<input name="credential" type="password" autocomplete="off" spellcheck="false" required></label>
       <button type="submit">Connect</button>
     </form>
@@ -14,9 +15,10 @@ export function createOnlinePanel(parent) {
     <div class="online-orders" hidden>
       <label>Choose a system<select class="online-systems" aria-label="Viewing system"></select></label>
       <button type="button" data-action="view">View system</button>
-      <label>Your ships<select class="online-ships" aria-label="Your ships"></select></label>
+      <button type="button" data-action="galaxy">Whole galaxy</button><button type="button" data-action="region">Selected system region</button>
+      <label>Your fleets<select class="online-fleets" aria-label="Your fleets"></select></label>
       <span class="online-page"></span><button type="button" data-action="first">First page</button><button type="button" data-action="more" hidden>Next page</button>
-      <button type="button" data-action="focus">Follow selected ship</button>
+      <button type="button" data-action="focus">Follow selected fleet</button>
       <div class="online-target"><label>Destination X<input name="x" type="number" step="0.001" value="0.025"></label>
         <label>Destination Z<input name="z" type="number" step="0.001" value="0.015"></label></div>
       <div class="online-buttons"><button type="button" data-action="preview">Preview</button><button type="button" data-action="move">Move</button></div>
@@ -33,7 +35,7 @@ export function createOnlinePanel(parent) {
     parent.appendChild(panel);
     const find = (selector) => panel.querySelector(selector);
     const form = find('form');
-    const ships = find('.online-ships');
+    const fleets = find('.online-fleets');
     const systems = find('.online-systems');
     const destinations = find('.online-destinations');
     const status = find('.online-status');
@@ -54,7 +56,7 @@ export function createOnlinePanel(parent) {
         updateRecoveryButtons();
         find('[data-action="route"]').disabled = busy || !destinations.options.length;
         for (const name of ['move', 'transfer', 'preview', 'route', 'focus']) {
-            (_a = find(`[data-action="${name}"]`)).disabled || (_a.disabled = !ships.value);
+            (_a = find(`[data-action="${name}"]`)).disabled || (_a.disabled = !fleets.value);
         }
     }
     function updateRecoveryButtons() {
@@ -82,15 +84,15 @@ export function createOnlinePanel(parent) {
         return value;
     }
     return {
-        form, ships, systems, destinations, retained, overview,
+        form, fleets, systems, destinations, retained, overview,
         action(name) { return find(`[data-action="${name}"]`); },
-        credentials: () => ({ server: input('server').value, fallback: input('fallback').value, credential: input('credential').value.trim() }),
+        credentials: () => ({ server: input('server').value, fallback: input('fallback').value, credential: input('credential').value.trim(), pin: input('pin').value.trim() }),
         target: () => ({ x: coordinate('x'), z: coordinate('z') }),
         status(message) { status.textContent = message; },
         preview(message) { preview.textContent = message; },
         jumpLabel(name) { find('[data-action="transfer"]').textContent = name ? `Jump to ${name}` : 'Jump'; },
         onRouteChange(listener) {
-            for (const element of [ships, destinations, input('x'), input('z')])
+            for (const element of [fleets, destinations, input('x'), input('z')])
                 element.addEventListener('change', listener);
         },
         connected(value) { find('.online-orders').hidden = !value; form.querySelector('button').textContent = value ? 'Reconnect' : 'Connect'; },
@@ -102,7 +104,7 @@ export function createOnlinePanel(parent) {
             retained.replaceChildren(...values.map(value => {
                 const option = document.createElement('option');
                 option.value = value.key;
-                option.textContent = `Ship ${value.shipId.slice(-6)} · order ${value.commandId.slice(-8)} · ${value.continued ? 'continued, unresolved' : 'unresolved'}`;
+                option.textContent = `Fleet ${value.fleetId.slice(-6)} · order ${value.commandId.slice(-8)} · ${value.continued ? 'continued, unresolved' : 'unresolved'}`;
                 return option;
             }));
             const blocking = values.find(value => !value.continued);
@@ -110,6 +112,7 @@ export function createOnlinePanel(parent) {
             find('.online-recovery').hidden = !values.length;
             updateRecovery();
         },
+        clearTopology() { systems.replaceChildren(); destinations.replaceChildren(); input('x').value = ''; input('z').value = ''; preview.textContent = ''; updateButtons(); },
         setTopology(topology, current) {
             const hosted = new Set(topology.hostedSystemIds);
             const permitted = new Set(topology.systems.filter(system => system.id !== current).map(system => system.id));
@@ -124,18 +127,18 @@ export function createOnlinePanel(parent) {
             systems.value = current;
             updateButtons();
         },
-        setShips(values, offset, total, more) {
-            find('.online-page').textContent = total ? `${offset + 1}–${offset + values.length} of ${total}` : 'No controllable ships in this system';
+        setFleets(values, offset, total, more) {
+            find('.online-page').textContent = total ? `${offset + 1}–${offset + values.length} of ${total}` : 'No controllable fleets in this system';
             find('[data-action="more"]').hidden = !more;
-            const selected = ships.value;
-            ships.replaceChildren(...values.map(value => {
+            const selected = fleets.value;
+            fleets.replaceChildren(...values.map(value => {
                 const option = document.createElement('option');
                 option.value = value.id;
-                option.textContent = `Ship ${value.id.slice(-6)}${value.moving ? ' · moving' : ''}`;
+                option.textContent = `Fleet ${value.id.slice(-6)}${value.moving ? ' · moving' : ''}`;
                 return option;
             }));
             if (values.some(value => value.id === selected))
-                ships.value = selected;
+                fleets.value = selected;
             updateButtons();
         },
         dispose: () => panel.remove(),

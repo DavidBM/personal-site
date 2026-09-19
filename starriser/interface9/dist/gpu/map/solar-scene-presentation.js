@@ -26,7 +26,7 @@ export function createSolarScenePresentation(layer, store, residency, coordinate
         const discs = frame.keplerEncode && solarStoreHasDisc(store.isSun, store.currentCount);
         const sun = frame.keplerEncode && solarStoreHasSun(store.isSun, store.currentCount);
         const atmosphere = discs || (frame.keplerEncode && frame.bandC);
-        fillPassSetFlags(flags, discs, sun, atmosphere, frame.modelIndices.length > 0, frame.following);
+        fillPassSetFlags(flags, discs, sun, atmosphere, frame.hullsOn, frame.following);
         hash = hashPassSet(flags);
     }
     function encodeColor(pass) {

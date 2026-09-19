@@ -1,8 +1,8 @@
 export function createStrategicOverview(parent) {
     const root = document.createElement('section');
     root.className = 'online-overview';
-    root.innerHTML = `<h2>System overview</h2><p>Ships here includes all visible ships, not only yours.</p>
-    <p class="online-detail"></p><div class="online-overview-scroll"><table><thead><tr><th>System</th><th>Ships here</th><th>Moving</th><th></th></tr></thead>
+    root.innerHTML = `<h2>System overview</h2><p>Fleets here includes all visible fleets, not only yours.</p>
+    <p class="online-detail"></p><div class="online-overview-scroll"><table><thead><tr><th>System</th><th>Fleets here</th><th>Moving</th><th></th></tr></thead>
     <tbody></tbody></table></div><p class="online-overview-page"></p>
     <button type="button" data-overview="previous">Previous systems</button><button type="button" data-overview="next">Next systems</button>`;
     parent.prepend(root);
@@ -14,8 +14,8 @@ export function createStrategicOverview(parent) {
         const values = new Map(snapshot?.systems.map(value => [value.scope.systemId, value]));
         for (const [id, cells] of rows) {
             const counts = snapshot?.status === 'view' && values.get(id)?.counts;
-            cells.count.textContent = counts ? String(counts.presentShips) : hosted.has(id) ? 'Unavailable' : 'Unavailable on this connection';
-            cells.moving.textContent = counts ? String(counts.movingShips) : '—';
+            cells.count.textContent = counts ? String(counts.presentFleets) : hosted.has(id) ? 'Unavailable' : 'Unavailable on this connection';
+            cells.moving.textContent = counts ? String(counts.movingFleets) : '—';
         }
     }
     return {

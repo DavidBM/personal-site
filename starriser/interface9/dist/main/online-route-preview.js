@@ -17,11 +17,11 @@ export function ruleTopology(view, connectionGeneration) {
 export async function previewOnlineRoute(session, worker, topology, selection) {
     const graph = ruleTopology(topology, session.generation);
     await worker.request({ type: 'seedTopology', topology: graph });
-    const page = await session.ownedShips({ shipId: selection.shipId });
+    const page = await session.ownedFleets({ fleetId: selection.fleetId });
     const token = page.seed.token;
     await worker.request({ type: 'seed', seed: page.seed });
     const result = await worker.request({ type: 'previewRoute', route: {
-            token, topology: graph.token, shipId: selection.shipId, destinationSystemId: selection.destinationSystemId,
+            token, topology: graph.token, fleetId: selection.fleetId, destinationSystemId: selection.destinationSystemId,
             targetX: selection.target.x, targetZ: selection.target.z, nowMs: page.serverNowMs,
             expectedSystemRevision: token.watermark.systemRevision,
         } });
@@ -36,7 +36,7 @@ export function routeStillCurrent(session, result, topology) {
         && result.topology.revision === topology.revision;
 }
 export function sameRouteSelection(a, b) {
-    return a.shipId === b.shipId && a.destinationSystemId === b.destinationSystemId
+    return a.fleetId === b.fleetId && a.destinationSystemId === b.destinationSystemId
         && a.target.x === b.target.x && a.target.z === b.target.z;
 }
 //# sourceMappingURL=online-route-preview.js.map

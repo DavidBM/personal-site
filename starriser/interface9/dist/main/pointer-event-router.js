@@ -10,7 +10,7 @@ const TAP_TIME_MS = 200;
  * Canvas-only listeners miss mouseup when the cursor leaves the canvas
  * onto overlay panels — classic “keeps dragging when I return” bug.
  */
-export function createPointerEventRouter({ canvas, cameraController, controlsManager, editHandlePointer, getContextMenuController, publishPointerEvent, tryPickBody, tryPickSceneTarget, updateSceneHover, clearFocus, isSceneActive, }) {
+export function createPointerEventRouter({ canvas, cameraController, controlsManager, editHandlePointer, getContextMenuController, publishPointerEvent, tryPickBody, tryPickSceneTarget, updateSceneHover, clearFocus, isSceneActive, onSceneAttack, }) {
     const cleanup = [];
     /** Active primary map-drag (or edit-handle) owned by document listeners. */
     let mapDragSession = false;
@@ -382,6 +382,7 @@ export function createPointerEventRouter({ canvas, cameraController, controlsMan
             event.preventDefault();
             event.stopPropagation();
             contextMenuController.hide();
+            onSceneAttack?.(event.clientX, event.clientY);
             return;
         }
         event.preventDefault();

@@ -20,6 +20,20 @@ export const MAX_ZOOM = 1000000;
  */
 export const MAP_NEAR = 0.0004;
 /**
+ * Jewel perspective near. Galaxy keeps {@link MAP_NEAR} vs far=1e10; compact
+ * hulls are ~7e-5, and orbiting a planet at 1.1R puts near-side ships closer
+ * than 0.0004 so they vanish. SCENE far is short, so this stays precise.
+ */
+export const SCENE_NEAR = 1e-6;
+/** Jewel far. Orbit-out at EXIT is ~4; keep headroom across the 0.1 span. */
+export const SCENE_FAR = 16;
+/**
+ * Closest **free-camera** height while a compact Kepler SCENE is loaded.
+ * Galaxy pan still floors at {@link MIN_ZOOM}. Just outside a compact hull
+ * (~7e-5) and well above {@link SCENE_NEAR} so a hull can fill the view.
+ */
+export const SCENE_MIN_ZOOM = 1e-4;
+/**
  * Max |pitch| for map CTRL free-look orbit (rad). Just shy of ±90° so the
  * eye can go fully under the y=0 plane without a pole singularity.
  */
@@ -56,9 +70,9 @@ export const FOLLOW_SCENE_BOOM_MUL = 8;
 export const FOLLOW_SCENE_BACK_MIN = 0.006;
 export const FOLLOW_SCENE_HEIGHT_MIN = 0.0015;
 export const FOLLOW_SCENE_LOOK_AHEAD_MIN = 0.01;
-/** Fleet selection framing for the half-size compact hulls. */
-export const SCENE_FLEET_ORBIT_RADIUS = 0.006;
-export const SCENE_FLEET_ORBIT_MIN_RADIUS = 0.002;
+/** Fleet selection framing around the compact PoC ring (sun R=0.005). */
+export const SCENE_FLEET_ORBIT_RADIUS = 0.012;
+export const SCENE_FLEET_ORBIT_MIN_RADIUS = 0.003;
 export const SCENE_FLEET_ORBIT_MAX_RADIUS = 0.08;
 /**
  * Roof-cam chase: eye just above/behind the ship, look-at well ahead along travel.
@@ -110,43 +124,44 @@ export function chaseCameraSceneBoom(agentScale) {
  * Defaults allow a **full orbit** around the pivot (including eyeY &lt; 0 when
  * target is on the ground plane). Pass a finite `minEyeY` to keep the eye
  * above a floor (legacy map-height clamp).
+ *
+ * `minRadius` is a degeneracy epsilon only. A galaxy-scale default (2) would
+ * replace compact Kepler look-at distance on CTRL drag.
  */
+function orbitLookOffset(eyeX, eyeY, eyeZ, targetX, targetY, targetZ, minRadius) {
+    const dx = eyeX - targetX;
+    const dy = eyeY - targetY;
+    const dz = eyeZ - targetZ;
+    const r = Math.hypot(dx, dy, dz);
+    if (r > minRadius)
+        return { dx, dy, dz, r };
+    const elev = Math.abs(dy);
+    const boom = Math.max(minRadius, elev > minRadius ? elev : minRadius * 4);
+    return { dx: 0, dy: boom * 0.85, dz: boom * 0.5, r: boom };
+}
+function clampOrbitPitch(pitch, radius, targetY, minEyeY, maxPitch) {
+    let next = Math.max(-maxPitch, Math.min(maxPitch, pitch));
+    if (!Number.isFinite(minEyeY))
+        return next;
+    const minPitch = Math.asin(Math.max(-1, Math.min(1, (minEyeY - targetY) / radius)));
+    if (next < minPitch)
+        next = minPitch;
+    return next;
+}
 export function orbitEyeAroundLookAt(eyeX, eyeY, eyeZ, targetX, targetY, targetZ, dYaw, dPitch, opts) {
-    // Default: no floor — full sphere orbit (under y=0 allowed).
-    const minEyeY = opts?.minEyeY !== undefined ? opts.minEyeY : Number.NEGATIVE_INFINITY;
-    const minRadius = opts?.minRadius ?? 2;
+    const minEyeY = opts?.minEyeY ?? Number.NEGATIVE_INFINITY;
+    const minRadius = opts?.minRadius ?? 1e-9;
     const maxPitch = opts?.maxPitch ?? ORBIT_MAX_PITCH;
-    let dx = eyeX - targetX;
-    let dy = eyeY - targetY;
-    let dz = eyeZ - targetZ;
-    let r = Math.hypot(dx, dy, dz);
-    if (!(r > minRadius)) {
-        // Nearly on pivot: invent a back boom so orbit has leverage.
-        const elev = Math.abs(eyeY - targetY);
-        r = Math.max(minRadius, elev > 1e-6 ? elev : minRadius * 4);
-        dx = 0;
-        dy = r * 0.85;
-        dz = r * 0.5;
-    }
-    let yaw = Math.atan2(dx, dz);
-    let pitch = Math.asin(Math.max(-1, Math.min(1, dy / r)));
-    yaw += dYaw;
-    pitch = Math.max(-maxPitch, Math.min(maxPitch, pitch + dPitch));
-    // Optional floor: keep eye above minEyeY (skip when −∞ / free orbit).
-    if (Number.isFinite(minEyeY)) {
-        const minPitch = Math.asin(Math.max(-1, Math.min(1, (minEyeY - targetY) / r)));
-        if (pitch < minPitch)
-            pitch = minPitch;
-    }
+    const off = orbitLookOffset(eyeX, eyeY, eyeZ, targetX, targetY, targetZ, minRadius);
+    const yaw = Math.atan2(off.dx, off.dz) + dYaw;
+    const pitch = clampOrbitPitch(Math.asin(Math.max(-1, Math.min(1, off.dy / off.r))) + dPitch, off.r, targetY, minEyeY, maxPitch);
     const cosP = Math.cos(pitch);
     const sinP = Math.sin(pitch);
-    const nx = targetX + r * Math.sin(yaw) * cosP;
-    const ny = targetY + r * sinP;
-    const nz = targetZ + r * Math.cos(yaw) * cosP;
+    const ny = targetY + off.r * sinP;
     return {
-        eyeX: nx,
+        eyeX: targetX + off.r * Math.sin(yaw) * cosP,
         eyeY: Number.isFinite(minEyeY) ? Math.max(minEyeY, ny) : ny,
-        eyeZ: nz,
+        eyeZ: targetZ + off.r * Math.cos(yaw) * cosP,
     };
 }
 /**
@@ -211,6 +226,11 @@ export const DS_FRAME_MAX = 1.1;
  * Scaled by height speed multiplier at target height.
  */
 export const MOUSE_LINE_DS = 0.28;
+/**
+ * Planet-orbit wheel vs galaxy map {@link wheelDeltaLogS}.
+ * Map mouse notch ≈ 32% height; 0.12 → ≈ 3.4% radius for fine limb framing.
+ */
+export const ORBIT_WHEEL_DS_MUL = 0.12;
 /** Cursor must stay within this (CSS px) to chain zoom-in against target pose. */
 export const CHAIN_CURSOR_PX = 10;
 /** Legacy alias: old per-frame lerp factor (tests / docs). Prefer expAlpha. */
@@ -268,6 +288,13 @@ export function wheelDeltaLogS(deltaY, deltaMode, targetHeight, viewportH = 800)
     if (ds < -DS_EVENT_MAX)
         ds = -DS_EVENT_MAX;
     return ds;
+}
+/**
+ * Log-radius wheel step while a system-orbit pose is active.
+ * Same device stream as {@link wheelDeltaLogS}, scaled by {@link ORBIT_WHEEL_DS_MUL}.
+ */
+export function orbitWheelDeltaLogS(deltaY, deltaMode, targetRadius, viewportH = 800) {
+    return (wheelDeltaLogS(deltaY, deltaMode, targetRadius, viewportH) * ORBIT_WHEEL_DS_MUL);
 }
 export function smoothstep01(u) {
     const x = Math.min(1, Math.max(0, u));

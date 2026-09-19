@@ -1,7 +1,7 @@
 import { ModelVisibilityGpu } from "./model-visibility-gpu.js";
 import { computeMeshOriginRadius } from "../../lib/fleet-sim/visual/model-visibility.js";
 import { MAP_MSAA_SAMPLES } from "../map-msaa.js";
-import { FLEET_MODEL_SHIPS_WGSL, FLEET_MODEL_UNIFORM_SIZE, FLEET_MODEL_U_THRUSTER_PULSE, FLEET_MODEL_VERTEX_STRIDE, } from "../shaders/fleet-model-ships.wgsl.js";
+import { FLEET_MODEL_SHIPS_WGSL, FLEET_MODEL_UNIFORM_SIZE, FLEET_MODEL_U_THRUSTER_PULSE, FLEET_MODEL_U_LOD_MASK, FLEET_MODEL_U_HULL_BAND, FLEET_MODEL_VERTEX_STRIDE, } from "../shaders/fleet-model-ships.wgsl.js";
 import { MODEL_LOD_DEFAULT_SCALE, MODEL_LOD_MAX_INSTANCES, modelLodInstanceCount, } from "../fleet-lod.js";
 import { gltfHasColorAndNormal, parseGlb, } from "../../lib/fleet-sim/visual/gltf-static-mesh.js";
 import { createLowPolyShipMesh } from "../../lib/fleet-sim/visual/lowpoly-ship-mesh.js";
@@ -41,9 +41,13 @@ export class FleetModelGpuLayer {
         this.meshLoadGeneration = 0;
         this.active = false;
         this.lastInstanceCount = 0;
+        this.lodMask = 0;
+        this.hullBand = 0;
+        this.indexSourceOwned = true;
         this.shipIndexCapacity = 0;
         this.lastShipIndices = new Uint32Array(0);
         this.shipIndexScratch = new Uint32Array(0);
+        this.kernelIdentityCount = -1;
         this.uniformData = new Float32Array(FLEET_MODEL_UNIFORM_SIZE / 4);
         this.bootstrap = bootstrap;
         this.maxInstances = Math.max(1, (options?.maxInstances ?? MODEL_LOD_MAX_INSTANCES) | 0);
@@ -66,6 +70,9 @@ export class FleetModelGpuLayer {
     getModelScale() {
         return this.modelScale;
     }
+    getMeshOriginRadius() {
+        return this.meshOriginRadius;
+    }
     setModelScale(scale) {
         this.modelScale = Math.max(1e-6, scale);
     }
@@ -77,6 +84,60 @@ export class FleetModelGpuLayer {
     }
     setActive(active) {
         this.active = active === true;
+    }
+    setLodMask(mask) {
+        this.lodMask = mask >>> 0;
+    }
+    setHullBand(on) {
+        this.hullBand = on ? 1 : 0;
+    }
+    /** Bind group exists and the layer can submit an instanced hull draw. */
+    canSubmit() {
+        return this.canDraw();
+    }
+    /**
+     * ShipSim rows are kernel-indexed. Bind identity 0..count-1 so hull VS/visibility
+     * read `ships[kernel]` — not the triangle instance map.
+     */
+    setKernelIdentitySource(count) {
+        const n = Math.max(0, count | 0);
+        if (this.indexSourceOwned && this.lastShipIndices.length === n && this.kernelIdentityCount === n)
+            return;
+        if (!this.indexSourceOwned) {
+            this.shipIndexBuffer = null;
+            this.shipIndexCapacity = 0;
+            this.shipIndexHandle = null;
+        }
+        this.indexSourceOwned = true;
+        this.ensureShipIndexCapacity(Math.max(n, 1));
+        if (this.shipIndexScratch.length < n)
+            this.shipIndexScratch = new Uint32Array(this.shipIndexCapacity);
+        if (this.lastShipIndices.length !== n || this.lastShipIndices.buffer !== this.shipIndexScratch.buffer) {
+            this.lastShipIndices = this.shipIndexScratch.subarray(0, n);
+        }
+        for (let i = 0; i < n; i++)
+            this.lastShipIndices[i] = i >>> 0;
+        if (this.shipIndexHandle && n > 0) {
+            this.bootstrap.gpu.writeBuffer(this.shipIndexHandle, 0, this.lastShipIndices, 0, n * 4);
+        }
+        this.kernelIdentityCount = n;
+        this.rebuildBindGroup();
+    }
+    /** Bind an existing GPU instance map (kernel → sim). Not owned; not destroyed. */
+    setIndexSource(buffer, count) {
+        const n = Math.max(0, count | 0);
+        if (this.shipIndexBuffer === buffer && this.lastShipIndices.length === n)
+            return;
+        if (this.indexSourceOwned && this.shipIndexHandle) {
+            this.bootstrap.gpu.destroyBuffer(this.shipIndexHandle);
+            this.shipIndexHandle = null;
+        }
+        this.indexSourceOwned = false;
+        this.kernelIdentityCount = -1;
+        this.shipIndexBuffer = buffer;
+        this.shipIndexCapacity = n;
+        this.lastShipIndices = new Uint32Array(n);
+        this.rebuildBindGroup();
     }
     isActive() {
         return this.active;
@@ -382,16 +443,33 @@ export class FleetModelGpuLayer {
             ],
         });
     }
-    /** After ship integrate/shadow writes, before color and depth draws. */
+    /**
+     * Compact visible hulls on GPU from the kernel map (frustum + fleet lodMask).
+     * No CPU ship list. Reference frames skip compact so goldens stay CPU-selected.
+     */
     prepareVisibility(encoder, viewProj, origin, reference = false) {
         this.visibilityReadyForDraw = false;
         this.lastVisibilityWasReference = reference;
-        this.visibility?.clearFrame();
-        if (!this.canDraw() || this.lastShipIndices.length === 0 || reference)
+        if (reference || !this.active || !this.ready || !this.shipSimBuffer || !this.fleetGpuBuffer || !this.shipIndexBuffer) {
+            this.visibility?.clearFrame();
             return;
-        this.ensureVisibility();
+        }
+        const count = this.shipIndexCapacity || this.lastShipIndices.length;
+        if (count <= 0) {
+            this.visibility?.clearFrame();
+            return;
+        }
+        try {
+            this.ensureVisibility();
+        }
+        catch {
+            this.visibility?.clearFrame();
+            return;
+        }
+        if (!this.visibility)
+            return;
         this.visibility.setInputs(this.shipSimBuffer, this.fleetGpuBuffer, this.shipIndexBuffer);
-        this.visibility.encode(encoder, viewProj, origin, this.modelScale, this.meshOriginRadius, this.lastShipIndices.length, this.indexCount);
+        this.visibility.encode(encoder, viewProj, origin, this.modelScale, this.getMeshOriginRadius(), count, this.indexCount, this.lodMask);
         this.visibilityReadyForDraw = true;
     }
     ensureVisibility() {
@@ -444,6 +522,31 @@ export class FleetModelGpuLayer {
         this.lastInstanceCount = count;
         return count;
     }
+    /**
+     * Per-fleet instanced draws of the kernel map. `first` is `instance_index`
+     * (kernel slot). Empty ranges submit nothing — no 10k clipped mesh.
+     */
+    encodeRanges(pass, viewProj, ranges, origin, eyeWorld, timeSec) {
+        this.lastInstanceCount = 0;
+        this.visibilityReadyForDraw = false;
+        if (!this.canDraw() || ranges.length === 0)
+            return 0;
+        this.writeFrameUniforms(viewProj, origin, eyeWorld, timeSec);
+        pass.setPipeline(this.pipeline);
+        pass.setBindGroup(0, this.bindGroup);
+        pass.setVertexBuffer(0, this.vertexBuffer);
+        pass.setIndexBuffer(this.indexBuffer, this.indexFormat);
+        let drawn = 0;
+        for (const range of ranges) {
+            const count = range.count | 0;
+            if (count <= 0)
+                continue;
+            pass.drawIndexed(this.indexCount, count, 0, 0, range.first | 0);
+            drawn += count;
+        }
+        this.lastInstanceCount = drawn;
+        return drawn;
+    }
     canDraw() {
         return !!(this.active && this.ready && this.pipeline && this.bindGroup && this.vertexBuffer && this.indexBuffer && this.uniformHandle);
     }
@@ -467,8 +570,9 @@ export class FleetModelGpuLayer {
         this.writeOriginUniforms(origin ?? MODEL_ZERO_ORIGIN);
         this.writeEyeUniforms(eyeWorld ?? origin ?? MODEL_ZERO_ORIGIN);
         this.uniformData[FLEET_MODEL_U_THRUSTER_PULSE] = thrusterPulse(modelPulseTime(timeSec), 1);
-        this.uniformData[29] = 0;
-        this.uniformData[30] = 0;
+        const words = new Uint32Array(this.uniformData.buffer);
+        words[FLEET_MODEL_U_LOD_MASK] = this.lodMask;
+        words[FLEET_MODEL_U_HULL_BAND] = this.hullBand;
         this.uniformData[31] = 0;
         this.bootstrap.gpu.writeBuffer(this.uniformHandle, 0, this.uniformData, 0, FLEET_MODEL_UNIFORM_SIZE);
     }
@@ -518,7 +622,7 @@ export class FleetModelGpuLayer {
         this.visibility = null;
         this.visibleBindGroup = null;
         this.destroyMeshGpu();
-        if (this.shipIndexHandle) {
+        if (this.indexSourceOwned && this.shipIndexHandle) {
             this.bootstrap.gpu.destroyBuffer(this.shipIndexHandle);
             this.shipIndexHandle = null;
         }

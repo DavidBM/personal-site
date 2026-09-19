@@ -1,9 +1,16 @@
 import { connectWebSocket } from './websocket-transport.js';
 import { connectWebTransport } from './webtransport-transport.js';
+function validateFallback(endpoints) {
+    if (endpoints.webSocketUrl) {
+        const ws = new URL(endpoints.webSocketUrl);
+        if (ws.protocol !== 'wss:' && !(ws.protocol === 'ws:' && loopback(ws)))
+            throw new Error('WebSocket requires WSS outside loopback');
+    }
+    else if (!endpoints.webTransportUrl)
+        throw new Error('A transport endpoint is required');
+}
 export function validateEndpoints(endpoints) {
-    const ws = new URL(endpoints.webSocketUrl);
-    if (ws.protocol !== 'wss:' && !(ws.protocol === 'ws:' && loopback(ws)))
-        throw new Error('WebSocket requires WSS outside loopback');
+    validateFallback(endpoints);
     if (!endpoints.webTransportUrl)
         return;
     const wt = new URL(endpoints.webTransportUrl);
@@ -32,10 +39,12 @@ export const connectTransport = async (endpoints, signal) => {
             return await connectWebTransport(endpoints, signal);
         }
         catch (error) {
-            if (signal.aborted)
+            if (signal.aborted || !endpoints.webSocketUrl)
                 throw error;
         }
     }
+    if (!endpoints.webSocketUrl)
+        throw new Error('WebTransport is unavailable and no fallback is configured');
     return connectWebSocket(endpoints.webSocketUrl, signal);
 };
 //# sourceMappingURL=transport.js.map

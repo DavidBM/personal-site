@@ -1,11 +1,13 @@
-import { consumeDevLogin } from './online-login.js';
+import { consumeDevLogin, parseLauncherEndpoints } from './online-login.js';
 import { App } from '../app.js';
 import { createOnlinePanel } from '../ui/online-panel.js';
 import { createOnlineIntents } from './online-intents.js';
 import { createDomainClient } from '../features/fleets/domain/client.js';
 import { sameToken } from '../features/fleets/domain/seed.js';
+import { createOnlineFleetList } from './online-fleet-list.js';
 import { createOnlineInspector } from './online-inspector.js';
 import { opaqueIdAt } from '../contracts/opaque-id.js';
+import { createOnlineRoster } from './online-roster.js';
 import { createOnlineOverview } from './online-overview.js';
 import { previewOnlineRoute, routeStillCurrent, sameRouteSelection } from './online-route-preview.js';
 let devLogin = consumeDevLogin(window);
@@ -18,12 +20,14 @@ if (inspection)
 const panel = createOnlinePanel(document.body);
 const intents = createOnlineIntents();
 const overview = createOnlineOverview(panel.overview, () => app.online ?? undefined);
+const roster = createOnlineRoster(panel.form.parentElement.querySelector('.online-orders'), query => connected().ownedRoster(query), system => { void action(() => selectSystem(system)); });
 let refreshTimer;
 let refreshing = false;
 let refreshDirty = false;
-let nextPage;
-let displayedOffset = 0;
-let listGeneration = 0;
+const fleetList = createOnlineFleetList((page, offset) => panel.setFleets(page?.fleets ?? [], offset, page?.total ?? 0, page?.nextOffset != null));
+function invalidateFleetList() { clearTimeout(refreshTimer); refreshTimer = undefined; refreshDirty = false; fleetList.invalidate(); clearRoute(); }
+function clearTopology() { routeTopology = undefined; overview.clear(); panel.clearTopology(); invalidateFleetList(); }
+let viewInterests;
 let activeOwner = '';
 let pendingOwner = '';
 let domain;
@@ -78,45 +82,75 @@ function receipt(value) {
             // observation owns the retained command and changes its status copy.
             if (original)
                 panel.status(original.$typeName === 'galaxy.v1.TransferCommand'
-                    ? 'Ship departed. Arrival is not confirmed yet.'
-                    : 'Order accepted. The ship is moving to its destination.');
+                    ? 'Fleet departed. Arrival is not confirmed yet.'
+                    : 'Order accepted. The fleet is moving to its destination.');
             break;
         case 'rejected':
-            panel.status('The server rejected this order. Refresh the ship state and try again.');
+            panel.status('The server rejected this order. Refresh the fleet state and try again.');
             break;
         default: panel.status('The outcome is unknown. Check or retry the original order.');
     }
     syncRecovery();
 }
 function event(value) {
-    if (value.type === 'welcome')
-        activeOwner = `${value.worldId}:${value.playerId}`;
-    if (value.type === 'topology') {
-        routeTopology = value.topology;
-        clearRoute();
-        panel.setTopology(value.topology, value.subscription.systemId);
-        overview.connect(value.topology, value.subscription.systemId);
+    roster.event(value);
+    switch (value.type) {
+        case 'viewInterests':
+            viewInterests = value.interests;
+            return;
+        case 'welcome':
+            activeOwner = `${value.worldId}:${value.playerId}`;
+            return;
+        case 'topology':
+            routeTopology = value.topology;
+            clearRoute();
+            panel.setTopology(value.topology, value.subscription.systemId);
+            overview.connect(value.topology, value.subscription.systemId);
+            return;
+        case 'viewBarrier':
+            clearTopology();
+            return;
+        case 'viewChanged':
+            viewChanged(value.status);
+            return;
+        case 'received':
+            if (value.snapshotComplete)
+                scheduleRefresh();
+            return;
+        default: orderEvent(value);
     }
-    if (value.type === 'received' && value.snapshotComplete)
-        scheduleRefresh();
-    if (value.type === 'receipt')
-        receipt(value.receipt);
-    if (value.type === 'unknown') {
-        panel.status('Connection interrupted. The original order is retained on this page.');
-        syncRecovery();
+}
+function orderEvent(value) {
+    switch (value.type) {
+        case 'receipt':
+            receipt(value.receipt);
+            return;
+        case 'unknown':
+            panel.status('Connection interrupted. The original order is retained on this page.');
+            syncRecovery();
+            return;
+        case 'error':
+            panel.status(value.message);
+            return;
+        case 'state':
+            if (value.state === 'closed') {
+                clearTopology();
+                panel.status('Disconnected. Reconnect to resolve pending orders.');
+            }
+            return;
     }
-    if (value.type === 'error')
-        panel.status(value.message);
-    if (value.type === 'state' && value.state === 'closed') {
-        routeTopology = undefined;
-        clearRoute();
-        overview.clear();
-        panel.status('Disconnected. Reconnect to resolve pending orders.');
-    }
+}
+function viewChanged(status) {
+    if (status.state === 'ready')
+        return;
+    if (status.slot === 'detail')
+        invalidateFleetList();
+    if (status.slot === 'overview')
+        clearTopology();
 }
 function scheduleRefresh() {
     refreshDirty = true;
-    if (refreshTimer || refreshing || busy)
+    if (refreshTimer || refreshing)
         return;
     refreshTimer = setTimeout(() => { refreshTimer = undefined; void refresh().catch(error => panel.status(message(error))); }, 150);
 }
@@ -126,18 +160,10 @@ async function refresh() {
         return;
     }
     const session = connected();
-    const generation = listGeneration;
     refreshing = true;
     refreshDirty = false;
     try {
-        const watermark = session.received();
-        const offset = displayedOffset;
-        const required = offset && watermark ? { connectionGeneration: session.generation, watermark } : undefined;
-        const page = await session.ownedShips({ offset, required, limit: 256 });
-        if (app.online === session && generation === listGeneration) {
-            nextPage = page.nextOffset === null ? undefined : { offset: page.nextOffset, required: page.seed.token };
-            panel.setShips(page.ships, offset, page.total, !!nextPage);
-        }
+        await fleetList.read(query => session.ownedFleets(query), false);
     }
     finally {
         refreshing = false;
@@ -145,19 +171,7 @@ async function refresh() {
             scheduleRefresh();
     }
 }
-async function moreShips() {
-    if (!nextPage)
-        return;
-    const generation = ++listGeneration;
-    const session = connected();
-    const cursor = nextPage;
-    const page = await session.ownedShips({ ...cursor, limit: 256 });
-    if (app.online !== session || generation !== listGeneration)
-        return;
-    displayedOffset = cursor.offset;
-    nextPage = page.nextOffset === null ? undefined : { offset: page.nextOffset, required: page.seed.token };
-    panel.setShips(page.ships, cursor.offset, page.total, !!nextPage);
-}
+async function moreFleets() { const session = connected(); await fleetList.read(query => session.ownedFleets(query), true); }
 function startDomain() {
     domain?.dispose();
     return createDomainClient(new Worker(new URL('../features/fleets/domain/worker-entry.js', import.meta.url), { type: 'module', name: 'galaxy-domain-preview' }), { type: 'initialize', mode: 'online-preview', moduleUrl: new URL('../wasm/game/galaxy_game_wasm.js', import.meta.url).href,
@@ -167,18 +181,20 @@ async function connect(preferredSystemId) {
     const fields = panel.credentials();
     if (!/^[0-9a-f]{64}$/i.test(fields.credential))
         throw new Error('Enter the 64-character access code supplied with your account');
+    if (fields.pin && !/^[0-9a-f]{64}$/i.test(fields.pin))
+        throw new Error('Enter a 64-character certificate SHA-256');
+    const certificateHashes = fields.pin ? [{ algorithm: 'sha-256', value: Uint8Array.from(fields.pin.match(/../g), byte => Number.parseInt(byte, 16)) }] : undefined;
     const credential = Uint8Array.from(fields.credential.match(/../g), byte => Number.parseInt(byte, 16));
     panel.status('Connecting…');
     panel.preview('');
-    displayedOffset = 0;
-    listGeneration++;
+    invalidateFleetList();
     domain = startDomain();
     routeTopology = undefined;
     clearRoute();
     overview.clear();
     try {
-        await Promise.all([domain.ready, app.connectOnline({ endpoints: { webTransportUrl: fields.server, webSocketUrl: fields.fallback }, credential,
-                preferredSystemId,
+        await Promise.all([domain.ready, app.connectOnline({ endpoints: { webTransportUrl: fields.server, webSocketUrl: fields.fallback, certificateHashes }, credential,
+                preferredSystemId, viewInterests,
                 diagnostics: !!inspection,
                 rememberIntent(value) { pendingOwner = activeOwner; intents.remember(value.command); }, onEvent: event, onStrategic: overview.refresh })]);
         connected();
@@ -190,38 +206,39 @@ async function connect(preferredSystemId) {
         throw error;
     }
     panel.connected(true);
-    panel.status('Connected. Select a ship and a destination.');
-    await refresh();
+    panel.status('Connected. The map and your fleet roster are available independently of system detail.');
+    if (connected().received())
+        await refresh();
 }
 async function preview() {
     const session = connected();
     const worker = domain;
     if (!worker)
         throw new Error('Shared rules are not ready');
-    const shipId = panel.ships.value;
+    const fleetId = panel.fleets.value;
     const target = panel.target();
-    const page = await session.ownedShips({ shipId });
+    const page = await session.ownedFleets({ fleetId });
     const token = page.seed.token;
     await worker.request({ type: 'seed', seed: page.seed });
-    const result = await worker.request({ type: 'previewMove', move: { token, shipId, orderId: identity(),
+    const result = await worker.request({ type: 'previewMove', move: { token, fleetId, orderId: identity(),
             targetX: target.x, targetZ: target.z, nowMs: page.serverNowMs, expectedSystemRevision: token.watermark.systemRevision } });
     const watermark = session.received();
     if (app.online !== session || !watermark || !sameToken(token, { connectionGeneration: session.generation, watermark })) {
-        panel.preview('The ship state changed. Preview again.');
+        panel.preview('The fleet state changed. Preview again.');
         return;
     }
-    panel.preview(result.code === 0 ? 'This move is valid in the current shared rules. The server will confirm the order.' : 'This move is not available in the current ship state.');
+    panel.preview(result.code === 0 ? 'This move is valid in the current shared rules. The server will confirm the order.' : 'This move is not available in the current fleet state.');
 }
 async function move() {
     if (!intents.canIssue())
         throw new Error('Resolve pending orders or explicitly continue an expired order before issuing another');
     const session = connected();
-    const shipId = panel.ships.value;
+    const fleetId = panel.fleets.value;
     const target = panel.target();
     const commandId = identity();
-    const page = await session.ownedShips({ shipId });
+    const page = await session.ownedFleets({ fleetId });
     panel.status('Submitting order…');
-    receipt(await tracedOrder(commandId, context => session.move({ commandId, shipId, target,
+    receipt(await tracedOrder(commandId, context => session.move({ commandId, fleetId, target,
         expectedSystemRevision: page.seed.token.watermark.systemRevision }, context)));
 }
 async function resolve(retry) {
@@ -249,15 +266,26 @@ async function transfer() {
         throw new Error('Preview a reachable route first');
     const commandId = identity();
     panel.status('Submitting jump order…');
-    receipt(await tracedOrder(commandId, context => session.transfer({ commandId, shipId: selection.shipId,
+    receipt(await tracedOrder(commandId, context => session.transfer({ commandId, fleetId: selection.fleetId,
         target: { x: first.targetX, z: first.targetZ }, destinationSystemId: first.destinationSystemId,
         expectedSystemRevision: result.token.watermark.systemRevision }, context)));
     clearRoute();
 }
+async function selectSystem(systemId) {
+    const session = connected();
+    await session.selectSystem(systemId);
+    if (app.online !== session || session.subscription()?.systemId !== systemId || !routeTopology)
+        return;
+    panel.setTopology(routeTopology, systemId);
+    overview.connect(routeTopology, systemId);
+}
 function selectedRoute() {
-    return { shipId: panel.ships.value, destinationSystemId: panel.destinations.value, target: panel.target() };
+    return { fleetId: panel.fleets.value, destinationSystemId: panel.destinations.value, target: panel.target() };
 }
 function clearRoute() { routePreview = undefined; panel.jumpLabel(); }
+function previewStillCurrent(session, worker, topology, selection, result) {
+    return app.online === session && domain === worker && routeTopology === topology && sameRouteSelection(selection, selectedRoute()) && routeStillCurrent(session, result, topology);
+}
 async function previewRoute() {
     const session = connected();
     const worker = domain;
@@ -268,14 +296,13 @@ async function previewRoute() {
     if (!selection.destinationSystemId)
         throw new Error('Choose a route destination');
     const result = await previewOnlineRoute(session, worker, topology, selection);
-    if (app.online !== session || domain !== worker || routeTopology !== topology
-        || !sameRouteSelection(selection, selectedRoute()) || !routeStillCurrent(session, result, topology)) {
+    if (!previewStillCurrent(session, worker, topology, selection, result)) {
         clearRoute();
-        throw new Error('The route or ship state changed. Preview again.');
+        throw new Error('The route or fleet state changed. Preview again.');
     }
     if (result.code !== 0 || !result.firstLeg) {
         clearRoute();
-        throw new Error(result.code === 103 ? 'No route connects these systems.' : 'This route is not available in the current ship state.');
+        throw new Error(result.code === 103 ? 'No route connects these systems.' : 'This route is not available in the current fleet state.');
     }
     const names = new Map(topology.systems.map(system => [system.id, system.name]));
     const path = Array.from({ length: result.path.byteLength / 16 }, (_, i) => names.get(opaqueIdAt(result.path, i * 16)) ?? 'System');
@@ -290,41 +317,68 @@ panel.action('route').addEventListener('click', () => { void action(async () => 
 panel.onRouteChange(clearRoute);
 panel.action('move').addEventListener('click', () => { void action(move); });
 panel.action('transfer').addEventListener('click', () => { void action(transfer); });
-panel.action('view').addEventListener('click', () => { const systemId = panel.systems.value; void action(() => connect(systemId)); });
-panel.overview.onView(systemId => { void action(() => connect(systemId)); });
+panel.action('galaxy').addEventListener('click', () => { void action(async () => { await connected().replaceView('overview', { kind: 'overview', scope: { kind: 'galaxy' } }); }); });
+panel.action('region').addEventListener('click', () => { const id = panel.systems.value; if (id)
+    void action(async () => { await connected().replaceView('overview', { kind: 'overview', scope: { kind: 'systems', ids: [id] } }); }); });
+panel.action('view').addEventListener('click', () => { const systemId = panel.systems.value; void action(() => selectSystem(systemId)); });
+panel.overview.onView(systemId => { void action(() => selectSystem(systemId)); });
 panel.action('continue').addEventListener('click', () => { void action(async () => continueOrder()); });
 panel.action('resolve').addEventListener('click', () => { void action(() => resolve(false)); });
 panel.action('retry').addEventListener('click', () => { void action(() => resolve(true)); });
-panel.action('more').addEventListener('click', () => { void action(moreShips); });
-panel.action('first').addEventListener('click', () => { void action(async () => { displayedOffset = 0; listGeneration++; await refresh(); }); });
+panel.action('more').addEventListener('click', () => { void action(moreFleets); });
+panel.action('first').addEventListener('click', () => { void action(async () => { invalidateFleetList(); await refresh(); }); });
 panel.action('focus').addEventListener('click', () => {
     void action(async () => {
         connected();
-        await app.followOnlineShip(panel.ships.value);
+        await app.followOnlineFleet(panel.fleets.value);
     });
 });
+function field(name) {
+    return panel.form.querySelector(`input[name="${name}"]`);
+}
+function useLoopback(endpoint, credential) {
+    field('server').value = '';
+    field('server').required = false;
+    field('fallback').value = endpoint;
+    if (credential !== undefined)
+        field('credential').value = credential;
+}
+async function launcherWebSocket() {
+    try {
+        const response = await fetch('/dist/galaxy-launcher.json', { cache: 'no-store', signal: AbortSignal.timeout(2000) });
+        if (!response.ok)
+            return;
+        return parseLauncherEndpoints(await response.json(), location.href);
+    }
+    catch {
+        return;
+    }
+}
 panel.busy(true);
-void app.initialize().then(() => {
+void app.initialize().then(async () => {
     if (pageClosed)
         return;
-    panel.busy(false);
     const login = devLogin;
     devLogin = undefined;
-    if (!login) {
-        panel.status('Enter your account access code to connect.');
+    if (login) {
+        panel.busy(false);
+        useLoopback(login.endpoint, login.credential);
+        void action(() => connect(login.systemId));
         return;
     }
-    for (const [name, value] of [['server', ''], ['fallback', login.endpoint], ['credential', login.credential]]) {
-        panel.form.querySelector(`input[name="${name}"]`).value = value;
-    }
-    // Local launch uses explicit WS; no certificate bypass or remote endpoint attempt.
-    panel.form.querySelector('input[name="server"]').required = false;
-    void action(() => connect(login.systemId));
+    const endpoint = await launcherWebSocket();
+    if (pageClosed)
+        return;
+    if (endpoint)
+        useLoopback(endpoint);
+    panel.busy(false);
+    panel.status('Enter your account access code to connect.');
 }).catch(error => { devLogin = undefined; panel.status(message(error)); });
 window.addEventListener('pagehide', () => {
     pageClosed = true;
     devLogin = undefined;
     clearTimeout(refreshTimer);
+    roster.dispose();
     overview.dispose();
     domain?.dispose();
     inspection?.dispose();

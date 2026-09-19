@@ -80,6 +80,10 @@ async function dispatch(message) {
         runtime.apply(message.sequence, message.commands);
         return;
     }
+    if (message.type === "directorPacket") {
+        runtime.receiveDirectorPacket(message.packet);
+        return;
+    }
     try {
         const result = await runtime.query(message.query);
         send({ type: "result", id: message.id, result });
