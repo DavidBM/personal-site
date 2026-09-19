@@ -4,7 +4,12 @@ export const SOLAR_ORBIT_WORDS=12;
 export const SOLAR_WORDS=8+SOLAR_BODY_CAPACITY*SOLAR_ORBIT_WORDS;
 let rulesPromise;
 export function loadPlanetaryRules() {
-  rulesPromise??=import('/dist/wasm/game/galaxy_game_wasm.js').then(async module=>{await module.default();return module;});
+  // Relative to this module so /interface9/ and local /dist/ both resolve.
+  const moduleUrl=new URL('../../../wasm/game/galaxy_game_wasm.js',import.meta.url);
+  rulesPromise??=import(moduleUrl.href).then(async module=>{
+    await module.default({module_or_path:new URL('./galaxy_game_wasm_bg.wasm',moduleUrl)});
+    return module;
+  });
   return rulesPromise;
 }
 export function labEphemeris(period=1800) {
