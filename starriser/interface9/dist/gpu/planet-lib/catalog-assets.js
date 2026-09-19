@@ -4,6 +4,7 @@
  * Manifest is written by the offline catalog baker. Runtime loads preview maps
  * for every planet and upgrades the focused body to 4K + pole caps.
  */
+import { assetUrl } from "../asset-url.js";
 export const CATALOG_ASSET_ROOT = "assets/solar/catalog";
 export const CATALOG_MANIFEST_URL = "assets/solar/catalog/manifest.json";
 /** Known baker map keys (others are ignored). */
@@ -146,7 +147,7 @@ export function parseCatalogManifest(raw) {
  */
 export async function fetchCatalogManifest() {
     try {
-        const res = await fetch(CATALOG_MANIFEST_URL);
+        const res = await fetch(assetUrl(CATALOG_MANIFEST_URL));
         if (!res.ok)
             return null;
         return parseCatalogManifest(await res.json());

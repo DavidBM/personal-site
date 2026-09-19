@@ -30,7 +30,7 @@ export class RenderClient {
         let client = null;
         const onAbort = () => { void client?.dispose(); };
         try {
-            const worker = new Worker(new URL("../../render-worker.js", import.meta.url), {
+            const worker = new Worker(new URL("../render/worker-entry.js", import.meta.url), {
                 type: "module", name: "galaxy-render",
             });
             client = new RenderClient(canvas, worker, options);
@@ -41,6 +41,7 @@ export class RenderClient {
                 type: "initialize", canvas: offscreen,
                 viewport: client.viewport(), reducedMotion: motion.matches,
                 frameDebug: readBrowserFrameDebug(),
+                assetBase: new URL("./", window.location.href).href,
             };
             worker.postMessage(bootstrap, [offscreen]);
             await client.connection.ready;

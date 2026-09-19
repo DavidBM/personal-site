@@ -1,5 +1,6 @@
 /** Worker-owned render composition. The same production runtime is usable in isolated scenarios. */
 import { enableFrameDebug } from "../gpu/frame-debug.js";
+import { setAssetBase } from "../gpu/asset-url.js";
 import { Galaxy } from "../galaxy.js";
 import { GalaxyMetrics } from "../galaxy-metrics.js";
 import { createWebGpuViewHooks } from "../render/topology-view-bridge.js";
@@ -19,6 +20,7 @@ const FLEET_PACK_MAX_PER_FRAME = 256;
 const OBSERVATION_INTERVAL_MS = 1000 / 30;
 export async function createRenderRuntime(options) {
     enableFrameDebug(options.frameDebug === true);
+    setAssetBase(options.assetBase);
     let runtime;
     const view = await WebGpuMapView.createForSurface(options.canvas, {
         ...options.viewport, skipShipModel: options.skipShipModel,

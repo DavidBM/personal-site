@@ -1,3 +1,4 @@
+import { assetUrl } from "./asset-url.js";
 import { measureIsolatedFrame } from "./map/frame-measurement.js";
 import { createMapFrameState } from "./map/frame-state.js";
 import { createMapFrameEncoder } from "./map/frame-encoder.js";
@@ -270,7 +271,7 @@ export class WebGpuMapView {
     }
     async loadGlbInto(layer, url) {
         this.assertModelLoadAvailable();
-        const res = await fetch(url);
+        const res = await fetch(assetUrl(url));
         this.assertModelLoadAvailable();
         if (!res.ok) {
             throw new Error(`loadShipModel: ${url} → HTTP ${res.status}`);

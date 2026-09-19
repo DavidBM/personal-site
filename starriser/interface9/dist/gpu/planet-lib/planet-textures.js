@@ -6,6 +6,7 @@
  * `BakedEquirectSources` or URL query `?bakedAlbedo=...&bakedNormal=...`
  * via `resolvePlanetTextureUrls` / `loadPlanetTexturePack(device, sources)`.
  */
+import { assetUrl } from "../asset-url.js";
 export const SOLAR_ASSET = {
     earthAlbedo: "assets/solar/earthmap.jpg",
     earthNormal: "assets/solar/earthnormal.png",
@@ -15,7 +16,7 @@ export const SOLAR_ASSET = {
     moon: "assets/solar/moon512.jpg",
 };
 async function fetchBitmap(url) {
-    const res = await fetch(url);
+    const res = await fetch(assetUrl(url));
     if (!res.ok) {
         throw new Error(`Failed to load ${url} (${res.status})`);
     }

@@ -12,6 +12,7 @@
  * - Draw instance buffer: vertex|storage|copy_dst so compute can scatter bases.
  * - Main does **not** walk ship bases every frame (L3 exit).
  */
+import { assetUrl } from "../asset-url.js";
 import { MAP_MSAA_SAMPLES } from "../map-msaa.js";
 import { FLEET_SHIPS_WGSL, FLEET_SHIP_DRAW_STRIDE, FLEET_SHIP_UNIFORM_SIZE, } from "../shaders/fleet-ships.wgsl.js";
 import { writeTrailVariantModulation, } from "../shaders/fleet-trails.wgsl.js";
@@ -741,7 +742,7 @@ export class FleetInstanceGpuLayer {
     async loadTrailTexture(url) {
         this.assertTrailLoadAvailable(this.trailLoadGeneration);
         const generation = ++this.trailLoadGeneration;
-        const res = await fetch(url);
+        const res = await fetch(assetUrl(url));
         this.assertTrailLoadAvailable(generation);
         if (!res.ok) {
             throw new Error(`loadTrailTexture: ${url} → HTTP ${res.status}`);
