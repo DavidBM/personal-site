@@ -467,7 +467,7 @@ export function createDirectedSceneHost(injected = null) {
         });
         return compactScratch;
     }
-    function copyKernelRange(encoder, oldStart, newStart, n, overlap) {
+    function copyKernelRange(encoder, oldStart, newStart, n, _overlap) {
         if (!runtime || n <= 0 || oldStart === newStart)
             return;
         const copy = (buf, stride) => {
@@ -478,10 +478,8 @@ export function createDirectedSceneHost(injected = null) {
             const dst = newStart * stride;
             if (src + bytes > buf.size || dst + bytes > buf.size)
                 return;
-            if (!overlap) {
-                encoder.copyBufferToBuffer(buf, src, buf, dst, bytes);
-                return;
-            }
+            // Chrome invalidates copyBufferToBuffer when src === dst, even if ranges
+            // are disjoint. Always hop through scratch.
             const scratch = ensureScratch(bytes);
             if (!scratch)
                 return;
