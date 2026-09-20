@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import {createSceneClock} from './scene-clock.mjs';
+const c=createSceneClock({epochMs:1700000000000,hostMs:100});
+assert.equal(c.sample(1100),1);assert.equal(c.sample(61100),61);
+assert.equal(c.timeOf(1700000002345),2.345);
+c.setSourcePaused(true,62100);assert.equal(c.sample(100000),62);c.setSourcePaused(false,100000);assert.equal(c.sample(101000),63);
+assert.throws(()=>c.sample(100999),/rewind/);
+const positive=c.synchronize({revision:1,serverMs:1700000070000,sentAt:101000,receivedAt:101100});
+assert.equal(positive.scene,70.05);assert.equal(positive.uncertaintyMs,50);assert.equal(c.timeOf(1700000002345),2.345);
+const negative=c.synchronize({revision:2,serverMs:1700000060000,sentAt:101100,receivedAt:101100});
+assert.equal(negative.status,'holding');assert.equal(c.sample(105100),70.05);assert(c.state.holding);assert.equal(c.sample(112100),71);assert(!c.state.holding);
+assert.equal(c.synchronize({revision:1}).status,'superseded');
+for(const bad of [{revision:3,serverMs:NaN,sentAt:0,receivedAt:112100},{revision:3,serverMs:0,sentAt:112200,receivedAt:112100}])assert.throws(()=>c.synchronize(bad));
+c.setSourcePaused(true,112100);assert.throws(()=>c.synchronize({revision:3,serverMs:0,sentAt:112100,receivedAt:112100}));
+console.log('Scene clock retains elapsed time, source pause, fixed epoch event conversion, revisioned offsets, latency uncertainty and monotonic negative-correction holds.');

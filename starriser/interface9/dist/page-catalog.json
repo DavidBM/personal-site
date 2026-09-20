@@ -72,6 +72,18 @@
     "group": "Authoring & visual labs"
   },
   {
+    "path": "tests/demo-ship-battle-poc/index.html",
+    "title": "Galaxy · Directed battle lab",
+    "description": "Interactive browser page for Galaxy · Directed battle lab.",
+    "group": "Demos"
+  },
+  {
+    "path": "tests/demo-ship-flight-poc/index.html",
+    "title": "Galaxy · Ship flight lab",
+    "description": "Interactive browser page for Galaxy · Ship flight lab.",
+    "group": "Demos"
+  },
+  {
     "path": "thruster-texture.html",
     "title": "Galaxy — Thruster texture creator",
     "description": "Author engine-plume textures and export a PNG atlas.",

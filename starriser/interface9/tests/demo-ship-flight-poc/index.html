@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Galaxy · Ship flight lab</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#010510;color:#d9e7f2;font:14px system-ui,sans-serif}canvas{display:block;width:100vw;height:100vh;touch-action:none}
+header{position:absolute;top:22px;left:26px;pointer-events:none}h1{margin:0;font-size:23px;font-weight:550;letter-spacing:.03em}header p{color:#89a8bc;margin:7px 0}
+#panel{position:absolute;bottom:24px;left:24px;right:24px;display:flex;flex-wrap:wrap;gap:12px;align-items:center;padding:14px 18px;background:#071323eb;border:1px solid #28465a;border-radius:12px}
+#timings{width:100%;text-align:right;font-size:12px;color:#86b5cd}#battle-controls{width:100%;display:flex;flex-wrap:wrap;gap:10px;align-items:center;border-top:1px solid #28465a;padding-top:12px}[hidden]{display:none!important}#class-summary{width:100%;font-size:12px;line-height:1.7;color:#9fbccd}#target-order{color:#b7e1f5}input[type=number]{width:55px;background:#15283b;color:#e2f5ff;border:1px solid #39566e;border-radius:6px;padding:8px}
+button,select{background:#15283b;color:#e2f5ff;border:1px solid #39566e;border-radius:6px;padding:8px;cursor:pointer}label{display:flex;gap:7px;align-items:center}#status{margin-left:auto;color:#85bed9;font-variant-numeric:tabular-nums}
+#error{position:absolute;top:120px;left:25px;right:25px;color:#ffa896;white-space:pre-wrap}#note{position:absolute;top:22px;right:25px;text-align:right;color:#7692a5;font-size:12px;max-width:340px}
+</style></head><body>
+<canvas id="scene"></canvas>
+<header><h1>SHIP SIMULATION LAB</h1><p>3D flight · Directed battles · Warp · Timed exhaust</p></header>
+<div id="note">Isolated prototype · drag to orbit, scroll to zoom<br>Battle uses live opponent pursuit and fleet density.<br>Pressure scopes: at most 64³ cells each; blue = low, red = high.<br>Contact separation also works outside this field.<br>These are not production performance results.</div>
+<div id="error"></div>
+<div id="panel">
+<select id="scenario" aria-label="Scenario"><option value="0">Moving planet</option><option value="1">3D approach</option><option value="2">Directed battle</option><option value="3">Warp arrival</option><option value="4">Complete lifecycle</option><option value="5">Four fleets · two battles</option></select>
+<select id="count" aria-label="Visual agent count"><option>1000</option><option>10000</option></select>
+<select id="period" aria-label="Planet orbital period"><option value="30">Moving planets · 25-minute orbit</option><option value="1800">Slow planets · 25-hour orbit</option></select>
+<button id="reset">Restart</button><button id="retarget">Retarget</button><button id="pause">Pause</button><button id="pack-storage">Pack storage</button><button id="grow-storage">Grow storage</button><button id="trim-storage">Release spare storage</button><button id="reclaim-storage">Reclaim expired ships</button><span id="storage"></span>
+<label><input id="follow" type="checkbox">Follow ship</label><label><input id="emit" type="checkbox" checked>Trails</label>
+<label><input id="density" type="checkbox" checked>Pressure + separation</label><label><input id="show-density" type="checkbox">3D shared density</label>
+<span id="status">Starting WebGPU…</span><div id="timings" title="Asynchronous GPU timestamps: one sampled simulation step and its rendered frame.">GPU timing warming up…</div>
+<div id="timeline" hidden style="width:100%;max-height:110px;overflow:auto;border-top:1px solid #28465a;padding-top:8px"><strong>Battle timeline</strong><span id="timeline-now"></span><div id="timeline-events"></div></div>
+<details id="battle-disclosure" open style="width:100%"><summary style="cursor:pointer;color:#a9cadd">Battle controls</summary><div id="battle-controls" hidden>
+<label>Fleet <select id="fleet"><option value="0">Blue</option><option value="1">Orange</option></select></label>
+<button id="reinforce" title="Admit a mixed batch of up to 99 visual ships representing 1,980 logical ships">Reinforce fleet</button><button id="regroup" title="Transfer half of each admitted ship type to the next fleet in the list, within its capacity">Transfer half → next fleet</button><button id="join">Join battle</button><button id="leave">Leave battle</button>
+<select id="strategy" aria-label="Directed strategy"><option value="pass">Attack passes</option><option value="pursue">Pursue</option><option value="hold">Hold</option><option value="withdraw">Withdraw</option></select>
+<label>Target <select id="type"></select></label><button id="attack">Attack class</button><button id="next-target">Next target</button><label><input id="cycle-targets" type="checkbox">Cycle every 8s</label><button id="focus-target">Follow target</button>
+<button id="loss">Report 20% losses</button><button id="destroy">Report selected fleet lost</button>
+<label><input id="planets" type="checkbox" checked>Planets</label><label><input id="target-links" type="checkbox" checked>Target links</label>
+
+<label>For <select id="tactic-class"><option value="all">All ship classes</option></select></label><label>Tactic <select id="tactic"><option value="direct">Direct</option><option value="pincer">Pincer</option><option value="vertical-pincer">Vertical pincer</option><option value="envelop">Envelop</option></select></label><label>Splits <input id="splits" type="number" min="1" max="8" value="2"></label><button id="apply-tactic">Apply tactic</button>
+<span id="target-order"></span><span id="fleet-counts"></span><div id="class-summary"></div>
+</div></details></div>
+<script type="module" src="./main.mjs"></script></body></html>

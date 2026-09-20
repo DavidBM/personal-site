@@ -1,0 +1,35 @@
+import assert from 'node:assert/strict';
+import {mkdir,writeFile} from 'node:fs/promises';
+import path from 'node:path';
+import {startServer} from '../scripts/serve.mjs';
+import {connectCdp,getPageWebSocketUrl,launchChromium} from '../scripts/cdp.mjs';
+const output=path.resolve(process.argv[2]??'/tmp/galaxy-regrouping-ui');await mkdir(output,{recursive:true});
+const server=await startServer(0,{distDir:process.argv[3]});let chrome,cdp;
+try {
+  chrome=await launchChromium({headless:false,insecureOrigin:`http://127.0.0.1:${server.port}`});
+  cdp=await connectCdp(await getPageWebSocketUrl(chrome.debugPort));await cdp.send('Page.enable');
+  await cdp.send('Emulation.setDeviceMetricsOverride',{width:1450,height:1100,deviceScaleFactor:1,mobile:false});
+  await cdp.send('Page.navigate',{url:`http://127.0.0.1:${server.port}/tests/demo-ship-flight-poc/index.html?scenario=2&count=1000`});
+  await cdp.waitForFunction('window.flightLab?.time>.25');
+  await cdp.evaluate(`(()=>{const e=window.flightLab.engine,original=e.regroup;window.oldShip=e.captureShip(0);e.followShip(window.oldShip);window.originalIds=[...e.director.population.ids];e.regroup=async(...args)=>{const result=await original(...args);window.regroupResult=result;return result;};document.querySelector('#regroup').click();})()`);
+  await cdp.waitForFunction('window.regroupResult&&!document.querySelector("#regroup").disabled');
+  const first=await cdp.evaluate(`(()=>{const e=window.flightLab.engine;return {result:window.regroupResult,count:e.count,alive:e.director.alive,owner:e.director.population.keys[e.director.population.indexOf(window.oldShip.id)]>>>13,follow:e.followedShip?.id,idsUnchanged:window.originalIds.every((id,i)=>e.director.population.ids[i]===id),error:document.querySelector('#error').textContent};})()`);
+  assert.equal(first.result.status,'applied');assert.equal(first.count,1000);assert.equal(first.alive,1000);assert.equal(first.owner,1);assert.equal(first.follow,1);assert(first.idsUnchanged);assert.equal(first.error,'');
+  await cdp.evaluate(`document.querySelector('#pack-storage').click();window.packedAt=window.flightLab.time;`);
+  await cdp.waitForFunction('window.flightLab.time>window.packedAt+.1&&!window.flightLab.engine.packing.status.pending');
+  await cdp.evaluate(`window.regroupResult=null;const fleet=document.querySelector('#fleet');fleet.value='1';fleet.dispatchEvent(new Event('change'));document.querySelector('#regroup').click();`);
+  await cdp.waitForFunction('window.regroupResult&&!document.querySelector("#regroup").disabled');
+  const returned=await cdp.evaluate(`({result:window.regroupResult,alive:window.flightLab.engine.director.alive,follow:window.flightLab.engine.followedShip?.id})`);
+  assert.equal(returned.result.status,'applied');assert.equal(returned.alive,1000);assert.equal(returned.follow,1);
+  await cdp.evaluate(`document.querySelector('#loss').click()`);
+  await cdp.waitForFunction('window.flightLab.engine.director.alive<1000');
+  const lost=await cdp.evaluate('window.flightLab.engine.director.alive');
+  await cdp.evaluate(`document.querySelector('#reinforce').click()`);
+  await cdp.waitForFunction('window.flightLab.engine.count===1099&&!window.flightLab.engine.shipStorage.status.pending');
+  const final=await cdp.evaluate(`({alive:window.flightLab.engine.director.alive,count:window.flightLab.engine.count,follow:window.flightLab.engine.followedShip?.id,nextId:window.flightLab.engine.director.population.nextId,errors:[...window.flightLab.engine.errors,document.querySelector('#error').textContent].filter(Boolean)})`);
+  assert.equal(final.alive,lost+99);assert.equal(final.nextId,1100);assert.equal(final.follow,1);assert.deepEqual(final.errors,[]);
+  const adapter=await cdp.evaluate(`navigator.gpu.requestAdapter({powerPreference:'high-performance'}).then(a=>({vendor:a.info.vendor,architecture:a.info.architecture,device:a.info.device,description:a.info.description,isFallbackAdapter:a.info.isFallbackAdapter}))`);
+  assert.equal(adapter.isFallbackAdapter,false);
+  const capture=await cdp.send('Page.captureScreenshot',{format:'png'});await writeFile(path.join(output,'regrouping.png'),Buffer.from(capture.data,'base64'));
+  const result={first,returned,lost,final,adapter};await writeFile(path.join(output,'result.json'),JSON.stringify(result,null,2)+'\n');console.log(JSON.stringify(result));
+}finally{cdp?.close();chrome?.kill();await server.close();}

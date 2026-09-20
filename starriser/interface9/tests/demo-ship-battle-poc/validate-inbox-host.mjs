@@ -1,0 +1,53 @@
+import assert from 'node:assert/strict';
+import {createEventInbox,EVENT_LIMITS} from './event-inbox.mjs';
+const packet=(sequence,effectiveAt,extra={})=>({id:`packet-${sequence}`,sequence,effectiveAt,commands:[{fleet:0,joined:true}],...extra});
+const inbox=createEventInbox(),seen=[];
+const mutable=packet(2,4);inbox.receive(mutable,0);mutable.commands[0].joined=false;
+assert.equal(inbox.status.receiptPrefix,0);assert.equal(inbox.status.receiptGaps,1);
+assert.equal(inbox.receive(packet(2,4),0).status,'duplicate');
+assert.throws(()=>inbox.receive(packet(2,5),0),/Conflicting/);
+inbox.receive(packet(1,1),0);assert.equal(inbox.status.receiptPrefix,2);assert.equal(inbox.status.receiptGaps,0);
+assert.equal(inbox.nextBoundary(0,10),1);assert.equal(inbox.drain(1-1e-8,()=>assert.fail()),0);
+inbox.drain(1,event=>seen.push(event));inbox.drain(4,event=>seen.push(event));
+assert.equal(seen.length,2);assert(seen[1].commands[0].joined);assert(Object.isFrozen(seen[1].commands));
+assert.equal(inbox.receive(packet(1,1),4).status,'duplicate');assert(inbox.empty);
+inbox.receive(packet(3,2),4);inbox.drain(4,()=>{});assert(inbox.history.at(-1).late);assert.equal(inbox.history.at(-1).appliedAt,4);
+assert.throws(()=>inbox.drain(3,()=>{}));assert.throws(()=>inbox.receive(packet(4,5),3));
+
+const replace=createEventInbox();
+replace.receive(packet(1,8,{lane:3,revision:1}),0);
+replace.receive(packet(2,8,{lane:4,revision:1}),0);
+for(let n=3;n<=1003;n++)replace.receive(packet(n,6,{lane:3,revision:n}),0);
+assert.equal(replace.status.pending,2);assert.equal(replace.status.lanes,2);assert.equal(replace.history.length,EVENT_LIMITS.history);
+assert.equal(replace.receive(packet(1004,1,{lane:3,revision:2}),0).status,'superseded');
+const revisions=[];replace.drain(6,event=>revisions.push(event.revision));assert.deepEqual(revisions,[1003]);
+replace.drain(8,event=>revisions.push(event.revision));assert.deepEqual(revisions,[1003,1]);
+assert.equal(replace.status.bytes,0);assert.equal(replace.status.receiptGaps,0);
+
+const failure=createEventInbox({validate:event=>{if(event.commands[0].bad)throw new Error('bad replacement');}});
+failure.receive(packet(1,10,{lane:1,revision:1}),0);
+assert.throws(()=>failure.receive(packet(2,1,{lane:1,revision:2,commands:[{bad:true}]}),0));
+assert.equal(failure.status.pending,1);assert.equal(failure.status.receiptPrefix,1);
+failure.receive(packet(2,5),0);failure.drain(5,()=>{throw new Error('state-dependent rejection');});
+assert.equal(failure.history.at(-1).status,'rejected');failure.drain(10,()=>{});assert.equal(failure.history.at(-1).status,'applied');
+for(let seq=3;seq<300;seq++){failure.receive(packet(seq,10),10);failure.drain(10,()=>{});}
+assert.equal(failure.history.length,EVENT_LIMITS.history);assert.equal(failure.lastFailure.sequence,2);
+const full=createEventInbox();for(let n=1;n<=EVENT_LIMITS.pending;n++)full.receive(packet(n,100),0);
+assert.throws(()=>full.receive(packet(EVENT_LIMITS.pending+1,100),0),/full/);assert.equal(full.status.pending,EVENT_LIMITS.pending);
+const bytes=createEventInbox();let n=1;
+assert.throws(()=>{for(;n<100;n++)bytes.receive(packet(n,100,{commands:[{payload:'x'.repeat(250000)}]}),0);},/full/);
+assert(bytes.status.bytes<=EVENT_LIMITS.bytes);assert(bytes.status.pending<EVENT_LIMITS.pending);
+assert.throws(()=>createEventInbox().receive(packet(1,0,{commands:[{payload:'x'.repeat(EVENT_LIMITS.packetBytes)}]}),0),/byte limit/);
+assert.throws(()=>createEventInbox().receive(packet(EVENT_LIMITS.receiptWindow+1,0),0),/snapshot recovery/);
+const gap=createEventInbox();for(let seq=2;seq<=EVENT_LIMITS.receiptWindow;seq++) {gap.receive(packet(seq,0),0);gap.drain(0,()=>{});}
+assert.equal(gap.status.receiptGaps,EVENT_LIMITS.receiptWindow-1);assert.equal(gap.status.bytes,0);
+gap.receive(packet(1,0),0);assert.equal(gap.status.receiptGaps,0);assert.equal(gap.status.receiptPrefix,EVENT_LIMITS.receiptWindow);
+gap.reset();assert.equal(gap.nextSequence,1);assert.equal(gap.status.pending,0);gap.destroy();assert.equal(gap.receive(packet(1,0),0).status,'closed');
+console.log('Live receipts, late/exact boundaries, immutable payloads, bounded replacement and receipt gaps, overload, rejection, reset and close pass.');
+const projecting=createEventInbox();projecting.receive(packet(2,5),1);
+assert.throws(()=>projecting.projectSource(10),/missing receipts/);projecting.receive(packet(1,20),2);
+assert.throws(()=>projecting.projectSource(1),/latest received/);
+const source=projecting.projectSource(10);assert.equal(source.due[0].sequence,2);assert.equal(source.stream.pending[0].sequence,1);
+source.stream.pending[0].commands[0].joined=false;
+assert.equal(projecting.status.pending,2);projecting.drain(20,event=>assert(event.commands[0].joined));
+console.log('Mock source projection rejects unknown receipt gaps, respects receipt time and exports a detached future schedule.');

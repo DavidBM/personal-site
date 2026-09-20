@@ -1,0 +1,30 @@
+import assert from 'node:assert/strict';
+import {createDirector} from './director.mjs';
+import {exportDirector,prepareDirectorSnapshot} from './director-snapshot.mjs';
+const command=(d,value)=>d.apply({revision:d.revision+1,...value});
+const live=createDirector(10000,{reserveFraction:.2,fleetCount:4}),source=live.fork();
+for(let fleet=0;fleet<4;fleet++)command(source,{fleet,admit:1,survivalFraction:.8,joined:true,attackClass:3,tactic:{name:'pincer',splits:4},journey:{mode:'local',revision:1,at:20,end:20,exit:[0,0,0]}});
+const input=exportDirector(source),before=exportDirector(live),groups=live.groups,epochs=[...live.navigationEpochs];
+const prepared=prepareDirectorSnapshot(live,input);assert.deepEqual(exportDirector(live),before);input.groups[0].targets=0;
+assert.deepEqual(exportDirector(prepared),exportDirector(source));live.adopt(prepared);
+assert.equal(live.groups,groups);assert.deepEqual(exportDirector(live),exportDirector(source));assert(live.navigationEpochs.every((v,i)=>v>epochs[i]));
+function rejected(change) {
+  const value=exportDirector(live),before=exportDirector(live);change(value);
+  assert.throws(()=>prepareDirectorSnapshot(live,value));assert.deepEqual(exportDirector(live),before);
+}
+rejected(s=>s.groups.pop());rejected(s=>s.sizes[0]++);rejected(s=>s.split[0]--);
+rejected(s=>s.groups[0].live[7]=0xffffffff);rejected(s=>s.fleets[0].cohorts[0].admitted=false);
+rejected(s=>s.fleets[0].cohorts[0].quota++);rejected(s=>s.groups[0].journeys[0].exit[0]++);
+rejected(s=>s.groups[0].journeys[0]=null);rejected(s=>s.groups[0].tactic=null);
+rejected(s=>s.groups[0].targets=-1);rejected(s=>s.fleets[0].battle=-1);
+const fork=live.fork();command(fork,{fleet:0,survivalFraction:0});assert.notEqual(fork.alive,live.alive);
+console.log('Complete director snapshots preserve identities, reject regressions before mutation, and commit without replacing live control arrays.');
+rejected(s=>delete s.fleets[0].team);rejected(s=>delete s.fleets[0].center);rejected(s=>s.fleets[0].center=[NaN,0,0]);
+rejected(s=>s.groups[0].journeys[0].exit=[1e300,0,0]);
+const retained=prepareDirectorSnapshot(live,exportDirector(live));assert.deepEqual(retained.navigationEpochs,live.navigationEpochs);
+const permuted=exportDirector(live);permuted.groups[0].journeys[0]=Object.fromEntries(Object.entries(permuted.groups[0].journeys[0]).reverse());
+assert.doesNotThrow(()=>prepareDirectorSnapshot(live,permuted));
+const casualty=live.fork();command(casualty,{fleet:0,type:0,remaining:0});
+const revived=exportDirector(casualty);revived.groups[0].live=exportDirector(live).groups[0].live;
+assert.throws(()=>prepareDirectorSnapshot(casualty,revived),/resurrect/);
+console.log('Complete fleet fields, finite scene bounds, key-order independence, exact casualties and unchanged navigation epochs pass.');
