@@ -108,4 +108,18 @@ export function writeStarField(on) {
     }
     catch { /* Session setting remains available. */ }
 }
+export function readRenderScale() {
+    try {
+        return localStorage.getItem('galaxy.renderScale') === '0.5' ? 0.5 : 1;
+    }
+    catch {
+        return 1;
+    }
+}
+export function writeRenderScale(scale) {
+    try {
+        localStorage.setItem('galaxy.renderScale', String(scale === 0.5 ? 0.5 : 1));
+    }
+    catch { /* Session applies. */ }
+}
 //# sourceMappingURL=graphics-settings.js.map

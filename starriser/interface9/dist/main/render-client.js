@@ -1,4 +1,4 @@
-import { readSelectiveMsaa, readHalfGlow } from './graphics-settings.js';
+import { readSelectiveMsaa, readHalfGlow, readRenderScale } from './graphics-settings.js';
 import { createRenderConnection } from "./render-connection.js";
 import { readBrowserFrameDebug } from "./browser-frame-debug.js";
 /** Main owns the DOM surface and messaging. The worker owns every GPU resource. */
@@ -7,6 +7,7 @@ export class RenderClient {
         this.cleanup = [];
         this.state = null;
         this.lost = false;
+        this.renderScale = readRenderScale();
         this.canvas = canvas;
         this.connection = createRenderConnection({
             endpoint: worker,
@@ -64,7 +65,7 @@ export class RenderClient {
     }
     viewport() {
         const rect = this.canvas.getBoundingClientRect();
-        return { width: Math.max(1, rect.width), height: Math.max(1, rect.height), dpr: window.devicePixelRatio || 1 };
+        return { width: Math.max(1, rect.width), height: Math.max(1, rect.height), dpr: (window.devicePixelRatio || 1) * this.renderScale };
     }
     observeViewport(motion) {
         let resizeRaf = 0;
@@ -99,6 +100,10 @@ export class RenderClient {
             motion.removeEventListener("change", motionChanged);
         });
     }
+    setRenderScale(scale) {
+        this.renderScale = scale === 0.5 ? 0.5 : 1;
+        this.send({ type: 'viewport', viewport: this.viewport() });
+    }
     snapshot() { return this.state; }
     isDeviceLost() { return this.lost || (this.state?.metrics.deviceLost ?? true); }
     send(command) { this.connection.send(command); }
@@ -108,7 +113,7 @@ export class RenderClient {
     resize(width, height) {
         this.canvas.style.width = `${Math.max(1, width)}px`;
         this.canvas.style.height = `${Math.max(1, height)}px`;
-        this.send({ type: "viewport", viewport: { width, height, dpr: window.devicePixelRatio || 1 } });
+        this.send({ type: "viewport", viewport: { width, height, dpr: (window.devicePixelRatio || 1) * this.renderScale } });
     }
     async dispose() {
         for (const clean of this.cleanup.splice(0))

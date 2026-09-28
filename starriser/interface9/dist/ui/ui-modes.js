@@ -1,3 +1,4 @@
+import { renderResolutionControl } from './render-resolution-control.js';
 import { buildEditorGenerationPanel } from "./editor-generation-panel.js";
 import { buildEditorStatsPanel } from "./editor-stats-panel.js";
 import { buildPlayUIPanels } from "./play-ui.js";
@@ -38,6 +39,8 @@ function addModeSwitcher(ctx, actions, mode) {
             }
         },
     });
+    if (mode === 'play')
+        switcher.content.append(renderResolutionControl(actions));
     return switcher.element;
 }
 function buildEditorContextMenu(ctx, actions) {
@@ -47,6 +50,7 @@ function buildEditorContextMenu(ctx, actions) {
         floating: true,
         width: 160,
     });
+    contextMenu.element.id = "cluster-context-menu";
     contextMenu.element.style.display = "none";
     const actionSelect = ctx.select({
         id: "cluster-context-action",
@@ -112,7 +116,7 @@ export function buildEditorUI(ctx, actions) {
     ], {
         paused: () => actions.isSimPaused(),
         toggle: () => actions.toggleSimPaused(),
-    });
+    }, () => actions.resetCameraOrientation?.());
     return {
         mode: "editor",
         stats: stats.stats,
@@ -173,7 +177,7 @@ export function buildPlayUI(ctx, actions, online = false) {
     installDockLayout(ctx.root.root, dockWindows, online ? undefined : {
         paused: () => actions.isSimPaused(),
         toggle: () => actions.toggleSimPaused(),
-    });
+    }, () => actions.resetCameraOrientation?.());
     return {
         mode: "play",
         panels,

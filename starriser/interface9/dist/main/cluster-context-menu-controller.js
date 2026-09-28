@@ -1,3 +1,4 @@
+import { menuBottomInset } from '../ui/mobile-layout.js';
 import { distZX } from "../math/galaxy-xz-math.js";
 const CONTEXT_PICK_MAX_DISTANCE = 600;
 export class ClusterContextMenuController {
@@ -25,7 +26,7 @@ export class ClusterContextMenuController {
         const width = rect.width || 180;
         const height = rect.height || 80;
         const maxX = window.innerWidth - width - 12;
-        const maxY = window.innerHeight - height - 12;
+        const maxY = window.innerHeight - height - menuBottomInset();
         const x = Math.max(12, Math.min(screenX, maxX));
         const y = Math.max(12, Math.min(screenY, maxY));
         panel.style.left = `${x}px`;

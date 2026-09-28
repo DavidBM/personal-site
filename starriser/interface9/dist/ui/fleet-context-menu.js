@@ -1,3 +1,4 @@
+import { menuBottomInset } from './mobile-layout.js';
 import { bindText, setText } from './dom-bindings.js';
 /** Small fleet-only menu. Async picks cannot reopen a dismissed or superseded menu. */
 export function createFleetContextMenu(parent, actions) {
@@ -98,7 +99,7 @@ export function createFleetContextMenu(parent, actions) {
         menu.hidden = false;
         const rect = menu.getBoundingClientRect();
         menu.style.left = `${Math.max(4, Math.min(x, window.innerWidth - rect.width - 4))}px`;
-        menu.style.top = `${Math.max(4, Math.min(y, window.innerHeight - rect.height - 4))}px`;
+        menu.style.top = `${Math.max(4, Math.min(y, window.innerHeight - rect.height - menuBottomInset()))}px`;
         select.element.focus({ preventScroll: true });
     }
     const outside = (event) => { if (!menu.contains(event.target))

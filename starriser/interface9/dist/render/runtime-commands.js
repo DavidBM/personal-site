@@ -331,6 +331,14 @@ function applyNavigation(ctx, command) {
     const { state } = ctx;
     switch (command.type) {
         case "input":
+            if (command.input.type === 'touchGesture') {
+                if (state.director.isPlaying())
+                    resetDirector(state);
+                if (ctx.focus.getFocusIndex() != null)
+                    ctx.focus.clearFocus();
+                if (state.camera.isFollowing())
+                    stopFollowingShip(state);
+            }
             if (command.input.type === "doubleClick")
                 ctx.focus.clearFocus();
             state.camera.handleInput(command.input);

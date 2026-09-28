@@ -3,6 +3,7 @@ import { bindOptions, bindText, setText } from './dom-bindings.js';
 /** Mount once; the native select and its option text nodes retain identity. */
 export function simulationRateControl(actions) {
     const row = document.createElement('label');
+    row.className = 'quality-select-row';
     Object.assign(row.style, { display: 'grid', gridTemplateColumns: '62px 110px', alignItems: 'center', height: '22px', contain: 'layout style paint' });
     const label = document.createElement('span');
     setText(bindText(label, { width: '62px', height: '18px', lineHeight: '18px' }), 'Sim Hz');

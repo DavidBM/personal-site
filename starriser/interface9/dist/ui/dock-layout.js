@@ -1,3 +1,4 @@
+import { MOBILE_QUERY } from './mobile-layout.js';
 /**
  * Snap-together panels. Each window remembers a screen edge or another window.
  * Positions are reapplied on resize and stored across reloads.
@@ -274,6 +275,7 @@ const DOCK_ICON = {
     "play-status": `<path d="M8 7h11M8 12h11M8 17h7"/><circle cx="4.5" cy="7" r="1" fill="currentColor" stroke="none"/><circle cx="4.5" cy="12" r="1" fill="currentColor" stroke="none"/><circle cx="4.5" cy="17" r="1" fill="currentColor" stroke="none"/>`,
     "ship-tuning-panel": `<path d="M4 8h10M4 12h16M4 16h7"/><circle cx="16" cy="8" r="2.1" fill="currentColor"/><circle cx="9" cy="16" r="2.1" fill="currentColor"/>`,
     "dock-rail": `<rect x="3.5" y="4" width="7" height="16" rx="1.4"/><rect x="13.5" y="4" width="7" height="9" rx="1.4"/>`,
+    "compass": `<circle cx="12" cy="12" r="9"/><path d="m12 4 4 13-4-3-4 3z"/>`,
     "sim-pause": `<path d="M8 5 V19 M16 5 V19"/>`,
 };
 function dockIcon(id) {
@@ -361,6 +363,26 @@ function ensureStyles() {
   flex: 0 0 auto;
   display: block;
 }
+
+.galaxy-mobile #galaxy-dock-debug {
+ position:fixed;top:auto;bottom:0;left:0;right:0;width:100%;height:calc(56px + env(safe-area-inset-bottom));
+ z-index:2147483647;flex-direction:row;align-items:flex-start;gap:2px;
+ padding:6px max(4px,env(safe-area-inset-right)) env(safe-area-inset-bottom) max(4px,env(safe-area-inset-left));
+ border-left:0;border-top:1px solid #345064;overflow-x:auto;overflow-y:hidden;overscroll-behavior:contain;
+}
+.galaxy-mobile #galaxy-dock-debug button.dock-window-toggle {flex:1 0 40px;width:40px;height:44px;justify-content:center;padding:4px;}
+.galaxy-mobile #galaxy-dock-debug .dock-label,.galaxy-mobile #galaxy-dock-debug .dock-toggle {display:none!important;}
+.galaxy-mobile .dock-window {left:8px!important;right:8px!important;top:auto!important;bottom:calc(64px + env(safe-area-inset-bottom))!important;
+ width:calc(100% - 16px)!important;height:min(62dvh,520px)!important;max-height:calc(100dvh - 88px - env(safe-area-inset-bottom))!important;
+ padding:8px;font-size:10px;}
+.galaxy-mobile .dock-window > .ui-panel-title {cursor:default;font-size:11px;}
+.galaxy-mobile .ui-panel-content {overscroll-behavior:contain;touch-action:pan-y;}
+.galaxy-mobile .ui-panel button,.galaxy-mobile .ui-panel select,.galaxy-mobile .ui-panel input {min-height:28px;font-size:10px;}
+.galaxy-mobile .quality-select-row {height:32px!important;}
+.galaxy-mobile .micro-check {min-height:28px;}
+.galaxy-mobile #fleet-context-menu,.galaxy-mobile #cluster-context-menu {max-width:calc(100vw - 16px);max-height:calc(100dvh - 100px - env(safe-area-inset-bottom))!important;overflow:auto;overscroll-behavior:contain;font-size:10px!important;}
+.galaxy-mobile #fleet-context-menu button {min-height:32px;}
+.galaxy-mobile #fleet-move-status {bottom:80px!important;}
 `;
     document.head.appendChild(style);
 }
@@ -377,9 +399,11 @@ function edgeHit(event, element) {
     return { left, right, top, bottom };
 }
 let activeDispose = null;
-export function installDockLayout(host, windows, pause) {
+export function installDockLayout(host, windows, pause, resetCamera) {
     activeDispose?.();
     ensureStyles();
+    const media = matchMedia(MOBILE_QUERY);
+    let mobile = media.matches;
     const saved = readSaved();
     const live = windows.map((row) => {
         const prior = saved?.windows?.[row.id];
@@ -387,6 +411,8 @@ export function installDockLayout(host, windows, pause) {
         return { ...row, anchor, hidden: prior?.hidden === true };
     });
     let sidebarOpen = saved?.sidebarOpen === true;
+    let mobileOpen = null;
+    const buttons = new Map();
     const anchors = () => new Map(live.map((row) => [row.id, row.anchor]));
     const layout = () => {
         const placed = layoutDock(anchors(), viewportOf());
@@ -395,17 +421,21 @@ export function installDockLayout(host, windows, pause) {
             if (!rect)
                 continue;
             row.element.classList.add("dock-window");
-            row.element.classList.toggle("dock-user-hidden", row.hidden);
+            row.element.dataset.dockId = row.id;
+            const hidden = mobile ? mobileOpen !== row.id : row.hidden;
+            row.element.classList.toggle("dock-user-hidden", hidden);
+            buttons.get(row.id)?.setAttribute('aria-pressed', String(!hidden));
             applyRect(row.element, rect);
         }
     };
-    const persist = () => writeSaved(live, sidebarOpen);
+    const persist = () => { if (!mobile)
+        writeSaved(live, sidebarOpen); };
     const onResize = () => layout();
     window.addEventListener("resize", onResize);
     for (const row of live) {
         const title = row.element.querySelector(".ui-panel-title") ?? row.element;
         title.addEventListener("pointerdown", (event) => {
-            if (event.button !== 0)
+            if (mobile || event.button !== 0)
                 return;
             const target = event.target;
             if (target && target.closest("button, input, select, textarea, a"))
@@ -444,7 +474,7 @@ export function installDockLayout(host, windows, pause) {
             event.preventDefault();
         });
         row.element.addEventListener("pointerdown", (event) => {
-            if (event.button !== 0)
+            if (mobile || event.button !== 0)
                 return;
             const edges = edgeHit(event, row.element);
             if (!edges)
@@ -471,6 +501,7 @@ export function installDockLayout(host, windows, pause) {
     }
     const aside = document.createElement("aside");
     aside.id = "galaxy-dock-debug";
+    aside.setAttribute('aria-label', 'Windows and camera');
     const toggle = document.createElement("button");
     toggle.type = "button";
     toggle.className = "dock-toggle";
@@ -512,15 +543,49 @@ export function installDockLayout(host, windows, pause) {
         name.textContent = row.title;
         button.append(dockIcon(row.id), name);
         button.addEventListener("click", () => {
-            row.hidden = !row.hidden;
-            button.setAttribute("aria-pressed", row.hidden ? "false" : "true");
+            if (mobile)
+                mobileOpen = mobileOpen === row.id ? null : row.id;
+            else
+                row.hidden = !row.hidden;
             layout();
             persist();
         });
+        buttons.set(row.id, button);
         aside.appendChild(button);
     }
     paintSidebar();
-    host.appendChild(aside);
+    const compass = document.createElement('button');
+    compass.type = 'button';
+    compass.className = 'dock-window-toggle';
+    compass.id = 'dock-compass';
+    compass.title = 'Reset camera orientation';
+    compass.setAttribute('aria-label', compass.title);
+    compass.append(dockIcon('compass'));
+    compass.addEventListener('click', () => resetCamera?.());
+    aside.append(compass);
+    // Root-level stacking keeps the mobile rail above body-mounted menus too.
+    const applyMode = () => {
+        mobile = media.matches;
+        mobileOpen = null;
+        document.documentElement.classList.toggle('galaxy-mobile', mobile);
+        (mobile ? document.body : host).appendChild(aside);
+        layout();
+    };
+    const showPanel = (event) => {
+        const id = event.detail;
+        const row = live.find(row => row.id === id);
+        if (!row)
+            return;
+        if (mobile)
+            mobileOpen = id;
+        else
+            row.hidden = false;
+        layout();
+        persist();
+    };
+    media.addEventListener('change', applyMode);
+    window.addEventListener('galaxy:show-panel', showPanel);
+    applyMode();
     if (pause)
         paintSimPauseButtons(pause.paused());
     layout();
@@ -528,6 +593,9 @@ export function installDockLayout(host, windows, pause) {
         if (activeDispose === dispose)
             activeDispose = null;
         window.removeEventListener("resize", onResize);
+        media.removeEventListener('change', applyMode);
+        window.removeEventListener('galaxy:show-panel', showPanel);
+        document.documentElement.classList.remove('galaxy-mobile');
         unregisterPause?.();
         aside.remove();
     };

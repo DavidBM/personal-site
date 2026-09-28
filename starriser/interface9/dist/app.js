@@ -1,3 +1,4 @@
+import { showDockPanel } from './ui/mobile-layout.js';
 import { readStarField, writeStarField } from './main/graphics-settings.js';
 import { QualityDiagnosticsPanel } from './ui/quality-diagnostics.js';
 import { simulationRate } from './contracts/simulation-rate.js';
@@ -20,7 +21,7 @@ import { createPointerEventRouter, } from "./main/pointer-event-router.js";
 import { createEditHandlePointerController, } from "./main/edit-handle-pointer.js";
 import { createRenderViewHooks } from "./main/render-view-hooks.js";
 import { RenderClient } from "./main/render-client.js";
-import { readHalfGlow, writeHalfGlow, readSelectiveMsaa, writeSelectiveMsaa, readSimulationRate, writeSimulationRate, readHighFx, readFleetPaths, writeFleetPaths, writeHighFx, paintHighFx } from "./main/graphics-settings.js";
+import { readRenderScale, writeRenderScale, readHalfGlow, writeHalfGlow, readSelectiveMsaa, writeSelectiveMsaa, readSimulationRate, writeSimulationRate, readHighFx, readFleetPaths, writeFleetPaths, writeHighFx, paintHighFx } from "./main/graphics-settings.js";
 import { createRenderCameraInput } from "./main/render-camera-input.js";
 import { pickRenderBody } from "./main/render-picking.js";
 import { canMoveSceneFleet, sceneMoveDestination, matchesFleetMoveScene, fleetMoveRejection, fleetMoveNotice } from './main/fleet-move-input.js';
@@ -533,6 +534,8 @@ export class App {
                 isSceneActive: () => this.isSolarSceneActive(),
                 onSceneContextMenu: (x, y) => this.showFleetContextMenu(x, y),
                 fleetMoveGesture: this.fleetMoveGesture,
+                onTouchNavigate: () => { this.sceneSelectionGeneration++; this.fleetContextMenu?.hide(); },
+                onTouchTap: (x, y) => { void this.handleTouchTap(x, y); },
             });
         }
     }
@@ -719,6 +722,12 @@ export class App {
         if (on && this.renderClient)
             this.qualityDiagnosticsPanel = new QualityDiagnosticsPanel(this.renderClient);
     }
+    resetCameraOrientation() {
+        this.clearSceneSelection();
+        this.renderClient?.send({ type: 'input', input: { type: 'resetOrientation' } });
+    }
+    getRenderScale() { return readRenderScale(); }
+    setRenderScale(scale) { writeRenderScale(scale); this.renderClient?.setRenderScale(scale); }
     isHalfGlowEnabled() { return readHalfGlow(); }
     setHalfGlow(on) { writeHalfGlow(on); }
     isSelectiveMsaaEnabled() { return readSelectiveMsaa(); }
@@ -825,6 +834,46 @@ export class App {
             return false;
         this.selectSceneBody(body.index);
         return true;
+    }
+    async handleTouchTap(x, y) {
+        const client = this.renderClient, snapshot = client?.snapshot();
+        if (!client || !snapshot)
+            return;
+        if (snapshot.systemId == null) {
+            const pick = this.contextMenuController?.pick(x, y);
+            if (pick && this.lastUIState.selectedId === pick.cluster.id) {
+                this.contextMenuController?.show(pick.cluster.id, x, y);
+                return;
+            }
+            const camera = this.cameraController;
+            const ground = camera?.getGroundPointFromScreenPosition(x, y);
+            if (camera && ground)
+                this.publishPointerEvent({
+                    type: 'tap', eventSource: 'touch', screen_position: { x, y },
+                    galaxy_position: { x: ground.x, z: ground.z }, key_state: this.controlsManager.getCurrentKeyState(),
+                    ray: camera.getPointerRayFromScreenPosition(x, y),
+                });
+            return;
+        }
+        const generation = ++this.sceneSelectionGeneration;
+        const rect = client.canvas.getBoundingClientRect();
+        try {
+            const target = await client.query({ type: 'pickSceneTarget', x: x - rect.left, y: y - rect.top });
+            if (this.disposed || generation !== this.sceneSelectionGeneration || client.snapshot()?.systemId !== snapshot.systemId)
+                return;
+            if (target?.kind === 'fleet' && snapshot.selectedFleetId === target.id)
+                this.showFleetContextMenu(x, y);
+            else if (target?.kind === 'body' && snapshot.focusIndex === target.index)
+                showDockPanel('system-planet-panel');
+            else if (!target && this.armedFleetMove) {
+                const move = this.captureFleetMove(x, y, this.armedFleetMove.id);
+                if (move)
+                    this.issueFleetMove(move);
+            }
+            else
+                this.applyScenePick(target);
+        }
+        catch { /* A superseded scene pick has no selection side effects. */ }
     }
     tryPickSceneTarget(x, y) {
         const client = this.renderClient;

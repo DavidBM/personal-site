@@ -1,3 +1,4 @@
+import { installTouchMapInput } from './touch-map-input.js';
 const CLICK_DIST2 = 6 * 6;
 const TAP_TIME_MS = 200;
 /**
@@ -10,7 +11,7 @@ const TAP_TIME_MS = 200;
  * Canvas-only listeners miss mouseup when the cursor leaves the canvas
  * onto overlay panels — classic “keeps dragging when I return” bug.
  */
-export function createPointerEventRouter({ canvas, cameraController, controlsManager, editHandlePointer, getContextMenuController, publishPointerEvent, tryPickBody, tryPickSceneTarget, updateSceneHover, clearFocus, isSceneActive, onSceneAttack, onSceneContextMenu, fleetMoveGesture, }) {
+export function createPointerEventRouter({ canvas, cameraController, controlsManager, editHandlePointer, getContextMenuController, publishPointerEvent, tryPickBody, tryPickSceneTarget, updateSceneHover, clearFocus, isSceneActive, onSceneAttack, onSceneContextMenu, fleetMoveGesture, onTouchTap, onTouchNavigate, }) {
     const cleanup = [];
     /** Active primary map-drag (or edit-handle) owned by document listeners. */
     let mapDragSession = false;
@@ -329,92 +330,19 @@ export function createPointerEventRouter({ canvas, cameraController, controlsMan
         }
         controlsManager.clearPointerDownTimestamp();
     });
-    addCanvasListener("touchstart", (event) => {
-        getContextMenuController()?.hide();
-        if (event.touches && event.touches.length > 0 && tryPickBody) {
-            const t = event.touches[0];
-            if (tryPickBody(t.clientX, t.clientY)) {
-                event.preventDefault();
+    cleanup.push(installTouchMapInput(canvas, {
+        begin: () => getContextMenuController()?.hide(),
+        gesture: input => { onTouchNavigate?.(); cameraController.onTouchGesture?.(input); },
+        tap: (x, y) => {
+            if (onTouchTap) {
+                onTouchTap(x, y);
                 return;
             }
-        }
-        // Mirror mouse: edit handles take priority when gizmo is active.
-        if (routeEdit("handleDown", event)) {
-            event.preventDefault();
-            editDragSession = true;
-            attachDocumentDrag();
-            return;
-        }
-        if (event.touches && event.touches.length > 0) {
-            const touch = event.touches[0];
-            controlsManager.pointerDown(touch.clientX, touch.clientY);
-            publishScreenEvent("down", touch.clientX, touch.clientY);
-        }
-    });
-    addCanvasListener("touchmove", (event) => {
-        if (editDragSession)
-            return;
-        if (routeEdit("handleMove", event)) {
-            event.preventDefault();
-            return;
-        }
-        if (event.touches && event.touches.length > 0) {
-            const touch = event.touches[0];
-            controlsManager.pointerMove(touch.clientX, touch.clientY);
-            publishScreenEvent("move", touch.clientX, touch.clientY);
-        }
-    });
-    const handleTouchEndOrCancel = (event) => {
-        if (editDragSession) {
-            endDragSession(null);
-            if (routeEdit("handleUp", event)) {
-                event.preventDefault();
-            }
-            return;
-        }
-        if (routeEdit("handleUp", event)) {
-            event.preventDefault();
-            return;
-        }
-        let screenX = 0;
-        let screenY = 0;
-        let ground = { x: 0, y: 0, z: 0 };
-        if ((event.changedTouches && event.changedTouches.length > 0) ||
-            (event.touches && event.touches.length > 0)) {
-            const touch = event.changedTouches && event.changedTouches.length > 0
-                ? event.changedTouches[0]
-                : event.touches[0];
-            screenX = touch.clientX;
-            screenY = touch.clientY;
-            ground = getGroundPoint(screenX, screenY);
-        }
-        controlsManager.pointerUp(screenX, screenY);
-        const pointerRay = cameraController.getPointerRayFromScreenPosition(screenX, screenY);
-        publishGalaxyPointer({
-            type: "up",
-            screen_position: { x: screenX, y: screenY },
-            galaxy_position: { x: ground.x, z: ground.z },
-            key_state: controlsManager.getCurrentKeyState(),
-            ray: pointerRay,
-        });
-        const upTime = Date.now();
-        const pointerDownTime = controlsManager.getPointerDownTimestamp() || upTime;
-        const dur = upTime - pointerDownTime;
-        if (controlsManager.pointerMovedDistanceSq() < CLICK_DIST2 && dur < TAP_TIME_MS) {
-            publishGalaxyPointer({
-                type: "tap",
-                eventSource: "touch",
-                tapId: `touch_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-                screen_position: { x: screenX, y: screenY },
-                galaxy_position: { x: ground.x, z: ground.z },
-                key_state: controlsManager.getCurrentKeyState(),
-                ray: pointerRay,
-            });
-        }
-        controlsManager.clearPointerDownTimestamp();
-    };
-    addCanvasListener("touchend", handleTouchEndOrCancel);
-    addCanvasListener("touchcancel", handleTouchEndOrCancel);
+            if (scenePicker?.(x, y))
+                return;
+            publishScreenEvent('tap', x, y, { eventSource: 'touch' });
+        },
+    }));
     addCanvasListener("dblclick", () => {
         // Product lock: planet click locks; double-click stays 350/2500 map dive.
         // WebGpuCameraController.onDoubleClick is self-bound — do not retarget.

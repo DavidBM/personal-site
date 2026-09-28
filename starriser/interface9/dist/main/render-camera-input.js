@@ -53,6 +53,7 @@ export function createRenderCameraInput(client, controls, clearFocus = () => cli
     window.addEventListener("keyup", up);
     window.addEventListener("blur", blur);
     return {
+        onTouchGesture(input) { client.send({ type: 'input', input }); },
         get isDragging() { return dragging; },
         onMouseDown(event) {
             if (event.button !== 0 || controls.isEditModeActive())

@@ -1,20 +1,4 @@
-/**
- * WebGPU map camera: pan + curved zoom/tilt + system-orbit pose (no Three).
- *
- * Priority in {@link update}: F1 follow > system orbit > map pan.
- * Orbit is one pose mode on this object (no solar-camera.ts / second rAF).
- *
- * - Wheel extends log-height / orbit-radius / eye / tilt *targets*; rAF damps (τ).
- * - Far: top-down; near: ≤42° pitch along fixed −Z (see camera-zoom.ts).
- * - Zoom-in: cursor pivot; zoom-out: screen center.
- * - Pan is 1:1 ground-locked (instant on current + target).
- * - A resident SCENE stays freely pannable until the player selects a target.
- *
- * Pan/zoom mouse events are driven by the App pointer router (onMouse*).
- * Wheel + optional dblclick are self-bound on the canvas; dispose() removes them.
- * Call {@link update} once per frame from map-view beforeFrame (dt-independent).
- * LMB orbits while in system-orbit; do not steal RMB (context menu).
- */
+import { touchCameraPose } from './touch-camera-pose.js';
 import { groundPickFromScreen, } from "./math/ground-pick.js";
 import { FOLLOW_ZOOM_MIN, FOLLOW_ZOOM_MAX, hullChaseCamera } from './ship-chase-camera.js';
 import { CHAIN_CURSOR_PX, CTRL_LOOK_RETURN_MS, DS_FRAME_MAX, TAU_S, TAU_TILT, TAU_XZ, chaseCameraFromShip, chaseCameraSceneBoom, clampLogHeight, clampZoomHeight, ctrlLookReturnFactor, lerpEyePose, dampTowardExp, eyeAfterHeightScale, heightToLog, isPoseSettled, logToHeight, lookAtFromEyeTilt, tiltAngleRad, orbitEyeAroundLookAt, pivotScreenForWheel, refineEyeForScreenGround, tiltFactorForHeight, wheelDeltaLogS, MIN_ZOOM, SCENE_MIN_ZOOM, ORBIT_MAX_PITCH, ORBIT_WHEEL_DS_MUL, FOLLOW_TRANSITION_MS, } from "./camera-zoom.js";
@@ -25,6 +9,7 @@ import { SCENE_AGENT_SCALE, SCENE_SHIP_VISUAL_MUL, } from "./ship-motion-config.
 export class WebGpuCameraController {
     constructor(view, environment) {
         this.isDragging = false;
+        this.touchFree = false;
         this.dragStartGround = null;
         this.disposed = false;
         /** Display pose (damped). */
@@ -131,6 +116,12 @@ export class WebGpuCameraController {
     /** Worker input has no DOM methods, globals, or synthetic event objects. */
     handleInput(input) {
         switch (input.type) {
+            case 'touchGesture':
+                this.applyTouchGesture(input);
+                break;
+            case 'resetOrientation':
+                this.resetOrientation();
+                break;
             case "down":
                 this.onMouseDown({ button: input.button, clientX: input.x, clientY: input.y });
                 break;
@@ -156,6 +147,29 @@ export class WebGpuCameraController {
                 this.reducedMotion = input.value;
                 break;
         }
+    }
+    applyTouchGesture(input) {
+        const pose = touchCameraPose(this.view.getCameraState(), input);
+        this.followActive = false;
+        this.followGetPose = null;
+        this.followTransition = null;
+        this.disarmOrbit();
+        this.touchFree = true;
+        this.view.setCameraLookAt(pose.eyeX, pose.eyeY, pose.eyeZ, pose.targetX, pose.targetZ, pose.targetY);
+        this.adoptViewCamera();
+    }
+    resetOrientation() {
+        const st = this.view.getCameraState();
+        const height = this.clampHeight(Math.max(st.eyeY - st.targetY, Math.hypot(st.eyeX - st.targetX, st.eyeY - st.targetY, st.eyeZ - st.targetZ) * 0.7));
+        this.followActive = false;
+        this.followGetPose = null;
+        this.followTransition = null;
+        this.disarmOrbit();
+        this.touchFree = false;
+        const tilt = tiltFactorForHeight(height);
+        this.cur = { eyeX: st.targetX, eyeY: height, eyeZ: st.targetZ + Math.tan(tiltAngleRad(tilt)) * height, tilt };
+        this.tgt = { ...this.cur };
+        this.applyPose(this.cur);
     }
     dispose() {
         if (this.disposed)
@@ -194,6 +208,7 @@ export class WebGpuCameraController {
             this.stopFollowing();
             return;
         }
+        this.touchFree = false;
         // Enter follow: snapshot map pose, ease into chase.
         this.preFollowMap = { ...this.cur };
         const st = this.view.getCameraState();
@@ -331,6 +346,7 @@ export class WebGpuCameraController {
     }
     /** Select any body/ship/fleet position provider using the current view angle. */
     setSystemOrbitTarget(target) {
+        this.touchFree = false;
         const position = target.getPosition();
         if (!position)
             return;
@@ -485,6 +501,7 @@ export class WebGpuCameraController {
      * does not fight the fly. Disarms orbit; does not start follow.
      */
     applyDirectorPose(opts) {
+        this.touchFree = false;
         // Director owns the eye even during F1 — leftover follow made every
         // sample a no-op (hatch shot stuck at origin/2000). Clear via isFollowing
         // so onMouseMove keeps the only followActive brace-block (mdx-before-write).
@@ -517,6 +534,7 @@ export class WebGpuCameraController {
     }
     /** Dive / pull back to a ground point at height (damped). */
     focusOnPoint(x, z, height) {
+        this.touchFree = false;
         if (this.orbitActive)
             this.disarmOrbit();
         const h = this.clampHeight(height);
@@ -537,6 +555,8 @@ export class WebGpuCameraController {
         if (this.disposed)
             return false;
         this.wheelBudgetS = DS_FRAME_MAX;
+        if (this.touchFree)
+            return false;
         if (this.updateControlReturn())
             return true;
         if (this.updateFollowExit())
@@ -1029,6 +1049,10 @@ export class WebGpuCameraController {
         };
     }
     onMouseDown(event) {
+        if (this.touchFree) {
+            this.touchFree = false;
+            this.applyPose(this.cur);
+        }
         if (this.controlsManager.isEditModeActive()) {
             this.isDragging = false;
             this.environment.setCursor?.("grab");
@@ -1175,6 +1199,10 @@ export class WebGpuCameraController {
         event.preventDefault?.();
     }
     onMouseWheel(event) {
+        if (this.touchFree) {
+            this.touchFree = false;
+            this.applyPose(this.cur);
+        }
         event.preventDefault?.();
         if (this.controlsManager.isEditModeActive() || this.isDragging)
             return;
