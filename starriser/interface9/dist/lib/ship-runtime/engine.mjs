@@ -1,3 +1,8 @@
+import {preparePipelines,selectShaderEntries} from './pipeline-preparation.mjs';
+import {SHIP_WORDS} from './ship-layout.mjs';
+import {createCompileReporter} from './compile-status.mjs';
+import {pilotAdviceBytes} from './pilot-advice-layout.mjs';
+import {MAX_SHIP_CAPACITY} from './ship-capacity.mjs';
 import {createRetirementGpu} from './retirement-gpu.mjs';
 import {createRegroupingGpu,regroupingRows} from './regrouping-gpu.mjs';
 import {preparePopulationRegrouping} from './population-regrouping.mjs';
@@ -18,18 +23,22 @@ import {createClockRebaser} from './clock-gpu.mjs';
 import {createProgressSampler} from './progress.mjs';
 import {createLiveRoutePlanner,routeJourney} from './live-route-planner.mjs';
 import {createLocalRoutes} from './local-routes.mjs';
-import {createSolarRuntime} from './solar-runtime.mjs';
-import {writeKeplerSolar, compactToLab} from './kepler-solar.mjs';
+import {createSolarRuntime,validateSolarBodyIndex} from './solar-runtime.mjs';
+import {writeKeplerSolar, compactToLab, copyKeplerCatalog} from './kepler-solar.mjs';
 import {createPressureScopes} from './pressure-scopes.mjs';
 import {seedNavigation} from './navigation.mjs';
 import {queryWorkgroups} from './contact-queries.mjs';
 import {spatialStorage} from './spatial-schedule.mjs';
 import {createControl} from './control.mjs';
-import {selectNearbyBodies,NEARBY_HULL_PAD} from './nearby-bodies.mjs';
+import {createNearbySelector,NEARBY_HULL_PAD,NEARBY_REPLACE,SCENE_NEARBY_REPLACE} from './nearby-bodies.mjs';
+import {createNearbySchedule} from './nearby-schedule.mjs';
 import {createGpuProfiler} from './gpu-profiler.mjs';
 import { simulation, drawing, RING, STRIDE } from './shaders.mjs';
 import {createDirector} from './director.mjs';
 import {classOf,CLASS_BY_TYPE} from './classes.mjs';
+import {defaultClassTuning,packClassTuning} from './class-tuning.mjs';
+import {formationByteOffset,formationRecordBytes,formationPoseBytes,formationTailBytes} from './formation.mjs';
+import {sceneRouteBytes,SCENE_ROUTE_WORDS} from './scene-route.mjs';
 import {GRID_CELLS,HASH_BUCKETS} from './spacing.mjs';
 export { RING, STRIDE };
 
@@ -62,7 +71,7 @@ export function seedShips(count,director=createDirector(count),centers=null) {
   const data=new ArrayBuffer(count*STRIDE),f=new Float32Array(data),words=new Uint32Array(data);
   const live=director.population?.count??count;
   for(let i=0;i<count;i++) {
-    const o=i*48;
+    const o=i*SHIP_WORDS;
     if(i>=live){words[o+22]=0;continue;}
     const key=director.population.keys[i],ordinal=key&255;
     const rec=director.occupied?.[key>>>8];
@@ -77,19 +86,23 @@ export function seedShips(count,director=createDirector(count),centers=null) {
 
 function seedSequence(data,director) {
   const f=new Float32Array(data),w=new Uint32Array(data);
-  for(let i=0;i<f.length/48;i++) {
-    const o=i*48,fleet=w[o+21],type=(w[o+20]>>8)&255,pending=!director.roster.isLive(fleet,type,w[o+20]&255);
+  for(let i=0;i<f.length/SHIP_WORDS;i++) {
+    const o=i*SHIP_WORDS,fleet=w[o+21],type=(w[o+20]>>8)&255,pending=!director.roster.isLive(fleet,type,w[o+20]&255);
     f[o]+=(pending?90:fleet?80:-24)-(fleet?12:-12);f[o+1]+=6;f[o+2]+=fleet?-8:8;
   }
 }
-async function checkedModules(device,cellSize,capacity,pressure) {
-  const modules=[device.createShaderModule({code:simulation(cellSize,capacity,pressure,true)}),device.createShaderModule({code:drawing(cellSize,capacity,pressure,true)})];
-  for(const m of modules) {
-    const info=await m.getCompilationInfo();
-    const failed=info.messages.filter(x=>x.type==='error');
-    if(failed.length) throw new Error(info.messages.map(x=>`${x.type} ${x.lineNum}: ${x.message}`).join('\n'));
+async function checkedModules(device,cellSize,capacity,pressure,bodyCapacity,report,present) {
+  const code=simulation(cellSize,capacity,pressure,bodyCapacity);
+  let draw=null;
+  if(present){
+    const start=performance.now();draw=device.createShaderModule({label:'ship-drawing',code:drawing(cellSize,capacity,pressure,bodyCapacity)});
+    const info=await draw.getCompilationInfo();
+    if(info.messages.some(x=>x.type==='error'))throw Error(info.messages.map(x=>x.message).join('\n'));
+    report({phase:'checking',label:'Ship drawing WGSL',durationMs:performance.now()-start});
   }
-  return modules;
+  // Production modules are specialized below. The full source is retained only
+  // for explicit diagnostics; it is not submitted to the compiler at startup.
+  return [code,draw];
 }
 
 const DEFAULT_VIEW=Object.freeze({follow:0,yaw:.25,pitch:.5,distance:42,alpha:1,showTrails:true,showEffects:true});
@@ -104,7 +117,10 @@ async function acquireDevice(options, lifetime) {
   const adapter = await navigator.gpu?.requestAdapter({powerPreference: 'high-performance'});
   if (!adapter) throw new Error('WebGPU adapter unavailable');
   const timestamps = adapter.features.has('timestamp-query');
-  const device = await adapter.requestDevice({requiredFeatures: timestamps ? ['timestamp-query'] : []});
+  const requiredLimits={};
+  if(adapter.limits.maxStorageBufferBindingSize>134217728)requiredLimits.maxStorageBufferBindingSize=adapter.limits.maxStorageBufferBindingSize;
+  if(adapter.limits.maxBufferSize>268435456)requiredLimits.maxBufferSize=adapter.limits.maxBufferSize;
+  const device = await adapter.requestDevice({requiredFeatures: timestamps ? ['timestamp-query'] : [],requiredLimits});
   lifetime.device = device;
   lifetime.ownsDevice = true;
   return {adapter, device, timestamps};
@@ -114,15 +130,26 @@ export async function createRuntime(options={}) {
   return createEngine(options.canvas??null,options);
 }
 export async function createEngine(canvas, options={}) {
-  const settings={...DEFAULT_ENGINE,...options};
-  const director=createDirector(settings.count,{reserveFraction:settings.reserveFraction,fleetCount:settings.fleetCount,initialFleets:settings.initialFleets,identityStart:settings.identityStart,occupancy:settings.occupancy});
-  const solar=await createSolarRuntime({period:settings.period,...settings.solar}),lifetime={device:null,ownsDevice:false};
-  try{return await initializeEngine(canvas,settings,director,solar,lifetime);}
-  catch(error){if(lifetime.ownsDevice)lifetime.device?.destroy();solar.destroy();throw error;}
+  const settings={...DEFAULT_ENGINE,...options},report=createCompileReporter(options.onCompileStatus);
+  const lifetime={device:null,ownsDevice:false};let solar;
+  try {
+    report({phase:'preparing',label:'Solar model and ship runtime'});
+    const director=createDirector(settings.count,{reserveFraction:settings.reserveFraction,fleetCount:settings.fleetCount,initialFleets:settings.initialFleets,identityStart:settings.identityStart,occupancy:settings.occupancy});
+    const solarStart=performance.now();
+    solar=await createSolarRuntime({period:settings.period,...settings.solar});
+    report({phase:'preparing',label:'Solar model and WASM',durationMs:performance.now()-solarStart});
+    const runtime=await initializeEngine(canvas,settings,director,solar,lifetime,report);
+    report({phase:'ready',label:'Ship runtime ready'});return runtime;
+  } catch(error) {
+    report({phase:'failed',label:'Ship runtime preparation failed',error:String(error)});
+    if(lifetime.ownsDevice)lifetime.device?.destroy();solar?.destroy();throw error;
+  }
 }
-async function initializeEngine(canvas,options,director,solar,lifetime) {
+async function initializeEngine(canvas,options,director,solar,lifetime,report) {
+  report({phase:'preparing',label:'GPU resources'});
   let {count,scenario,period,warpEnd,sequence,navigation,initialScenario,cellSize,pressurePlanet,fleetCount}=options;
   function samplePressureBody(i,time,period) {
+    validateSolarBodyIndex(i,solar.capacity);
     const pose=solar.bodyAt(i,time,period);
     if(!pose||pose.length<4)return [0,0,0,0];
     const r=pose[3];
@@ -130,7 +157,7 @@ async function initializeEngine(canvas,options,director,solar,lifetime) {
   }
   const pressure=createPressureScopes(fleetCount,{cellSize,planet:pressurePlanet,fieldCapacity:options.fieldCapacity,sampleBody:samplePressureBody});
   const {adapter,device,timestamps}=await acquireDevice(options,lifetime);
-  const profiler=createGpuProfiler(device,timestamps,['Clear / recovery','Density + contacts','Hull volume','Spatial ordering','Contact cache','Contact filtering','Pursuer queries','Steer + separate + trails','Render']);
+  const profiler=createGpuProfiler(device,timestamps,['Clear / recovery','Density + contacts','Hull volume','Spatial ordering','Contact cache','Contact filtering','Pursuer queries','Fleet reference','Pilot perception','Steer + separate + trails','Render']);
   const errors=[];
   device.addEventListener('uncapturederror',e=>{errors.push(e.error.message); console.error(e.error.message);});
   const make=(size,usage)=>device.createBuffer({size,usage});
@@ -138,43 +165,85 @@ async function initializeEngine(canvas,options,director,solar,lifetime) {
   const shipStorage=createShipStorage(device,count);
   let {history,links}=shipStorage.current.buffers;
   const agents=[shipStorage.current.buffers.a,shipStorage.current.buffers.b];
-  const uniform=make(64,GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST);
+  const pilotEnabled=Boolean(director.capacity.occupancy);
+  const uniform=make(pilotEnabled?160:64,GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST);
   const view=make(96,GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST);
-  const modules=await checkedModules(device,cellSize,director.capacity,pressure.layout);
-  const progress=await createProgressSampler(device,director);
+  const modules=await checkedModules(device,cellSize,director.capacity,pressure.layout,solar.capacity,report,Boolean(canvas));
+  report({phase:'preparing',label:'Auxiliary GPU kernels'});
+  let progress;
   const clock=createRuntimeClock();
   const slotLayout=createSlotLayout(director,count);
   const orderBuffer=make(director.groups.byteLength+slotLayoutWords(director)*4,storage),density=make(pressure.bytes,storage);
   let spatial=spatialStorage(count);
-  const routes=createLocalRoutes(director,solar),control=createControl(director,pressure,solar,routes,clock),eventFrame=createEventFrame(director,control,routes,clock),controlBuffer=make(control.data.byteLength+eventFrame.layout.bytes+4096,storage);
-  const spawner=await createPopulationSpawner(device,director.capacity.groups);
-  const retirement=await createRetirementGpu(device);
-  const regrouping=await createRegroupingGpu(device);
-  const rebaser=await createClockRebaser(device,agents,history,links,shipStorage.current.bindings);
-  const packing=await createPacking(device,{agents,history,links,orders:orderBuffer,layout:slotLayout,count,director,eventFrame,bindings:shipStorage.current.bindings});
+  const routes=createLocalRoutes(director,solar),control=createControl(director,pressure,solar,routes,clock),eventFrame=createEventFrame(director,control,routes,clock);
+  const nearbySelector=createNearbySelector(director,options.nearby);
+  const nearbySchedule=createNearbySchedule(director,nearbySelector,{maxAge:1/(options.simHz??120)});
+  // Record and pose pages follow the event frame. Director uploads stop at control.data.
+  const formationOffset=formationByteOffset(control.data.byteLength,eventFrame.layout.bytes);
+  const formationBytes=formationTailBytes(director.capacity.fleetCount);
+  const formationZeros=new Uint8Array(formationBytes);
+  let formPage=0;
+  const warpOffsetCapacity=Math.max(1, options.warpOffsetCapacity|0);
+  const sceneRouteBase=formationOffset+formationBytes;
+  const sceneRouteZeros=new Uint8Array(sceneRouteBytes(director.capacity.fleetCount));
+  const adviceBase=sceneRouteBase+sceneRouteZeros.byteLength;
+  const adviceBytes=pilotAdviceBytes(pilotEnabled);
+  const warpOffsetBase=adviceBase+adviceBytes;
+  const travelOffsetBase=warpOffsetBase+warpOffsetCapacity*16;
+  const controlBuffer=make(travelOffsetBase+warpOffsetCapacity*16,storage);
+  const classTuning=make(192,GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST);
+  device.queue.writeBuffer(classTuning,0,packClassTuning(defaultClassTuning()));
   const layout=device.createBindGroupLayout({entries:[
     {binding:0,visibility:GPUShaderStage.COMPUTE,buffer:{type:'uniform'}},
-    ...[1,2,3,4,5,6,7,8].map(binding=>({binding,visibility:GPUShaderStage.COMPUTE,buffer:{type:[1,4,8].includes(binding)?'read-only-storage':'storage'}}))]});
+    // Binding 8 is read-write: the formation record and pose pages live in the director tail.
+    ...[1,2,3,4,5,6,7,8].map(binding=>({binding,visibility:GPUShaderStage.COMPUTE,buffer:{type:[1,4].includes(binding)?'read-only-storage':'storage'}})),
+    {binding:9,visibility:GPUShaderStage.COMPUTE,buffer:{type:'uniform'}}]});
   const pipelineLayout=device.createPipelineLayout({bindGroupLayouts:[layout]});
-  const compute=await device.createComputePipelineAsync({layout:pipelineLayout,compute:{module:modules[0],entryPoint:'advance'}});
-  const recovery=await device.createComputePipelineAsync({layout:pipelineLayout,compute:{module:modules[0],entryPoint:'recover'}});
-  const clear=await device.createComputePipelineAsync({layout:pipelineLayout,compute:{module:modules[0],entryPoint:'clearDensity'}});
-  const populate=await device.createComputePipelineAsync({layout:pipelineLayout,compute:{module:modules[0],entryPoint:'buildDensity'}});
-  const hullDensity=await device.createComputePipelineAsync({layout:pipelineLayout,compute:{module:modules[0],entryPoint:'buildHullDensity'}});
-  const capitalCount=()=>capitalShipCount(director);
-  let hullCount=capitalCount();
-  const schedule=await device.createComputePipelineAsync({layout:pipelineLayout,compute:{module:modules[0],entryPoint:'scheduleAgents'}});
-  const cache=await device.createComputePipelineAsync({layout:pipelineLayout,compute:{module:modules[0],entryPoint:'buildContactCache'}});
-  const separate=await device.createComputePipelineAsync({layout:pipelineLayout,compute:{module:modules[0],entryPoint:'buildContactMasks'}});
-  const pursuerQueries=await device.createComputePipelineAsync({layout:pipelineLayout,compute:{module:modules[0],entryPoint:'buildPursuerQueries'}});
+  const timings=[];let compiled=0;
+  const entries=['advance','clearFormation',...(pilotEnabled?['predictPilots']:[]),'recover','clearDensity','buildDensity','buildHullDensity','scheduleAgents','buildContactCache','buildContactMasks','buildPursuerQueries'];
+  const families=[['advance'],['clearFormation',...(pilotEnabled?['predictPilots']:[])],['recover'],entries.slice(pilotEnabled?4:3)];
+  const compiledModules=new Map();
+  function moduleFor(entryPoint){
+    const roots=families.find(group=>group.includes(entryPoint));const key=roots.join(',');
+    if(!compiledModules.has(key))compiledModules.set(key,(async()=>{
+      const start=performance.now(),code=selectShaderEntries(modules[0],roots);
+      const module=device.createShaderModule({label:`ship-${key}`,code});
+      const info=await module.getCompilationInfo();
+      if(info.messages.some(x=>x.type==='error'))throw Error(info.messages.map(x=>x.message).join('\n'));
+      timings.push({label:`WGSL ${key}`,durationMs:performance.now()-start,bytes:code.length});
+      return module;
+    })());
+    return compiledModules.get(key);
+  }
+  const jobs=entries.map(entryPoint=>({label:entryPoint,run:async()=>device.createComputePipelineAsync({
+    label:`ship-${entryPoint}`,layout:pipelineLayout,compute:{module:await moduleFor(entryPoint),entryPoint}})}));
+  jobs.push(
+    {label:'Progress sampler',run:()=>createProgressSampler(device,director)},
+    {label:'Population spawn',run:()=>createPopulationSpawner(device,director.capacity.groups)},
+    {label:'Retirement',run:()=>createRetirementGpu(device)},
+    {label:'Regrouping',run:()=>createRegroupingGpu(device)},
+    {label:'Clock rebasing',run:()=>createClockRebaser(device,agents,history,links,shipStorage.current.bindings)},
+    {label:'Packing',run:()=>createPacking(device,{agents,history,links,orders:orderBuffer,layout:slotLayout,count,director,eventFrame,bindings:shipStorage.current.bindings})});
+  report({phase:'compiling',label:'Ship kernels',completed:0,total:jobs.length});
+  const prepared=await preparePipelines(jobs,3,timing=>{
+    timings.push(timing);report({phase:'compiling',...timing,completed:++compiled,total:jobs.length});
+  });
+  const pipelines=Object.fromEntries(entries.map((entry,i)=>[entry,prepared[i]]));
+  const {advance:compute,clearFormation:formationClear,predictPilots:predict,recover:recovery,clearDensity:clear,
+    buildDensity:populate,buildHullDensity:hullDensity,scheduleAgents:schedule,buildContactCache:cache,
+    buildContactMasks:separate,buildPursuerQueries:pursuerQueries}=pipelines;
+  const [sampler,spawner,retirement,regrouping,rebaser,packing]=prepared.slice(entries.length);progress=sampler;
+  const capitalCount=()=>capitalShipCount(director);let hullCount=capitalCount();
+  console.info('[ship-preparation] kernel timings (ms)',timings);
+  let inspectionModule=null;
   function makeGroups(resources,phase) {
     const {bindings:r}=resources;
     return [[r.a,r.b],[r.b,r.a]].map(([old,next])=>device.createBindGroup({layout:compute.getBindGroupLayout(0),entries:
-      [{buffer:uniform},old,next,r[phase],{buffer:orderBuffer},{buffer:density},r.heads,r.links,{buffer:controlBuffer}].map((resource,binding)=>({binding,resource}))}));
+      [{buffer:uniform},old,next,r[phase],{buffer:orderBuffer},{buffer:density},r.heads,r.links,{buffer:controlBuffer},{buffer:classTuning}].map((resource,binding)=>({binding,resource}))}));
   }
   let groups=makeGroups(shipStorage.current,'history'),contactGroups=makeGroups(shipStorage.current,'geometry');
   const present=Boolean(canvas);
-  const followCpu=[make(384,GPUBufferUsage.COPY_DST|GPUBufferUsage.MAP_READ),make(384,GPUBufferUsage.COPY_DST|GPUBufferUsage.MAP_READ)];
+  const followCpu=[make(STRIDE*2,GPUBufferUsage.COPY_DST|GPUBufferUsage.MAP_READ),make(STRIDE*2,GPUBufferUsage.COPY_DST|GPUBufferUsage.MAP_READ)];
   let followMap=0;
   let format=null,context=null,draw=[];
   if(present) {
@@ -185,7 +254,10 @@ async function initializeEngine(canvas,options,director,solar,lifetime) {
     vertex:{module:modules[1],entryPoint:entry},fragment:{module:modules[1],entryPoint:'fragment',targets:[{format,
       ...(transparent?{blend:{color:{srcFactor:'one',dstFactor:'one',operation:'add'},alpha:{srcFactor:'one',dstFactor:'one-minus-src-alpha',operation:'add'}}}:{})}]},
     primitive:{topology,cullMode:'none'},depthStencil:{format:'depth24plus',depthWriteEnabled:!transparent,depthCompare:'less-equal'}});
+  if(present)report({phase:'compiling',label:'Ship drawing pipelines',completed:0,total:8});
   if(present) draw=await Promise.all([pipeline('hull'),pipeline('trail','line-list',true),pipeline('planet'),pipeline('targetLink','line-list',true),pipeline('densityCell','line-list',true),pipeline('weapon','line-list',true),pipeline('thruster','line-list',true),pipeline('destruction','line-list',true)]);
+  if(present)report({phase:'compiling',label:'Ship drawing pipelines',completed:8,total:8});
+  report({phase:'preparing',label:'Ship runtime bindings and state'});
   function makeDrawGroups(resources) {
     if(!present)return [];
     const r=resources.bindings;
@@ -202,12 +274,22 @@ async function initializeEngine(canvas,options,director,solar,lifetime) {
     };
   }
   function resizeStorage(capacity){return closed?false:shipStorage.resize(capacity,prepareStorageBindings);}
+  // Scene slots include inactive holes; raising their capacity admits no new IDs.
+  // Copy both poses, history and event/correction pages wholly on the GPU.
+  function growSceneCapacity(nextCount) {
+    if(closed||nextCount<=count)return false;
+    if(!director.capacity.occupancy)throw Error('Scene capacity requires a sparse director');
+    return shipStorage.grow(nextCount,nextCount,next=>{
+      const bindings=prepareStorageBindings(next);
+      return ()=>{slotLayout.growCapacity(next.count);count=next.count;spatial=spatialStorage(count);bindings();};
+    });
+  }
   function reinforce(requests,expected={}) {
     if(closed)return {status:'closed'};
     if((expected.lifetime!==undefined&&expected.lifetime!==lifetimeToken)||(expected.populationRevision!==undefined&&expected.populationRevision!==director.population.revision))return {status:'superseded'};
     if(shipStorage.status.pending)return {status:'busy'};
     const prepared=preparePopulationAdmission(director,requests),population=prepared.director.population;
-    const extension=slotLayout.prepareExtension(population),capacity=Math.min(10000,Math.max(population.count,shipStorage.status.capacity*2));
+    const extension=slotLayout.prepareExtension(population),capacity=Math.min(MAX_SHIP_CAPACITY,Math.max(population.count,shipStorage.status.capacity*2));
     const changed=shipStorage.grow(population.count,capacity,next=>{
       const bindings=prepareStorageBindings(next);
       return ()=>{director.adopt(prepared.director,false);extension();count=next.count;spatial=spatialStorage(count);hullCount=capitalCount();bindings();};
@@ -273,7 +355,7 @@ async function initializeEngine(canvas,options,director,solar,lifetime) {
     const pass=encoder.beginComputePass();pass.setPipeline(populate);pass.setBindGroup(0,groups[current]);dispatchGroups(pass,Math.ceil(count/128));pass.end();hullPass(encoder,null);
     device.queue.submit([encoder.finish()]);
   }
-  const input=new Float32Array(16), camera=new Float32Array(24), initialWarpEnd=warpEnd;
+  const input=new Float32Array(pilotEnabled?40:16), camera=new Float32Array(24), initialWarpEnd=warpEnd;
   let tacticalMemoryEnabled=1;
   let densityMix=1,mergeTarget=1,densityEnabled=1,planetsEnabled=1,targetLinks=1,selectedFleet=0,followShip=null,densityVisible=false;
   let planning=null,closed=false,lifetimeToken={},batchDepth=0,ordersDirty=false,admissionTime=null;
@@ -286,40 +368,77 @@ async function initializeEngine(canvas,options,director,solar,lifetime) {
     const [low,high,redistribute]=clock.phases(0);input.set([0,0,count,low,period,redistribute,Number(emit),tacticalMemoryEnabled,densityMix,densityEnabled,planetsEnabled,high,1,0,0,0]);device.queue.writeBuffer(uniform,0,input);
     const seed=seedShips(count,director,options.fleetCenters);if(navigation)seedNavigation(seed,director,initialScenario??scenario,solar.bodyAt);if(sequence&&!navigation)seedSequence(seed,director);device.queue.writeBuffer(orderBuffer,0,director.groups);
     device.queue.writeBuffer(orderBuffer,director.groups.byteLength,slotLayout.data);
-    solar.advance(0);refreshNearby(0,sequence?solar.encounterAt(0):[0,0,0]);
+    invalidateNearby();solar.advance(0);refreshNearby(0);
     control.sync();control.syncPressure();control.syncSolar();device.queue.writeBuffer(controlBuffer,0,control.data);
+    formPage=0;device.queue.writeBuffer(controlBuffer,formationOffset,formationZeros);
+    device.queue.writeBuffer(controlBuffer,sceneRouteBase,sceneRouteZeros);
+    if(adviceBytes)device.queue.writeBuffer(controlBuffer,adviceBase,new Uint8Array(adviceBytes));
     for(const b of agents) device.queue.writeBuffer(b,0,seed);
     const dead=new Float32Array(count*3*RING*4);for(let i=3;i<dead.length;i+=4) dead[i]=-1;
     device.queue.writeBuffer(history,0,dead);
     device.queue.writeBuffer(links,(spatial.linkWords+count*EVENT_POSE_WORDS)*4,new Uint32Array(count));
   }
-  let keplerCatalog=null;
+  let keplerCatalog=null,keplerTime=0;
+  const nearbyBodies=[],nearbyOptions={hullPad:NEARBY_HULL_PAD,replaceMargin:NEARBY_REPLACE,positions:null};
   function catalogBodies(time) {
-    if(keplerCatalog?.length) {
-      return keplerCatalog.map((b)=>({
-        p:[compactToLab(b.x),compactToLab(b.y),compactToLab(b.z)],
-        radius:compactToLab(Math.max(b.radius,1e-6)),
-      }));
-    }
-    const n=solar.definition.bodies.length/12;
-    return Array.from({length:n},(_,i)=>{const pose=solar.bodyAt(i,time);return {p:pose.slice(0,3),radius:pose[3]};});
+    const n=keplerCatalog?keplerCatalog.length:solar.definition.bodies.length/12;
+    while(nearbyBodies.length<n)nearbyBodies.push({p:[0,0,0],radius:0});
+    nearbyBodies.length=n;
+    for(let i=0;i<n;i++)updateNearbyBody(nearbyBodies[i],i,time);
+    return nearbyBodies;
   }
-  function refreshNearby(time,center) {
-    const positions=Array.from({length:director.fleetCount},(_,fleet)=>{
-      const at=fleet*4;
-      if(director.encounters[at+3]>0)return [director.encounters[at],director.encounters[at+1],director.encounters[at+2]];
-      return null;
-    });
-    selectNearbyBodies(director,catalogBodies(time),{positions,hullPad:keplerCatalog?0.05:NEARBY_HULL_PAD});
+  function updateNearbyBody(row,i,time) {
+    if(keplerCatalog) {
+      const b=keplerCatalog[i];
+      row.p[0]=compactToLab(b.x??0);row.p[1]=compactToLab(b.y??0);row.p[2]=compactToLab(b.z??0);
+      row.radius=compactToLab(Math.max(b.radius??0,1e-6));
+    } else {
+      const pose=solar.bodyAt(i,time);
+      row.p[0]=pose[0];row.p[1]=pose[1];row.p[2]=pose[2];row.radius=pose[3];
+    }
+  }
+  function keplerBodyAt(i) {
+    const b=keplerCatalog[i];
+    if(!b)return [0,0,0,0];
+    return [compactToLab(b.x??0),compactToLab(b.y??0),compactToLab(b.z??0),compactToLab(Math.max(b.radius??0,1e-6))];
+  }
+  function stageKeplerBodies(bodies,time) {
+    if(bodies.length>solar.capacity)throw new Error('Kepler catalog exceeds configured solar body capacity');
+    if(!keplerCatalog) {
+      nearbySchedule.invalidate();solar.bodyAt=keplerBodyAt;
+      solar.advance=()=>{writeKeplerSolar(solar.data,keplerCatalog,now);};
+      // Snapshot phase already describes the rendered instant. GPU extrapolation
+      // starts at the consuming tick's clock, as it did before staging uploads.
+      Object.defineProperty(solar,'time',{configurable:true,get(){return now;}});
+    }
+    keplerCatalog=copyKeplerCatalog(bodies,keplerCatalog);
+    keplerTime=time;
+  }
+  function refreshNearby(time) {
+    nearbyOptions.hullPad=keplerCatalog?0.05:NEARBY_HULL_PAD;
+    nearbyOptions.replaceMargin=keplerCatalog?SCENE_NEARBY_REPLACE:NEARBY_REPLACE;
+    nearbySchedule.ensure(time,catalogBodies(time),nearbyOptions);
+  }
+  function invalidateNearby() {
+    nearbyOptions.positions=null;nearbySchedule.invalidate();
+  }
+  function prepareNearby(positions=nearbyOptions.positions) {
+    if(closed)return;
+    const time=keplerCatalog?keplerTime:now;
+    nearbyOptions.positions=positions;
+    nearbyOptions.hullPad=keplerCatalog?0.05:NEARBY_HULL_PAD;
+    nearbyOptions.replaceMargin=keplerCatalog?SCENE_NEARBY_REPLACE:NEARBY_REPLACE;
+    nearbySchedule.prepare(time,catalogBodies(time),nearbyOptions);
   }
   function updateFrame(time) {
     const center=sequence?solar.encounterAt(time):[0,0,0];
-    solar.advance(time);refreshNearby(time,center);control.syncNearby();control.syncSolar();
-    device.queue.writeBuffer(controlBuffer,control.solarOffset*4,control.data,control.solarOffset*4,solar.data.byteLength);
-    device.queue.writeBuffer(controlBuffer,director.capacity.nearbyBase*4,director.nearby);
+    solar.advance(time);refreshNearby(time);control.syncNearby();control.syncSolar();
     pressure.tick(time,period,center);control.syncPressure();
     control.frame(...center,time);
-    device.queue.writeBuffer(controlBuffer,director.capacity.words*4,pressure.data);
+    // Nearby, pressure and solar are contiguous; publish one coherent tick tail.
+    const offset=director.capacity.nearbyBase*4;
+    const end=control.solarOffset*4+solar.data.byteLength;
+    device.queue.writeBuffer(controlBuffer,offset,control.data,offset,end-offset);
     device.queue.writeBuffer(controlBuffer,0,control.data,0,32);
   }
   function prepareStep(time,dt,temporal) {
@@ -328,30 +447,46 @@ async function initializeEngine(canvas,options,director,solar,lifetime) {
   }
   function passWrites(querySet,index,sample,stage,edge){return querySet?{timestampWrites:{querySet,[edge]:index}}:sample?.(stage);}
   function profileSample(externalQueries){return externalQueries?null:profiler.begin();}
-  function hullPass(encoder,sample) {
+  function computeStage(encoder,shared,pipeline,group,workgroups,descriptor) {
+    const pass=shared??encoder.beginComputePass(descriptor);
+    pass.setPipeline(pipeline);pass.setBindGroup(0,group);dispatchGroups(pass,workgroups);
+    if(!shared)pass.end();
+  }
+  function hullPass(encoder,sample,shared=null) {
     if(hullCount<=0)return;
-    const pass=encoder.beginComputePass(sample?.(2));pass.setPipeline(hullDensity);pass.setBindGroup(0,groups[current]);pass.dispatchWorkgroups(hullCount);pass.end();
+    computeStage(encoder,shared,hullDensity,groups[current],hullCount,sample?.(2));
   }
-  function orderPass(encoder,sample) {
-    const pass=encoder.beginComputePass(sample?.(3));pass.setPipeline(schedule);pass.setBindGroup(0,groups[current]);dispatchGroups(pass,Math.ceil(HASH_BUCKETS/128));pass.end();
-    const contacts=encoder.beginComputePass(sample?.(4));contacts.setPipeline(cache);contacts.setBindGroup(0,contactGroups[current]);dispatchGroups(contacts,Math.ceil(count/128));contacts.end();
-    const separation=encoder.beginComputePass(sample?.(5));separation.setPipeline(separate);separation.setBindGroup(0,contactGroups[current]);dispatchGroups(separation,queryWorkgroups(count));separation.end();
-    const pursuers=encoder.beginComputePass(sample?.(6));pursuers.setPipeline(pursuerQueries);pursuers.setBindGroup(0,contactGroups[current]);dispatchGroups(pursuers,queryWorkgroups(count));pursuers.end();
+  function orderPass(encoder,sample,shared) {
+    computeStage(encoder,shared,schedule,groups[current],Math.ceil(Math.max(HASH_BUCKETS,count)/128),sample?.(3));
+    computeStage(encoder,shared,cache,contactGroups[current],Math.ceil(count/128),sample?.(4));
+    computeStage(encoder,shared,separate,contactGroups[current],queryWorkgroups(count),sample?.(5));
+    computeStage(encoder,shared,pursuerQueries,contactGroups[current],queryWorkgroups(count),sample?.(6));
   }
-  function encodeCompute(encoder, recovering, querySet, queryIndex, sample) {
+  function clearAndPopulate(encoder,shared,recovering,querySet,queryIndex,sample) {
     const clearWrites=passWrites(querySet,queryIndex,sample,0,'beginningOfPassWriteIndex');
     if(recovering) {
-      const recoveryPass=encoder.beginComputePass(profileEdge(clearWrites,'beginningOfPassWriteIndex'));
-      recoveryPass.setPipeline(recovery);recoveryPass.setBindGroup(0,groups[current]);dispatchGroups(recoveryPass,Math.ceil(count/128));recoveryPass.end();current=1-current;
+      computeStage(encoder,shared,recovery,groups[current],Math.ceil(count/128),profileEdge(clearWrites,'beginningOfPassWriteIndex'));
+      current=1-current;
     }
-    const clearPass=encoder.beginComputePass(recovering?profileEdge(clearWrites,'endOfPassWriteIndex'):clearWrites);
-    clearPass.setPipeline(clear);clearPass.setBindGroup(0,groups[current]);dispatchGroups(clearPass,Math.ceil(Math.max(1,pressure.activeCount)*GRID_CELLS/128));clearPass.end();
-    const gridPass=encoder.beginComputePass(sample?.(1));
-    gridPass.setPipeline(populate);gridPass.setBindGroup(0,groups[current]);dispatchGroups(gridPass,Math.ceil(count/128));gridPass.end();
-    hullPass(encoder,sample);
-    orderPass(encoder,sample);
-    const pass=encoder.beginComputePass(passWrites(querySet,queryIndex+1,sample,7,'endOfPassWriteIndex'));
-    pass.setPipeline(compute);pass.setBindGroup(0,groups[current]);dispatchGroups(pass,Math.ceil(count/128));pass.end();
+    computeStage(encoder,shared,clear,groups[current],Math.ceil(Math.max(1,pressure.activeCount)*GRID_CELLS/128),
+      recovering?profileEdge(clearWrites,'endOfPassWriteIndex'):clearWrites);
+    computeStage(encoder,shared,populate,groups[current],Math.ceil(count/128),sample?.(1));
+  }
+  function pilotAndMotion(encoder,shared,querySet,queryIndex,sample) {
+    hullPass(encoder,sample,shared);
+    if(pilotEnabled)computeStage(encoder,shared,formationClear,groups[current],director.capacity.fleetCount,sample?.(7));
+    orderPass(encoder,sample,shared);
+    if(!pilotEnabled)computeStage(encoder,shared,formationClear,groups[current],director.capacity.fleetCount,sample?.(7));
+    if(predict)computeStage(encoder,shared,predict,groups[current],Math.ceil(count/128),sample?.(8));
+    computeStage(encoder,shared,compute,groups[current],Math.ceil(count/128),passWrites(querySet,queryIndex+1,sample,9,'endOfPassWriteIndex'));
+  }
+  function encodeCompute(encoder,recovering,querySet,queryIndex,sample) {
+    // Separate passes preserve diagnostic timestamps; grouping is a measured option.
+    const split=sample||querySet||options.separateComputePasses!==false;
+    const shared=split?null:encoder.beginComputePass({label:'directed-simulation'});
+    clearAndPopulate(encoder,shared,recovering,querySet,queryIndex,sample);
+    pilotAndMotion(encoder,shared,querySet,queryIndex,sample);
+    shared?.end();
   }
   function encodeTick(encoder,time,dt,{emitting=emit,querySet=null,queryIndex=0,temporal=false,recovering=false}={}) {
     prepareStep(time,dt,temporal);motionRevision++;
@@ -360,7 +495,8 @@ async function initializeEngine(canvas,options,director,solar,lifetime) {
     densityMix+=(mergeTarget-densityMix)*(1-Math.exp(-dt*4));
     const [low,high,redistribute]=clock.phases(time);
     input.set([clock.local(time),dt,count,low,period,redistribute,Number(emitting),tacticalMemoryEnabled,densityMix,densityEnabled,planetsEnabled,high,
-      Math.max(0,clock.trailTick(previousTime)+1),clock.trailTick(time),0,0]);
+      Math.max(0,clock.trailTick(previousTime)+1),clock.trailTick(time),formPage,0]);
+    formPage^=1;
     device.queue.writeBuffer(uniform,0,input);
     encodeCompute(encoder,recovering,querySet,queryIndex,sample);
     encodeFollowCopy(encoder);
@@ -378,6 +514,7 @@ async function initializeEngine(canvas,options,director,solar,lifetime) {
     encodeTick(encoder,time,dt,options);
     device.queue.submit([encoder.finish()]);
     commitTick();
+    prepareNearby();
   }
   function resize() {
     if(!present)return {width:1,height:1};
@@ -443,7 +580,7 @@ async function initializeEngine(canvas,options,director,solar,lifetime) {
     }
   }
   reset();
-  const runtime={packing,slotLayout,shipStorage,resizeStorage,reinforce,reclaim,regroup,inspection:{uniform,view,drawing:modules[1],control:controlBuffer,baseControlBytes:control.data.byteLength,orders:orderBuffer,module:modules[0],agents,get links(){return links;}},eventFrame,
+  const runtime={preparationTimings:timings,packing,slotLayout,shipStorage,resizeStorage,growSceneCapacity,reinforce,reclaim,regroup,inspection:{uniform,view,adviceBase,adviceBytes,drawing:modules[1],control:controlBuffer,baseControlBytes:control.data.byteLength,travelOffset:sceneRouteBase-director.capacity.fleetCount*64,fleetCount:director.capacity.fleetCount,orders:orderBuffer,get module(){return inspectionModule??=device.createShaderModule({label:'ship-diagnostics',code:modules[0]});},agents,get links(){return links;}},eventFrame,
     prepareEventFrame(start,end){prepareFrame(end,end-start);eventFrame.begin(start,end);},
     finishEventFrame(){eventFrame.finish();uploadEventFrame();},
     withEventTime(time,work){const previous=admissionTime;admissionTime=time;try{return work();}finally{admissionTime=previous;}},clock,clockGpu:rebaser,rebaseClock:()=>rebaseTime(now),solar,pressure,routes,progress,device,adapter,timestamps,get count(){return count;},errors,get history(){return history;},reset,step,render,read,pixels,profiler,director,density,batchCommands,
@@ -460,6 +597,7 @@ async function initializeEngine(canvas,options,director,solar,lifetime) {
     installRoute(report){if(closed)return false;const applied=routes.install(report,routeTime());if(applied){control.syncRoutes();const offset=(control.routesOffset+applied.offset)*4;device.queue.writeBuffer(controlBuffer,offset,control.data,offset,applied.record.byteLength);}return Boolean(applied);},
     command(report){
       if(closed)return false;
+      validateSolarBodyIndex(report.journey?.planet,solar.capacity);
       if(report.pressure!==undefined&&report.type!==undefined)throw new Error('Pressure orders are fleet-level');
       const pressureOrder=report.pressure===undefined?null:pressure.prepareOrder(report.fleet,report.pressure,routeTime());
       const applied=director.apply(report);
@@ -476,12 +614,52 @@ async function initializeEngine(canvas,options,director,solar,lifetime) {
     },
     admitRoute(plan,expected={}) {
       if(!routeContext(plan,expected))return false;
+      validateSolarBodyIndex(plan.request.planet,solar.capacity);
       const journey=routeJourney(plan),prepared=routes.prepare(plan,routeTime(),journey);if(!prepared)return false;
       const applied=director.apply({revision:director.revision+1,fleet:plan.fleet,type:plan.type,cohort:plan.cohort??0,journey});
       if(applied){preserveContinuationEpoch(plan);routes.commit(prepared);uploadDirector();}return applied;
     },
     setTacticalMemoryEnabled(value){tacticalMemoryEnabled=Number(value);},
     setDensityVisible(value){densityVisible=value;},
+    uploadClassTuning(data){if(!closed&&data){device.queue.writeBuffer(classTuning,0,data);if(pilotEnabled)input[35]++;}},
+    setPilotView(matrix,origin,pixelGain,poseScale,follow=-1,selected=-1){
+      if(!pilotEnabled||closed)return;
+      input.set(matrix,16);input[32]=origin.x;input[33]=origin.y;input[34]=origin.z;
+      input[36]=pixelGain;input[37]=poseScale;input[38]=follow;input[39]=selected;
+    },
+    uploadFormation(words,clearPoses=false){
+      if(closed)return;
+      const recordBytes=formationRecordBytes(director.capacity.fleetCount);
+      if(!words||words.byteLength!==recordBytes)throw new Error('Formation record size mismatch');
+      device.queue.writeBuffer(controlBuffer,formationOffset,words);
+      if(clearPoses){
+        // Roster changes in another fleet must not restart every navigation
+        // reference. GPU identity validation fences retired/reused fleet slots.
+        const poseBytes=formationPoseBytes(director.capacity.fleetCount);
+        device.queue.writeBuffer(controlBuffer,formationOffset+recordBytes,formationZeros.buffer,recordBytes,poseBytes);
+        const travelBytes=director.capacity.fleetCount*64;
+        device.queue.writeBuffer(controlBuffer,sceneRouteBase-travelBytes,formationZeros.buffer,formationBytes-travelBytes,travelBytes);
+      }
+    },
+    uploadSceneRoute(slot,data){
+      if(closed)return;
+      if(!Number.isInteger(slot)||slot<0||slot>=director.capacity.fleetCount||data.length!==SCENE_ROUTE_WORDS)throw new Error('Invalid scene route slot or record');
+      device.queue.writeBuffer(controlBuffer,sceneRouteBase+slot*SCENE_ROUTE_WORDS*4,data);
+    },
+    copyTravelOffsets(encoder,from,to,count,scratch){
+      const bytes=count*16;
+      encoder.copyBufferToBuffer(controlBuffer,travelOffsetBase+from*16,scratch,0,bytes);
+      encoder.copyBufferToBuffer(scratch,0,controlBuffer,travelOffsetBase+to*16,bytes);
+    },
+    uploadWarpOffsets(start,data,clearCapture=true){
+      if(closed||!data||data.byteLength===0)return;
+      if(!Number.isInteger(start)||start<0||start*16+data.byteLength>warpOffsetCapacity*16)throw new Error('Warp offset range exceeds reserved capacity');
+      device.queue.writeBuffer(controlBuffer,warpOffsetBase+start*16,data);
+      // A new logical occupant must not inherit a previous order capture.
+      if(clearCapture)device.queue.writeBuffer(controlBuffer,travelOffsetBase+start*16,new Uint8Array(data.byteLength));
+    },
+    localTime(time){return clock.local(time);},
+    classTuningBuffer(){return classTuning;},
     captureShip:shipHandles.capture,resolveShip:shipHandles.resolve,
     followShip(handle){const selected=shipHandles.resolve(handle);if(!selected)return false;followShip=shipHandles.capture(selected.index);return true;},
     get followedShip(){return shipHandles.resolve(followShip);},
@@ -492,7 +670,7 @@ async function initializeEngine(canvas,options,director,solar,lifetime) {
     get closed(){return closed;},get lifetime(){return lifetimeToken;},
     get now(){return now;},get scenario(){return scenario;},get state(){return agents[current];},
     pendingPoseBuffer:()=>agents[1-current],
-    encodeTick,commitTick,get ownsDevice(){return lifetime.ownsDevice;},simDt:1/(options.simHz??120),
+    encodeTick,commitTick,prepareNearby,invalidateNearby,get nearbyStats(){return nearbySchedule.stats;},get ownsDevice(){return lifetime.ownsDevice;},simDt:1/(options.simHz??120),
     extras:{pack:(limit)=>packing.advance(limit),spawn:reinforce,reclaim,regroup,rebase:()=>rebaseTime(now),
       compactVisuals(visuals) {
         if(typeof director.compactVisuals!=='function')return false;
@@ -503,26 +681,12 @@ async function initializeEngine(canvas,options,director,solar,lifetime) {
         return true;
       },
       keplerBodies(bodies,time) {
-        const snapshot=(bodies??[]).map((b)=>({...b}));
-        keplerCatalog=snapshot;
-        solar.bodyAt=(i)=>{
-          const b=snapshot[i];
-          if(!b)return [0,0,0,0];
-          return [compactToLab(b.x),compactToLab(b.y),compactToLab(b.z),compactToLab(Math.max(b.radius,1e-6))];
-        };
-        solar.advance=()=>{writeKeplerSolar(solar.data,snapshot,now);};
-        // GPU body() adds (t − solar.clock)×rate. Snapshot phase is already at
-        // the rendered instant; pin clock to runtime now so rings stay on the disc.
-        Object.defineProperty(solar,'time',{configurable:true,get(){return now;}});
-        solar.advance(now);
-        refreshNearby(time??now,[0,0,0]);
-        control.syncNearby();
-        control.syncSolar();
-        device.queue.writeBuffer(controlBuffer,control.solarOffset*4,control.data,control.solarOffset*4,solar.data.byteLength);
-        device.queue.writeBuffer(controlBuffer,director.capacity.nearbyBase*4,director.nearby);
+        // Stage CPU inputs only. updateFrame publishes the body table once, at
+        // the consuming tick; prepareNearby runs after the previous submission.
+        stageKeplerBodies(bodies??[],time??now);
       }},
     followPoseBuffer:()=>followCpu[1-followMap],
-    destroy(){if(closed)return;closed=true;lifetimeToken={};followShip=null;planning?.reset();progress.destroy();packing.destroy();spawner.destroy();retirement.destroy();regrouping.destroy();rebaser.destroy();solar.destroy();profiler.destroy();shipStorage.destroy();for(const b of [uniform,view,orderBuffer,density,controlBuffer,...followCpu])b.destroy();depth?.destroy();if(lifetime.ownsDevice)device.destroy();}};
+    destroy(){if(closed)return;closed=true;lifetimeToken={};followShip=null;planning?.reset();progress.destroy();packing.destroy();spawner.destroy();retirement.destroy();regrouping.destroy();rebaser.destroy();solar.destroy();profiler.destroy();shipStorage.destroy();for(const b of [uniform,view,orderBuffer,density,controlBuffer,classTuning,...followCpu])b.destroy();depth?.destroy();if(lifetime.ownsDevice)device.destroy();}};
   function rebaseTime(time) {
     if(closed)return false;
     const shift=clock.shiftFor(time);if(!shift)return false;

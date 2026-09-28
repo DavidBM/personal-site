@@ -4,7 +4,8 @@ import { FleetTopics } from "./contracts.js";
 export function subscribeFleetCommands(transport, runtime) {
     const offGenerate = subscribeFeatureTopic(transport, FleetTopics.generateFleet, runtime.generate);
     const offBulk = subscribeFeatureTopic(transport, FleetTopics.generateFleetsBulk, runtime.generateBulk);
-    return () => { offGenerate(); offBulk(); };
+    const offMove = subscribeFeatureTopic(transport, FleetTopics.moveLocal, runtime.moveLocal);
+    return () => { offGenerate(); offBulk(); offMove(); };
 }
 /** Main UI, worker renderer, and headless fixtures consume the same events. */
 export function subscribeFleetEvents(transport, handlers) {

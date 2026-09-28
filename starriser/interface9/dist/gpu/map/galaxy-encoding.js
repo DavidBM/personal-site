@@ -1,16 +1,20 @@
 const GALAXY_FADE_SKIP = 0.02;
-export function createGalaxyEncoding(topology, lines, points, impostors, coordinates) {
+export function createGalaxyEncoding(topology, lines, points, coordinates, survey) {
     let topologyEncoded = false;
-    function encode(pass, frame) {
-        const { galaxy, projection, cameraRight, cameraUp } = coordinates;
+    function encodeLines(pass, frame) {
+        const { galaxy, projection } = coordinates;
+        survey.encodeBackground(pass, frame);
         topologyEncoded = frame.galaxyFade >= 1;
         if (topologyEncoded)
             lines.encode(pass, galaxy.view, projection, galaxy.origin);
+    }
+    function encodePoints(pass, frame) {
+        const { galaxy, cameraRight, cameraUp } = coordinates;
         if (frame.galaxyFade < GALAXY_FADE_SKIP)
             return;
         points.encode(pass, galaxy.viewProj, topology.pointWorldScale, topology.store.currentCount, cameraRight, cameraUp, galaxy.origin, frame.galaxyFade);
-        impostors.encode(pass, galaxy.viewProj, topology.pointWorldScale, topology.impostorStore.currentCount, cameraRight, cameraUp, galaxy.origin, frame.galaxyFade);
+        survey.encode(pass);
     }
-    return { encode, wasTopologyEncoded: () => topologyEncoded };
+    return { prepare: (frame) => survey.prepare(frame), encode: (pass, frame) => { encodeLines(pass, frame); encodePoints(pass, frame); }, encodeLines, encodePoints, wasTopologyEncoded: () => topologyEncoded };
 }
 //# sourceMappingURL=galaxy-encoding.js.map

@@ -5,8 +5,8 @@
  * - World (model LOD / depthAware): constant world-unit width; scales with ship size
  *   on screen as the camera moves (not fixed px).
  *
- * Draw expand uses segment-constant normals (planar strips) so thruster atlas
- * centerlines do not zigzag from mitered non-planar quads.
+ * Draw expansion shares a bounded view-space miter at each sample. Fragment
+ * path projection keeps the thruster core on the centerline of the ribbon.
  */
 /** Screen-pixel width mode (strategic ribbons). */
 export const TRAIL_WIDTH_MODE_SCREEN = 0;

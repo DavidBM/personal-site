@@ -1,0 +1,117 @@
+{
+  "version": 1,
+  "family": "Aster Vale",
+  "forward": "+Z",
+  "up": "+Y",
+  "originRadius": 1,
+  "ships": [
+    {
+      "classId": 0,
+      "key": "interceptor",
+      "name": "AV-11 Kestrel",
+      "high": "interceptor-high.glb",
+      "low": "interceptor-low.glb",
+      "nominalRadiusMeters": 16,
+      "visualScale": 1,
+      "triangles": {
+        "high": 3444,
+        "low": 348
+      },
+      "normalizedSize": [
+        0.812991,
+        0.289545,
+        1.82923
+      ]
+    },
+    {
+      "classId": 1,
+      "key": "fighter",
+      "name": "AV-24 Peregrine",
+      "high": "fighter-high.glb",
+      "low": "fighter-low.glb",
+      "nominalRadiusMeters": 20.8,
+      "visualScale": 1.3,
+      "triangles": {
+        "high": 3844,
+        "low": 412
+      },
+      "normalizedSize": [
+        1.188132,
+        0.400995,
+        1.760464
+      ]
+    },
+    {
+      "classId": 2,
+      "key": "bomber",
+      "name": "AV-38 Petrel",
+      "high": "bomber-high.glb",
+      "low": "bomber-low.glb",
+      "nominalRadiusMeters": 32,
+      "visualScale": 2,
+      "triangles": {
+        "high": 4468,
+        "low": 428
+      },
+      "normalizedSize": [
+        1.145514,
+        0.497491,
+        1.911026
+      ]
+    },
+    {
+      "classId": 3,
+      "key": "frigate",
+      "name": "AV-90 Heron",
+      "high": "frigate-high.glb",
+      "low": "frigate-low.glb",
+      "nominalRadiusMeters": 144,
+      "visualScale": 9,
+      "triangles": {
+        "high": 6028,
+        "low": 392
+      },
+      "normalizedSize": [
+        0.624276,
+        0.330346,
+        1.970371
+      ]
+    },
+    {
+      "classId": 4,
+      "key": "battleship",
+      "name": "AV-200 Bastion",
+      "high": "battleship-high.glb",
+      "low": "battleship-low.glb",
+      "nominalRadiusMeters": 320,
+      "visualScale": 20,
+      "triangles": {
+        "high": 4944,
+        "low": 388
+      },
+      "normalizedSize": [
+        1.663301,
+        0.632368,
+        1.872391
+      ]
+    },
+    {
+      "classId": 5,
+      "key": "colossus",
+      "name": "AV-210 Foundry",
+      "high": "colossus-high.glb",
+      "low": "colossus-low.glb",
+      "nominalRadiusMeters": 320,
+      "visualScale": 20,
+      "triangles": {
+        "high": 13804,
+        "low": 504
+      },
+      "normalizedSize": [
+        1.183013,
+        0.475505,
+        1.686779
+      ]
+    }
+  ]
+}

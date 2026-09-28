@@ -8,14 +8,15 @@
  *  - Screen-space thickness (pixels via resolution) or worldUnits
  *  - Vertex expansion of each segment into a ribbon (triangle-list, instanced)
  *  - Optional round endcaps (`endcaps` uniform): soft fwidth AA or hard discard
- *  - Long-edge quality: MSAA + pipeline alphaToCoverage (not ribbon-skirt fades)
+ *  - Long-edge quality: geometric MSAA or conservative analytic pixel coverage
  *  - Optional dashed lines (distance attributes)
  *  - Optional per-endpoint vertex colors
  *
  * Depth/log-depth/fog/clipping planes from Three are intentionally omitted.
  */
-export function buildLine2Wgsl(splitPosition = false) {
+export function buildLine2Wgsl(splitPosition = false, analyticEdges = false) {
     return /* wgsl */ `
+const analyticEdges:bool = ${analyticEdges};
 // Uniform layout must match line2-material.ts LINE2_UNIFORM_SIZE / writeMaterialUniforms.
 struct Line2Uniforms {
   modelView : mat4x4<f32>,
@@ -57,7 +58,7 @@ struct VSIn {
 
 struct VSOut {
   @builtin(position) clip : vec4<f32>,
-  @location(0) vUv : vec2<f32>,
+  @location(0) @interpolate(linear) vUv : vec2<f32>,
   @location(1) vColor : vec3<f32>,
   @location(2) vLineDistance : f32,
   // View-space quantities for worldUnits fragment path
@@ -66,17 +67,30 @@ struct VSOut {
   @location(5) worldEnd : vec3<f32>,
 };
 
-fn trimSegmentAlpha(start : vec4<f32>, end_ : vec4<f32>) -> f32 {
-  // Conservative near-plane estimate from projection (supports reverse-Z).
+fn cameraNearZ() -> f32 {
+  // WebGPU uses 0 <= clip.z <= clip.w. The projection's translation
+  // distinguishes forward/reversed depth, including infinite reversed-Z (a=0).
   let a = u.projection[2][2];
   let b = u.projection[3][2];
-  var nearEstimate : f32;
-  if (a > 0.0) {
-    nearEstimate = -b / (a + 1.0);
-  } else {
-    nearEstimate = -0.5 * b / a;
+  // Keep the intersection just inside the near plane after projection rounding.
+  if (b < 0.0) { return (-b / a) * 1.0001; }
+  return (-b / (a + 1.0)) * 1.0001;
+}
+
+// Bound screen ribbons before expansion. Near-plane intersections can project
+// millions of pixels away; hardware clipping of those huge triangles loses
+// subpixel width/coverage. Keep a generous offscreen guard band for endcaps.
+fn screenSegmentRange(a : vec4<f32>, b : vec4<f32>) -> vec2<f32> {
+  let guard = 2.0 + u.linewidth / min(u.resolution.x, u.resolution.y);
+  let da = vec4<f32>(a.x, -a.x, a.y, -a.y) + guard * a.w;
+  let db = vec4<f32>(b.x, -b.x, b.y, -b.y) + guard * b.w;
+  var range = vec2<f32>(0.0, 1.0);
+  for (var i = 0u; i < 4u; i++) {
+    if (da[i] < 0.0 && db[i] < 0.0) { return vec2<f32>(1.0, 0.0); }
+    if (da[i] < 0.0) { range.x = max(range.x, da[i] / (da[i] - db[i])); }
+    if (db[i] < 0.0) { range.y = min(range.y, da[i] / (da[i] - db[i])); }
   }
-  return (nearEstimate - start.z) / (end_.z - start.z);
+  return range;
 }
 
 fn closestLineToLine(p1 : vec3<f32>, p2 : vec3<f32>, p3 : vec3<f32>, p4 : vec3<f32>) -> vec2<f32> {
@@ -120,6 +134,8 @@ fn vs_main(input : VSIn) -> VSOut {
   var start = u.modelView * vec4<f32>(startRel, 1.0);
   var end_ = u.modelView * vec4<f32>(endRel, 1.0);
 
+  var colorStart = input.instanceColorStart;
+  var colorEnd = input.instanceColorEnd;
   var lineDistanceStart = u.dashScale * input.instanceDistanceStart;
   var lineDistanceEnd = u.dashScale * input.instanceDistanceEnd;
 
@@ -132,30 +148,54 @@ fn vs_main(input : VSIn) -> VSOut {
     out.worldEnd = end_.xyz;
   }
 
-  // Perspective segments that cross the camera plane must be trimmed so NDC math is valid.
+  // Clip before dividing by w. Merely interpolating z can round the tiny
+  // near distance to zero on long segments; explicitly pin that coordinate.
   let perspective = abs(u.projection[2][3] + 1.0) < 1e-5;
   if (perspective) {
-    if (start.z < 0.0 && end_.z >= 0.0) {
-      let alpha = trimSegmentAlpha(start, end_);
-      end_ = vec4<f32>(mix(start.xyz, end_.xyz, alpha), end_.w);
-      if (useDash) {
-        lineDistanceEnd = mix(lineDistanceStart, lineDistanceEnd, alpha);
-      }
-    } else if (end_.z < 0.0 && start.z >= 0.0) {
-      let alpha = trimSegmentAlpha(end_, start);
-      start = vec4<f32>(mix(end_.xyz, start.xyz, alpha), start.w);
-      if (useDash) {
-        lineDistanceStart = mix(lineDistanceEnd, lineDistanceStart, alpha);
-      }
+    let nearZ = cameraNearZ();
+    if (start.z > nearZ && end_.z > nearZ) {
+      out.clip = vec4<f32>(0.0, 0.0, -1.0, 1.0);
+      return out;
+    }
+    if (end_.z > nearZ) {
+      let alpha = clamp((nearZ - start.z) / (end_.z - start.z), 0.0, 1.0);
+      end_ = vec4<f32>(mix(start.xy, end_.xy, alpha), nearZ, 1.0);
+      lineDistanceEnd = mix(lineDistanceStart, lineDistanceEnd, alpha);
+      colorEnd = mix(colorStart, colorEnd, alpha);
+      out.vColor = select(colorEnd, input.instanceColorStart, input.position.y < 0.5);
+    } else if (start.z > nearZ) {
+      let alpha = clamp((nearZ - end_.z) / (start.z - end_.z), 0.0, 1.0);
+      start = vec4<f32>(mix(end_.xy, start.xy, alpha), nearZ, 1.0);
+      lineDistanceStart = mix(lineDistanceEnd, lineDistanceStart, alpha);
+      colorStart = mix(colorEnd, colorStart, alpha);
+      out.vColor = select(input.instanceColorEnd, colorStart, input.position.y < 0.5);
     }
   }
 
+  var clipStart = u.projection * start;
+  var clipEnd = u.projection * end_;
+  if (!useWorld) {
+    let range = screenSegmentRange(clipStart, clipEnd);
+    if (range.x > range.y) {
+      out.clip = vec4<f32>(0.0, 0.0, -1.0, 1.0);
+      return out;
+    }
+    let a = clipStart;
+    let b = clipEnd;
+    clipStart = mix(a, b, range.x);
+    clipEnd = mix(a, b, range.y);
+    let d0 = lineDistanceStart;
+    let d1 = lineDistanceEnd;
+    lineDistanceStart = mix(d0, d1, range.x);
+    lineDistanceEnd = mix(d0, d1, range.y);
+    // Clip-space t is also the original view-space interpolation parameter.
+    let colorT = select(range.y, range.x, input.position.y < 0.5);
+    out.vColor = mix(colorStart, colorEnd, colorT);
+  }
   if (useDash) {
     out.vLineDistance = select(lineDistanceEnd, lineDistanceStart, input.position.y < 0.5);
   }
 
-  let clipStart = u.projection * start;
-  let clipEnd = u.projection * end_;
   let ndcStart = clipStart.xyz / clipStart.w;
   let ndcEnd = clipEnd.xyz / clipEnd.w;
 
@@ -250,7 +290,7 @@ fn vs_main(input : VSIn) -> VSOut {
       }
     }
 
-    offset = offset * u.linewidth;
+    offset = offset * (u.linewidth + select(0.0, 1.0, analyticEdges));
     // clip → screen using resolution.y (Three classic LineMaterial)
     offset = offset / u.resolution.y;
 
@@ -316,6 +356,13 @@ fn fs_main(input : VSOut) -> @location(0) vec4<f32> {
         discard;
       }
     }
+  } else if (analyticEdges) {
+    // One-pixel coverage ramp centered on the nominal edge; geometry includes
+    // its outer half-pixel. Faint opacity is applied once, through blending.
+    let radius=(u.linewidth+1.0)*0.5;
+    let cap=max(0.0,abs(input.vUv.y)-1.0);
+    let distance=length(vec2<f32>(input.vUv.x,cap))*radius;
+    alpha*=clamp(u.linewidth*0.5+0.5-distance,0.0,1.0);
   } else if (useEndcaps) {
     // Screen-space — classic three.js LineMaterial: soft endcaps only.
     // Long edges are the geometric ribbon; smooth them with MSAA + alphaToCoverage

@@ -1,3 +1,4 @@
+import { demoFleetRelationship } from "../../../contracts/fleet-relationship.js";
 import { nextFleetId } from "./fleet-world.js";
 import { findClusterPath, isFleetRouteConnected } from "./fleet-pathfinding.js";
 import { startNextJump, } from "./fleet-simulation.js";
@@ -30,8 +31,10 @@ export function trySpawnFleet(world, now, random = Math.random, planner) {
     const valid = planner ? planner.valid(start, destination, path) : isFleetRouteConnected(world, start, destination, path);
     if (!valid)
         return null;
+    const id = nextFleetId(world);
     const fleet = {
-        id: nextFleetId(world),
+        id,
+        relationship: demoFleetRelationship(id),
         counts: buildFleetCounts(random),
         currentNode: start,
         destination,
@@ -70,8 +73,10 @@ export function trySpawnParkedAt(world, node, random = Math.random) {
     const cluster = world.clusters.get(node.clusterId);
     if (!cluster || !cluster.solarSystems.has(node.solarSystemId))
         return null;
+    const id = nextFleetId(world);
     const fleet = {
-        id: nextFleetId(world),
+        id,
+        relationship: demoFleetRelationship(id),
         counts: buildFleetCounts(random),
         currentNode: node,
         destination: node,

@@ -27,7 +27,7 @@ The first Rust build takes longer because it compiles dependencies.
 ```
 
 This builds TypeScript and the shared Rust/WASM rules, starts the local HTTP
-server, watches TypeScript changes and opens **http://127.0.0.1:8000/**. The root
+server, watches TypeScript and JavaScript changes and opens **http://127.0.0.1:8000/**. The root
 page lists every source HTML page with a description and search. Choose
 **Explore the galaxy** for the offline editor, or **Play online** for multiplayer.
 The offline game now lives at `/galaxy.html`.
@@ -39,7 +39,7 @@ The offline game now lives at `/galaxy.html`.
 ```
 
 Ctrl+C stops this frontend server and its watcher. Restart `./start.sh` after
-changing Rust rules; the TypeScript watcher does not rebuild Rust.
+changing Rust rules; the frontend watcher does not rebuild Rust.
 
 ## Ship motion system
 
@@ -48,6 +48,11 @@ Open **Ship simulation lab** on the homepage, or visit
 The six scenarios demonstrate individual 3D movement, mixed ship classes,
 planetary navigation, warp, director-controlled battles and scoped density at
 1,000–10,000 visual ships. The normal frontend build includes its required WASM.
+
+The separate [fleet pilot experiment](fleet-pilot.html) compares adaptive and
+delayed GPU guidance with 10K–50K identifiable ships and cheap dart rendering.
+Its [measured report](docs/research/ship-motion/2026-09-27-pilot-experiment.md)
+describes the controller, costs and remaining gaps before production adoption.
 
 Start with the [ship motion system overview](docs/research/ship-motion/README.md)
 for the core ideas, supported primitives and control API, or the
@@ -99,7 +104,7 @@ for another universe. Saves must be outside the repository and frontend build
 folder because they contain SQLite data and private account credentials.
 `--users` accepts 1–128, subject to the backend's bounded configuration size.
 
-Ctrl+C stops this launcher's frontend, TypeScript watcher and backend, preserving
+Ctrl+C stops this launcher's frontend, watcher and backend, preserving
 the save. Restart after changing Rust or WASM rules. `--skip-build` is available
 when the matching client and native binaries are already built.
 

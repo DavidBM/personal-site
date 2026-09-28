@@ -31,6 +31,11 @@ export const DEFAULT_GALAXY_POINT_LOD_POLICY = {
     hysteresis: LOD_HYSTERESIS,
     impostorCameraDist: CLUSTER_IMPOSTOR_CAMERA_DIST,
 };
+/** Survey labels occupy the medium zoom band. Reveal internal nodes/links only
+ * beyond ~205 CSS px diameter (hide below ~161 px); no fixed-distance override. */
+export const SURVEY_GALAXY_POINT_LOD_POLICY = {
+    ...DEFAULT_GALAXY_POINT_LOD_POLICY, overlapFactor: 36, impostorCameraDist: 0,
+};
 function resolvePolicy(policy) {
     return policy ?? DEFAULT_GALAXY_POINT_LOD_POLICY;
 }

@@ -1,6 +1,9 @@
+import { fleetRelationship } from "../contracts/fleet-relationship.js";
 export function createFleetStatusController(options) {
     const byId = new Map();
     const nodeIds = new Map();
+    const nodeSnapshots = new Map();
+    const emptyIds = Object.freeze([]);
     const indexedNode = new Map();
     const { renderer, onListChanged, onApplied } = options;
     const requestFrame = options.requestFrame ?? requestAnimationFrame;
@@ -24,13 +27,17 @@ export function createFleetStatusController(options) {
             return;
         const ids = nodeIds.get(key);
         ids?.delete(id);
+        nodeSnapshots.delete(key);
         if (ids?.size === 0)
             nodeIds.delete(key);
         indexedNode.delete(id);
     }
     function index(id, state) {
-        unindex(id);
         const key = nodeKey(state);
+        if (indexedNode.get(id) === key)
+            return;
+        unindex(id);
+        nodeSnapshots.delete(key);
         let ids = nodeIds.get(key);
         if (!ids)
             nodeIds.set(key, ids = new Set());
@@ -40,6 +47,7 @@ export function createFleetStatusController(options) {
     function clear() {
         byId.clear();
         nodeIds.clear();
+        nodeSnapshots.clear();
         indexedNode.clear();
         if (listFrame !== 0)
             cancelFrame(listFrame);
@@ -47,7 +55,7 @@ export function createFleetStatusController(options) {
         renderList();
     }
     function remember(fleet) {
-        byId.set(fleet.id, { counts: fleet.counts, state: fleet.state });
+        byId.set(fleet.id, { counts: fleet.counts, state: fleet.state, relationship: fleetRelationship(fleet.relationship) });
         index(fleet.id, fleet.state);
     }
     function applyBatch(fleets) {
@@ -57,18 +65,25 @@ export function createFleetStatusController(options) {
             renderer.addFleetBatch(fleets);
         else
             for (const fleet of fleets)
-                renderer.addFleet(fleet.id, fleet.counts, fleet.state);
+                renderer.addFleet(fleet.id, fleet.counts, fleet.state, fleet.relationship);
     }
     return {
         byId,
         fleetIdsAt(clusterId, solarSystemId) {
-            return [...(nodeIds.get(`${clusterId}:${solarSystemId}`) ?? [])];
+            const key = `${clusterId}:${solarSystemId}`;
+            let snapshot = nodeSnapshots.get(key);
+            if (!snapshot) {
+                const ids = nodeIds.get(key);
+                snapshot = ids ? Object.freeze([...ids]) : emptyIds;
+                nodeSnapshots.set(key, snapshot);
+            }
+            return snapshot;
         },
-        handleSpawned(id, counts, state) {
+        handleSpawned(id, counts, state, relationship) {
             if (disposed)
                 return;
-            remember({ id, counts, state });
-            renderer.addFleet(id, counts, state);
+            remember({ id, counts, state, relationship });
+            renderer.addFleet(id, counts, state, relationship);
             onApplied?.(1);
             scheduleList();
         },

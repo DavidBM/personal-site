@@ -41,8 +41,8 @@ export const DEFAULT_TRAIL_CONFIG = {
     lifetimeMs: 1400,
     // Retained only for legacy age-based CPU golden helpers.
     minDist: 0,
-    // Historical points at 60 Hz; the live emitter point updates every frame.
-    maxIntervalMs: 1000 / 60,
+    // Historical points at 50 Hz; the live emitter point updates every frame.
+    maxIntervalMs: 20,
 };
 /**
  * Age factor: (1 − age01)^power. Secondary — short rings often never reach
@@ -99,7 +99,7 @@ export function resolveTrailLayout(partial) {
     const lifetimeMs = finiteTrailValue(partial?.lifetimeMs, base.lifetimeMs, Number.MIN_VALUE);
     const minDist = finiteTrailValue(partial?.minDist, base.minDist, 0);
     const maxIntervalMs = finiteTrailValue(partial?.maxIntervalMs, base.maxIntervalMs, 1);
-    const segsPerShip = ringSize - 1;
+    const segsPerShip = ringSize === 8 ? 6 : ringSize - 1;
     const vertsPerShip = segsPerShip * 2;
     const lineFloatsPerVert = TRAIL_LINE_FLOATS_PER_VERT;
     const segmentFloats = TRAIL_SEGMENT_FLOATS;

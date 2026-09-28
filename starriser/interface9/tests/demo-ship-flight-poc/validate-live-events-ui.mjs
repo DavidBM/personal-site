@@ -24,7 +24,7 @@ try {
   const running=await cdp.evaluate(`(async()=>{
     const e=window.flightLab.engine,{CLASS_BY_TYPE}=await import('/tests/demo-ship-battle-poc/classes.mjs');
     const raw=await e.read(e.state),f=new Float32Array(raw),w=new Uint32Array(raw);let targets=0,valid=true;
-    for(let i=0;i<e.count;i++)if(w[i*48+21]===0&&w[i*48+22]===1&&f[i*48+16]>0){targets++;valid&&=CLASS_BY_TYPE[(w[(f[i*48+16]-1)*48+20]>>8)&255]===2;}
+    for(let i=0;i<e.count;i++)if(w[i*56+21]===0&&w[i*56+22]===1&&f[i*56+16]>0){targets++;valid&&=CLASS_BY_TYPE[(w[(f[i*56+16]-1)*56+20]>>8)&255]===2;}
     return {targets,valid,errors:[...e.errors,document.querySelector('#error').textContent].filter(Boolean)};
   })()`);
   assert(running.targets>0&&running.valid);assert.deepEqual(running.errors,[]);

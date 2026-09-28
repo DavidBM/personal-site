@@ -46,7 +46,7 @@ export function createBulkFleetSpawner(world, ports) {
                 if (!fleet)
                     continue;
                 need--;
-                pending.push({ id: fleet.id, counts: fleet.counts, state: fleet.state });
+                pending.push({ id: fleet.id, counts: fleet.counts, state: fleet.state, relationship: fleet.relationship });
                 if (pending.length >= BULK_OUT_BATCH) {
                     flush();
                     planner = undefined;

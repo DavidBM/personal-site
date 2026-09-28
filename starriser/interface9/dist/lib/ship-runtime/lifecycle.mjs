@@ -1,4 +1,22 @@
-export const LIFECYCLE_WGSL=/* wgsl */`
+export function lifecycleWgsl(solar = false) {
+  const warpPlace = solar
+    ? `let exit=journey.exit.xyz+warpOffset(s);
+    let duration=max(.000001,s.flight.z-s.flight.y);
+    let direction=unit(exit-s.origin.xyz);
+    s.v=vec4<f32>((exit-s.origin.xyz)/duration,s.v.w);s.a=vec4<f32>(0.0);
+    s=warpShipPosition(s,min(now,s.flight.z));
+    s.positionAnchor.w=min(now,s.flight.z);
+    if(now>=s.flight.z){s.p=vec4<f32>(exit,s.p.w);s.positionLow=vec4<f32>(0.0);s=initializeShipPosition(s);}
+    s.q=flightAttitude(s.q,s.v.xyz);s.aux.x=0.0;`
+    : `let exit=journey.exit.xyz+formationOffset(s);
+    let duration=max(.000001,s.flight.z-s.flight.y);
+    let direction=unit(exit-s.origin.xyz);
+    s.v=vec4<f32>((exit-s.origin.xyz)/duration,s.v.w);s.a=vec4<f32>(0.0);
+    s=warpShipPosition(s,min(now,s.flight.z));
+    s.positionAnchor.w=min(now,s.flight.z);
+    if(now>=s.flight.z){s.p=vec4<f32>(exit,s.p.w);s.positionLow=vec4<f32>(0.0);s=initializeShipPosition(s);}
+    s.q=flightAttitude(s.q,direction);s.aux.x=0.0;`;
+  return /* wgsl */`
 fn navigationCohort(s:Ship)->u32 {
   return select(0u,(s.identity.x>>16u)&1u,groupIntent(groupOf(s)).journeys[1].mode.y>0.0);
 }
@@ -17,8 +35,14 @@ fn formationOffset(s:Ship)->vec3<f32> {
 fn applyJourney(initial:Ship,now:f32,dt:f32)->Ship {
   var s=initial;let journey=journeyFor(s);
   if(journey.mode.y>s.flight.x&&now>=journey.mode.z) {
-    s.flight=vec4<f32>(journey.mode.y,max(journey.mode.z,now-dt),journey.mode.w,journey.mode.x);
-    s.origin=vec4<f32>(s.p.xyz,0.0);
+    // A fresh production seed carries its exact admission time. Render-only
+    // frames may admit rows before the next simulation step consumes them.
+    let originTime=select(now-dt,s.origin.x,s.origin.w == -2.0);
+    let angular=localAngularVelocity(s);
+    s.flight=vec4<f32>(journey.mode.y,max(journey.mode.z,originTime),journey.mode.w,journey.mode.x);
+    if(journey.mode.x>=2.0){s=initializeShipPosition(s);s.positionAnchor.w=s.flight.y;}
+    // Local retargets retain spin. Warp owns xyz as its affine chord origin.
+    s.origin=vec4<f32>(select(angular,s.p.xyz,journey.mode.x>=2.0),0.0);
     // Deadlines remain authoritative. A command received after its deadline is
     // an explicit warp correction at this admission boundary, not extra travel.
     if(journey.mode.x>=2.0&&s.flight.z<=s.flight.y){s.origin.w=-1.0;}
@@ -30,17 +54,12 @@ fn applyJourney(initial:Ship,now:f32,dt:f32)->Ship {
     // The authoritative endpoint time is repacked from host double precision
     // at each epoch change, including a long command that spans several epochs.
     if(s.flight.x==journey.mode.y){s.flight.z=journey.mode.w;}
-    let exit=journey.exit.xyz+formationOffset(s);
-    let duration=max(.000001,s.flight.z-s.flight.y);
-    let progress=select(clamp((now-s.flight.y)/duration,0.0,1.0),1.0,now>=s.flight.z);
-    let direction=unit(exit-s.origin.xyz);
-    s.p=vec4<f32>(mix(s.origin.xyz,exit,progress),s.p.w);
-    s.v=vec4<f32>((exit-s.origin.xyz)/duration,s.v.w);s.a=vec4<f32>(0.0);
-    s.q=attitude(s.q,direction,dt,12.0);s.aux.x=0.0;
+    ${warpPlace}
     if(now>=s.flight.z) {
       // Warp ends at rest. Local flight accelerates from 0 under sceneLimits.
       s.v=vec4<f32>(0.0,0.0,0.0,s.v.w);s.a=vec4<f32>(0.0);
       s.flight.w=select(0.0,-1.0,journey.range.z>0.0);
+      s.origin=vec4<f32>(0.0,0.0,0.0,s.origin.w);
     }
   }
   return s;
@@ -54,7 +73,7 @@ fn journeyVelocity(s:Ship,now:f32)->vec3<f32> {
   let journey=journeyFor(s);let limits=dynamics(shipType(s));
   let goal=encounterFrame(s)+journey.exit.xyz+formationOffset(s)*select(.45,1.0,classIndex(shipType(s))>=4u);
   let delta=goal-s.p.xyz;
-  return unit(delta)*min(limits.x,sqrt(max(0.0,length(delta)-1.0)*limits.y));
+  return unit(delta)*min(limits.x,brakingSpeedAt(s,limits,max(0.0,length(delta)-1.0),0.0));
 }
 struct BranchResult {ship:Ship,velocity:vec3<f32>}
 fn branchGuidance(initial:Ship,incoming:vec3<f32>,now:f32)->BranchResult {
@@ -71,3 +90,5 @@ fn branchGuidance(initial:Ship,incoming:vec3<f32>,now:f32)->BranchResult {
   return BranchResult(s,mix(incoming,desired,blend*enabled*directive.weights.y));
 }
 `;
+}
+export const LIFECYCLE_WGSL = lifecycleWgsl(false);

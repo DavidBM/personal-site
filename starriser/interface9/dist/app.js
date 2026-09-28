@@ -1,3 +1,10 @@
+import { readStarField, writeStarField } from './main/graphics-settings.js';
+import { QualityDiagnosticsPanel } from './ui/quality-diagnostics.js';
+import { simulationRate } from './contracts/simulation-rate.js';
+import { fleetCardObservation } from './ui/fleet-card.js';
+import { createFleetDebugLegend } from './ui/fleet-debug-legend.js';
+import { createRuntimePreparationNotice } from './ui/runtime-preparation-notice.js';
+import { mountBusMetricsPanel } from './ui/bus-metrics-panel.js';
 import { UIController } from "./ui-controller.js";
 import { createOnlineSession } from './main/online-session.js';
 import { followOnlineFleet } from './main/online-navigation.js';
@@ -13,8 +20,16 @@ import { createPointerEventRouter, } from "./main/pointer-event-router.js";
 import { createEditHandlePointerController, } from "./main/edit-handle-pointer.js";
 import { createRenderViewHooks } from "./main/render-view-hooks.js";
 import { RenderClient } from "./main/render-client.js";
+import { readHalfGlow, writeHalfGlow, readSelectiveMsaa, writeSelectiveMsaa, readSimulationRate, writeSimulationRate, readHighFx, readFleetPaths, writeFleetPaths, writeHighFx, paintHighFx } from "./main/graphics-settings.js";
 import { createRenderCameraInput } from "./main/render-camera-input.js";
 import { pickRenderBody } from "./main/render-picking.js";
+import { canMoveSceneFleet, sceneMoveDestination, matchesFleetMoveScene, fleetMoveRejection, fleetMoveNotice } from './main/fleet-move-input.js';
+import { createFleetMoveGesture } from './main/fleet-move-gesture.js';
+import { nearFirstWaypoint } from './main/fleet-move-preview.js';
+import { createFleetMoveStatus } from './ui/fleet-move-status.js';
+import { FleetTopics } from './features/fleets/contracts.js';
+import { publishFeatureTopic } from './worker/protocol/feature-topics.js';
+import { createFleetContextMenu } from "./ui/fleet-context-menu.js";
 import { createScenePointerFeedback } from "./ui/scene-pointer-feedback.js";
 import { installAppRenderDiagnostics } from "./main/app-render-diagnostics.js";
 import { sceneFleetRemainingSec } from "./render/protocol.js";
@@ -24,6 +39,8 @@ import { beginBulkAdd, cancelGamePerfWork, endBulkAdd, installGamePerfGlobal, is
 import { CAP_NEAR, GLOBAL_MAX_INSTANCES } from "./gpu/fleet-lod.js";
 import { Bus } from "./worker/bus/Bus.js";
 import { publishTopic, Topics } from "./worker/protocol/topics.js";
+import { createSimPauseController } from "./lib/sim-clock.js";
+import { paintSimPauseButtons } from "./ui/sim-pause-button.js";
 import { CursorStatsWidget } from "./ui/cursor-stats-widget.js";
 import { createUIContext, createUIRoot } from "./ui/ui-kit.js";
 import { buildEditorUI, buildPlayUI, resolveUIMode, } from "./ui/ui-modes.js";
@@ -33,12 +50,28 @@ import { directorFlyToSystem, fleetLocsFromState, pickRandomCluster, pickRandomS
 import { SCENE_ENTER_PX, distanceForSpanPx, } from "./gpu/solar-system-lod.js";
 export class App {
     constructor(options = {}) {
+        this.qualityDiagnosticsPanel = null;
+        this.starFieldEnabled = readStarField();
+        this.highFxEnabled = readHighFx();
+        this.simulationHz = readSimulationRate();
+        this.fleetPathsVisible = readFleetPaths();
+        this.fleetDebugVisible = false;
+        this.fleetDebugLegend = null;
+        this.runtimePreparationNotice = null;
         this.online = null;
         this.onlineAttempt = 0;
         this.onlineNode = null;
         this.onlineTopology = null;
+        this.busMetricsPanel = null;
+        this.simPause = createSimPauseController();
+        this.nextPlanetPanelAt = 0;
         this.lastSceneFleetIdsKey = "";
         this.scenePointerFeedback = null;
+        this.fleetContextMenu = null;
+        this.fleetMoveStatus = null;
+        this.armedFleetMove = null;
+        this.fleetMoveGesture = null;
+        this.hoveredSceneFleetId = null;
         this.scenePickBusy = false;
         this.pendingScenePick = null;
         this.scenePickGeneration = 0;
@@ -75,6 +108,7 @@ export class App {
             workerLabel: "App/Main",
             workerId: "main",
         });
+        this.busMetricsPanel = mountBusMetricsPanel(this.mainBus, statsBar);
         this.cursorStatsWidget = null;
         this.statsUpdateInterval = 200;
         this.lastStatsUpdate = 0;
@@ -118,14 +152,40 @@ export class App {
             throw new Error("App disposed during renderer initialization");
         }
         this.renderClient = client;
+        client.send({ type: "simulationRate", hz: this.simulationHz });
+        client.send({ type: "starField", on: this.starFieldEnabled });
+        client.send({ type: "highFx", on: this.isHighFxEnabled() });
+        client.send({ type: "fleetPaths", on: this.fleetPathsVisible });
         this.scenePointerFeedback = createScenePointerFeedback(document.body);
-        this.cameraController = createRenderCameraInput(client, this.controlsManager, () => this.clearSceneSelection());
+        this.fleetDebugLegend = createFleetDebugLegend(document.body);
+        this.runtimePreparationNotice = createRuntimePreparationNotice(document.body);
+        this.fleetMoveStatus = createFleetMoveStatus(document.body, () => this.cancelFleetMove());
+        this.fleetContextMenu = createFleetContextMenu(document.body, {
+            select: id => this.selectSceneFleet(id),
+            follow: (id, shipType) => {
+                this.cancelFleetMove();
+                this.sceneSelectionGeneration++;
+                this.renderClient?.send({ type: 'followFleet', id, shipType });
+            },
+            stop: () => this.renderClient?.send({ type: 'followFleet', id: null }),
+            attack: id => {
+                this.cancelFleetMove();
+                this.sceneSelectionGeneration++;
+                void this.issueLocalShowAttack({ kind: 'fleet', id });
+            },
+            move: id => this.armFleetMove(id),
+        });
+        this.cameraController = createRenderCameraInput(client, this.controlsManager, () => this.clearSceneSelection(), () => {
+            this.fleetContextMenu?.hide();
+            this.sceneSelectionGeneration++;
+            return this.cancelFleetMove();
+        });
         const bridge = createRenderViewHooks(client, () => this.galaxy);
         this.galaxy = new Galaxy(bridge.hooks, this.metrics);
         this.fleetStatus.dispose();
         this.fleetStatus = createFleetStatusController({
             renderer: {
-                addFleet: (id, counts, state) => client.send({ type: "fleetSpawn", fleets: [{ id, counts, state }] }),
+                addFleet: (id, counts, state, relationship) => client.send({ type: "fleetSpawn", fleets: [{ id, counts, state, relationship }] }),
                 addFleetBatch: (fleets) => client.send({ type: "fleetSpawn", fleets: [...fleets] }),
                 updateFleetState: (id, state) => client.send({ type: "fleetState", id, state }),
                 removeFleet: (id) => client.send({ type: "fleetRemove", id }),
@@ -147,7 +207,16 @@ export class App {
     handleRenderState(snapshot) {
         if (this.disposed)
             return;
+        this.runtimePreparationNotice?.update(snapshot.scenePreparation ?? null);
+        if (typeof snapshot.highFxSupported === 'boolean') {
+            paintHighFx(snapshot.highFx === true, snapshot.highFxSupported);
+            if (!snapshot.highFxSupported && this.highFxEnabled) {
+                this.highFxEnabled = false;
+                writeHighFx(false);
+            }
+        }
         this.setSolarInputIsolation(snapshot.systemId != null);
+        this.fleetDebugLegend?.show(this.fleetDebugVisible && snapshot.selectedFleetId != null && snapshot.systemId != null);
         for (const panel of this.statsPanels)
             panel.update(snapshot);
         const added = Math.max(0, snapshot.metrics.fleetCount - this.lastRenderFleetCount);
@@ -157,8 +226,9 @@ export class App {
             if (!isBulkActive())
                 this.clearBulkShipBudgetHint();
         }
-        this.syncPlanetPanel();
+        this.syncPlanetPanel(false);
         this.cursorStatsWidget?.refreshZoom();
+        this.syncFleetMoveStatus();
     }
     buildUIBindings(mode) {
         return mode === "play"
@@ -189,7 +259,11 @@ export class App {
         if (active === this.solarInputIsolated)
             return;
         this.solarInputIsolated = active;
+        this.cancelFleetMove();
+        this.sceneSelectionGeneration++;
         this.contextMenuController?.hide();
+        this.fleetContextMenu?.hide();
+        this.setFleetHover(null);
         if (active) {
             this.controlsManager.setEditModeActive(false, null);
             this.editHandlePointer?.setActiveClusterId(null);
@@ -210,6 +284,8 @@ export class App {
         if (mode === this.uiMode)
             return;
         this.uiMode = mode;
+        this.busMetricsPanel?.dispose();
+        this.busMetricsPanel = null;
         this.uiRoot.clear();
         this.uiBindings = this.buildUIBindings(this.uiMode);
         this.contextMenu =
@@ -221,6 +297,7 @@ export class App {
         this.statsPanels = [];
         this.statsPanels.push(createRenderPerformancePanel(statsBar));
         this.stats = this.statsPanels[0] ?? null;
+        this.busMetricsPanel = mountBusMetricsPanel(this.mainBus, statsBar);
         this.uiController.setStatsElements(this.uiBindings.stats);
         const statsContainer = editorStatsContainer(this.uiBindings);
         if (this.cursorStatsWidget) {
@@ -380,9 +457,9 @@ export class App {
                     },
                 },
                 fleets: {
-                    onFleetSpawned: ({ id, counts, state }) => {
+                    onFleetSpawned: ({ id, counts, state, relationship }) => {
                         // Immediate apply; noteBulkApplied via onApplied when bulk active.
-                        this.fleetStatus.handleSpawned(id, counts, state);
+                        this.fleetStatus.handleSpawned(id, counts, state, relationship);
                     },
                     onFleetsSpawnedBatch: ({ fleets }) => {
                         // Enqueue only — pack is rAF-budgeted; gamePerf counts real applies.
@@ -397,6 +474,8 @@ export class App {
                 },
             });
             console.log("All workers initialized successfully");
+            if (this.isSimPaused())
+                this.publishSimPause();
             this.initEventListeners();
             // Set up optional lifecycle/debug subscriptions after workers are ready.
             setTimeout(() => {
@@ -439,6 +518,7 @@ export class App {
         // Edit-handle pointer path: hasEditHandles gates hit-test when gizmo is up.
         if (this.editHandlePointer) {
             this.pointerEventRouter?.dispose();
+            this.fleetMoveGesture = this.createFleetPlacementGesture(canvas);
             this.pointerEventRouter = createPointerEventRouter({
                 canvas,
                 cameraController: this.cameraController,
@@ -451,9 +531,8 @@ export class App {
                 updateSceneHover: (x, y) => this.updateSceneHover(x, y),
                 clearFocus: () => this.clearSceneSelection(),
                 isSceneActive: () => this.isSolarSceneActive(),
-                onSceneAttack: this.authority === "online"
-                    ? undefined
-                    : (x, y) => { void this.issueLocalShowAttack(x, y); },
+                onSceneContextMenu: (x, y) => this.showFleetContextMenu(x, y),
+                fleetMoveGesture: this.fleetMoveGesture,
             });
         }
     }
@@ -614,9 +693,15 @@ export class App {
         publishTopic(this.mainBus, Topics.generateFleet, at ? { at } : {});
     }
     followRandomShip() {
+        this.cancelFleetMove();
+        this.sceneSelectionGeneration++;
+        this.fleetContextMenu?.hide();
         this.renderClient?.send({ type: "followRandomShip" });
     }
     followSelectedFleet() {
+        this.cancelFleetMove();
+        this.sceneSelectionGeneration++;
+        this.fleetContextMenu?.hide();
         const id = this.renderClient?.snapshot()?.selectedFleetId;
         if (id)
             this.renderClient?.send({ type: "followFleet", id });
@@ -624,7 +709,72 @@ export class App {
     setDebugDensityVoxels(on) {
         this.renderClient?.send({ type: "debugDensityVoxels", on });
     }
+    setDebugRepulsion(on) {
+        this.renderClient?.send({ type: "debugRepulsion", on });
+    }
+    isQualityDiagnosticsEnabled() { return this.qualityDiagnosticsPanel !== null; }
+    setQualityDiagnostics(on) {
+        this.qualityDiagnosticsPanel?.dispose();
+        this.qualityDiagnosticsPanel = null;
+        if (on && this.renderClient)
+            this.qualityDiagnosticsPanel = new QualityDiagnosticsPanel(this.renderClient);
+    }
+    isHalfGlowEnabled() { return readHalfGlow(); }
+    setHalfGlow(on) { writeHalfGlow(on); }
+    isSelectiveMsaaEnabled() { return readSelectiveMsaa(); }
+    setSelectiveMsaa(on) { writeSelectiveMsaa(on); }
+    getSimulationRate() { return this.simulationHz; }
+    setSimulationRate(hz) {
+        this.simulationHz = simulationRate(hz);
+        writeSimulationRate(this.simulationHz);
+        this.renderClient?.send({ type: 'simulationRate', hz: this.simulationHz });
+    }
+    isStarFieldEnabled() { return this.starFieldEnabled; }
+    setStarField(on) {
+        this.starFieldEnabled = on;
+        writeStarField(on);
+        this.renderClient?.send({ type: 'starField', on });
+    }
+    isHighFxEnabled() { return this.highFxEnabled; }
+    setHighFx(on) {
+        this.highFxEnabled = on;
+        writeHighFx(on);
+        this.renderClient?.send({ type: "highFx", on });
+    }
+    isFleetPathsVisible() { return this.fleetPathsVisible; }
+    setFleetPathsVisible(on) {
+        this.fleetPathsVisible = on;
+        writeFleetPaths(on);
+        this.renderClient?.send({ type: 'fleetPaths', on });
+    }
+    isFleetDebugVisible() { return this.fleetDebugVisible; }
+    setFleetDebugVisible(on) {
+        this.fleetDebugVisible = on;
+        this.renderClient?.send({ type: 'fleetDebug', on });
+        this.fleetDebugLegend?.show(on && this.renderClient?.snapshot()?.selectedFleetId != null);
+    }
+    isSimPaused() {
+        return this.simPause.paused;
+    }
+    toggleSimPaused() {
+        if (this.authority === "online")
+            return;
+        this.simPause.setPaused(!this.simPause.paused);
+        this.publishSimPause();
+        paintSimPauseButtons(this.simPause.paused);
+    }
+    publishSimPause() {
+        const state = this.simPause.state();
+        this.renderClient?.send({ type: "simPause", ...state });
+        if (this.authority === "online" || !this.mainBus.isPubSubReady())
+            return;
+        publishTopic(this.mainBus, Topics.simPause, state, 0);
+    }
+    setShipTuning(patch) {
+        this.renderClient?.send({ type: "shipTuning", ...patch });
+    }
     selectSceneBody(index) {
+        this.cancelFleetMove();
         this.sceneSelectionGeneration++;
         const snapshot = this.renderClient?.snapshot();
         const body = snapshot?.bodies.find((candidate) => candidate.index === index);
@@ -633,6 +783,7 @@ export class App {
         this.renderClient?.send({ type: "selectBody", index, systemId: snapshot.systemId, catalogId: body.catalogId });
     }
     selectSceneFleet(id) {
+        this.cancelFleetMove();
         this.sceneSelectionGeneration++;
         const snapshot = this.renderClient?.snapshot();
         const local = this.authority === "offline" && this.fleetStatus.byId.has(id);
@@ -641,7 +792,9 @@ export class App {
         this.renderClient?.send({ type: "selectFleet", id });
     }
     clearSceneSelection() {
+        this.cancelFleetMove();
         this.sceneSelectionGeneration++;
+        this.fleetContextMenu?.hide();
         this.renderClient?.send({ type: "clearFocus" });
     }
     loadMoreSceneFleets() {
@@ -681,19 +834,148 @@ export class App {
         this.queueScenePick(x, y, true);
         return true;
     }
-    async issueLocalShowAttack(clientX, clientY) {
-        if (this.authority === "online")
+    createFleetPlacementGesture(canvas) {
+        return createFleetMoveGesture({ parent: document.body, snapshot: () => this.renderClient?.snapshot() ?? null,
+            rect: () => canvas.getBoundingClientRect(), capture: event => {
+                const snapshot = this.renderClient?.snapshot();
+                const id = this.armedFleetMove?.id ?? snapshot?.selectedFleetId;
+                const move = this.captureFleetMove(event.clientX, event.clientY, id);
+                if (!move?.destination || !snapshot || event.detail > 1)
+                    return null;
+                const generation = this.sceneSelectionGeneration;
+                return { destination: move.destination, snapshot, clickCommit: event.shiftKey || this.armedFleetMove != null,
+                    commit: (point, x, y) => {
+                        if (this.sceneSelectionGeneration !== generation)
+                            return;
+                        const request = { ...move, destination: point, append: event.shiftKey };
+                        this.closeFleetPathAtFirstWaypoint(request, snapshot, x, y);
+                        if (request.close) {
+                            this.issueFleetMove(request);
+                            return;
+                        }
+                        void this.executeScenePick(this.renderClient, { x, y, select: true, move: request,
+                            generation: this.scenePickGeneration, selectionGeneration: generation }, move.systemId, canvas.getBoundingClientRect());
+                    } };
+            } });
+    }
+    closeFleetPathAtFirstWaypoint(move, snapshot, x, y) {
+        if (!move.append || !move.destination)
+            return;
+        const state = this.fleetStatus.byId.get(move.id)?.state;
+        const points = state?.state === 'awaiting' ? state.localMove?.waypoints : null;
+        if (!points || points.length < 3)
+            return;
+        const first = points[0];
+        const rect = this.renderClient.canvas.getBoundingClientRect();
+        if (!nearFirstWaypoint(snapshot, first, move.destination, x - rect.left, y - rect.top))
+            return;
+        move.destination = { ...first };
+        move.close = true;
+    }
+    movableSceneFleet(id, snapshot = this.renderClient?.snapshot() ?? null) {
+        return this.authority === 'offline' && canMoveSceneFleet(snapshot, this.fleetStatus.byId.get(id)?.state);
+    }
+    armFleetMove(id) {
+        const snapshot = this.renderClient?.snapshot();
+        if (!snapshot || !this.movableSceneFleet(id, snapshot))
+            return;
+        if (snapshot.selectedFleetId !== id)
+            this.selectSceneFleet(id);
+        else {
+            this.cancelFleetMove();
+            this.sceneSelectionGeneration++;
+        }
+        this.armedFleetMove = { id, systemId: snapshot.systemId };
+        this.fleetMoveStatus?.clearNotice();
+        this.syncFleetMoveStatus();
+    }
+    /** Escape cancels the pending order first, leaving the selected fleet and camera intact. */
+    cancelFleetMove() {
+        const gesture = this.fleetMoveGesture?.cancel() ?? false;
+        if (!this.armedFleetMove) {
+            if (gesture)
+                this.sceneSelectionGeneration++;
+            return gesture;
+        }
+        this.armedFleetMove = null;
+        this.sceneSelectionGeneration++;
+        this.fleetMoveStatus?.clearNotice();
+        this.syncFleetMoveStatus();
+        return true;
+    }
+    syncFleetMoveStatus() {
+        const snapshot = this.renderClient?.snapshot() ?? null;
+        const armed = this.armedFleetMove;
+        if (armed && (snapshot?.systemId !== armed.systemId || !this.movableSceneFleet(armed.id, snapshot))) {
+            this.armedFleetMove = null;
+            this.sceneSelectionGeneration++;
+        }
+        const id = this.armedFleetMove?.id ?? snapshot?.selectedFleetId;
+        const text = id && this.movableSceneFleet(id, snapshot)
+            ? this.armedFleetMove ? 'Choose destination · Hold to set height · Esc cancels'
+                : 'Fleet selected · RMB move · Shift-click add point · Hold LMB height · Shift-click first point closes patrol'
+            : '';
+        this.fleetMoveStatus?.update(text, this.armedFleetMove != null);
+    }
+    captureFleetMove(x, y, id) {
+        const client = this.renderClient, snapshot = client?.snapshot();
+        if (!id || !client || !snapshot?.sceneNode || !this.movableSceneFleet(id, snapshot))
+            return;
+        const rect = client.canvas.getBoundingClientRect();
+        return { id, systemId: snapshot.systemId, node: { ...snapshot.sceneNode },
+            destination: sceneMoveDestination(snapshot, x - rect.left, y - rect.top) };
+    }
+    issueFleetMove(move) {
+        const snapshot = this.renderClient?.snapshot();
+        if (this.disposed || !matchesFleetMoveScene(snapshot, move) || !this.movableSceneFleet(move.id, snapshot))
+            return;
+        const rejection = fleetMoveRejection(move, this.fleetStatus.byId.get(move.id)?.state);
+        if (rejection) {
+            this.fleetMoveStatus?.notice(rejection);
+            this.syncFleetMoveStatus();
+            return;
+        }
+        const command = { id: move.id, node: move.node, destination: move.destination, append: move.append, close: move.close };
+        publishFeatureTopic(this.mainBus, FleetTopics.moveLocal, command);
+        this.armedFleetMove = null;
+        if (!move.append)
+            this.sceneSelectionGeneration++;
+        this.fleetMoveStatus?.notice(fleetMoveNotice(move));
+        this.syncFleetMoveStatus();
+    }
+    showFleetContextMenu(x, y) {
+        const client = this.renderClient;
+        const systemId = client?.snapshot()?.systemId;
+        if (!client || systemId == null)
+            return;
+        const rect = client.canvas.getBoundingClientRect();
+        const generation = ++this.sceneSelectionGeneration;
+        const move = this.captureFleetMove(x, y, this.armedFleetMove?.id ?? client.snapshot()?.selectedFleetId);
+        let empty = false;
+        const current = () => !this.disposed && this.renderClient === client
+            && client.snapshot()?.systemId === systemId && this.sceneSelectionGeneration === generation;
+        void this.fleetContextMenu?.openAt(x, y, async () => {
+            const target = await client.query({ type: 'pickSceneTarget', x: x - rect.left, y: y - rect.top });
+            if (!current())
+                return null;
+            empty = target == null;
+            if (target?.kind !== 'fleet')
+                return null;
+            const result = await client.query({ type: 'fleetShipTypes', id: target.id });
+            const snapshot = client.snapshot();
+            if (!snapshot || !current())
+                return null;
+            return { id: target.id, types: result.types, following: snapshot.following,
+                move: this.movableSceneFleet(target.id, snapshot),
+                attack: this.authority !== 'online' && snapshot.selectedFleetId != null && snapshot.selectedFleetId !== target.id };
+        }, () => { if (empty && move && current())
+            this.issueFleetMove(move); });
+    }
+    async issueLocalShowAttack(target) {
+        if (this.authority === 'online' || target.kind !== 'fleet')
             return;
         const client = this.renderClient;
         if (!client)
-            return;
-        const rect = client.canvas.getBoundingClientRect();
-        const target = await client.query({
-            type: "pickFleetHalo",
-            x: clientX - rect.left,
-            y: clientY - rect.top,
-        });
-        if (!target || target.kind !== "fleet")
             return;
         const selected = client.snapshot()?.selectedFleetId;
         if (!selected || selected === target.id)
@@ -718,10 +1000,12 @@ export class App {
             this.scenePickGeneration++;
             this.pendingScenePick = this.pendingScenePick?.select ? this.pendingScenePick : null;
             this.scenePointerFeedback?.update(null);
+            this.setFleetHover(null);
             return;
         }
         if (!this.sceneHoverAvailable()) {
             this.scenePointerFeedback?.update(null);
+            this.setFleetHover(null);
             return;
         }
         this.queueScenePick(x, y, false);
@@ -735,7 +1019,8 @@ export class App {
         if (pending?.select && !select)
             return;
         const selectionGeneration = select ? ++this.sceneSelectionGeneration : this.sceneSelectionGeneration;
-        this.pendingScenePick = { x, y, select, generation: ++this.scenePickGeneration, selectionGeneration };
+        const move = select && this.armedFleetMove ? this.captureFleetMove(x, y, this.armedFleetMove.id) : undefined;
+        this.pendingScenePick = { x, y, select, generation: ++this.scenePickGeneration, selectionGeneration, move };
         if (!this.scenePickBusy)
             void this.drainScenePick();
     }
@@ -753,6 +1038,7 @@ export class App {
         }
         catch {
             this.scenePointerFeedback?.update(null);
+            this.setFleetHover(null);
         }
         finally {
             this.scenePickBusy = false;
@@ -763,7 +1049,7 @@ export class App {
     async executeScenePick(client, request, sceneId, rect) {
         const target = await client.query({ type: "pickSceneTarget", x: request.x - rect.left, y: request.y - rect.top });
         const after = client.snapshot();
-        if (!after || sceneId !== after.systemId)
+        if (this.disposed || this.renderClient !== client || !after || sceneId !== after.systemId)
             return;
         if (request.select && request.selectionGeneration !== this.sceneSelectionGeneration)
             return;
@@ -772,6 +1058,15 @@ export class App {
         this.handleScenePickResponse(request, target);
     }
     handleScenePickResponse(request, target) {
+        if (request.select && request.move) {
+            if (!target)
+                this.issueFleetMove(request.move);
+            else {
+                this.fleetMoveStatus?.notice('Choose empty space for the destination · Esc cancels');
+                this.syncFleetMoveStatus();
+            }
+            return;
+        }
         if (request.select) {
             this.applyScenePick(target);
             return;
@@ -779,7 +1074,14 @@ export class App {
         let kind = null;
         if (target)
             kind = target.kind === "body" ? "planet" : "fleet";
+        this.setFleetHover(target?.kind === 'fleet' ? target.id : null);
         this.scenePointerFeedback?.update(kind, request.x, request.y);
+    }
+    setFleetHover(id) {
+        if (id === this.hoveredSceneFleetId)
+            return;
+        this.hoveredSceneFleetId = id;
+        this.renderClient?.send({ type: 'hoverFleet', id });
     }
     applyScenePick(target) {
         if (target?.kind === "body") {
@@ -794,7 +1096,7 @@ export class App {
         else
             this.clearSceneSelection();
     }
-    syncPlanetPanel() {
+    syncPlanetPanel(force = true) {
         const snapshot = this.renderClient?.snapshot();
         if (!snapshot || snapshot.systemId == null || snapshot.bodies.length === 0) {
             if (this.lastPlanetPanelKey === "0")
@@ -808,9 +1110,13 @@ export class App {
         }
         const node = snapshot.sceneNode;
         this.syncSceneFleetIds(node);
+        const key = `${snapshot.systemId}:${snapshot.focusIndex}:${snapshot.selectedFleetId}:${snapshot.sceneFleetCount}`;
+        const wallNow = performance.now();
+        if (!force && key === this.lastPlanetPanelKey && wallNow < this.nextPlanetPanelAt)
+            return;
+        this.nextPlanetPanelAt = wallNow + 200;
         const fleets = this.sceneFleetRows(snapshot);
-        const cap = snapshot.metrics.graphicsCap;
-        this.lastPlanetPanelKey = `${snapshot.systemId}:${snapshot.focusIndex}:${snapshot.selectedFleetId}:${snapshot.sceneFleetCount}`;
+        this.lastPlanetPanelKey = key;
         this.uiBindings.planetPanel.sync({ visible: true, bodies: snapshot.bodies, focusIndex: snapshot.focusIndex,
             fleets, fleetTotal: this.authority === "offline" ? fleets.length : snapshot.sceneFleetCount,
             selectedFleetId: snapshot.selectedFleetId, graphicsCap: snapshot.metrics.graphicsCap,
@@ -835,9 +1141,11 @@ export class App {
             }
             for (const fleet of snapshot.sceneFleets)
                 this.onlineSceneFleets.set(fleet.id, fleet);
+            const observed = new Map(snapshot.sceneFleets.map(fleet => [fleet.id, fleet]));
             return [...this.onlineSceneFleets.values()].map((fleet) => ({
                 id: fleet.id, shipCount: fleet.shipCount, state: fleet.state,
                 remainingSec: fleet.remainingSec, planetName: fleet.planetName,
+                ...fleetCardObservation(observed.get(fleet.id)),
             }));
         }
         const observed = new Map(snapshot.sceneFleets.map((fleet) => [fleet.id, fleet]));
@@ -846,10 +1154,12 @@ export class App {
             const snap = observed.get(id);
             return {
                 id,
+                relationship: fleet.relationship,
                 shipCount: fleet.counts.red + fleet.counts.blue + fleet.counts.green,
                 state: fleet.state.state,
                 remainingSec: snap?.remainingSec ?? sceneFleetRemainingSec(fleet.state, snapshot.wallMs),
                 planetName: snap?.planetName ?? null,
+                ...fleetCardObservation(snap),
             };
         });
     }
@@ -1063,6 +1373,11 @@ export class App {
         if (this.authority === 'online')
             return;
         console.log("Clearing galaxy...");
+        this.cancelFleetMove();
+        this.sceneSelectionGeneration++;
+        this.fleetMoveStatus?.update('');
+        this.fleetContextMenu?.hide();
+        this.setFleetHover(null);
         endBulkAdd();
         this.clearBulkShipBudgetHint();
         // Clear renderer
@@ -1102,6 +1417,10 @@ export class App {
         cancelGamePerfWork();
         this.pointerEventRouter?.dispose();
         this.scenePointerFeedback?.dispose();
+        this.fleetContextMenu?.dispose();
+        this.fleetContextMenu = null;
+        this.fleetMoveStatus?.dispose();
+        this.fleetMoveStatus = null;
         this.scenePointerFeedback = null;
         this.cameraController?.dispose();
         this.controlsManager.setEditModeActive(false);
@@ -1111,8 +1430,16 @@ export class App {
         for (const panel of this.statsPanels)
             panel.dispose();
         await this.online?.dispose();
+        this.busMetricsPanel?.dispose();
+        this.busMetricsPanel = null;
         this.mainBus.destroy();
+        this.qualityDiagnosticsPanel?.dispose();
+        this.qualityDiagnosticsPanel = null;
         await this.renderClient?.dispose();
+        this.fleetDebugLegend?.dispose();
+        this.fleetDebugLegend = null;
+        this.runtimePreparationNotice?.dispose();
+        this.runtimePreparationNotice = null;
         this.uiRoot.clear();
     }
     updateStats(stats) {

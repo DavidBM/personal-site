@@ -1,3 +1,5 @@
+import { createSnapshotWriter } from "./snapshot-writer.js";
+import { configureMapQuality } from '../gpu/map-msaa.js';
 /** Worker-owned render composition. The same production runtime is usable in isolated scenarios. */
 import { enableFrameDebug } from "../gpu/frame-debug.js";
 import { setAssetBase } from "../gpu/asset-url.js";
@@ -14,11 +16,12 @@ import { queryRenderRuntime } from "./runtime-queries.js";
 import { applyRenderCommand } from "./runtime-commands.js";
 import { createRuntimeProjection } from './remote/runtime-projection.js';
 import { isProjectionQuery } from './remote/protocol.js';
-/** Preserve the previous UI projection's bounded bulk packing allowance. */
-const FLEET_PACK_BUDGET_MS = 8;
+/** Leave headroom for camera, scene maintenance and GPU submission at 120 Hz. */
+const FLEET_PACK_BUDGET_MS = 1;
 const FLEET_PACK_MAX_PER_FRAME = 256;
 const OBSERVATION_INTERVAL_MS = 1000 / 30;
 export async function createRenderRuntime(options) {
+    configureMapQuality(options.selectiveMsaa !== false, options.halfGlow !== false);
     enableFrameDebug(options.frameDebug === true);
     setAssetBase(options.assetBase);
     let runtime;
@@ -47,7 +50,7 @@ function wireRuntime(view, options) {
     const galaxy = new Galaxy(createWebGpuViewHooks(view, () => galaxy), new GalaxyMetrics());
     view.setFleetPositionProvider((node) => galaxy.getSolarSystemById(node.clusterId, node.solarSystemId)?.position ?? null);
     const fleets = createRenderFleetQueue((fleet) => {
-        view.addFleet(fleet.id, fleet.counts, fleet.state);
+        view.addFleet(fleet.id, fleet.counts, fleet.state, fleet.relationship);
         state.fleetIds.add(fleet.id);
     });
     state = {
@@ -72,12 +75,17 @@ function wireRuntime(view, options) {
     });
     let disposed = false;
     let lastObservation = 0;
+    const snapshots = createSnapshotWriter();
     const observe = () => {
         const now = performance.now();
-        if (now - lastObservation < OBSERVATION_INTERVAL_MS)
+        if (now - lastObservation < OBSERVATION_INTERVAL_MS || options.canObserve?.() === false)
             return;
         lastObservation = now;
-        options.onState(renderSnapshot(state, remote.sceneFleets(256), remote.sceneFleetCount()));
+        const refs = remote.sceneFleets(256), total = remote.sceneFleetCount();
+        if (options.onStatePacket)
+            options.onStatePacket(snapshots.write(state, refs, total));
+        else
+            options.onState(renderSnapshot(state, refs, total));
     };
     view.setBeforeFrame((dtMs) => {
         fleets.drain(FLEET_PACK_BUDGET_MS, FLEET_PACK_MAX_PER_FRAME);
@@ -125,6 +133,7 @@ function wireRuntime(view, options) {
             const refs = query.type === "snapshot" ? remote.sceneFleets(256) : remote.sceneFleets();
             return queryRenderRuntime(state, query, refs);
         },
+        recycleObservation: buffer => snapshots.recycle(buffer),
         snapshot: () => renderSnapshot(state, remote.sceneFleets(256), remote.sceneFleetCount()),
         dispose() {
             if (disposed)

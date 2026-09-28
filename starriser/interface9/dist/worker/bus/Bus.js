@@ -295,6 +295,7 @@ export class Bus {
             return;
         this._destroyed = true;
         this._lifetime.abort();
+        this._metricsDispatched = undefined;
         this._admission.dispose();
         this._dispatcher.dispose();
         if (this._brokerBus) {
@@ -470,6 +471,8 @@ export class Bus {
         return this._executeHandlers(delivery);
     }
     _executeHandlers(delivery) {
+        if (!delivery.local)
+            this._metricsDispatched?.();
         const m = delivery.message;
         const handlers = delivery.publication ? this._subscriptions.get(m.t) : this._listeners[m.t];
         if (!handlers)

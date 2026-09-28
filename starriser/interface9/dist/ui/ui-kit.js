@@ -1,3 +1,4 @@
+import { bindText, setText } from './dom-bindings.js';
 const UI_STYLE_ID = "ui-kit-styles";
 function ensureUIStyles() {
     if (document.getElementById(UI_STYLE_ID))
@@ -13,12 +14,14 @@ function ensureUIStyles() {
   color: #e6f1ff;
   font-family: "Fira Mono", "Menlo", "Monaco", "Consolas", monospace;
 }
+.ui-root [hidden] { display:none !important; }
 .ui-layer {
   position: absolute;
   inset: 0;
   pointer-events: none;
 }
 .ui-panel {
+  contain: layout style; min-width:0; box-sizing:border-box;
   background: rgba(0, 0, 0, 0.72);
   border: 1px solid rgba(100, 140, 180, 0.25);
   border-radius: 6px;
@@ -34,6 +37,7 @@ function ensureUIStyles() {
   color: #c9d8ee;
 }
 .ui-panel-content {
+  min-width:0;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -44,11 +48,13 @@ function ensureUIStyles() {
   grid-template-columns: repeat(var(--ui-columns, 1), minmax(0, 1fr));
 }
 .ui-row {
+  min-width:0;
   display: grid;
   gap: 8px;
   align-items: center;
   grid-template-columns: var(--ui-row-columns, minmax(0, 1fr) auto);
 }
+.ui-row > * {min-width:0;}
 .ui-label {
   font-size: 12px;
   color: #9eb2c9;
@@ -196,24 +202,31 @@ export function createUIRoot(options) {
         root.appendChild(panelLayer);
     if (!overlayLayer.parentElement)
         root.appendChild(overlayLayer);
-    const components = [];
+    const components = new Set();
     return {
         root,
         panelLayer,
         overlayLayer,
         register(component) {
-            components.push(component);
+            if (components.has(component))
+                return;
+            const destroy = component.destroy;
+            let destroyed = false;
+            component.destroy = () => {
+                if (destroyed)
+                    return;
+                destroyed = true;
+                components.delete(component);
+                destroy.call(component);
+            };
+            components.add(component);
         },
         list() {
-            return components.slice();
+            return [...components];
         },
         clear() {
-            while (components.length) {
-                const component = components.pop();
-                if (component) {
-                    component.destroy();
-                }
-            }
+            for (const component of [...components].reverse())
+                component.destroy();
             panelLayer.innerHTML = "";
             overlayLayer.innerHTML = "";
         },
@@ -329,12 +342,13 @@ export function createUIContext(root) {
             element.className = options.className ?? "";
             if (options.muted)
                 element.classList.add("ui-muted");
-            element.textContent = options.text;
+            const textNode = bindText(element);
+            setText(textNode, options.text);
             const parent = options.parent ?? root.panelLayer;
             const component = {
                 id: options.id,
                 kind: "text",
-                element,
+                element, textNode, setText: value => setText(textNode, value),
                 destroy: () => {
                     element.remove();
                 },
@@ -392,6 +406,8 @@ export function createUIContext(root) {
                 kind: "button",
                 element,
                 destroy: () => {
+                    if (options.onClick)
+                        element.removeEventListener("click", options.onClick);
                     element.remove();
                 },
             };

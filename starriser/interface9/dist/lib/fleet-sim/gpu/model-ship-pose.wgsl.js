@@ -26,6 +26,7 @@ struct ShipSim {
   omegaMax: f32,
   trailOwner: u32,
   knots: array<vec4<f32>, 8>,
+  knotAnchors: array<vec4<f32>, 8>,
 };
 
 // FleetGpu stride 64 — pathEnd is the hop/orbit lamp for model lighting.
@@ -58,6 +59,18 @@ struct ModelShipPose {
   centerRel: vec3<f32>, hullScale: f32,
   lightOffset: vec3<f32>, lightCenter: vec3<f32>,
 };
+fn modelShipLodMatches(ship: ShipSim, mask: u32) -> bool {
+  if (mask == 0u) { return true; }
+  let detail = ship.targetKind & 9728u;
+  if (detail != 0u) { return (detail & mask) != 0u; }
+  return ship.fleetIndex < arrayLength(&fleets) && (fleets[ship.fleetIndex].flags & mask) != 0u;
+}
+fn sceneClassScale(ship: ShipSim) -> f32 {
+  // Present stores the draw scale in the high 16 bits of targetKind, in tenths.
+  let tag = ship.targetKind >> 16u;
+  if (tag == 0u) { return 1.0; }
+  return f32(tag) * 0.1;
+}
 fn modelShipPose(ship: ShipSim, origin: vec3<f32>, modelScale: f32) -> ModelShipPose {
   let fi = ship.fleetIndex;
   var pathEnd = vec3<f32>(ship.posX, ship.posY, ship.posZ);
@@ -70,12 +83,16 @@ fn modelShipPose(ship: ShipSim, origin: vec3<f32>, modelScale: f32) -> ModelShip
     inScene = (f.flags & FLEET_FLAG_SYSTEM_SCENE) != 0u;
   }
   var pose: ModelShipPose;
-  pose.hullScale = modelScale;
+  pose.hullScale = modelScale * sceneClassScale(ship);
   let shipPos = vec3<f32>(ship.posX, ship.posY, ship.posZ);
   // Directed present-copy already wrote sun-local compact pose. Rebuilding a
   // polar ring around pathEnd (limb-parked) sat the mesh beside the planet.
   if (inScene) {
-    pose.centerRel = shipPos - origin;
+    pose.centerRel = shipPos-origin;
+    if((ship.targetKind & 4096u)!=0u){
+      pose.centerRel=(vec3<f32>(ship.orbitPhase,ship.orbitOmega,ship.omegaMax)/560.0-origin)
+        +vec3<f32>(ship.accel,ship.cruiseV,ship.orbitR)/560.0;
+    }
     pose.lightOffset = shipPos;
     pose.lightCenter = pathEnd;
     return pose;

@@ -71,7 +71,10 @@ export function createLine2Pipeline(device, options) {
     const sampleCount = options.sampleCount ?? 1;
     const module = device.createShaderModule({
         label: "line2",
-        code: buildLine2Wgsl(options.splitPosition),
+        code: options.clipTransform
+            ? '@group(1) @binding(0) var<uniform> clipTransform:mat4x4<f32>;\n'
+                + buildLine2Wgsl(options.splitPosition, sampleCount === 1).split('u.projection *').join('clipTransform * u.projection *')
+            : buildLine2Wgsl(options.splitPosition, sampleCount === 1),
     });
     // Default null: no depthStencil (Galaxy color-only pass).
     const depthFormat = options.depthFormat === undefined ? null : options.depthFormat;

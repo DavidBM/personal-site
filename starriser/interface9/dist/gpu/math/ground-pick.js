@@ -4,7 +4,8 @@
  * Bus pointer payloads should use `galaxy_position: { x, z }` from the
  * ground hit (drop `y`; it is always 0 on the render plane).
  *
- * Clip space matches {@link mat4Perspective} (OpenGL-style RH, NDC z ∈ [-1, 1]).
+ * Clip space is RH WebGPU, NDC z ∈ [0, 1]. Inverse-projection callers declare
+ * reversed depth explicitly; direct look-at rays do not depend on depth encoding.
  */
 import { lookAtAxes } from "./mat4.js";
 /** CSS pixel → NDC (y flipped; origin top-left). */
@@ -40,15 +41,18 @@ function unprojectNdc(ndcX, ndcY, ndcZ, invViewProj) {
 /**
  * Build a world-space ray through NDC (x, y) using inverse view·proj.
  *
- * Second sample uses NDC z = 0 (clip mid), **not** z = +1. With large
+ * Forward depth retains the legacy extrapolated samples z = -1 and 0, **not**
+ * the far plane z = +1. With large
  * far/near ratios (e.g. near=10, far=1e10) float32 inv(view·proj) makes
  * unproject(z=+1) singular (clip w→0 → origin), so every screen ray
  * aimed at world origin and map pan deltas were always zero.
- * (Three.js Raycaster uses a mid NDC z for the same reason.)
+ * (Three.js Raycaster uses a mid NDC z for the same reason.) Reversed depth uses
+ * the near plane z = 1 and interior z = 0.5, keeping the ray pointed into the scene
+ * and avoiding its far plane z = 0.
  */
-export function rayFromNdc(ndcX, ndcY, invViewProj) {
-    const near = unprojectNdc(ndcX, ndcY, -1, invViewProj);
-    const mid = unprojectNdc(ndcX, ndcY, 0, invViewProj);
+export function rayFromNdc(ndcX, ndcY, invViewProj, reverseDepth = false) {
+    const near = unprojectNdc(ndcX, ndcY, reverseDepth ? 1 : -1, invViewProj);
+    const mid = unprojectNdc(ndcX, ndcY, reverseDepth ? 0.5 : 0, invViewProj);
     let dx = mid.x - near.x;
     let dy = mid.y - near.y;
     let dz = mid.z - near.z;
@@ -87,7 +91,7 @@ export function intersectRayPlaneY0(origin, direction) {
  * ray is independent of clip planes. Same −Z up fallback as mat4LookAt.
  */
 export function rayFromLookAtCamera(opts) {
-    const a = lookAtAxes(opts.eyeX, opts.eyeY, opts.eyeZ, opts.targetX, opts.targetY, opts.targetZ);
+    const a = lookAtAxes(opts.eyeX, opts.eyeY, opts.eyeZ, opts.targetX, opts.targetY, opts.targetZ, opts.upX, opts.upY, opts.upZ);
     const vx = opts.ndcX * opts.aspect * opts.tanHalfFov;
     const vy = opts.ndcY * opts.tanHalfFov;
     const vz = -1;
@@ -125,6 +129,7 @@ export function groundPickFromScreen(opts, _scratch) {
         targetX: opts.targetX,
         targetY,
         targetZ: opts.targetZ,
+        upX: opts.upX, upY: opts.upY, upZ: opts.upZ,
     });
     const ground = intersectRayPlaneY0(ray.origin, ray.direction);
     if (ground == null) {

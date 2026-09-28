@@ -1,3 +1,4 @@
+import {MAX_SHIP_CAPACITY} from './ship-capacity.mjs';
 /** Occupancy identity on the live director ABI: O(occupied groups + ships), not O(F²). */
 import {TYPES} from "./classes.mjs";
 import {createPopulationCatalog} from "./population-catalog.mjs";
@@ -6,7 +7,7 @@ import {distributeFlightTypes} from "./flight-layout.mjs";
 
 export const LOCAL_FLEET_SLOTS = 128;
 export const MAX_OCCUPIED_GROUPS = 512;
-export const MAX_VISUAL_SHIPS = 10_000;
+export const MAX_VISUAL_SHIPS = MAX_SHIP_CAPACITY;
 /** Occupancy group visual cap (SCENE kernel may pack more rows per fleet). */
 export const MAX_GROUP_VISUAL = 4096;
 /** GPU `director.live` words per group stay 8 (256 ordinals). */
@@ -107,7 +108,7 @@ function parseOccupancy(entries) {
     visual += g.visual;
     occupied.push(g);
   }
-  if (visual > MAX_VISUAL_SHIPS) throw new Error("Visual ships exceed 10000");
+  if (visual > MAX_VISUAL_SHIPS) throw new Error("Visual ships exceed 50000");
   return occupied;
 }
 
@@ -207,7 +208,7 @@ export function createOccupancyDirector(entries, options = {}) {
   }
   function compactVisuals(visuals) {
     const list = Array.isArray(visuals) ? visuals : [];
-    let remaining = MAX_VISUAL_SHIPS;
+    let remaining = MAX_VISUAL_SHIPS, changed = false;
     let i = 0;
     while (i < occupied.length) {
       const slot = occupied[i].slot;
@@ -220,10 +221,15 @@ export function createOccupancyDirector(entries, options = {}) {
       for (let k = 0; k < run.length; k++) {
         const next = Math.min(run[k].logical, parts[k], remaining, LIVE_ORDINALS);
         remaining -= next;
+        changed ||= run[k].visual !== next;
         run[k].visual = next;
       }
       i = j;
     }
+    // A host lifetime/slot change can request identical visual counts. Its
+    // serial base is owned by the host; this fixed occupancy layout has not
+    // changed and must not allocate a catalog or invalidate GPU tables again.
+    if (!changed) return director;
     syncRecords(groups, occupied);
     roster = occupancyRoster(occupied, fleetCount);
     population = createPopulationCatalog(groups, roster, options.identityStart ?? 1);

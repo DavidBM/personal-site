@@ -26,6 +26,25 @@ fn cell(p:vec3<i32>,fleet:u32)->u32 { let c=vec3<u32>(clamp(p,vec3<i32>(0),vec3<
 @compute @workgroup_size(128) fn clearDensity(@builtin(global_invocation_id) gid:vec3<u32>) { if(gid.x<activeFieldCount()*FIELD_CELLS){let field=activeField(gid.x/FIELD_CELLS);atomicStore(&density[field*FIELD_CELLS+gid.x%FIELD_CELLS],0u);}
   if(gid.x<32768u){atomicStore(&heads[gid.x],0u);}
   clearSpatial(gid.x); }
+fn stampRepulsion(p:vec3<f32>,field:u32,radius:f32,mass:f32,maxReach:i32) {
+  let cellW=max(densityFrame(field).w,0.001);
+  var reach=i32(ceil(radius/cellW));
+  if(reach<=0){depositDensity(p,field,mass);return;}
+  reach=min(reach,maxReach);
+  let g=gridPoint(p,field);let base=vec3<i32>(floor(g));let limit=radius/cellW;
+  let unitMass=u32(max(mass,0.0)*1024.0);
+  for(var z=-reach;z<=reach;z++){
+    for(var y=-reach;y<=reach;y++){
+      for(var x=-reach;x<=reach;x++){
+        let coord=base+vec3<i32>(x,y,z);
+        if(any(coord<vec3<i32>(0))||any(coord>=vec3<i32>(i32(FIELD_SIDE)))){continue;}
+        let nearest=clamp(g,vec3<f32>(coord),vec3<f32>(coord)+vec3<f32>(1.0));
+        if(distance(g,nearest)>limit){continue;}
+        atomicAdd(&density[cell(coord,field)],unitMass);
+      }
+    }
+  }
+}
 fn depositDensity(p:vec3<f32>,fleet:u32,mass:f32) {
   let g=gridPoint(p,fleet);if(any(g<vec3<f32>(1.0))||any(g>vec3<f32>(f32(FIELD_SIDE)-2.01))){return;}
   let base=vec3<i32>(floor(g));let f=fract(g);
@@ -43,7 +62,7 @@ fn depositDensity(p:vec3<f32>,fleet:u32,mass:f32) {
   if(classIndex(typeId)>=4u){return;}
   for(var field=0u;field<FIELD_COUNT;field++) {
     let weight=contributionWeight(s.identity.y,field);if(weight<=0.0){continue;}
-    depositDensity(s.p.xyz,field,densityWeight(typeId)*weight);
+    stampRepulsion(s.p.xyz,field,repelRadius(typeId,journeyBodyRadius(s)),densityWeight(typeId)*weight,4);
   }
 }
 // One cooperative workgroup per capital; sample spacing <= cell width / sqrt(3)
@@ -74,6 +93,7 @@ fn depositHull(p:vec3<f32>,fleet:u32,mass:u32) {
     let quota=mass/total+select(0u,1u,sample<mass%total);
     depositHull(s.p.xyz+rotate(s.q,offset),field,quota);
   }
+  if(lane==0u){stampRepulsion(s.p.xyz,field,repelRadius(typeId,journeyBodyRadius(s)),densityWeight(typeId)*weight,24);}
   }
 }
 

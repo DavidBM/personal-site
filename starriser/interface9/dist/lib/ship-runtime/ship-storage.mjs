@@ -1,3 +1,5 @@
+import {SHIP_BYTES,SHIP_HISTORY_BYTES} from './ship-layout.mjs';
+import {MAX_SHIP_CAPACITY} from './ship-capacity.mjs';
 import {populationCopies} from './population-copy.mjs';
 import {spatialStorage} from './spatial-schedule.mjs';
 import {correctionWords} from './correction-gpu.mjs';
@@ -8,15 +10,17 @@ import {filterGeometryBytes} from './contact-cache.mjs';
 // Bind only populated bytes: arrayLength and cached offsets still mean count.
 export function shipStorageSizes(count) {
   count=Math.max(1,count);const spatial=spatialStorage(count);
-  return {a:count*192,b:count*192,history:count*768,geometry:filterGeometryBytes(count),
+  return {a:count*SHIP_BYTES,b:count*SHIP_BYTES,history:count*SHIP_HISTORY_BYTES,geometry:filterGeometryBytes(count),
     heads:(spatial.headWords+1)*4,links:(spatial.linkWords+count*EVENT_POSE_WORDS+correctionWords(count))*4};
 }
 function validateCapacity(capacity,count) {
-  if(!Number.isInteger(capacity)||capacity<Math.max(1,count)||capacity>10000)throw new Error('Ship storage capacity must cover the population, up to 10000');
+  if(!Number.isInteger(capacity)||capacity<Math.max(1,count)||capacity>MAX_SHIP_CAPACITY)throw new Error('Ship storage capacity must cover the population, up to 50000');
 }
 function destroyBundle(bundle){for(const buffer of Object.values(bundle.buffers))buffer.destroy();}
 function makeBundle(device,capacity,sizes,count) {
   const buffers={},allocated=shipStorageSizes(capacity);
+  const limit=Math.min(device.limits?.maxStorageBufferBindingSize??Infinity,device.limits?.maxBufferSize??Infinity);
+  if(Object.values(allocated).some(size=>size>limit))throw new Error(`Ship capacity ${capacity} exceeds this device's storage limit`);
   try {
     for(const [name,size] of Object.entries(allocated))buffers[name]=device.createBuffer({label:`ships ${name} / ${capacity}`,size,usage:GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_SRC|GPUBufferUsage.COPY_DST});
   }catch(error){destroyBundle({buffers});throw error;}
@@ -51,7 +55,7 @@ export function createShipStorage(device,count) {
   }
   function grow(nextCount,capacity,prepareBindings,initialize) {
     if(closed)return false;
-    if(!Number.isInteger(nextCount)||nextCount<=count||nextCount>10000)throw Error('Population growth must append representatives, up to 10000');
+    if(!Number.isInteger(nextCount)||nextCount<=count||nextCount>MAX_SHIP_CAPACITY)throw Error('Population growth must append representatives, up to 50000');
     return replace(nextCount,capacity,prepareBindings,initialize);
   }
   function compact(nextCount,capacity,prepare,initialize) {

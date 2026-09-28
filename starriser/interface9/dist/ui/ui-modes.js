@@ -2,6 +2,9 @@ import { buildEditorGenerationPanel } from "./editor-generation-panel.js";
 import { buildEditorStatsPanel } from "./editor-stats-panel.js";
 import { buildPlayUIPanels } from "./play-ui.js";
 import { buildSystemPlanetPanel, } from "./system-planet-panel.js";
+import { installDockLayout, screenAnchor, widgetAnchor } from "./dock-layout.js";
+import { buildShipTuningPanel } from "./ship-tuning-panel.js";
+import { mountSimPauseButton } from "./sim-pause-button.js";
 export function resolveUIMode(defaultMode = "editor") {
     const params = new URLSearchParams(window.location.search);
     const requested = params.get("ui");
@@ -15,7 +18,6 @@ function addModeSwitcher(ctx, actions, mode) {
         id: "ui-mode-switcher",
         title: "UI Mode",
         floating: true,
-        draggable: true,
         width: 200,
         position: {
             x: window.innerWidth * 0.5 - 100,
@@ -36,13 +38,14 @@ function addModeSwitcher(ctx, actions, mode) {
             }
         },
     });
+    return switcher.element;
 }
 function buildEditorContextMenu(ctx, actions) {
     const contextMenu = ctx.panel({
         id: "cluster-context-menu",
         title: "Cluster",
         floating: true,
-        width: 180,
+        width: 160,
     });
     contextMenu.element.style.display = "none";
     const actionSelect = ctx.select({
@@ -67,12 +70,48 @@ function buildEditorContextMenu(ctx, actions) {
     };
 }
 export function buildEditorUI(ctx, actions) {
-    addModeSwitcher(ctx, actions, "editor");
+    const modeSwitcher = addModeSwitcher(ctx, actions, "editor");
     const generation = buildEditorGenerationPanel(ctx, actions);
     const stats = buildEditorStatsPanel(ctx);
     const contextMenu = buildEditorContextMenu(ctx, actions);
     const planetPanel = buildSystemPlanetPanel(ctx, actions, {
         placement: "editor",
+    });
+    const tuning = buildShipTuningPanel(ctx, actions);
+    installDockLayout(ctx.root.root, [
+        {
+            id: "controls-panel",
+            title: "Galaxy",
+            element: generation.panel.element,
+            anchor: screenAnchor("left", "top", 12, 12, 240, 280),
+        },
+        {
+            id: "ship-tuning-panel",
+            title: "Ships",
+            element: tuning.panel.element,
+            anchor: screenAnchor("left", "bottom", 12, 16, 340, 200),
+        },
+        {
+            id: "stats-panel",
+            title: "Stats",
+            element: stats.panel.element,
+            anchor: screenAnchor("right", "top", 56, 12, 300, 640),
+        },
+        {
+            id: "system-planet-panel",
+            title: "System",
+            element: planetPanel.panel.element,
+            anchor: widgetAnchor("stats-panel", "left", 12, 0, 240, 520),
+        },
+        {
+            id: "ui-mode-switcher",
+            title: "Mode",
+            element: modeSwitcher,
+            anchor: screenAnchor("left", "top", 12, 16, 200, 96, "center"),
+        },
+    ], {
+        paused: () => actions.isSimPaused(),
+        toggle: () => actions.toggleSimPaused(),
     });
     return {
         mode: "editor",
@@ -88,11 +127,52 @@ export function buildEditorUI(ctx, actions) {
     };
 }
 export function buildPlayUI(ctx, actions, online = false) {
-    if (!online)
-        addModeSwitcher(ctx, actions, "play");
-    const panels = online ? {} : buildPlayUIPanels(ctx).panels;
+    const modeSwitcher = online ? null : addModeSwitcher(ctx, actions, "play");
+    const builtPanels = online ? null : buildPlayUIPanels(ctx);
+    const panels = builtPanels?.panels ?? {};
     const planetPanel = buildSystemPlanetPanel(ctx, actions, {
         placement: "play",
+    });
+    const dockWindows = [
+        {
+            id: "system-planet-panel",
+            title: "System",
+            element: planetPanel.panel.element,
+            anchor: screenAnchor("right", "top", 56, 12, 240, 520),
+        },
+    ];
+    if (!online) {
+        const tuning = buildShipTuningPanel(ctx, actions);
+        dockWindows.push({
+            id: "ship-tuning-panel",
+            title: "Ships",
+            element: tuning.panel.element,
+            anchor: screenAnchor("left", "bottom", 12, 16, 340, 200),
+        });
+    }
+    if (builtPanels) {
+        const pauseRow = document.createElement("div");
+        pauseRow.className = "micro-actions";
+        pauseRow.append(mountSimPauseButton(ctx, actions));
+        builtPanels.panels.status.content.prepend(pauseRow);
+        dockWindows.push({
+            id: "play-status",
+            title: "Feed",
+            element: builtPanels.panels.status.element,
+            anchor: screenAnchor("right", "bottom", 56, 16, 280, 140),
+        });
+    }
+    if (modeSwitcher) {
+        dockWindows.push({
+            id: "ui-mode-switcher",
+            title: "Mode",
+            element: modeSwitcher,
+            anchor: screenAnchor("left", "top", 12, 16, 200, 96, "center"),
+        });
+    }
+    installDockLayout(ctx.root.root, dockWindows, online ? undefined : {
+        paused: () => actions.isSimPaused(),
+        toggle: () => actions.toggleSimPaused(),
     });
     return {
         mode: "play",

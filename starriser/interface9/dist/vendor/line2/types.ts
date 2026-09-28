@@ -57,6 +57,8 @@ export interface Line2MaterialParams {
 
 /** Options when constructing {@link Line2Renderer}. */
 export interface Line2RendererOptions {
+  /** Optional GPU-authored clip correction, a mat4 at buffer offset zero. Caller owns it. */
+  clipTransform?: GPUBuffer;
   /** Preserve double positions with high/low floats in the same position buffer. */
   splitPosition?: boolean;
   /** Swap-chain / color target format. */

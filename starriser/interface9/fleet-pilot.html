@@ -1,0 +1,20 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Galaxy · Fleet pilot experiment</title>
+<meta name="description" content="Compare adaptive and delayed GPU pilots with 10,000–50,000 persistent ships, cheap darts and shared fleet guidance.">
+<style>
+*{box-sizing:border-box}body{margin:0;background:#040710;color:#c9d2df;font:12px system-ui}canvas{display:block;width:100vw;height:100vh;touch-action:none}aside{position:fixed;top:12px;left:12px;width:282px;padding:14px;background:#101924ee;border:1px solid #344353;border-radius:8px}h1{font-size:15px;margin:0 0 8px}p{font-size:11px;line-height:1.5;color:#97a8ba}label{display:flex;justify-content:space-between;align-items:center;gap:8px;margin:8px 0}select,button{font:inherit;color:inherit;background:#17283c;border:1px solid #40546a;border-radius:4px;padding:5px}button{cursor:pointer}output{display:block;white-space:pre-line;font:11px/1.6 ui-monospace,monospace}#status{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);padding:8px 12px;background:#17283cee;border-radius:5px;max-width:90vw}a{color:#7bcbd6}
+</style>
+<canvas id="scene"></canvas><aside>
+<h1>Fleet pilot experiment</h1>
+<p>Persistent identities · GPU guidance and flight.<br>Isolated controller experiment; production movement is unchanged.</p>
+<label>Ships <select id="count"><option>10000</option><option>50000</option><option>1000</option></select></label>
+<label>Composition <select id="kind"><option value="mixed">Mixed</option><option value="mono">Colossus</option><option value="light">Light</option></select></label>
+<label>Prediction <select id="cadence"><option value="adaptive">Adaptive 2 / 10 / 30 Hz</option><option value="full">All ships 30 Hz</option></select></label>
+<label><span>Use pilot advice one tick later</span><input id="delay" type="checkbox"></label>
+<label><span>Bounded local avoidance</span><input id="micro" type="checkbox" checked></label>
+<button id="reset">Restart fixture</button> <button id="pause">Pause</button> <button id="overview">Overview</button>
+<p>Wheel: zoom · Drag: pan · Alt-drag: orbit<br>Click a dart: follow · Esc: release<br>Right-click: send followed fleet to ground plane</p>
+<p>Fleet cruise: 80% of slowest class speed, leaving catch-up reserve. Stable jittered homes, with a soft tolerance. No centroid-based fleet slowdown.</p>
+<output id="metrics">Preparing WebGPU…</output><p><a href="galaxy.html">Return to galaxy</a></p>
+</aside><div id="status">Preparing GPU kernels…</div>
+<script type="module" src="dist/lib/fleet-pilot/lab.mjs"></script></html>

@@ -1,7 +1,10 @@
 import { subscribeGalaxyMirror } from "../bus/subscribe-galaxy-mirror.js";
 import { whenPubSubReady } from "../bus/when-pubsub-ready.js";
+import { subscribeFeatureTopic } from "../../worker/protocol/feature-topics.js";
+import { FleetTopics } from "../../features/fleets/contracts.js";
 import { createFleetRuntime } from "../../features/fleets/runtime.js";
 import { createFleetPublishers, subscribeFleetCommands, } from "../../features/fleets/subscriptions.js";
+import { readSimPause, simNowMs } from "../../lib/sim-clock.js";
 const TICK_MS = 120;
 /** Worker lifetime and broker wiring only; the feature runtime is headless. */
 export function busConstructor(bus) {
@@ -9,8 +12,10 @@ export function busConstructor(bus) {
     let tickHandle = null;
     let unsubscribeMirror;
     let unsubscribeCommands;
+    let unsubscribePause;
+    let sim = { paused: false, pauseAccumMs: 0, frozenSimMs: 0 };
     const runtime = createFleetRuntime({
-        now: Date.now,
+        now: () => simNowMs(Date.now(), sim),
         random: Math.random,
         defer: (task) => {
             const handle = setTimeout(task, 0);
@@ -34,6 +39,9 @@ export function busConstructor(bus) {
             onClearGalaxy: runtime.clear,
         }, 'fleets');
         unsubscribeCommands = subscribeFleetCommands(bus, runtime);
+        unsubscribePause = subscribeFeatureTopic(bus, FleetTopics.simPause, (payload) => {
+            sim = readSimPause(payload, sim.frozenSimMs);
+        });
         tickHandle = setInterval(runtime.tick, TICK_MS);
     });
     bus.send("worker_ready", { role: "fleets" });
@@ -44,6 +52,7 @@ export function busConstructor(bus) {
             destroyed = true;
             unsubscribeMirror?.();
             unsubscribeCommands?.();
+            unsubscribePause?.();
             if (tickHandle != null)
                 clearInterval(tickHandle);
             tickHandle = null;

@@ -1,5 +1,6 @@
 import {SCHEDULE_WGSL} from '../demo-ship-battle-poc/spatial-schedule.mjs';
 import {contactCacheWgsl} from '../demo-ship-battle-poc/contact-cache.mjs';
+import {CONTACT_PADDING} from '../../dist/lib/ship-runtime/force-clearance.mjs';
 import {SEPARATION_QUERY_WGSL} from '../demo-ship-battle-poc/contact-queries.mjs';
 import {SOLAR_WGSL} from '../demo-ship-flight-poc/solar-layout.mjs';
 import {densitySimulation,densityDrawing} from './density.mjs';
@@ -48,7 +49,7 @@ ${SCHEDULE_WGSL}
 ${contactCacheWgsl(`
   let query=flightPose(s,u.clock.x,u.clock.y);
   let enabled=flightLocalDt(u.clock.x,u.clock.y)>0.0&&pressureEnabled()!=0.0;
-  typedGeometry[count+index]=FilterGeometry(query.p.xyz,dimensions(shipType(query)).w,query.v.xyz,u32(enabled)*QUERY_PRESSURE);
+  typedGeometry[count+index]=FilterGeometry(query.p.xyz,dimensions(shipType(query)).w+${CONTACT_PADDING}*sceneAdapt(journeyBodyRadius(query)),query.v.xyz,u32(enabled)*QUERY_PRESSURE);
 `)}
 ${SEPARATION_QUERY_WGSL}
 

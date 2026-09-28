@@ -5,6 +5,7 @@
 import { buildLine2Wgsl } from "./line2-wgsl.js";
 
 export interface Line2PipelineOptions {
+  clipTransform?: boolean;
   splitPosition?: boolean;
   format: GPUTextureFormat;
   sampleCount?: number;
@@ -100,7 +101,10 @@ export function createLine2Pipeline(
   const sampleCount = options.sampleCount ?? 1;
   const module = device.createShaderModule({
     label: "line2",
-    code: buildLine2Wgsl(options.splitPosition),
+    code: options.clipTransform
+      ? '@group(1) @binding(0) var<uniform> clipTransform:mat4x4<f32>;\n'
+        + buildLine2Wgsl(options.splitPosition, sampleCount === 1).split('u.projection *').join('clipTransform * u.projection *')
+      : buildLine2Wgsl(options.splitPosition, sampleCount === 1),
   });
 
   // Default null: no depthStencil (Galaxy color-only pass).
@@ -141,8 +145,7 @@ export function createLine2Pipeline(
     },
     multisample: {
       count: sampleCount,
-      alphaToCoverageEnabled:
-        (options.alphaToCoverage ?? false) && sampleCount > 1,
+      alphaToCoverageEnabled: (options.alphaToCoverage ?? false) && sampleCount > 1,
     },
     depthStencil,
   });

@@ -1,10 +1,7 @@
 /**
- * Same-frame follow-cam pose + solid-hull boom policy (pure).
- *
- * Live follow must not depend on multi-frame GPU MAP_READ for the camera.
- * The host steps one ShipSim agent (matching GPU integrate inputs) and uses
- * that pose for chase eye/look-at and floating origin — then uploads it so
- * model draw sees the same pose.
+ * Camera transitions and legacy/component follow helpers (pure).
+ * Live SCENE cameras observe the authoritative GPU pose through scene-observations;
+ * ship-chase-camera defines their body-space boom. Following never overwrites a ship.
  *
  * Enter/exit follow eases over {@link FOLLOW_TRANSITION_MS} (smoothstep).
  */
@@ -55,6 +52,7 @@ export function followTransitionT(elapsedMs, durationMs = FOLLOW_TRANSITION_MS) 
  */
 export function lerpFollowCamEndpoints(from, to, t) {
     const u = Math.max(0, Math.min(1, t));
+    const up = blendCameraUp(from, to, u);
     return {
         eyeX: from.eyeX + (to.eyeX - from.eyeX) * u,
         eyeY: from.eyeY + (to.eyeY - from.eyeY) * u,
@@ -62,7 +60,23 @@ export function lerpFollowCamEndpoints(from, to, t) {
         targetX: from.targetX + (to.targetX - from.targetX) * u,
         targetY: from.targetY + (to.targetY - from.targetY) * u,
         targetZ: from.targetZ + (to.targetZ - from.targetZ) * u,
+        ...up,
     };
+}
+/** A banked hull may be upside down: avoid a zero up vector halfway through entry. */
+function cameraUp(p) { return { x: p.upX ?? 0, y: p.upY ?? 1, z: p.upZ ?? 0 }; }
+function blendCameraUp(from, to, t) {
+    const { x: ax, y: ay, z: az } = cameraUp(from), { x: bx, y: by, z: bz } = cameraUp(to);
+    const dot = Math.max(-1, Math.min(1, ax * bx + ay * by + az * bz));
+    if (dot > -0.999) {
+        const angle = Math.acos(dot), sin = Math.sin(angle);
+        const a = sin > 1e-5 ? Math.sin((1 - t) * angle) / sin : 1 - t;
+        const b = sin > 1e-5 ? Math.sin(t * angle) / sin : t;
+        return { upX: ax * a + bx * b, upY: ay * a + by * b, upZ: az * a + bz * b };
+    }
+    const px = Math.abs(ay) < 0.9 ? -az : ay, py = Math.abs(ay) < 0.9 ? 0 : -ax, pz = Math.abs(ay) < 0.9 ? ax : 0;
+    const length = Math.hypot(px, py, pz), a = Math.cos(Math.PI * t), b = Math.sin(Math.PI * t) / length;
+    return { upX: ax * a + px * b, upY: ay * a + py * b, upZ: az * a + pz * b };
 }
 /**
  * Valid map rest pose after stop-follow: clamp height, re-derive tilt look-at.

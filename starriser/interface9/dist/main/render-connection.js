@@ -1,3 +1,4 @@
+import { createSnapshotReader } from "./snapshot-reader.js";
 /** One ordered worker channel; queries flush earlier commands before being sent. */
 export function createRenderConnection(options) {
     const { endpoint } = options;
@@ -10,6 +11,7 @@ export function createRenderConnection(options) {
     let closed = false;
     let stopping = false;
     let lastSequence = -1;
+    const readSnapshot = createSnapshotReader();
     let resolveReady;
     let rejectReady;
     let resolveDispose = null;
@@ -83,6 +85,15 @@ export function createRenderConnection(options) {
                 }
                 finally {
                     post({ type: "ackState" });
+                }
+                break;
+            case "statePacket":
+                // Decode even an obsolete command sequence: later packets depend on its catalog deltas.
+                try {
+                    acceptState(readSnapshot(response.packet));
+                }
+                finally {
+                    post({ type: "ackState", buffer: response.packet.data }, [response.packet.data]);
                 }
                 break;
             case "result":

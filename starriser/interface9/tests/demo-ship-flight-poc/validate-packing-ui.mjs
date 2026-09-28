@@ -18,14 +18,14 @@ try {
   const packed=await cdp.evaluate(`(async()=>{
     const e=window.flightLab.engine,w=new Uint32Array(await e.read(e.state));
     return {time:e.now,paused:window.packPaused,status:e.packing.status,alive:e.director.alive,
-      prefix:Array.from({length:900},(_,i)=>w[i*48+22]).every(x=>x===1),tail:Array.from({length:100},(_,i)=>w[(i+900)*48+22]).every(x=>x===0),
+      prefix:Array.from({length:900},(_,i)=>w[i*56+22]).every(x=>x===1),tail:Array.from({length:100},(_,i)=>w[(i+900)*56+22]).every(x=>x===0),
       changed:e.slotLayout.physical.some((slot,id)=>slot!==id),errors:[...e.errors,document.querySelector('#error').textContent].filter(Boolean)};
   })()`);
   assert.equal(packed.time,packed.paused);assert(packed.prefix&&packed.tail&&packed.changed);assert(packed.status.lastSwaps<=64);if(packed.status.latestMs!==null)assert(packed.status.sampledSwaps>0&&packed.status.sampledBatch<=packed.status.batches);assert.deepEqual(packed.errors,[]);
   await cdp.evaluate(`document.querySelector('#pause').click()`);await cdp.waitForFunction('window.flightLab.time>window.packPaused+.3');
   const running=await cdp.evaluate(`(async()=>{
     const e=window.flightLab.engine,raw=await e.read(e.state),w=new Uint32Array(raw),f=new Float32Array(raw);let targets=0,valid=true;
-    for(let i=0;i<e.count;i++)if(w[i*48+22]===1&&f[i*48+16]>0){const other=(f[i*48+16]-1)*48;targets++;valid&&=w[other+22]===1&&e.director.canTarget(w[i*48+21],w[other+21]);}
+    for(let i=0;i<e.count;i++)if(w[i*56+22]===1&&f[i*56+16]>0){const other=(f[i*56+16]-1)*56;targets++;valid&&=w[other+22]===1&&e.director.canTarget(w[i*56+21],w[other+21]);}
     return {targets,valid,errors:[...e.errors,document.querySelector('#error').textContent].filter(Boolean)};
   })()`);
   assert(running.targets>0&&running.valid);assert.deepEqual(running.errors,[]);

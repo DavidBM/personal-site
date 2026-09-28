@@ -1,9 +1,10 @@
+import { SYSTEM_SPAN, BODY_UNIT_SCALE, ORBIT_SPACING_MULTIPLIER, SUN_SIZE_MULTIPLIER } from '../lib/ship-runtime/scene-scale.mjs';
 /**
  * Band B / Band C sticky LOD policy (pure, no GPU / DOM).
  *
  * Galaxy point LOD stays O(clusters) in galaxy-point-lod.ts.
  * This module owns SYSTEM_LOCAL_SPAN + one Schmitt pair (enter/exit px + hold).
- * Span is 0.1 (point-scale Kepler) — do not add a second reveal-radius constant.
+ * Span comes from scene-scale.mjs — do not add a second reveal-radius constant.
  *
  * Pixels are **drawing-buffer** height (canvas.height), not CSS viewportH.
  */
@@ -12,24 +13,21 @@ import { projectedWorldSizeAtDistanceToScreenPx } from "./fleet-lod.js";
 import { keplerOrbitLocalF32 } from "./math/world-origin.js";
 import { orbitPhaseAt } from "./planet-lib/solar-bodies.js";
 /**
- * Compact Kepler field diameter (world). Neighbors sit ~25 apart, so span 0.1
- * is 250 diameters away. Schmitt uses projected {@link SYSTEM_LOCAL_SPAN} only
+ * Compact Kepler field extent (world). Neighbors sit ~25 apart. Schmitt uses projected {@link SYSTEM_LOCAL_SPAN} only
  * — do not add a second reveal-radius constant.
  */
-export const SYSTEM_LOCAL_SPAN = 0.1;
+export const SYSTEM_LOCAL_SPAN = SYSTEM_SPAN;
 /** Showcase outer orbit (solar-bodies / planet-catalog). */
 export const SHOWCASE_ORBIT_SPAN = 56;
-/** Uniform scale so showcase orbits fit {@link SYSTEM_LOCAL_SPAN}. */
-export const KEPLER_SCALE = SYSTEM_LOCAL_SPAN / SHOWCASE_ORBIT_SPAN;
+/** Fixed body/coordinate conversion. Orbit spacing is authored separately. */
+export const KEPLER_SCALE = BODY_UNIT_SCALE;
 /**
  * Enter Band B when projected span ≥ this (drawing-buffer px).
- * At the 5% sun/span ratio, sun diameter here is
- * `2 * 0.005 / 0.1 * 50 = 5` = `SYSTEM_POINT_DIAMETER_PX` — the 5px icon
- * becomes a 5px sun rather than a 24px field pop.
+ * Compensate spacing vs sun size so the galaxy point still becomes a 5px sun.
  */
-export const SCENE_ENTER_PX = 50;
+export const SCENE_ENTER_PX = 50 * ORBIT_SPACING_MULTIPLIER / SUN_SIZE_MULTIPLIER;
 /** Leave Band B when projected span ≤ this (~12% Schmitt vs enter). */
-export const SCENE_EXIT_PX = 44;
+export const SCENE_EXIT_PX = 44 * ORBIT_SPACING_MULTIPLIER / SUN_SIZE_MULTIPLIER;
 /**
  * Exit hold so a single wheel notch at the gate does not flicker.
  * Not fleet-lod `LOD_HOLD_MS` (budget demotion is 2500 ms).

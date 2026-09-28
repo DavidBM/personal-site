@@ -1,3 +1,4 @@
+import { readSelectiveMsaa, readHalfGlow } from './graphics-settings.js';
 import { createRenderConnection } from "./render-connection.js";
 import { readBrowserFrameDebug } from "./browser-frame-debug.js";
 /** Main owns the DOM surface and messaging. The worker owns every GPU resource. */
@@ -40,8 +41,8 @@ export class RenderClient {
             const bootstrap = {
                 type: "initialize", canvas: offscreen,
                 viewport: client.viewport(), reducedMotion: motion.matches,
-                frameDebug: readBrowserFrameDebug(),
-                assetBase: new URL("./", window.location.href).href,
+                frameDebug: readBrowserFrameDebug(), selectiveMsaa: readSelectiveMsaa(), halfGlow: readHalfGlow(),
+                assetBase: new URL("./", document.baseURI || window.location.href).href,
             };
             worker.postMessage(bootstrap, [offscreen]);
             await client.connection.ready;

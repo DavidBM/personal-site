@@ -1,3 +1,4 @@
+import { WARP_RIM_ORBIT_MULTIPLIER, WARP_LANE_BASE_SPAN, WARP_LANE_LENGTH_MULTIPLIER, sceneWarpLaneLength } from "../lib/ship-runtime/scene-scale.mjs";
 /**
  * M4 — CPU pack helpers for map overlay geometry.
  * Pure math; no GPU.
@@ -31,29 +32,24 @@ export const SCENE_JUMP_RAY_COLOR = [0.45, 0.85, 1, 0.07];
 /** 48 × 5 Kepler ring tessellation. */
 export const KEPLER_ORBIT_RING_SEGMENTS = 240;
 /** Jump rays start at this × outer planet Kepler radius. */
-export const SCENE_JUMP_RAY_R0_MUL = 1.2;
+export const SCENE_JUMP_RAY_R0_MUL = WARP_RIM_ORBIT_MULTIPLIER;
 /**
- * Cap local jump-ray length at this × SYSTEM_LOCAL_SPAN so galaxy hops of
- * ~1500 do not become hyperspace beams through the jewel.
+ * Maximum schematic lane length in system-span units. Topology supplies the
+ * bearing; the local corridor grows 50× without moving the neighboring system.
  */
-export const SCENE_JUMP_RAY_LEN_CAP_MUL = 3.2;
+export const SCENE_JUMP_RAY_LEN_CAP_MUL = WARP_LANE_BASE_SPAN * WARP_LANE_LENGTH_MULTIPLIER;
 /** Grid half-extent as a multiple of SYSTEM_LOCAL_SPAN. */
 export const SCENE_GRID_SPAN_MUL = 2.8;
 /** Square grid lines per axis (24 cells → 25 lines × 2 dirs). */
 export const SCENE_GRID_DIVISIONS = 24;
 /** Rim dissolve: RGB *= 1 − this × (distFromCenter / halfExtent)². */
 export const SCENE_GRID_EDGE_FADE = 0.85;
-/** Blueprint dash (screen units). */
+/** Blueprint dash lengths in cumulative world-distance units (not pixels). */
 export const SCENE_SCHEMATIC_DASH_SIZE = 8;
 export const SCENE_SCHEMATIC_GAP_SIZE = 10;
-/** Local ray length: same direction, min(edge, cap×span). */
+/** Local schematic length: same bearing, 50× the original capped lane. */
 export function capSceneJumpRayLength(length, span) {
-    const cap = SCENE_JUMP_RAY_LEN_CAP_MUL * span;
-    if (!(length > 0))
-        return 0;
-    if (!(cap > 0))
-        return length;
-    return length < cap ? length : cap;
+    return sceneWarpLaneLength(length, span);
 }
 /** Floats per Line2 segment: start xyz + end xyz. */
 export const LINE2_OVERLAY_POS_FLOATS = 6;

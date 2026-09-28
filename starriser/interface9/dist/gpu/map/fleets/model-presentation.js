@@ -7,19 +7,24 @@ export class FleetModelPresentation {
         const fleets = this.ports.ships.getFleetGpuBuffer();
         this.bindLayer(this.ports.models, sim, fleets);
         this.bindLayer(this.ports.modelsLow, sim, fleets);
+        this.bindLayer(this.ports.modelsTiny, sim, fleets);
     }
     /** Bind live sim/fleet buffers and switch exclusive zoom band. No ship index lists. */
     update(sceneOpen, distance, meshesReady = true) {
         this.bindLiveBuffers();
-        const hulls = sceneOpen && meshesReady && sceneHullsOn(distance);
+        const hulls = sceneOpen && meshesReady && (!!this.ports.modelsTiny || sceneHullsOn(distance));
         this.applyBand(hulls);
         return hulls;
     }
     applyBand(hulls) {
-        const { models, modelsLow, ships } = this.ports;
+        const { models, modelsLow, modelsTiny, ships } = this.ports;
         ships.setModelLodActive(hulls);
         models.setHullBand(hulls);
         models.setActive(hulls && models.isReady());
+        if (modelsTiny) {
+            modelsTiny.setHullBand(hulls);
+            modelsTiny.setActive(hulls && modelsTiny.isReady());
+        }
         if (modelsLow) {
             modelsLow.setHullBand(hulls);
             modelsLow.setActive(hulls && modelsLow.isReady());

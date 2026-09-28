@@ -1,11 +1,14 @@
+import {SHIP_WORDS, CORRECTION_AFTER, CORRECTION_HISTORY} from './ship-layout.mjs';
 import {correctionAddress,MAX_SHIP_CORRECTIONS} from './correction-gpu.mjs';
 import {eventPoseAddress} from './event-gpu.mjs';
 import {SHIP_WGSL} from './shaders.mjs';
 function fields(buffer) {
   const at=`${buffer}[i]`;
-  const timers=['aux.y','aux.z','memory.y','memory.z','fx.y','fx.z','tactic.w'];
+  const timers=['aux.y','aux.z','fx.y','fx.z','tactic.w'];
   return timers.map(field=>`${at}.${field}=max(0.0,${at}.${field}-shift.x);`).join('\n')+`
-    ${at}.flight.y-=shift.x;${at}.flight.z-=shift.x;${at}.tactic.z-=shift.x;
+    if(${at}.memory.z!=-1.0){${at}.memory.y=max(0.0,${at}.memory.y-shift.x);${at}.memory.z=max(0.0,${at}.memory.z-shift.x);}
+    if(${at}.origin.w == -2.0){${at}.origin.x-=shift.x;}
+    ${at}.positionAnchor.w-=shift.x;${at}.flight.y-=shift.x;${at}.flight.z-=shift.x;${at}.tactic.z-=shift.x;
     ${at}.fx.x=select(-1.0,${at}.fx.x-shift.x,${at}.fx.x>=shift.x);`;
 }
 const code=/* wgsl */`
@@ -18,9 +21,11 @@ ${SHIP_WGSL}
 ${eventPoseAddress}
 ${correctionAddress}
 fn rebasePose(base:u32) {
-  for(var field=0u;field<48u;field++) {
+  let routeProgress=bitcast<f32>(eventPoses[base+26u]) == -1.0;
+  for(var field=0u;field<${SHIP_WORDS}u;field++) {
+    if(routeProgress && (field==25u || field==26u)){continue;}
     let timer=field==17u||field==18u||field==25u||field==26u||field==41u||field==42u||field==39u;
-    let date=field==29u||field==30u||field==38u;
+    let date=field==55u||field==29u||field==30u||field==38u||(field==32u&&bitcast<f32>(eventPoses[base+35u]) == -2.0);
     if(!timer&&!date&&field!=40u){continue;}
     let previous=bitcast<f32>(eventPoses[base+field]);var value=previous-shift.x;
     if(timer){value=max(0.0,value);}if(field==40u&&previous<shift.x){value=-1.0;}
@@ -32,9 +37,9 @@ fn rebaseCorrections(i:u32,count:u32) {
   for(var n=0u;n<${MAX_SHIP_CORRECTIONS}u&&record>0u;n++) {
     let at=correctionAt(count,record-1u);
     eventPoses[at]=bitcast<u32>(bitcast<f32>(eventPoses[at])-shift.x);
-    rebasePose(at+4u);rebasePose(at+52u);
+    rebasePose(at+4u);rebasePose(at+${CORRECTION_AFTER}u);
     for(var sample=0u;sample<48u;sample++) {
-      let field=at+103u+sample*4u;let birth=bitcast<f32>(eventPoses[field]);
+      let field=at+${CORRECTION_HISTORY+3}u+sample*4u;let birth=bitcast<f32>(eventPoses[field]);
       eventPoses[field]=bitcast<u32>(select(-1.0,birth-shift.x,birth>=shift.x));
     }
     record=eventPoses[at+1u];
@@ -47,7 +52,7 @@ fn rebaseCorrections(i:u32,count:u32) {
   ${fields('b')}
     rebaseCorrections(i,arrayLength(&a));
   }
-  if(shift.y>0.0&&i<arrayLength(&a)*8u){rebasePose(eventPoseBase(arrayLength(&a))+i*48u);}
+  if(shift.y>0.0&&i<arrayLength(&a)*8u){rebasePose(eventPoseBase(arrayLength(&a))+i*${SHIP_WORDS}u);}
   let birth=history[i].w;
   history[i].w=select(-1.0,birth-shift.x,birth>=shift.x);
 }

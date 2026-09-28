@@ -204,6 +204,7 @@ export function createServiceRouter(send) {
             ...observation.snapshot(), streams: Array.from(streams.values()), pending: pending.size };
     }
     return { receive, reject, snapshot,
+        metrics: () => ({ servicePending: pending.size, serviceBindings: registry.members.size, directStreams: streams.size }),
         disconnect(host) { for (const member of registry.members.values())
             if (member.host === host)
                 remove(member); },

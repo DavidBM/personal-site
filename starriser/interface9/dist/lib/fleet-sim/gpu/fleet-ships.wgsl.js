@@ -6,10 +6,10 @@
  *
  * Draw instance (12 floats = 48 bytes):
  *  0  base.xyz     fleet world position
- * 12  center.xyz   formation offset
+ * 12  center.xyz   formation offset; directed tag 2: hull forward vector
  * 24  rotation, size
  * 32  color.rgb
- * 44  pad          // >0.5 → size is screen-space px (icon); else world size
+ * 44  pad          // 0: world size; 1: pixel icon; 2: directed pixel ship
  *
  * Uniforms carry cameraY / viewportH / viewportW / tanHalfFov so icon and
  * jewel triangles stay a fixed CSS size and face the screen.
@@ -49,6 +49,16 @@ struct VSOut {
   @location(0) color : vec3<f32>,
 };
 
+// Differential of perspective projection, expressed in CSS pixels. Using a
+// direction avoids subtracting two large, nearly coincident world positions.
+// The unit triangle points along +X, so this is its screen-space nose directly.
+fn projectedShipNose(position:vec4<f32>,tangent:vec4<f32>,viewport:vec2<f32>)->vec2<f32>{
+  let pixels=(tangent.xy*position.w-position.xy*tangent.w)*viewport;
+  let magnitude=length(pixels);
+  if(magnitude<1e-8){return vec2<f32>(1.0,0.0);} // End-on hull has no projected heading.
+  return pixels/magnitude;
+}
+
 @vertex
 fn vs_main(
   @location(0) meshPos : vec3<f32>,
@@ -77,7 +87,7 @@ fn vs_main(
   // otherwise leftover world metres converted at this camera (tiny at galaxy
   // distance — never an 8px world floor that fills the map on jewel exit).
   let H = max(u.viewportH, 1.0);
-  let W = max(u.viewportW, H);
+  let W = max(u.viewportW, 1.0);
   var sizePx = size;
   if (screenSpace <= 0.5) {
     let cy = max(u.cameraY, 1e-4);
@@ -85,11 +95,18 @@ fn vs_main(
   }
   let sn = sin(rotation);
   let cs = cos(rotation);
-  let mx = meshPos.x * cs - meshPos.z * sn;
-  let mz = meshPos.x * sn + meshPos.z * cs;
+  var nose = vec2<f32>(cs, sn);
+  let directed = screenSpace > 1.5;
   // Instance base is **already origin-relative**. Do not subtract origin again.
-  let rel = base + center;
+  // Directed instances repurpose the zero formation offset as a direction.
+  let rel = base + select(center, vec3<f32>(0.0), directed);
   var clip = u.viewProj * vec4<f32>(rel, 1.0);
+  if (directed) {
+    let tangent = u.viewProj * vec4<f32>(center, 0.0);
+    nose = projectedShipNose(clip, tangent, vec2<f32>(W, H));
+  }
+  let mx = meshPos.x * nose.x - meshPos.z * nose.y;
+  let mz = meshPos.x * nose.y + meshPos.z * nose.x;
   clip.x += mx * sizePx * (2.0 / W) * clip.w;
   clip.y += mz * sizePx * (2.0 / H) * clip.w;
   out.clip = clip;

@@ -17,7 +17,8 @@
  * | 65   | 260  | max line slots (binding-6 view [1]) |
  * | 66   | 264  | compactCount (binding-6 view [2]) |
  * | 67   | 268  | compactCapacity (binding-6 view [3]) |
- * | 68+  | 272  | worklist[simIdx] (binding-6 view [4+]) |
+ * | 68   | 272  | atomic live segment count (binding-6 view [4]) |
+ * | 69+  | 276  | worklist[simIdx] (binding-6 view [5+]) |
  *
  * Binding 6 (cs_ships / compact / trail_indirect meta) starts at byte 256 so
  * `dispatchWorkgroupsIndirect(table, 20)` does not alias storage in the same
@@ -39,7 +40,8 @@ export const TRAIL_META_WORD = {
     MAX_LINE_SLOTS: 1,
     COMPACT_COUNT: 2,
     COMPACT_CAPACITY: 3,
-    WORKLIST: 4,
+    SEGMENT_COUNT: 4,
+    WORKLIST: 5,
 };
 /** Byte offset of DispatchIndirectArgs (words 5–7). */
 export const TRAIL_INDIRECT_DISPATCH_BYTE = TRAIL_INDIRECT_WORD.DISPATCH_X * 4;
@@ -48,9 +50,9 @@ export const TRAIL_INDIRECT_DISPATCH_BYTE = TRAIL_INDIRECT_WORD.DISPATCH_X * 4;
  * Absolute table word of expand count = 64.
  */
 export const TRAIL_INDIRECT_META_BYTE = 256;
-/** Binding-6 view: worklist starts at this byte (256 + 16). */
+/** Binding-6 view: worklist starts at this byte (256 + 20). */
 export const TRAIL_INDIRECT_WORKLIST_BYTE = TRAIL_INDIRECT_META_BYTE + TRAIL_META_WORD.WORKLIST * 4;
-/** Header through compactCapacity (4 u32s at the 256 view). */
+/** Header through segment count (5 u32s at the 256 view). */
 export const TRAIL_INDIRECT_HEADER_BYTES = TRAIL_INDIRECT_META_BYTE + TRAIL_META_WORD.WORKLIST * 4;
 /** Table byte length for a worklist of `worklistCap` simIdx slots. */
 export function trailIndirectTableBytes(worklistCap) {

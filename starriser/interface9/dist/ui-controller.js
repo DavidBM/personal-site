@@ -1,50 +1,36 @@
+import { bindText, setText } from './ui/dom-bindings.js';
 export class UIController {
     constructor(bindings) {
-        this.fpsElement =
-            bindings?.fps ?? document.getElementById("fps");
-        this.statsElements = {
-            clusters: bindings?.clusters ??
-                document.getElementById("totalClusters"),
-            systems: bindings?.systems ??
-                document.getElementById("totalSystems"),
-            gates: bindings?.gates ??
-                document.getElementById("totalGates"),
-            internalLinks: bindings?.internalLinks ??
-                document.getElementById("internalLinks"),
-        };
+        this.fpsElement = null;
+        this.texts = {};
+        this.setStatsElements(bindings);
     }
     setStatsElements(bindings) {
-        this.fpsElement =
-            bindings?.fps ?? document.getElementById("fps");
+        const element = (key, id) => bindings?.[key] ?? document.getElementById(id);
+        this.fpsElement = element('fps', 'fps');
         this.statsElements = {
-            clusters: bindings?.clusters ??
-                document.getElementById("totalClusters"),
-            systems: bindings?.systems ??
-                document.getElementById("totalSystems"),
-            gates: bindings?.gates ??
-                document.getElementById("totalGates"),
-            internalLinks: bindings?.internalLinks ??
-                document.getElementById("internalLinks"),
+            clusters: element('clusters', 'totalClusters'), systems: element('systems', 'totalSystems'),
+            gates: element('gates', 'totalGates'), internalLinks: element('internalLinks', 'internalLinks'),
         };
+        this.texts = {};
+        for (const [key, element] of Object.entries({ fps: this.fpsElement, ...this.statsElements })) {
+            if (element)
+                this.texts[key] = bindText(element, { height: '18px', lineHeight: '18px' });
+        }
     }
     updateFPS(fps) {
-        if (this.fpsElement) {
-            this.fpsElement.textContent = String(fps);
-        }
+        if (this.texts.fps)
+            setText(this.texts.fps, String(fps));
     }
     updateStats(stats) {
-        if (this.statsElements.clusters) {
-            this.statsElements.clusters.textContent = String(stats.clusters);
-        }
-        if (this.statsElements.systems) {
-            this.statsElements.systems.textContent = String(stats.solarSystems);
-        }
-        if (this.statsElements.gates) {
-            this.statsElements.gates.textContent = String(stats.jumpGates);
-        }
-        if (this.statsElements.internalLinks) {
-            this.statsElements.internalLinks.textContent = String(stats.internalConnections);
-        }
+        if (this.texts.clusters)
+            setText(this.texts.clusters, String(stats.clusters));
+        if (this.texts.systems)
+            setText(this.texts.systems, String(stats.solarSystems));
+        if (this.texts.gates)
+            setText(this.texts.gates, String(stats.jumpGates));
+        if (this.texts.internalLinks)
+            setText(this.texts.internalLinks, String(stats.internalConnections));
     }
 }
 //# sourceMappingURL=ui-controller.js.map

@@ -60,7 +60,10 @@ struct ModelUniforms {
   lodMask : u32,
   /** 1 = jewel hull band (draw); 0 = triangle band (clip every hull). */
   hullBand : u32,
-  _padLod : vec3<f32>,
+  batchOffsetWord : u32,
+  batchClass : u32,
+  catalog : u32,
+  pixelGain : f32,
 };
 
 ${MODEL_SHIP_TYPES_WGSL}
@@ -95,6 +98,8 @@ struct VSOut {
   @location(3) lightDir : vec3<f32>,
   /** Unit dir from surface toward aft thruster lamp (body −Z). */
   @location(4) aftLightDir : vec3<f32>,
+  @location(5) @interpolate(flat) selected: f32,
+  @location(6) @interpolate(flat) team: vec3<f32>,
 };
 
 fn quatRotate(q: vec4<f32>, v: vec3<f32>) -> vec3<f32> {
@@ -124,7 +129,9 @@ fn lightDirFromOrbitCenter(shipPos: vec3<f32>, center: vec3<f32>) -> vec3<f32> {
 @vertex
 fn vs_main(input : VSIn) -> VSOut {
   var out : VSOut;
-  let shipIdx = shipIndices[input.inst];
+  var offset = 0u;
+  if (u.batchOffsetWord != 0u) { offset = shipIndices[u.batchOffsetWord]; }
+  let shipIdx = shipIndices[offset + input.inst];
   if (shipIdx == 0xffffffffu || u.hullBand == 0u) {
     out.clip = vec4<f32>(0.0, 0.0, 2.0, 1.0);
     out.uv = input.meshUv;
@@ -135,7 +142,9 @@ fn vs_main(input : VSIn) -> VSOut {
     return out;
   }
   let ship = ships[shipIdx];
-  if (u.lodMask != 0u && (ship.fleetIndex >= arrayLength(&fleets) || (fleets[ship.fleetIndex].flags & u.lodMask) == 0u)) {
+  out.team = vec3<f32>(ship.slotX, ship.slotY, ship.slotZ);
+  out.selected = select(select(0.0, 0.4, (ship.targetKind & 2048u) != 0u), 1.0, (ship.targetKind & 256u) != 0u);
+  if (!modelShipLodMatches(ship, u.lodMask) || (u.catalog != 0u && (ship.targetKind & 255u) != u.batchClass)) {
     out.clip = vec4<f32>(0.0, 0.0, 2.0, 1.0);
     out.uv = input.meshUv;
     out.worldNrm = vec3<f32>(0.0, 1.0, 0.0);
@@ -164,7 +173,7 @@ fn vs_main(input : VSIn) -> VSOut {
   let pose = modelShipPose(ship, u.origin, u.modelScale);
   let localMesh = quatRotate(meshFix, input.meshPos) * pose.hullScale;
   let nMesh = quatRotate(meshFix, input.meshNrm);
-  let worldOff = quatRotate(q, localMesh);
+  var worldOff = quatRotate(q, localMesh);
 
   let rel = pose.centerRel + worldOff;
   out.lightDir = lightDirFromOrbitCenter(pose.lightOffset, pose.lightCenter);
@@ -180,14 +189,25 @@ fn vs_main(input : VSIn) -> VSOut {
 
 @fragment
 fn fs_main(input : VSOut) -> @location(0) vec4<f32> {
+  if(u.lodMask==8192u){
+    // Flat faction-colored facets, no texture, normal-map or specular reads.
+    let light=.65+.35*max(dot(normalize(input.worldNrm),normalize(u.fallbackLight)),0.0);
+    return vec4<f32>(input.team*light,1.0);
+  }
   let baseSample = textureSample(baseColorTex, texSampler, input.uv);
   let specSample = textureSample(specularDiffuseTex, texSampler, input.uv);
   let cool = vec3<f32>(0.35, 0.72, 0.95);
   let hot = vec3<f32>(1.0, 0.45, 0.15);
-  let albedo = mix(cool, baseSample.rgb, 0.55) * mix(vec3<f32>(1.0), specSample.rgb, 0.2);
+  var albedo = mix(cool, baseSample.rgb, 0.55) * mix(vec3<f32>(1.0), specSample.rgb, 0.2);
+  if (u.catalog != 0u) {
+    // The shared palette carries armor, machinery, glazing and restricted paint.
+    // Team color only tints the ochre paint swatch, preserving the hull material.
+    let paint = baseSample.r > 0.3 && baseSample.g > 0.15 && baseSample.b < baseSample.r * 0.55;
+    albedo = mix(baseSample.rgb, baseSample.rgb * 0.55 + input.team * 0.45, select(0.0, 0.65, paint));
+  }
   let nMap = textureSample(normalTex, texSampler, input.uv).xyz * 2.0 - 1.0;
   var n = normalize(input.worldNrm);
-  n = normalize(n + vec3<f32>(nMap.x, nMap.y, nMap.z) * 0.35);
+  if (u.catalog == 0u) { n = normalize(n + vec3<f32>(nMap.x, nMap.y, nMap.z) * 0.35); }
 
   // Key light: pathEnd point light (world). Does NOT use origin or camera.
   let L = normalize(input.lightDir);
@@ -201,9 +221,9 @@ fn fs_main(input : VSOut) -> @location(0) vec4<f32> {
   let viewDir = select(
     vec3<f32>(0.0, 1.0, 0.0),
     normalize(toEye),
-    dot(toEye, toEye) > 1e-6,
+    dot(toEye, toEye) > 1e-20,
   );
-  let rim = pow(1.0 - max(dot(n, viewDir), 0.0), 2.5);
+  let rim = pow(1.0 - clamp(dot(n, viewDir), 0.0, 1.0), 2.5);
   // Keep rim subtle so pathEnd key light dominates (esp. under follow cam).
   let eng = hot * rim * 0.18;
 
@@ -213,8 +233,20 @@ fn fs_main(input : VSOut) -> @location(0) vec4<f32> {
   let aftHard = pow(nAft, 1.35) * 1.35 * max(u.thrusterPulse, 0.5);
   let aftCol = vec3<f32>(0.55, 0.75, 1.0) * aftHard;
 
+  if (u.catalog != 0u) {
+    let roughness = clamp(specSample.g, 0.25, 1.0);
+    let halfVector = L + viewDir;
+    let halfway = halfVector * inverseSqrt(max(dot(halfVector, halfVector), 1e-12));
+    let specular = pow(max(dot(n, halfway), 0.0), mix(72.0, 8.0, roughness)) * (0.06 + specSample.b * 0.14) * NdotL;
+    let engine = baseSample.b > baseSample.r * 1.35 && baseSample.b > 0.55;
+    let lit = albedo * (0.24 + NdotL * 0.76) + vec3<f32>(specular) + albedo * select(0.0, 0.6, engine);
+    // A chase camera sees much of the roof at grazing angles; keep even the
+    // maximum rim below the material lighting instead of washing the hull cyan.
+    let mark = vec3<f32>(0.12, 0.85, 0.92) * input.selected * (0.025 + rim * 0.20);
+    return vec4<f32>(lit + mark + vec3<f32>(0.03, 0.04, 0.055) * rim, 1.0);
+  }
   let lit = albedo * hemi + eng + aftCol + vec3<f32>(0.04, 0.06, 0.1);
-  return vec4<f32>(lit, max(baseSample.a, 0.92));
+  return vec4<f32>(mix(lit, lit * 0.6 + vec3<f32>(0.0, 0.8, 0.9) * (0.35 + rim), input.selected), max(baseSample.a, 0.92));
 }
 `;
 //# sourceMappingURL=fleet-model-ships.wgsl.js.map

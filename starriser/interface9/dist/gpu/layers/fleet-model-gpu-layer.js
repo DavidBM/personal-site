@@ -1,9 +1,12 @@
+import { sceneHullShader, bindSceneCamera } from '../scene-camera.js';
+import { CATALOG_MODEL_DETAIL_PX, LEGACY_MODEL_DETAIL_PX, MODEL_CATALOG_MAX_BATCHES, mergeModelCatalog } from '../../lib/fleet-sim/visual/ship-model-catalog.js';
 import { ModelVisibilityGpu } from "./model-visibility-gpu.js";
 import { computeMeshOriginRadius } from "../../lib/fleet-sim/visual/model-visibility.js";
 import { MAP_MSAA_SAMPLES } from "../map-msaa.js";
+import { depthPolicy } from "../map-depth.js";
 import { FLEET_MODEL_SHIPS_WGSL, FLEET_MODEL_UNIFORM_SIZE, FLEET_MODEL_U_THRUSTER_PULSE, FLEET_MODEL_U_LOD_MASK, FLEET_MODEL_U_HULL_BAND, FLEET_MODEL_VERTEX_STRIDE, } from "../shaders/fleet-model-ships.wgsl.js";
 import { MODEL_LOD_DEFAULT_SCALE, MODEL_LOD_MAX_INSTANCES, modelLodInstanceCount, } from "../fleet-lod.js";
-import { gltfHasColorAndNormal, parseGlb, } from "../../lib/fleet-sim/visual/gltf-static-mesh.js";
+import { parseGlb, } from "../../lib/fleet-sim/visual/gltf-static-mesh.js";
 import { createLowPolyShipMesh } from "../../lib/fleet-sim/visual/lowpoly-ship-mesh.js";
 import { GLB_MESH_YAW_HALF, LOWPOLY_MESH_YAW_HALF, } from "../../lib/fleet-sim/visual/mesh-yaw-facing.js";
 import { thrusterPulse } from "../../lib/fleet-sim/gpu/model-aft-light.js";
@@ -13,6 +16,9 @@ export class FleetModelGpuLayer {
         this.pipeline = null;
         this.bindGroup = null;
         this.visibleBindGroup = null;
+        this.batchBindGroups = [];
+        this.visibleBatchBindGroups = [];
+        this.meshRanges = [];
         this.visibility = null;
         this.visibilityReadyForDraw = false;
         this.lastVisibilityWasReference = false;
@@ -48,13 +54,16 @@ export class FleetModelGpuLayer {
         this.lastShipIndices = new Uint32Array(0);
         this.shipIndexScratch = new Uint32Array(0);
         this.kernelIdentityCount = -1;
-        this.uniformData = new Float32Array(FLEET_MODEL_UNIFORM_SIZE / 4);
+        this.uniformData = new Float32Array(MODEL_CATALOG_MAX_BATCHES * 64);
+        this.uniformWords = new Uint32Array(this.uniformData.buffer);
         this.bootstrap = bootstrap;
+        this.depth = depthPolicy(options?.reverseDepth);
         this.maxInstances = Math.max(1, (options?.maxInstances ?? MODEL_LOD_MAX_INSTANCES) | 0);
         this.modelScale = options?.modelScale ?? MODEL_LOD_DEFAULT_SCALE;
         this.meshYawHalf = options?.meshYawHalf ?? 0;
         this.sampleCount = options?.sampleCount ?? MAP_MSAA_SAMPLES;
     }
+    setPixelGain(gain) { this.uniformData[34] = gain; }
     isReady() {
         return this.ready;
     }
@@ -66,6 +75,22 @@ export class FleetModelGpuLayer {
     }
     getMaxInstances() {
         return this.maxInstances;
+    }
+    /** Quality promotion grows GPU scratch once; existing logical index sources survive. */
+    growCapacity(capacity) {
+        if (!Number.isInteger(capacity) || capacity < 1)
+            throw new Error('Invalid model capacity');
+        if (capacity <= this.maxInstances)
+            return;
+        this.maxInstances = capacity;
+        this.visibility?.dispose();
+        this.visibility = null;
+        this.visibilityReadyForDraw = false;
+        this.visibleBindGroup = null;
+        this.visibleBatchBindGroups = [];
+        if (this.indexSourceOwned)
+            this.ensureShipIndexCapacity(capacity);
+        this.kernelIdentityCount = -1;
     }
     getModelScale() {
         return this.modelScale;
@@ -170,7 +195,7 @@ export class FleetModelGpuLayer {
         const { device, format, gpu } = this.bootstrap;
         const module = device.createShaderModule({
             label: "fleet-model-ships",
-            code: FLEET_MODEL_SHIPS_WGSL,
+            code: sceneHullShader(FLEET_MODEL_SHIPS_WGSL),
         });
         this.pipeline = device.createRenderPipeline({
             label: "fleet-model-ships-pipeline",
@@ -218,17 +243,17 @@ export class FleetModelGpuLayer {
                 cullMode: "back",
                 frontFace: "ccw",
             },
-            // Map pass attaches MSAA depth24plus; write so nearer exterior wins.
+            // Match the owning pass; write so the nearer exterior wins.
             depthStencil: {
-                format: "depth24plus",
+                format: this.depth.format,
                 depthWriteEnabled: true,
-                depthCompare: "less",
+                depthCompare: this.depth.opaqueCompare,
             },
             multisample: { count: this.sampleCount },
         });
         this.uniformHandle = gpu.createBuffer({
             label: "fleet-model-uniform",
-            size: FLEET_MODEL_UNIFORM_SIZE,
+            size: MODEL_CATALOG_MAX_BATCHES * 256,
             usage: "uniform|copy_dst",
         });
         this.uniformBuffer = gpu.getBuffer(this.uniformHandle);
@@ -253,18 +278,28 @@ export class FleetModelGpuLayer {
         await this.loadMesh(mesh, { meshYawHalf: GLB_MESH_YAW_HALF });
         return mesh;
     }
+    /** Catalog geometry/material upload is admission-time work, never a frame scan. */
+    async loadCatalog(buffers, originRadius = 1) {
+        this.assertLoadAvailable();
+        const catalog = mergeModelCatalog(buffers, originRadius);
+        await this.loadMesh(catalog.mesh, { meshYawHalf: 0, ranges: catalog.ranges, originRadius });
+    }
+    getMeshRanges() { return this.meshRanges; }
+    getDetailThresholds() { return this.meshRanges.length ? CATALOG_MODEL_DETAIL_PX : LEGACY_MODEL_DETAIL_PX; }
     /** Sync path for procedural / already-decoded meshes (no ImageBitmap). */
-    loadMeshSync(mesh, opts) {
+    loadMeshSync(mesh, opts = {}) {
         this.assertLoadAvailable();
         this.meshLoadGeneration++;
-        if (!this.pipeline || !this.uniformHandle || !this.sampler) {
-            throw new Error("FleetModelGpuLayer.init() required before loadMesh");
-        }
-        if (opts?.meshYawHalf != null)
+        this.assertMeshResources();
+        if (opts.meshYawHalf != null)
             this.meshYawHalf = opts.meshYawHalf;
         this.destroyMeshGpu();
+        this.visibility?.dispose();
+        this.visibility = null;
+        this.visibilityReadyForDraw = false;
+        this.meshRanges = opts.ranges ?? [];
         this.mesh = mesh;
-        this.meshOriginRadius = computeMeshOriginRadius(mesh.interleaved);
+        this.meshOriginRadius = opts.originRadius ?? computeMeshOriginRadius(mesh.interleaved);
         const { gpu } = this.bootstrap;
         this.vertexHandle = gpu.createBuffer({
             label: "fleet-model-verts",
@@ -293,12 +328,19 @@ export class FleetModelGpuLayer {
         this.normalView = flatN.createView();
         this.specularView = white.createView();
         this.ready = mesh.vertexCount > 0 && mesh.indexCount >= 3;
-        this.ensureShipIndexCapacity(this.maxInstances);
+        if (this.indexSourceOwned)
+            this.ensureShipIndexCapacity(this.maxInstances);
         this.rebuildBindGroup();
+    }
+    assertMeshResources() {
+        if (!this.pipeline || !this.uniformHandle || !this.sampler)
+            throw new Error("FleetModelGpuLayer.init() required before loadMesh");
     }
     async loadMesh(mesh, opts) {
         this.loadMeshSync(mesh, opts);
         const generation = this.meshLoadGeneration;
+        const geometryReady = this.ready;
+        this.ready = false;
         // Publish the material views together only while this mesh still owns the layer.
         const base = await this.loadTextureView(mesh, mesh.baseColorImage, this.baseColorView, generation);
         const normal = await this.loadTextureView(mesh, mesh.normalImage, this.normalView, generation);
@@ -307,7 +349,8 @@ export class FleetModelGpuLayer {
         this.baseColorView = base;
         this.normalView = normal;
         this.specularView = specular;
-        if (mesh.images.length && !gltfHasColorAndNormal(mesh)) {
+        this.ready = geometryReady;
+        if (mesh.images.length && mesh.baseColorImage < 0) {
             console.warn("[fleet-model] glTF missing maps; using cool solid defaults");
         }
         this.rebuildBindGroup();
@@ -427,16 +470,23 @@ export class FleetModelGpuLayer {
     rebuildBindGroup() {
         this.bindGroup = null;
         this.visibleBindGroup = null;
+        this.batchBindGroups = [];
+        this.visibleBatchBindGroups = [];
         if (!this.hasBindingResources())
             return;
-        this.bindGroup = this.createDrawBindGroup(this.shipIndexBuffer);
-        if (this.visibility)
-            this.visibleBindGroup = this.createDrawBindGroup(this.visibility.outputBuffer);
+        const count = Math.max(1, this.meshRanges.length);
+        for (let batch = 0; batch < count; batch++) {
+            this.batchBindGroups.push(this.createDrawBindGroup(this.shipIndexBuffer, batch));
+            if (this.visibility)
+                this.visibleBatchBindGroups.push(this.createDrawBindGroup(this.visibility.outputBuffer, batch));
+        }
+        this.bindGroup = this.batchBindGroups[0];
+        this.visibleBindGroup = this.visibleBatchBindGroups[0] ?? null;
     }
-    createDrawBindGroup(indices) {
+    createDrawBindGroup(indices, batch = 0) {
         return this.bootstrap.device.createBindGroup({
             label: "fleet-model-bind", layout: this.pipeline.getBindGroupLayout(0), entries: [
-                { binding: 0, resource: { buffer: this.uniformBuffer } }, { binding: 1, resource: { buffer: this.shipSimBuffer } },
+                { binding: 0, resource: { buffer: this.uniformBuffer, offset: batch * 256, size: FLEET_MODEL_UNIFORM_SIZE } }, { binding: 1, resource: { buffer: this.shipSimBuffer } },
                 { binding: 2, resource: this.baseColorView }, { binding: 3, resource: this.normalView },
                 { binding: 4, resource: this.sampler }, { binding: 5, resource: this.specularView },
                 { binding: 6, resource: { buffer: indices } }, { binding: 7, resource: { buffer: this.fleetGpuBuffer } },
@@ -450,11 +500,11 @@ export class FleetModelGpuLayer {
     prepareVisibility(encoder, viewProj, origin, reference = false) {
         this.visibilityReadyForDraw = false;
         this.lastVisibilityWasReference = reference;
-        if (reference || !this.active || !this.ready || !this.shipSimBuffer || !this.fleetGpuBuffer || !this.shipIndexBuffer) {
+        if (reference || !this.canPrepareVisibility()) {
             this.visibility?.clearFrame();
             return;
         }
-        const count = this.shipIndexCapacity || this.lastShipIndices.length;
+        const count = this.lastShipIndices.length;
         if (count <= 0) {
             this.visibility?.clearFrame();
             return;
@@ -472,19 +522,28 @@ export class FleetModelGpuLayer {
         this.visibility.encode(encoder, viewProj, origin, this.modelScale, this.getMeshOriginRadius(), count, this.indexCount, this.lodMask);
         this.visibilityReadyForDraw = true;
     }
+    canPrepareVisibility() {
+        return this.active && this.ready && !!this.shipSimBuffer && !!this.fleetGpuBuffer && !!this.shipIndexBuffer;
+    }
     ensureVisibility() {
         if (this.visibility)
             return;
-        const visibility = new ModelVisibilityGpu(this.bootstrap, this.maxInstances);
+        const visibility = new ModelVisibilityGpu(this.bootstrap, this.maxInstances, this.meshRanges);
         try {
-            const bindGroup = this.createDrawBindGroup(visibility.outputBuffer);
+            const groups = Array.from({ length: Math.max(1, this.meshRanges.length) }, (_, batch) => this.createDrawBindGroup(visibility.outputBuffer, batch));
             this.visibility = visibility;
-            this.visibleBindGroup = bindGroup;
+            this.visibleBatchBindGroups = groups;
+            this.visibleBindGroup = groups[0];
         }
         catch (error) {
             visibility.dispose();
             throw error;
         }
+    }
+    async readbackVisibleCount() {
+        if (!this.visibilityReadyForDraw || this.lastVisibilityWasReference)
+            return 0;
+        return this.visibility?.readbackCount() ?? 0;
     }
     async readbackVisibility() {
         if (this.disposed || this.bootstrap.isLost)
@@ -509,18 +568,28 @@ export class FleetModelGpuLayer {
         const count = this.resolveDrawCount(shipCountOrIndices);
         if (count <= 0)
             return 0;
-        this.writeFrameUniforms(viewProj, origin, eyeWorld, timeSec);
+        this.writeFrameUniforms(viewProj, origin, eyeWorld, timeSec, indirect);
         pass.setPipeline(this.pipeline);
-        pass.setBindGroup(0, indirect ? this.visibleBindGroup : this.bindGroup);
         pass.setVertexBuffer(0, this.vertexBuffer);
         pass.setIndexBuffer(this.indexBuffer, this.indexFormat);
-        if (indirect)
-            pass.drawIndexedIndirect(this.visibility.outputBuffer, this.visibility.indirectOffset);
-        else
-            pass.drawIndexed(this.indexCount, count, 0, 0, 0);
+        this.drawBatches(pass, count, indirect);
         // CPU submission bound. GPU visible count is available through readbackVisibility.
         this.lastInstanceCount = count;
         return count;
+    }
+    drawBatches(pass, count, indirect, firstInstance = 0) {
+        const batches = Math.max(1, this.meshRanges.length);
+        const groups = indirect ? this.visibleBatchBindGroups : this.batchBindGroups;
+        for (let batch = 0; batch < batches; batch++) {
+            bindSceneCamera(this.bootstrap.device, pass, this.pipeline);
+            pass.setBindGroup(0, groups[batch]);
+            if (indirect)
+                pass.drawIndexedIndirect(this.visibility.outputBuffer, this.visibility.indirectOffset + batch * 32);
+            else {
+                const range = this.meshRanges[batch];
+                pass.drawIndexed(range?.indexCount ?? this.indexCount, count, range?.firstIndex ?? 0, 0, firstInstance);
+            }
+        }
     }
     /**
      * Per-fleet instanced draws of the kernel map. `first` is `instance_index`
@@ -533,6 +602,7 @@ export class FleetModelGpuLayer {
             return 0;
         this.writeFrameUniforms(viewProj, origin, eyeWorld, timeSec);
         pass.setPipeline(this.pipeline);
+        bindSceneCamera(this.bootstrap.device, pass, this.pipeline);
         pass.setBindGroup(0, this.bindGroup);
         pass.setVertexBuffer(0, this.vertexBuffer);
         pass.setIndexBuffer(this.indexBuffer, this.indexFormat);
@@ -541,7 +611,7 @@ export class FleetModelGpuLayer {
             const count = range.count | 0;
             if (count <= 0)
                 continue;
-            pass.drawIndexed(this.indexCount, count, 0, 0, range.first | 0);
+            this.drawBatches(pass, count, false, range.first | 0);
             drawn += count;
         }
         this.lastInstanceCount = drawn;
@@ -565,16 +635,30 @@ export class FleetModelGpuLayer {
             this.setShipIndices(selection);
         return this.lastShipIndices.length;
     }
-    writeFrameUniforms(viewProj, origin, eyeWorld, timeSec) {
+    writeFrameUniforms(viewProj, origin, eyeWorld, timeSec, indirect = false) {
         this.uniformData.set(viewProj, 0);
         this.writeOriginUniforms(origin ?? MODEL_ZERO_ORIGIN);
         this.writeEyeUniforms(eyeWorld ?? origin ?? MODEL_ZERO_ORIGIN);
         this.uniformData[FLEET_MODEL_U_THRUSTER_PULSE] = thrusterPulse(modelPulseTime(timeSec), 1);
-        const words = new Uint32Array(this.uniformData.buffer);
+        const words = this.uniformWords;
         words[FLEET_MODEL_U_LOD_MASK] = this.lodMask;
         words[FLEET_MODEL_U_HULL_BAND] = this.hullBand;
-        this.uniformData[31] = 0;
-        this.bootstrap.gpu.writeBuffer(this.uniformHandle, 0, this.uniformData, 0, FLEET_MODEL_UNIFORM_SIZE);
+        this.writeBatchUniforms(indirect);
+    }
+    writeBatchUniforms(indirect) {
+        const words = this.uniformWords;
+        const batches = Math.max(1, this.meshRanges.length);
+        words[31] = 0;
+        words[32] = 0;
+        words[33] = this.meshRanges.length > 0 ? 1 : 0;
+        for (let batch = batches - 1; batch >= 0; batch--) {
+            if (batch > 0)
+                this.uniformData.copyWithin(batch * 64, 0, FLEET_MODEL_UNIFORM_SIZE / 4);
+            words[batch * 64 + 31] = indirect && batches > 1 ? this.visibility.indirectOffset / 4 + batch * 8 + 5 : 0;
+            words[batch * 64 + 32] = batch;
+        }
+        const bytes = batches === 1 ? FLEET_MODEL_UNIFORM_SIZE : batches * 256;
+        this.bootstrap.gpu.writeBuffer(this.uniformHandle, 0, this.uniformData, 0, bytes);
     }
     writeOriginUniforms(origin) {
         this.uniformData[16] = origin.x;

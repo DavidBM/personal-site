@@ -60,6 +60,7 @@ export async function createWebGpuBootstrap(options) {
     const format = navigator.gpu.getPreferredCanvasFormat();
     const clearColor = options.clearColor ?? DEFAULT_CLEAR;
     const gpu = createGpuBufferDevice(device, context, bootstrapState);
+    let contextConfigured = false;
     const configureContext = (cssWidth, cssHeight, pixelRatio) => {
         if (bootstrapState.isLost)
             return;
@@ -70,16 +71,19 @@ export async function createWebGpuBootstrap(options) {
         // Assigning canvas.width even to the same value resets the OffscreenCanvas
         // swapchain and can drop Dawn's instance mid-frame ("external Instance
         // reference no longer exists").
-        if (options.canvas.width === w && options.canvas.height === h)
+        if (contextConfigured && options.canvas.width === w && options.canvas.height === h)
             return;
-        options.canvas.width = w;
-        options.canvas.height = h;
+        if (options.canvas.width !== w)
+            options.canvas.width = w;
+        if (options.canvas.height !== h)
+            options.canvas.height = h;
         context.configure({
             device,
             format,
             alphaMode: "opaque",
             usage: GPUTextureUsage.RENDER_ATTACHMENT,
         });
+        contextConfigured = true;
     };
     const initialSize = initialSurfaceSize(options.canvas);
     configureContext(initialSize.width, initialSize.height);

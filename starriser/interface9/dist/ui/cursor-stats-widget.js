@@ -1,3 +1,4 @@
+import { bindText, setText } from './dom-bindings.js';
 import { subscribeTopic, Topics } from "../worker/protocol/topics.js";
 function coordinate(value) {
     return typeof value === "number" ? value : 0;
@@ -12,6 +13,9 @@ export class CursorStatsWidget {
         this.scrSpan = null;
         this.mapSpan = null;
         this.zoomSpan = null;
+        this.scrText = null;
+        this.mapText = null;
+        this.zoomText = null;
         this.unsubscribePointer = null;
         this.bus = bus;
         this.lineId = lineId;
@@ -46,7 +50,7 @@ export class CursorStatsWidget {
         return [
             "margin: 0",
             "padding: 0",
-            "white-space: nowrap",
+            "white-space: nowrap", "overflow:hidden", "contain:layout paint",
         ].join(";");
     }
     _makeLine(label, spanClass, initial) {
@@ -85,6 +89,9 @@ export class CursorStatsWidget {
         this.scrSpan = scr.span;
         this.mapSpan = map.span;
         this.zoomSpan = zoom.span;
+        this.scrText = bindText(scr.span, { width: '17ch' });
+        this.mapText = bindText(map.span, { width: '20ch' });
+        this.zoomText = bindText(zoom.span, { width: '12ch' });
         this.root.appendChild(scr.line);
         this.root.appendChild(map.line);
         this.root.appendChild(zoom.line);
@@ -125,11 +132,10 @@ export class CursorStatsWidget {
         return z.toFixed(1);
     }
     _updateZoom() {
-        if (!this.zoomSpan)
+        if (!this.zoomText)
             return;
         const z = this.getZoom?.() ?? null;
-        this.zoomSpan.textContent =
-            z == null || !Number.isFinite(z) ? "—" : this._formatZoom(z);
+        setText(this.zoomText, z == null || !Number.isFinite(z) ? "—" : this._formatZoom(z));
     }
     _onPointerEvent(payload) {
         const screen = payload?.screen_position;
@@ -139,11 +145,11 @@ export class CursorStatsWidget {
         const mx = coordinate(galaxy?.x);
         // Galaxy plane uses XZ; show as (x, y) with y ← z for the readout.
         const my = coordinate(galaxy?.z);
-        if (this.scrSpan) {
-            this.scrSpan.textContent = `(${sx.toFixed(1)}, ${sy.toFixed(1)})`;
+        if (this.scrText) {
+            setText(this.scrText, `(${sx.toFixed(1)}, ${sy.toFixed(1)})`);
         }
-        if (this.mapSpan) {
-            this.mapSpan.textContent = `(${mx.toFixed(1)}, ${my.toFixed(1)})`;
+        if (this.mapText) {
+            setText(this.mapText, `(${mx.toFixed(1)}, ${my.toFixed(1)})`);
         }
         this._updateZoom();
     }

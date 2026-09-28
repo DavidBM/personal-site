@@ -1,3 +1,4 @@
+import { BODY_UNIT_SCALE } from '../../ship-runtime/scene-scale.mjs';
 /**
  * Ship motion **tuning panel** — the only file you should edit to feel out
  * hop / orbit curves.
@@ -117,10 +118,10 @@ export const ORBIT_R_MIN = 2;
 export const ORBIT_R_MAX = 7;
 /**
  * Local SCENE (bit 7) scale for orbitR + NEAR draw size. Must equal
- * {@link KEPLER_SCALE} (`SYSTEM_LOCAL_SPAN / SHOWCASE_ORBIT_SPAN` = 0.1/56).
+ * the fixed body conversion (0.1/56), independent of orbital spacing.
  * Apply on a local copy — never write the scaled orbitR back to ShipSim.
  */
-export const SCENE_AGENT_SCALE = 0.1 / 56;
+export const SCENE_AGENT_SCALE = BODY_UNIT_SCALE;
 /**
  * Extra NEAR / model hull scale on top of {@link SCENE_AGENT_SCALE}.
  * 0.05 → BASE_SHIP_SIZE * KEPLER_SCALE * MUL = 0.000071 (sun R=0.005,

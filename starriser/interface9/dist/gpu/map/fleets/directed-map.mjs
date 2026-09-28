@@ -1,3 +1,6 @@
+import {SHIP_BYTES, writePositionLow} from '../../../lib/ship-runtime/ship-layout.mjs';
+import { ORBIT_SPACING_MULTIPLIER, SHIP_SPEED_MULTIPLIER, BASE_SYSTEM_SPAN, WARP_LANE_BASE_SPAN, WARP_LANE_LENGTH_MULTIPLIER, sceneWarpLaneLength } from '../../../lib/ship-runtime/scene-scale.mjs';
+import {DEFAULT_SHIP_CAPACITY} from '../../../lib/ship-runtime/ship-capacity.mjs';
 import {
   SCENE_LAB_SCALE,
   COMPACT_SYSTEM_SPAN,
@@ -5,8 +8,10 @@ import {
   labToCompact,
   compactOrbitPad,
 } from "../../../lib/ship-runtime/kepler-solar.mjs";
-import { SCENE_CLASS_TYPES, distributeFlightTypes, orbitRadius, orbitTilt } from "../../../lib/ship-runtime/flight-layout.mjs";
+import { SCENE_CLASS_TYPES, orbitRadius, orbitTilt } from "../../../lib/ship-runtime/flight-layout.mjs";
 import { classOf } from "../../../lib/ship-runtime/classes.mjs";
+import { fleetComposition, visualParts } from "../../../lib/ship-runtime/fleet-mix.mjs";
+import { packSceneIdentity } from "../../../lib/ship-runtime/scene-identity.mjs";
 export { SCENE_LAB_SCALE, compactToLab, labToCompact, compactOrbitPad, COMPACT_SYSTEM_SPAN, SCENE_CLASS_TYPES };
 /** Hulls replace triangles when camera distance ≤ jewel span × this. No pixel test. */
 export const SCENE_HULL_ZOOM = 0.5;
@@ -23,21 +28,26 @@ export const MAX_GROUP_VISUAL = 4096;
 export const SCENE_SHIP_CHUNK = 500;
 /** Take another ship chunk in the same frame while under this many ms. */
 export const SCENE_CHUNK_BUDGET_MS = 1;
-export const SCENE_VISUAL_CAP = 10_000;
+export const SCENE_VISUAL_CAP = DEFAULT_SHIP_CAPACITY;
 export const SCENE_KERNEL_COUNT = SCENE_VISUAL_CAP;
 export const WARP_ENTER_SEC = 3;
-/** Inbound/outbound chord length as a multiple of the compact field. */
-export const WARP_FAR_SPAN_MUL = 8;
+/** Fallback far endpoint; the actual chord shares the drawn lane length. */
+export const WARP_FAR_SPAN_MUL = 1.11 + WARP_LANE_BASE_SPAN * WARP_LANE_LENGTH_MULTIPLIER;
 /** Visible outbound warp before ships hide (seconds). */
 export const WARP_OUT_SEC = 8;
+/** Source presentation must finish no later than a valid domain arrival. */
+export function sceneOutboundDurationMs(durationMs) {
+  const maximum = WARP_OUT_SEC * 1000;
+  return Number.isFinite(durationMs) && durationMs > 0 ? Math.min(maximum, durationMs) : maximum;
+}
 /** Compact cruise (field / 60s). Staging uses this, not a short kinematic hop. */
-export const SCENE_CRUISE_COMPACT = COMPACT_SYSTEM_SPAN / 60;
+export const SCENE_CRUISE_COMPACT = BASE_SYSTEM_SPAN * SHIP_SPEED_MULTIPLIER / 60;
 /** Leave planet orbit this long before the next domain hop. */
 export const STAGE_LEAD_MS = 30_000;
 /** Jump-ray start ≈ outer Kepler orbit × 1.2, as a span multiple. */
 export const SCENE_RIM_SPAN_MUL = 1.11;
 export const PRESENTATION_FREEZE = 0.3;
-export const DIRECTED_SHIP_STRIDE = 192;
+export const DIRECTED_SHIP_STRIDE = SHIP_BYTES;
 export const DIRECTED_SHIP_FLOATS = DIRECTED_SHIP_STRIDE / 4;
 export const SCENE_TYPES_PER_FLEET = SCENE_CLASS_TYPES.length;
 
@@ -146,6 +156,7 @@ export function allocateSceneVisuals(fleets, options = {}) {
   const requested = wants.reduce((sum, w) => sum + w, 0);
   const key = sceneMembershipKey(fleets);
   const previous = options.previous;
+  // Quality changes do not change admitted ships' type boundaries or handles.
   if (previous && previous.key === key) {
     const byId = previous.byId instanceof Map ? previous.byId : new Map();
     const counts = fleets.map((f, i) => {
@@ -165,7 +176,7 @@ export function allocateSceneVisuals(fleets, options = {}) {
   for (let i = 0; i < fleets.length; i++) {
     if (fleets[i].id == null || !prevById.has(fleets[i].id)) joiners.push(i);
   }
-  if (joiners.length > 0 && leftover === 0 && staying > 0) {
+  if (joiners.length > 0 && leftover === 0 && staying > 0 && staying <= cap) {
     return occupancyFromCounts(fleets, splitWants(wants, cap), requested, cap, key);
   }
   const joinerWants = joiners.map((i) => wants[i]);
@@ -203,7 +214,7 @@ export function labOrbitExit(body, slot) {
   return labClassRing(body, 0, slot);
 }
 
-/** Start on the class ring. Jump-in is CPU; kernel only circulates. */
+/** Class ring. Explicit orbit arrival only; a parked join debuts outside. */
 export function labApproach(body, slot, type = 0, index = slot) {
   return labClassRing(body, type, index);
 }
@@ -274,73 +285,48 @@ export function compactCruiseSec(from, to) {
  * In-system stage is local cruise toward the rim (avoidBodies runs).
  */
 export function sceneMotionPlan(input) {
-  const span = COMPACT_SYSTEM_SPAN;
-  const farR = (input?.farR > 0 ? input.farR : span * WARP_FAR_SPAN_MUL);
-  const rimR = (input?.outerR > 0 ? input.outerR : span * SCENE_RIM_SPAN_MUL);
-  const slot = (input?.slot ?? 0) | 0;
-  const from = bearingCompact(input?.fromX ?? 0, input?.fromZ ?? 0, 1, slot);
-  const to = bearingCompact(input?.toX ?? 0, input?.toZ ?? 0, 1, slot + 1);
-  const farIn = { x: from.x * farR, y: 0, z: from.z * farR };
-  const rimIn = { x: from.x * rimR, y: 0, z: from.z * rimR };
-  const farOut = { x: to.x * farR, y: 0, z: to.z * farR };
-  const rimOut = { x: to.x * rimR, y: 0, z: to.z * rimR };
-  const state = input?.state;
-  const nowMs = Number(input?.nowMs) || 0;
-  const systemId = input?.systemId;
-  if (!state || state.state === "awaiting") {
-    return { phase: "orbit", seed: "orbit", paused: false };
-  }
-  if (state.state === "jumping") {
-    const dur = Math.max(1, state.durationMs || 1);
-    const elapsed = nowMs - state.startTime;
-    const left = Math.max(0, dur - elapsed);
-    const startId = state.startNode?.solarSystemId;
-    const endId = state.endNode?.solarSystemId;
-    if (endId === systemId) {
-      const u = clamp01(elapsed / dur);
-      return {
-        phase: "inbound",
-        seed: "warp",
-        paused: false,
-        planet: true,
-        warpSec: Math.max(0.05, left / 1000),
-        origin: farIn,
-        exit: rimIn,
-        u,
-      };
-    }
-    if (startId === systemId) {
-      if (elapsed < WARP_OUT_SEC * 1000) {
-        return {
-          phase: "outbound",
-          seed: "warp",
-          paused: false,
-          planet: false,
-          warpSec: Math.max(0.05, WARP_OUT_SEC - elapsed / 1000),
-          origin: rimOut,
-          exit: farOut,
-          u: clamp01(elapsed / (WARP_OUT_SEC * 1000)),
-        };
-      }
-      return { phase: "hide", seed: "orbit", paused: true };
-    }
+  input ??= {};
+  const state = input.state;
+  const nowMs = Number(input.nowMs) || 0;
+  if (!state || state.state === "awaiting") return { phase: "orbit", seed: "orbit", paused: false };
+  if (state.state === "jumping") return sceneJumpPlan(input, state, nowMs);
+  const left = Math.max(0, (state.startTime || 0) + (state.durationMs || 0) - nowMs);
+  if (left > STAGE_LEAD_MS) return { phase: "orbit", seed: "orbit", paused: false };
+  const park = input.fromPos || { x: 0, y: 0, z: 0 };
+  const { rim } = sceneWarpEndpoints(input, false);
+  return { phase: "stage", seed: "local", paused: false, planet: true,
+    warpSec: compactCruiseSec(park, rim), origin: park, exit: rim, u: 0 };
+}
+
+function sceneJumpPlan(input, state, nowMs) {
+  const elapsed = nowMs - state.startTime;
+  const inbound = state.endNode?.solarSystemId === input.systemId;
+  const duration = inbound ? Math.max(1, state.durationMs || 1) : sceneOutboundDurationMs(state.durationMs);
+  if (!inbound && (state.startNode?.solarSystemId !== input.systemId || !(elapsed < duration))) {
     return { phase: "hide", seed: "orbit", paused: true };
   }
-  const left = Math.max(0, (state.startTime || 0) + (state.durationMs || 0) - nowMs);
-  if (left > STAGE_LEAD_MS) {
-    return { phase: "orbit", seed: "orbit", paused: false };
-  }
-  const park = input?.fromPos || { x: 0, y: 0, z: 0 };
-  return {
-    phase: "stage",
-    seed: "local",
-    paused: false,
-    planet: true,
-    warpSec: compactCruiseSec(park, rimOut),
-    origin: park,
-    exit: rimOut,
-    u: 0,
-  };
+  return timedWarpPlan(inbound, duration, elapsed, sceneWarpEndpoints(input, inbound));
+}
+
+function timedWarpPlan(inbound, duration, elapsed, { rim, far }) {
+  return { phase: inbound ? "inbound" : "outbound", seed: "warp", paused: false, planet: inbound,
+    warpSec: Math.max(0.05, Math.max(0, duration - elapsed) / 1000),
+    origin: inbound ? far : rim, exit: inbound ? rim : far, u: clamp01(elapsed / duration) };
+}
+
+function sceneWarpEndpoints(input, inbound) {
+  const span = COMPACT_SYSTEM_SPAN;
+  const rimR = input.outerR > 0 ? input.outerR : span * SCENE_RIM_SPAN_MUL;
+  const edgeLength = inbound ? Math.hypot(input.fromX ?? 0, input.fromZ ?? 0)
+    : Math.hypot(input.toX ?? 0, input.toZ ?? 0);
+  const lane = sceneWarpLaneLength(edgeLength || WARP_LANE_BASE_SPAN * span, span);
+  const farR = input.farR > 0 ? input.farR : rimR + lane;
+  const slot = (input.slot ?? 0) | 0;
+  const bearing = inbound
+    ? bearingCompact(input.fromX ?? 0, input.fromZ ?? 0, 1, slot)
+    : bearingCompact(input.toX ?? 0, input.toZ ?? 0, 1, slot + 1);
+  return { far: { x: bearing.x * farR, y: 0, z: bearing.z * farR },
+    rim: { x: bearing.x * rimR, y: 0, z: bearing.z * rimR } };
 }
 
 export function stageCommand(now, slot, exit, revision, planet) {
@@ -405,8 +391,13 @@ export function directedTickDecision(wallGap, simGap, dt, freeze = PRESENTATION_
   return "tick";
 }
 
+/** A GPU admission owns a coordinate frame as well as a logical fleet. */
+export function sceneFleetLifetimeKey(fleet) {
+  return JSON.stringify([fleet.id ?? "", fleet.generation ?? 0, fleet.systemId ?? null]);
+}
+
 export function sceneFleetFingerprint(fleets, poses) {
-  const map = fleets.map((f) => `${f.id ?? ""}:${f.slot ?? 0}:${f.instanceStart}:${f.shipCount}:${Number(f.paused)}`).join("|");
+  const map = fleets.map((f) => `${sceneFleetLifetimeKey(f)}:${f.slot ?? 0}:${f.instanceStart}:${f.shipCount}:${Number(f.paused)}`).join("|");
   if (!poses || fleets.length === 0 || !fleets.every((f) => f.paused)) return map;
   const f = new Float32Array(poses);
   const n = Math.min(
@@ -447,22 +438,17 @@ export function buildInstanceMap(fleets, kernelCount, ranges = null) {
 
 /** Instance rows present-copy will no longer write after a map rebuild. */
 export function droppedInstanceIndices(prev, next) {
-  const keep = new Set();
-  const n = next?.length | 0;
-  for (let i = 0; i < n; i++) {
-    const inst = next[i];
-    if (inst !== 0xffffffff) keep.add(inst >>> 0);
+  // Admission normally only fills previously empty kernel rows. Avoid building
+  // a hash set of every live ship when no existing mapping changed.
+  const candidates = new Set();
+  const length = prev?.length | 0;
+  for (let i = 0; i < length; i++) {
+    const instance = prev[i];
+    if (instance !== 0xffffffff && instance !== next?.[i]) candidates.add(instance >>> 0);
   }
-  const out = [];
-  const seen = new Set();
-  const m = prev?.length | 0;
-  for (let i = 0; i < m; i++) {
-    const inst = prev[i];
-    if (inst === 0xffffffff || keep.has(inst) || seen.has(inst)) continue;
-    seen.add(inst);
-    out.push(inst >>> 0);
-  }
-  return out;
+  if (!candidates.size) return [];
+  for (let i = 0; i < (next?.length | 0); i++) candidates.delete(next[i]);
+  return [...candidates];
 }
 
 export function holesFromRanges(ranges, kernelCount) {
@@ -551,24 +537,30 @@ export function pickCompactMove(ranges, kernelCount) {
   return best;
 }
 
-function classSeedPlan(fleet, n) {
+export function classSeedPlan(fleet, n) {
   const groupId = (fleet.groupId ?? fleet.slot ?? 0) >>> 0;
   if (fleet.type != null) {
     return { types: [fleet.type & 31], parts: [n], groups: [groupId] };
   }
-  const types = SCENE_CLASS_TYPES;
+  const mix = fleetComposition(fleet.id ?? fleet.slot ?? 0);
   return {
-    types,
-    parts: distributeFlightTypes(n, types),
-    groups: types.map(() => groupId),
+    types: mix.classes.map((entry) => entry.type),
+    parts: visualParts(mix, n),
+    groups: mix.classes.map(() => groupId),
   };
 }
 
-function hopSeedPose(plan) {
+function offsetSeedPoint(point, offsets, index) {
+  if (!offsets) return point;
+  const o = index * 4;
+  for (let axis = 0; axis < 3; axis++) point[axis] += offsets[o + axis];
+  return point;
+}
+function hopSeedPose(plan, offsets, index) {
   if (!plan?.origin || !plan.exit) return null;
   if (plan.phase !== "inbound" && plan.phase !== "outbound") return null;
   const p = mixCompact(plan.origin, plan.exit, plan.u ?? 0);
-  return [compactToLab(p.x), compactToLab(p.y), compactToLab(p.z)];
+  return offsetSeedPoint([compactToLab(p.x), compactToLab(p.y), compactToLab(p.z)], offsets, index);
 }
 
 function stageSeedPose(fleet, index, poseAt, poseScale, plan) {
@@ -583,7 +575,7 @@ function stageSeedPose(fleet, index, poseAt, poseScale, plan) {
 function planSeedPose(fleet, index, poseAt, poseScale) {
   const plan = fleet.plan;
   if (!plan || fleet.paused) return null;
-  return hopSeedPose(plan) ?? (plan.phase === "stage"
+  return hopSeedPose(plan, fleet.warpOffsets, index) ?? (plan.phase === "stage"
     ? stageSeedPose(fleet, index, poseAt, poseScale, plan)
     : null);
 }
@@ -591,6 +583,7 @@ function planSeedPose(fleet, index, poseAt, poseScale) {
 function arrivalSeedPose(fleet, index, arrival, type) {
   if (fleet.paused || (arrival !== "warp" && arrival !== "orbit")) return null;
   if (arrival === "orbit") {
+    if (fleet.orbitSeedOrigin && fleet.warpOffsets) return offsetSeedPoint(fleet.orbitSeedOrigin.slice(), fleet.warpOffsets, index);
     const body = fleet.toward ? { ...fleet.toward, radius: fleet.bodyRadius } : null;
     return labClassRing(body, type ?? 0, index);
   }
@@ -606,30 +599,39 @@ function seedPose(fleet, index, poseAt, poseScale, arrival, type) {
   return [pose.x * poseScale, pose.y * poseScale, pose.z * poseScale];
 }
 
+function writeSeedRow(f, w, o, fleet, ordinal, kernel, type, group, slot, point) {
+  // Rest on seed: reused kernel slices must not keep a previous occupant's v/a.
+  f.fill(0, o, o + DIRECTED_SHIP_FLOATS);
+  f[o] = point[0]; f[o + 1] = point[1]; f[o + 2] = point[2];
+  writePositionLow(f, o, ...point);
+  f[o + 7] = classOf(type).speed;
+  f[o + 15] = 1;
+  // Until the first journey, origin.x is the seed's GPU-epoch timestamp.
+  // A render can admit ships without a simulation tick. Do not date these poses
+  // from that later tick, or advance them twice from the preceding boundary.
+  if (fleet.seedTime != null) { f[o + 32] = fleet.seedTime; f[o + 35] = -2; }
+  w[o + 20] = packSceneIdentity(ordinal, type, group);
+  w[o + 21] = slot;
+  w[o + 22] = 1;
+  w[o + 23] = fleet.serialBase == null ? kernel + 1 : fleet.serialBase + ordinal;
+}
+
 function writeFleetSeed(f, w, fleet, start, n, poseAt, poseScale, arrival, kernelCount, from = 0, limit = n, rowBase = start) {
   const slot = (fleet.slot ?? start) >>> 0;
-  const plan = classSeedPlan(fleet, n);
-  const end = Math.min(n, from + Math.max(0, limit));
-  let i = 0;
+  const plan = classSeedPlan(fleet, fleet.seedShipCount ?? n);
+  const available = Math.floor(w.length / DIRECTED_SHIP_FLOATS) - rowBase;
+  const end = Math.min(n, from + Math.max(0, limit), kernelCount - start, from + available);
+  let classStart = 0;
   for (let ti = 0; ti < plan.types.length; ti++) {
     const type = plan.types[ti], groupId = plan.groups[ti];
-    for (let part = 0; part < plan.parts[ti]; part++, i++) {
-      if (i < from || i >= end) continue;
-      const k = start + i;
-      if (k >= kernelCount) return;
+    const classEnd = classStart + plan.parts[ti];
+    // Skip entire class runs outside this chunk. Work scales with seeded rows.
+    for (let i = Math.max(from, classStart); i < Math.min(end, classEnd); i++) {
       const o = (rowBase + (i - from)) * DIRECTED_SHIP_FLOATS;
-      if (o + DIRECTED_SHIP_FLOATS > w.length) return;
-      const p = seedPose(fleet, i, poseAt, poseScale, arrival, type);
-      // Rest on seed: reused kernel slices must not keep a previous occupant's v/a.
-      f.fill(0, o, o + DIRECTED_SHIP_FLOATS);
-      f[o] = p[0]; f[o + 1] = p[1]; f[o + 2] = p[2];
-      f[o + 7] = classOf(type).speed;
-      f[o + 15] = 1;
-      w[o + 20] = (i & 255) | (type << 8) | (groupId << 18);
-      w[o + 21] = slot;
-      w[o + 22] = 1;
-      w[o + 23] = k + 1;
+      const point = seedPose(fleet, i, poseAt, poseScale, arrival, type);
+      writeSeedRow(f, w, o, fleet, i, start + i, type, groupId, slot, point);
     }
+    classStart = classEnd;
   }
 }
 
@@ -690,16 +692,29 @@ export const TRAIL_COPY_SAMPLES = 6;
 export const TRAIL_LAB_LIMIT = 20;
 /**
  * Compact distance that starts a new ribbon instead of connecting samples.
- * Local cruise is ~0.0017 span/s; a warp tick is ~0.009. Occupancy teleports
- * are planet-scale. Present-copy appends compact poses and breaks on this.
+ * Local discontinuities use this bound. Timed warp adds its known displacement
+ * for the elapsed sample interval without weakening local teleport detection.
  */
-export const TRAIL_BREAK_COMPACT = 0.012;
+export const TRAIL_BREAK_COMPACT = 0.012 * Math.max(ORBIT_SPACING_MULTIPLIER, SHIP_SPEED_MULTIPLIER);
 
-/** 1 at the sun, 0.5 at half a compact span, and 0.5 beyond. */
+/** Jewel radius. {@link COMPACT_SYSTEM_SPAN} is the diameter. */
+export const JEWEL_RADIUS = COMPACT_SYSTEM_SPAN * 0.5;
+/**
+ * Trail brightness from distance to the jewel center.
+ * Full through 0.8 radii, then a ramp to 50% at 1.5 radii, then 50%.
+ */
+export function trailRadialBrightness(distance, radius = JEWEL_RADIUS) {
+  if (!(radius > 0)) return 1;
+  const d = distance > 0 ? distance : 0;
+  const near = radius * 0.8;
+  const far = radius * 1.5;
+  if (d <= near) return 1;
+  if (d >= far) return 0.5;
+  return 1 - 0.5 * ((d - near) / (far - near));
+}
+/** @deprecated Camera distance no longer dims trails. Use {@link trailRadialBrightness}. */
 export function trailViewIntensity(distance, span = COMPACT_SYSTEM_SPAN) {
-  const far = span * 0.5;
-  if (!(far > 0) || !(distance > 0)) return 1;
-  return Math.max(0.5, 1 - 0.5 * Math.min(1, distance / far));
+  return trailRadialBrightness(distance, span * 0.5);
 }
 
 export function sceneFleetCentroid(count, readPos) {

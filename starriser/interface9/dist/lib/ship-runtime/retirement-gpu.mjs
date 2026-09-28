@@ -1,3 +1,6 @@
+import {CORRECTION_AFTER} from './ship-layout.mjs';
+import {SHIP_BYTES, SHIP_WORDS, SHIP_HISTORY_BYTES} from './ship-layout.mjs';
+import {MAX_SHIP_CAPACITY} from './ship-capacity.mjs';
 import {SHIP_WGSL} from './shaders.mjs';
 import {eventPoseAddress,EVENT_POSE_WORDS} from './event-gpu.mjs';
 import {correctionAddress,CORRECTION_WORDS,MAX_SHIP_CORRECTIONS} from './correction-gpu.mjs';
@@ -42,7 +45,7 @@ ${SHIP_WGSL}
 @group(0) @binding(4) var<storage,read> history:array<vec4<f32>>;
 @group(0) @binding(5) var<storage,read_write> nextHistory:array<vec4<f32>>;
 ${moves}
-fn translated(initial:Ship)->Ship {var s=initial;s.aux.x=moved(s.aux.x);s.memory.x=moved(s.memory.x);return s;}
+fn translated(initial:Ship)->Ship {var s=initial;s.aux.x=moved(s.aux.x);if(s.memory.z!=-1.0){s.memory.x=moved(s.memory.x);}return s;}
 @compute @workgroup_size(128) fn gather(@builtin(global_invocation_id) gid:vec3<u32>) {
   let i=gid.x;if(i>=config.y){return;}let old=rows[i].x;
   nextA[i]=translated(a[old]);nextB[i]=translated(b[old]);
@@ -55,18 +58,18 @@ const journal=/* wgsl */`
 ${moves}
 ${address}
 fn copyWords(source:u32,destination:u32,length:u32){for(var j=0u;j<length;j++){links[destination+j]=oldLinks[source+j];}}
-fn translatePose(at:u32) {for(var field=16u;field<=24u;field+=8u){links[at+field]=bitcast<u32>(moved(bitcast<f32>(links[at+field])));}}
+fn translatePose(at:u32) {for(var field=16u;field<=24u;field+=8u){if(field==24u && bitcast<f32>(links[at+26u]) == -1.0){continue;}links[at+field]=bitcast<u32>(moved(bitcast<f32>(links[at+field])));}}
 @compute @workgroup_size(128) fn gather(@builtin(global_invocation_id) gid:vec3<u32>) {
   let i=gid.x;if(i>=config.y){return;}let row=rows[i];
   if(config.z>0u) {
     let source=eventPoseBase(config.x)+row.x*${EVENT_POSE_WORDS}u;let destination=eventPoseBase(config.y)+i*${EVENT_POSE_WORDS}u;
-    copyWords(source,destination,${EVENT_POSE_WORDS}u);for(var j=0u;j<8u;j++){translatePose(destination+j*48u);}
+    copyWords(source,destination,${EVENT_POSE_WORDS}u);for(var j=0u;j<8u;j++){translatePose(destination+j*${SHIP_WORDS}u);}
   }
   links[correctionDirectory(config.y)+i]=select(0u,row.y+1u,row.z>0u);
   var record=oldLinks[correctionDirectory(config.x)+row.x];
   for(var j=0u;j<row.z;j++) {
     let source=correctionAt(config.x,record-1u);let destination=correctionAt(config.y,row.y+j);
-    copyWords(source,destination,${CORRECTION_WORDS}u);translatePose(destination+4u);translatePose(destination+52u);
+    copyWords(source,destination,${CORRECTION_WORDS}u);translatePose(destination+4u);translatePose(destination+${CORRECTION_AFTER}u);
     links[destination+1u]=select(0u,row.y+j+2u,j+1u<row.z);record=oldLinks[source+1u];
   }
 }
@@ -81,7 +84,7 @@ function run(encoder,pipeline,group,count){const pass=encoder.beginComputePass()
 export async function createRetirementGpu(device) {
   const pipelines=await Promise.all([pipeline(device,probe,'inspect'),pipeline(device,poses,'gather'),pipeline(device,journal,'gather')]);
   const make=(size,usage)=>device.createBuffer({size,usage});
-  const result=make(10000*16,GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_SRC),rows=make(10000*16,GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_DST),remap=make(10000*4,GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_DST),uniform=make(16,GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST);
+  const result=make(MAX_SHIP_CAPACITY*16,GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_SRC),rows=make(MAX_SHIP_CAPACITY*16,GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_DST),remap=make(MAX_SHIP_CAPACITY*4,GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_DST),uniform=make(16,GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST);
   return {async inspect(resources,earliest,read) {
     const config=new ArrayBuffer(16);new Uint32Array(config)[0]=resources.count;new Float32Array(config)[1]=earliest;device.queue.writeBuffer(uniform,0,config);
     const r=resources.bindings,group=bind(device,pipelines[0],[[0,r.a],[1,r.b],[2,r.links],[3,{buffer:result}],[4,{buffer:uniform}]]);
@@ -93,6 +96,6 @@ export async function createRetirementGpu(device) {
     const a=before.bindings,b=next.bindings,shared=[[6,{buffer:remap}],[7,{buffer:rows}],[8,{buffer:uniform}]];
     run(encoder,pipelines[1],bind(device,pipelines[1],[[0,a.a],[1,a.b],[2,b.a],[3,b.b],[4,a.history],[5,b.history],...shared]),next.count);
     run(encoder,pipelines[2],bind(device,pipelines[2],[[0,a.links],[1,b.links],...shared]),next.count);
-    return next.count*(192*2+768+4+Number(events)*EVENT_POSE_WORDS*4)+plan.records*CORRECTION_WORDS*4;
-  },destroy(){for(const buffer of [result,rows,remap,uniform])buffer.destroy();},scratchBytes:360016};
+    return next.count*(SHIP_BYTES*2+SHIP_HISTORY_BYTES+4+Number(events)*EVENT_POSE_WORDS*4)+plan.records*CORRECTION_WORDS*4;
+  },destroy(){for(const buffer of [result,rows,remap,uniform])buffer.destroy();},scratchBytes:MAX_SHIP_CAPACITY*36+16};
 }

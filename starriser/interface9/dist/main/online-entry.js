@@ -20,7 +20,7 @@ if (inspection)
 const panel = createOnlinePanel(document.body);
 const intents = createOnlineIntents();
 const overview = createOnlineOverview(panel.overview, () => app.online ?? undefined);
-const roster = createOnlineRoster(panel.form.parentElement.querySelector('.online-orders'), query => connected().ownedRoster(query), system => { void action(() => selectSystem(system)); });
+const roster = createOnlineRoster(panel.orderPanel, query => connected().ownedRoster(query), system => { void action(() => selectSystem(system)); });
 let refreshTimer;
 let refreshing = false;
 let refreshDirty = false;
@@ -334,7 +334,7 @@ panel.action('focus').addEventListener('click', () => {
     });
 });
 function field(name) {
-    return panel.form.querySelector(`input[name="${name}"]`);
+    return panel.input(name);
 }
 function useLoopback(endpoint, credential) {
     field('server').value = '';

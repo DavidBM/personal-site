@@ -1,3 +1,4 @@
+import { SYSTEM_SPAN, WARP_LANE_BASE_SPAN, WARP_LANE_LENGTH_MULTIPLIER } from "../lib/ship-runtime/scene-scale.mjs";
 /**
  * Map-camera zoom / tilt policy (pure, no GPU / DOM).
  *
@@ -22,11 +23,13 @@ export const MAP_NEAR = 0.0004;
 /**
  * Jewel perspective near. Galaxy keeps {@link MAP_NEAR} vs far=1e10; compact
  * hulls are ~7e-5, and orbiting a planet at 1.1R puts near-side ships closer
- * than 0.0004 so they vanish. SCENE far is short, so this stays precise.
+ * than 0.0004 so they vanish. The map pairs this close clip with reversed-Z
+ * depth32float; a short far plane alone cannot preserve thin hull surfaces.
  */
 export const SCENE_NEAR = 1e-6;
-/** Jewel far. Orbit-out at EXIT is ~4; keep headroom across the 0.1 span. */
-export const SCENE_FAR = 16;
+/** Cover the extended warp corridors even when chasing across the system.
+ * Reversed-Z preserves near-hull precision independently of this larger far clip. */
+export const SCENE_FAR = Math.max(16, SYSTEM_SPAN * (1.2 + WARP_LANE_BASE_SPAN * WARP_LANE_LENGTH_MULTIPLIER) * 4);
 /**
  * Closest **free-camera** height while a compact Kepler SCENE is loaded.
  * Galaxy pan still floors at {@link MIN_ZOOM}. Just outside a compact hull

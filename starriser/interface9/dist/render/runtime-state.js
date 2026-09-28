@@ -4,7 +4,12 @@ import { sceneFleetRemainingSec } from "./protocol.js";
 const SNAPSHOT_SCENE_FLEET_LIMIT = 256;
 function collectSceneFleetRefs(state, remote) {
     const refs = [];
+    const selected = state.selectedFleetId && state.view.getFleetVisual(state.selectedFleetId);
+    if (selected)
+        refs.push({ id: state.selectedFleetId, visual: selected });
     for (const id of state.sceneFleetIds) {
+        if (id === state.selectedFleetId)
+            continue;
         const visual = state.view.getFleetVisual(id);
         if (visual)
             refs.push({ id, visual });
@@ -22,7 +27,7 @@ function snapshotLocalPos(state, visual, slot) {
         return c;
     return { x: slot.pathEndX, y: slot.pathEndY, z: slot.pathEndZ };
 }
-function fleetSnapshotPosition(state, id, visual, slot) {
+export function fleetSnapshotPosition(state, id, visual, slot) {
     const sceneLocal = (slot.flags & 128) !== 0 && state.view.solarBodies.systemId != null;
     const local = snapshotLocalPos(state, visual, slot);
     if (sceneLocal) {
@@ -45,10 +50,13 @@ function observeSceneFleet(state, id, visual) {
         return null;
     const position = fleetSnapshotPosition(state, id, visual, slot);
     const wallMs = state.view.getSceneWallMs();
+    const types = state.view.sceneShipTypes?.(visual.id) ?? [];
     return {
-        id, shipIndex: visual.instanceStart,
+        id, shipIndex: state.view.getSceneShipHandle(visual.id, 0) ?? -1,
         ...position,
         shipCount: visual.counts.red + visual.counts.blue + visual.counts.green,
+        types, visualCount: types.reduce((sum, row) => sum + row.count, 0),
+        ...state.view.sceneFleetActivity?.(visual.id),
         state: visual.state.state,
         remainingSec: sceneFleetRemainingSec(visual.state, wallMs),
         planetName: sceneParkPlanetName(hashFleetId(visual.id), state.view.solarBodies),
@@ -74,10 +82,12 @@ export function sceneFleetPage(state, remote, offset, limit) {
 }
 function sceneFleetSnapshots(state, remote) {
     const out = [];
+    const markers = new Map(state.view.sceneFleetMarkers().map(row => [row.id, row]));
     for (const { id, visual } of collectSceneFleetRefs(state, remote)) {
         const observed = observeSceneFleet(state, id, visual);
         if (!observed)
             continue;
+        observed.marker = markers.get(visual.id);
         out.push(observed);
         state.sceneFleetRenderIds.set(id, visual.id);
     }
@@ -101,14 +111,19 @@ export function bodySnapshots(state) {
     return bodies;
 }
 export function renderSnapshot(state, remote = [], remoteTotal = remote.length) {
+    return { ...renderSnapshotHeader(state, remoteTotal), sceneFleets: sceneFleetSnapshots(state, remote) };
+}
+export function renderSnapshotHeader(state, remoteTotal) {
     const { view, camera } = state;
     return {
         sequence: state.sequence, camera: view.getCameraState(), origin: view.getFrameOrigin(),
+        scenePreparation: view.scenePreparationStatus?.() ?? null,
+        ...graphicsStatus(view),
         dragging: camera.isDragging, following: camera.isFollowing(), orbiting: camera.isOrbiting(),
         cursor: state.cursor, galaxyFade: view.getGalaxyFade(),
         systemId: view.solarBodies.systemId, sceneNode: view.getSceneFleetNode(),
         sceneTimeSec: view.getSceneTimeSec(), wallMs: view.getSceneWallMs(), bodies: bodySnapshots(state),
-        sceneFleets: sceneFleetSnapshots(state, remote), selectedFleetId: state.selectedFleetId,
+        selectedFleetId: state.selectedFleetId,
         sceneFleetCount: state.sceneFleetIds.size + remoteTotal,
         focusIndex: view.getFocusedBodyIndex() ?? camera.getOrbitPose()?.focusIndex ?? null,
         hiCatalogId: view.catalogResidency.hiCatalogId(), sceneSpanPx: view.getSceneSpanPx(),
@@ -126,6 +141,9 @@ export function renderSnapshot(state, remote = [], remoteTotal = remote.length) 
             sceneDraw: view.sceneDrawStats?.() ?? null,
         },
     };
+}
+function graphicsStatus(view) {
+    return { highFx: view.isHighFxEnabled?.() ?? false, highFxSupported: view.supportsHighFx?.() ?? false };
 }
 export function sceneDiagnostics(state) {
     const { view } = state;

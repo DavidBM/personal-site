@@ -36,6 +36,7 @@ export class Line2Renderer {
     constructor(device, options) {
         this.positionScratch = new Float32Array(0);
         this.pipelineBundle = null;
+        this.clipTransformBind = null;
         this.uniformBuffer = null;
         this.bindGroup = null;
         this.templateVertexBuffer = null;
@@ -64,7 +65,8 @@ export class Line2Renderer {
     }
     initGpu() {
         const device = this.device;
-        this.pipelineBundle = createLine2Pipeline(device, {
+        this.clipTransformBind = null;
+        this.pipelineBundle = createLine2Pipeline(device, { clipTransform: !!this.pipelineOpts.clipTransform,
             format: this.pipelineOpts.format,
             sampleCount: this.pipelineOpts.sampleCount,
             alphaToCoverage: this.pipelineOpts.alphaToCoverage,
@@ -107,7 +109,8 @@ export class Line2Renderer {
         }
         this.pipelineDepthWrite = this.material.depthWrite;
         this.pipelineDepthTest = this.material.depthTest;
-        this.pipelineBundle = createLine2Pipeline(this.device, {
+        this.clipTransformBind = null;
+        this.pipelineBundle = createLine2Pipeline(this.device, { clipTransform: !!this.pipelineOpts.clipTransform,
             format: this.pipelineOpts.format,
             sampleCount: this.pipelineOpts.sampleCount,
             alphaToCoverage: this.pipelineOpts.alphaToCoverage,
@@ -392,6 +395,11 @@ export class Line2Renderer {
             this.uniformsDirty = false;
         }
         pass.setPipeline(this.pipelineBundle.pipeline);
+        if (this.pipelineOpts.clipTransform) {
+            this.clipTransformBind ?? (this.clipTransformBind = this.device.createBindGroup({ layout: this.pipelineBundle.pipeline.getBindGroupLayout(1),
+                entries: [{ binding: 0, resource: { buffer: this.pipelineOpts.clipTransform, offset: 0, size: 64 } }] }));
+            pass.setBindGroup(1, this.clipTransformBind);
+        }
         pass.setBindGroup(0, this.bindGroup);
         pass.setVertexBuffer(0, this.templateVertexBuffer);
         pass.setVertexBuffer(1, this.instancePosBuffer);

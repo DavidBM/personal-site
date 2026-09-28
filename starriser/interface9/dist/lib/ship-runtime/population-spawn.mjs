@@ -1,3 +1,5 @@
+import {SHIP_WORDS, CORRECTION_AFTER, CORRECTION_HISTORY} from './ship-layout.mjs';
+import {MAX_SHIP_CAPACITY} from './ship-capacity.mjs';
 import {SHIP_WGSL} from './shaders.mjs';
 import {CLASS_WGSL} from './classes.mjs';
 import {eventPoseAddress,poseWrite,EVENT_POSE_WORDS} from './event-gpu.mjs';
@@ -29,6 +31,22 @@ fn emitter(s:Ship,e:u32)->vec3<f32> {
   let local=vec3<f32>((f32(e)-1.0)*.5,select(-.2,.15,e==1u),-1.0)*dimensions(shipType(s)).xyz;
   return s.p.xyz+local+2.0*cross(s.q.xyz,cross(s.q.xyz,local)+s.q.w*local);
 }
+// New identities may enter already moving. Align once before publishing their
+// first pose/history; active ships always keep their rate-limited orientation.
+fn birthAttitude(velocity:vec3<f32>,fallback:vec4<f32>)->vec4<f32> {
+  let speed=length(velocity);if(speed<=.000001){return fallback;}
+  let direction=velocity/speed;let sine=length(direction.xy);
+  var axis=vec3<f32>(0.0,1.0,0.0);
+  if(sine>0.000000000001){axis=vec3<f32>(-direction.y,direction.x,0.0)/sine;}
+  // Choose the stable half-angle expression on each hemisphere. This avoids
+  // subtracting nearly equal values near a reversal and slow trig error.
+  if(direction.z>=0.0) {
+    let scalar=sqrt((1.0+direction.z)*.5);
+    return normalize(vec4<f32>(-direction.y/(2.0*scalar),direction.x/(2.0*scalar),0.0,scalar));
+  }
+  let halfSine=sqrt((1.0-direction.z)*.5);
+  return normalize(vec4<f32>(axis*halfSine,sine/(2.0*halfSine)));
+}
 fn clearBirth(point:vec3<f32>,size:f32)->vec3<f32> {
   if(config.clock.y==0.0){return point;}var p=point;
   for(var sweep=0u;sweep<4u;sweep++){for(var i=0u;i<3u;i++) {
@@ -46,18 +64,18 @@ fn clearBirth(point:vec3<f32>,size:f32)->vec3<f32> {
   let direction=vec3<f32>(cos(phase)*sqrt(max(0.0,1.0-y*y)),y,sin(phase)*sqrt(max(0.0,1.0-y*y)));
   var s:Ship;s.identity=vec4<u32>(ordinal|(command.identity.y<<8u)|(command.range.w<<16u)|((command.identity.x*32u+command.identity.y)<<18u),command.identity.x,1u,id);
   s.p=vec4<f32>(clearBirth(command.center.xyz+direction*radius,dimensions(command.identity.y).w),f32(id)*2.39996323);s.v=vec4<f32>(command.velocity.xyz,dynamics(command.identity.y).x);
-  s.q=vec4<f32>(0.0,select(.70710678,-.70710678,(s.identity.y&1u)==1u),0.0,.70710678);
-  s.origin=vec4<f32>(s.p.xyz,0.0);s.tactic.w=config.clock.x+1.0;s.fx.x=-1.0;
+  s.q=birthAttitude(s.v.xyz,vec4<f32>(0.0,select(.70710678,-.70710678,(s.identity.y&1u)==1u),0.0,.70710678));
+  s.origin=vec4<f32>(0.0);s.tactic.w=config.clock.x+1.0;s.fx.x=-1.0;
   a[i]=s;b[i]=s;var before=s;before.identity.z=0u;
   for(var j=0u;j<48u;j++){history[i*48u+j]=vec4<f32>(0.0,0.0,0.0,-1.0);}
   if(config.counts.w>0u){let tick=u32(floor(max(0.0,config.clock.x)*60.0));for(var e=0u;e<3u;e++){history[i*48u+e*16u+tick%16u]=vec4<f32>(emitter(s,e),config.clock.x);}}
-  for(var row=0u;row<8u;row++){storePose(before,eventPoseBase(config.counts.y)+i*${EVENT_POSE_WORDS}u+row*48u);}
+  for(var row=0u;row<8u;row++){storePose(before,eventPoseBase(config.counts.y)+i*${EVENT_POSE_WORDS}u+row*${SHIP_WORDS}u);}
   // Append one birth boundary behind the retained old correction pool. Its
   // directory entry hides this identity in the still-displayed earlier frame.
   let record=config.counts.x+i;let at=correctionAt(config.counts.y,record);
   links[at]=bitcast<u32>(config.clock.x);links[at+1u]=0u;links[at+2u]=0u;links[at+3u]=0u;
-  storePose(before,at+4u);storePose(s,at+52u);
-  for(var j=0u;j<192u;j++){links[at+100u+j]=select(0u,bitcast<u32>(-1.0),j%4u==3u);}
+  storePose(before,at+4u);storePose(s,at+${CORRECTION_AFTER}u);
+  for(var j=0u;j<192u;j++){links[at+${CORRECTION_HISTORY}u+j]=select(0u,bitcast<u32>(-1.0),j%4u==3u);}
   links[correctionDirectory(config.counts.y)+i]=record+1u;
 }
 `;
@@ -67,7 +85,7 @@ export async function createPopulationSpawner(device,maximumBatches) {
   const pipeline=await device.createComputePipelineAsync({layout:'auto',compute:{module,entryPoint:'spawn'}});
   const records=device.createBuffer({size:maximumBatches*64,usage:GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_DST});
   const uniform=device.createBuffer({size:80,usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST});
-  const ordinalBuffer=device.createBuffer({size:10000*4,usage:GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_DST});
+  const ordinalBuffer=device.createBuffer({size:MAX_SHIP_CAPACITY*4,usage:GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_DST});
   return {encode(encoder,next,batches,time,emitting,planets) {
     const data=new ArrayBuffer(batches.length*64),words=new Uint32Array(data),floats=new Float32Array(data);
     for(const [i,batch] of batches.entries()) {

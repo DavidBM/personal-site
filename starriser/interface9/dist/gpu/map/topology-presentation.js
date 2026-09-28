@@ -9,7 +9,7 @@ import { SolarBodyStore } from "../solar-body-store.js";
 import { catalogIdFromSystemId } from "../solar-catalog-id.js";
 import { buildCompactKepler } from "../compact-kepler.js";
 import { fillSceneCandidatesForCluster, oneSceneWithHysteresis, pickLookAtClusterId } from "../solar-system-lod.js";
-import { SYSTEM_POINT_DIAMETER_PX, billboardScaleForDiameterPx, clusterImpostorWithHysteresis } from "../galaxy-point-lod.js";
+import { SURVEY_GALAXY_POINT_LOD_POLICY, SYSTEM_POINT_DIAMETER_PX, billboardScaleForDiameterPx, clusterImpostorWithHysteresis } from "../galaxy-point-lod.js";
 import { buildModelTopologyContext, parseInterClusterConnectionKey } from "../fleet-lod.js";
 import { solarConnectionClusterId } from "../../contracts/connection-key.js";
 const EMPTY_SYSTEM_IDS = [];
@@ -36,6 +36,7 @@ export class MapTopologyPresentation {
         this.lastPointLodViewportH = -1;
         this.lastPointLodFovy = -1;
         this.clusterLodPending = true;
+        this.surveyPanelClusters = new Set();
         this.lastSceneLookAtX = Number.NaN;
         this.lastSceneLookAtZ = Number.NaN;
         this.lastSceneBufferH = -1;
@@ -43,6 +44,7 @@ export class MapTopologyPresentation {
         this.sceneIds = new Set();
         this.modelClusterCenters = [];
         this.modelClusterCentersDirty = true;
+        this.surveyRevision = 0;
         this.modelTopologyContext = null;
         this.previews = previews;
         this.onSceneChanged = onSceneChanged;
@@ -73,6 +75,7 @@ export class MapTopologyPresentation {
     }
     addSolarSystem(cluster, solarSystem) {
         this.modelClusterCentersDirty = true;
+        this.surveyRevision++;
         const clusterColor = cluster.color || 0xffffff;
         const idx = this.store.add({
             x: solarSystem.position.x,
@@ -86,6 +89,8 @@ export class MapTopologyPresentation {
         this.storeDirty = true;
         this.sceneSystems.set(solarSystem.id, {
             id: solarSystem.id,
+            name: solarSystem.name || `SYSTEM ${solarSystem.id}`,
+            isJumpGate: solarSystem.isJumpGate,
             bufferIndex: idx,
             x: solarSystem.position.x,
             z: solarSystem.position.z,
@@ -108,6 +113,7 @@ export class MapTopologyPresentation {
     }
     removeSolarSystem(cluster, solarSystem) {
         this.modelClusterCentersDirty = true;
+        this.surveyRevision++;
         const idx = solarSystem._bufferIndex;
         if (typeof idx !== "number")
             return;
@@ -141,6 +147,7 @@ export class MapTopologyPresentation {
     }
     updateSolarSystemPositions(systems) {
         this.modelClusterCentersDirty = true;
+        this.surveyRevision++;
         const touched = new Set();
         for (const system of systems)
             this.updateSystemPosition(system, touched);
@@ -246,6 +253,7 @@ export class MapTopologyPresentation {
     }
     finalizeFromGalaxy(galaxy) {
         this.modelClusterCentersDirty = true;
+        this.surveyRevision++;
         const writes = [];
         this.clusterLodMeta.clear();
         this.impostorStore.clear();
@@ -286,6 +294,8 @@ export class MapTopologyPresentation {
                     continue;
                 this.sceneSystems.set(solarSystem.id, {
                     id: solarSystem.id,
+                    name: solarSystem.name || `SYSTEM ${solarSystem.id}`,
+                    isJumpGate: solarSystem.isJumpGate,
                     bufferIndex: idx,
                     x: solarSystem.position.x,
                     z: solarSystem.position.z,
@@ -301,6 +311,7 @@ export class MapTopologyPresentation {
     }
     clearPoints() {
         this.modelClusterCentersDirty = true;
+        this.surveyRevision++;
         this.store.clear();
         this.impostorStore.clear();
         this.clusterLodMeta.clear();
@@ -323,6 +334,7 @@ export class MapTopologyPresentation {
     ensureClusterLodMeta(cluster, clusterColor) {
         let meta = this.clusterLodMeta.get(cluster.id);
         if (meta) {
+            meta.name = cluster.name || `CLUSTER ${cluster.id}`;
             meta.color = clusterColor;
             meta.radius = cluster.radius || meta.radius;
             meta.x = cluster.position.x;
@@ -339,6 +351,7 @@ export class MapTopologyPresentation {
         this.impostorStoreDirty = true;
         meta = {
             clusterId: cluster.id,
+            name: cluster.name || `CLUSTER ${cluster.id}`,
             radius: cluster.radius || 250,
             x: cluster.position.x,
             z: cluster.position.z,
@@ -363,6 +376,22 @@ export class MapTopologyPresentation {
         if (!show)
             this.impostorStore.setLodHidden(meta.impostorIndex, true);
     }
+    /** Only admitted cluster panels defer internal topology. Changes invalidate a
+     * stationary camera too (fleet removal or label collision can hide a panel). */
+    setSurveyPanelClusters(ids) {
+        let unchanged = ids.size === this.surveyPanelClusters.size;
+        for (const id of ids)
+            if (!this.surveyPanelClusters.has(id)) {
+                unchanged = false;
+                break;
+            }
+        if (unchanged)
+            return;
+        this.surveyPanelClusters.clear();
+        for (const id of ids)
+            this.surveyPanelClusters.add(id);
+        this.clusterLodPending = true;
+    }
     updateClusterLod(d, fovy, viewportH) {
         const cameraChanged = this.lastPointLodD < 0 ||
             Math.abs(d - this.lastPointLodD) > 1e-3 ||
@@ -381,7 +410,8 @@ export class MapTopologyPresentation {
         for (const meta of this.clusterLodMeta.values()) {
             if (meta.systemIndices.length === 0)
                 continue;
-            const want = clusterImpostorWithHysteresis(d, meta.radius, meta.wasImpostor, fovy, viewportH);
+            const policy = this.surveyPanelClusters.has(meta.clusterId) ? SURVEY_GALAXY_POINT_LOD_POLICY : undefined;
+            const want = clusterImpostorWithHysteresis(d, meta.radius, meta.wasImpostor, fovy, viewportH, policy);
             if (want === meta.wasImpostor)
                 continue;
             const records = meta.systemIndices.length + meta.lineIndices.length + 1;

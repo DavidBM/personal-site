@@ -6,7 +6,7 @@ import {validateEventFrame,eventFrameOverflow} from './event-frame.mjs';
 import {createEventInbox} from './event-inbox.mjs';
 import {createEventQueue} from './event-queue.mjs';
 import {validateLiveEvent,routeIsNewer} from './event-validation.mjs';
-import {decodeDirectorPacket,directorPacketFingerprint} from '../../../dist/lib/ship-runtime/packet.js';
+import {decodeDirectorPacket,directorPacketFingerprint} from './packet.js';
 // One integration owner for startup replay and packets received during motion.
 // Each group owns a bounded GPU event sequence; the full physical pipeline
 // runs once per tick regardless of how many groups receive independent orders.

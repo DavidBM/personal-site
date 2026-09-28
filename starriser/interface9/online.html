@@ -5,8 +5,9 @@
   <title>Galaxy · Multiplayer</title>
   <style>
     body { margin:0; overflow:hidden; background:#05080e; color:#eaf2ff; font:14px system-ui,sans-serif }
-    .online-panel { position:fixed; top:16px; left:16px; z-index:8; width:280px; padding:20px; border:1px solid #354358;
+    .online-panel { contain:layout style; position:fixed; top:16px; left:16px; z-index:8; width:280px; padding:20px; border:1px solid #354358;
       border-radius:12px; background:rgba(8,15,26,.94); box-shadow:0 12px 36px #0007; max-height:calc(100vh - 72px); overflow:auto }
+    .online-panel [hidden] {display:none !important}
     .online-panel h1 { margin:0; font-size:26px; letter-spacing:.05em }
     .online-caption { color:#8fa7c7; margin:3px 0 20px }
     .online-panel label { display:block; margin:12px 0; font-size:12px; color:#aebfd6 }
@@ -22,9 +23,16 @@
     .online-overview h2 { font-size:16px; margin:14px 0 6px }
     .online-overview p { color:#aebfd6; font-size:12px }
     .online-overview-scroll { max-height:240px; overflow:auto }
-    .online-overview table { width:100%; border-collapse:collapse; font-size:12px }
-    .online-overview th,.online-overview td { padding:5px 3px; text-align:left; border-bottom:1px solid #263449; overflow-wrap:anywhere }
+    .online-overview table { width:100%; table-layout:fixed; border-collapse:collapse; font-size:12px }
+    .online-overview th,.online-overview td { padding:5px 3px; text-align:left; border-bottom:1px solid #263449; overflow:hidden;white-space:nowrap;text-overflow:ellipsis }
     .online-overview th { position:sticky; top:0; background:#101e30 }
+    .online-overview td { height:34px; }
+    .online-overview th:first-child { width:32%; }
+    .online-overview th:last-child { width:48px; }
+    .online-owned-roster ul { list-style:none;padding:0;max-height:240px;overflow:auto;contain:layout paint; }
+    .online-owned-roster li { display:flex;align-items:center;gap:6px;height:44px;contain:layout paint; }
+    .online-owned-roster li > span { flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis; }
+    .online-owned-roster li > button { flex-shrink:0; }
     .online-overview button { padding:6px; font-size:12px }
   </style>
   <script>

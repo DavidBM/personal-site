@@ -10,6 +10,7 @@ export class PlanetaryModel {
      * Shared bounded local corridor planner; warp corridors are not queried.
      */
     plan_route(frame_body: number, at_ms: number, duration_seconds: number, start: Float64Array, destination: Float64Array, capability: Float64Array): Float64Array;
+    route_is_clear(frame_body: number, at_ms: number, duration_seconds: number, points: Float64Array, clearance: number): boolean;
     sample(time_ms: number): Float64Array;
 }
 
@@ -105,6 +106,7 @@ export interface InitOutput {
     readonly planetarymodel_new: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
     readonly planetarymodel_phase_records: (a: number, b: number) => [number, number, number, number];
     readonly planetarymodel_plan_route: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => [number, number, number, number];
+    readonly planetarymodel_route_is_clear: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number, number];
     readonly planetarymodel_sample: (a: number, b: number) => [number, number, number, number];
     readonly route_arrival_ms: (a: bigint, b: number) => [bigint, number, number];
     readonly rule_version: () => number;

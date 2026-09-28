@@ -1,5 +1,6 @@
 import {LOCAL_FLEET_SLOTS} from './sparse-identity.mjs';
 import {CLASS_BY_TYPE} from './classes.mjs';
+import {MAX_SOLAR_BODY_CAPACITY} from './solar-capacity.mjs';
 // CPU-authored regions and intent. They never prescribe individual ship poses.
 export const MAX_SPLITS=8;
 export const TACTICS=Object.freeze(['direct','pincer','vertical-pincer','envelop']);
@@ -23,7 +24,7 @@ export function authorTactic(options={}) {
   return {name,splits,fleet,revision,at,blend,detour:options.detour,branches};
 }
 export function validateJourney(journey) {
-  if(!['local','approach','warp','escape','orbit','departure'].includes(journey.mode))throw new Error('Unknown journey mode');
+  if(!['local','approach','warp','escape','orbit','departure','route'].includes(journey.mode))throw new Error('Unknown journey mode');
   if(!Number.isFinite(journey.at)||!Number.isFinite(journey.end)||journey.end<journey.at)throw new Error('Invalid journey clock');
   validateExit(journey.exit);
   validateNavigation(journey);
@@ -43,7 +44,7 @@ function detourAllowed(options) {
 }
 
 function validateNavigation(journey) {
-  if(journey.planet!==undefined)integer(journey.planet,0,15,'navigation planet');
+  if(journey.planet!==undefined)integer(journey.planet,0,MAX_SOLAR_BODY_CAPACITY-1,'navigation planet');
   if(journey.mode==='orbit'&&journey.planet===undefined)throw new Error('Orbit requires a planet');
   if(journey.planeShift!==undefined&&!Number.isFinite(journey.planeShift))throw new Error('Invalid orbit plane shift');
 }

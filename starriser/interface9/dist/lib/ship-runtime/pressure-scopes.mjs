@@ -2,6 +2,7 @@ import {pressureDefinition,pressureKey} from './pressure-orders.mjs';
 import {orbitRadius, POC_PLANET_RADIUS} from './flight-layout.mjs';
 import {radiusOf} from './classes.mjs';
 import {bodyAt} from './solar-layout.mjs';
+import {MAX_SOLAR_BODY_CAPACITY} from './solar-capacity.mjs';
 export const PRESSURE_SIDE=64,MAX_PRESSURE_FIELDS=16;
 const smooth=value=>{const t=Math.max(0,Math.min(1,value));return t*t*(3-2*t);};
 function integer(value,min,max,label){if(!Number.isInteger(value)||value<min||value>max)throw new Error(`Invalid ${label}`);}
@@ -9,7 +10,7 @@ function scopeDefinition(value,sampleBody) {
   const center=value.center??[0,0,0];let halfExtent=value.halfExtent??128;
   if(!Array.isArray(center)||center.length!==3||!center.every(x=>Number.isFinite(x)&&Math.abs(x)<=1e9))throw new Error('Invalid pressure center');
   if(value.planet!==undefined) {
-    integer(value.planet,0,15,'pressure planet');
+    integer(value.planet,0,MAX_SOLAR_BODY_CAPACITY-1,'pressure planet');
     const pose=sampleBody(value.planet,0,1800);
     const radius=Array.isArray(pose)?pose[3]:undefined;
     halfExtent=Math.max(halfExtent,planetEnvelope(radius));

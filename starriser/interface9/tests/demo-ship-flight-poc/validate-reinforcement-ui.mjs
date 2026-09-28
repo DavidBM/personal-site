@@ -12,13 +12,13 @@ try {
   await cdp.send('Page.navigate',{url:`http://127.0.0.1:${server.port}/tests/demo-ship-flight-poc/index.html?scenario=2&count=1000`});
   await cdp.waitForFunction('window.flightLab?.time>.25');
   await cdp.evaluate(`document.querySelector('#pause').click();window.populationPaused=window.flightLab.time;`);
-  await cdp.evaluate(`(async()=>{const e=window.flightLab.engine;window.populationBefore=Array.from(new Uint32Array(await e.read(e.state,e.count*192)));})()`);
+  await cdp.evaluate(`(async()=>{const e=window.flightLab.engine;window.populationBefore=Array.from(new Uint32Array(await e.read(e.state,e.count*224)));})()`);
   await cdp.evaluate(`document.querySelector('#reinforce').click()`);
   await cdp.waitForFunction('window.flightLab.engine.count===1099&&!window.flightLab.engine.shipStorage.status.pending');
   const born=await cdp.evaluate(`(async()=>{
-    const e=window.flightLab.engine,w=new Uint32Array(await e.read(e.state,e.count*192)),progress=await e.readProgress();
+    const e=window.flightLab.engine,w=new Uint32Array(await e.read(e.state,e.count*224)),progress=await e.readProgress();
     return {time:e.now,paused:window.populationPaused,unchanged:window.populationBefore.every((x,i)=>w[i]===x),
-      count:e.count,alive:e.director.alive,types:Array.from(new Set(Array.from({length:99},(_,i)=>(w[(i+1000)*48+20]>>>8)&255))),
+      count:e.count,alive:e.director.alive,types:Array.from(new Set(Array.from({length:99},(_,i)=>(w[(i+1000)*56+20]>>>8)&255))),
       progress:progress.groups.reduce((sum,g)=>sum+g.live,0),storage:e.shipStorage.status};
   })()`);
   assert.equal(born.time,born.paused);assert(born.unchanged);assert.equal(born.count,1099);assert.equal(born.alive,1099);assert.equal(born.progress,1099);assert.equal(born.types.length,6);
@@ -31,9 +31,9 @@ try {
   await cdp.evaluate(`document.querySelector('#pause').click()`);
   await cdp.waitForFunction('window.flightLab.time>window.populationPaused+.5');
   const running=await cdp.evaluate(`(async()=>{
-    const e=window.flightLab.engine,raw=await e.read(e.state,e.count*192),w=new Uint32Array(raw),f=new Float32Array(raw);let targets=0,valid=true;
-    for(let i=0;i<e.count;i++)if(w[i*48+22]===1&&f[i*48+16]>0){const target=(f[i*48+16]-1)*48;targets++;valid&&=w[target+22]===1&&e.director.canTarget(w[i*48+21],w[target+21]);}
-    return {count:e.count,alive:e.director.alive,ids:new Set(Array.from({length:e.count},(_,i)=>w[i*48+23])).size,targets,valid,
+    const e=window.flightLab.engine,raw=await e.read(e.state,e.count*224),w=new Uint32Array(raw),f=new Float32Array(raw);let targets=0,valid=true;
+    for(let i=0;i<e.count;i++)if(w[i*56+22]===1&&f[i*56+16]>0){const target=(f[i*56+16]-1)*56;targets++;valid&&=w[target+22]===1&&e.director.canTarget(w[i*56+21],w[target+21]);}
+    return {count:e.count,alive:e.director.alive,ids:new Set(Array.from({length:e.count},(_,i)=>w[i*56+23])).size,targets,valid,
       errors:[...e.errors,document.querySelector('#error').textContent].filter(Boolean)};
   })()`);
   assert.equal(running.ids,1198);assert.equal(running.alive,599);assert(running.targets>0&&running.valid);assert.deepEqual(running.errors,[]);

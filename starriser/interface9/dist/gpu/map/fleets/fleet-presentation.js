@@ -1,3 +1,4 @@
+import { fleetRelationship } from "../../../contracts/fleet-relationship.js";
 import { hashStringSeed, FLEET_SHIP_DRAW_FLOATS } from "../../fleet-ship-pack.js";
 import { CAP_NEAR, GLOBAL_MAX_INSTANCES, TRIANGLE_SCREEN_PX, WARM_FRAMES, countShips, scaleCountsToBudget, shouldResetFleetTrails } from "../../fleet-lod.js";
 import { createFleetSlotAllocator } from "../../fleet-slot-allocator.js";
@@ -13,7 +14,8 @@ import { createFleetGpuUpload } from "./gpu-upload.js";
 import { createFleetPathPacking } from "./path-packing.js";
 import { sceneFleetCentroid } from "./directed-present.wgsl.js";
 /** Fleet lifecycle facade. Resource phases have separate, narrowly scoped owners. */
-const MAX_FLEET_SLOTS = 100000;
+export const MAX_FLEET_SLOTS = 100000;
+let nextFleetGeneration = 1;
 export class FleetPresentation {
     get records() { return this.visible.records; }
     getVisual(id) { return this.records.get(id) ?? null; }
@@ -29,7 +31,7 @@ export class FleetPresentation {
         this.visible.warmingFleetIds = index.warmingFleetIds;
         this.scene.rebuildLocIndex();
     }
-    constructor(layer, isUnavailable, solarBodies, timeline) {
+    constructor(layer, isUnavailable, solarBodies, timeline, strategicOnly = false) {
         this.visible = { records: new Map(), warmingFleetIds: new Set() };
         /**
          * Free-list: stable fleetSlot + ship ranges. High-water never shrinks;
@@ -46,13 +48,15 @@ export class FleetPresentation {
         this.bulkShipBudgetHint = null;
         this.positionLookup = null;
         this.storage = new PackedFleetStorage();
+        this.sceneCenterProvider = null;
         this.layer = layer;
+        this.strategicOnly = strategicOnly;
         this.isUnavailable = isUnavailable;
         this.solarBodies = solarBodies;
         this.timeline = timeline;
-        this.scene = new FleetSceneParking(this.storage, this.visible, solarBodies, () => this.positionLookup, () => this.follow.followShipIndex, layer, timeline);
+        this.scene = new FleetSceneParking(this.storage, this.visible, solarBodies, () => this.positionLookup, () => this.follow.followShipIndex, strategicOnly ? { killTrailRange() { } } : layer, timeline);
         this.follow = new FleetFollowShadow(this.storage, this.visible, solarBodies, this.scene, layer, isUnavailable);
-        this.upload = createFleetGpuUpload(this.storage, this.slotAlloc, layer);
+        this.upload = createFleetGpuUpload(this.storage, this.slotAlloc, layer, strategicOnly);
         this.packing = createFleetPathPacking(this.storage, () => this.positionLookup, timeline, this.scene);
     }
     /**
@@ -83,6 +87,8 @@ export class FleetPresentation {
         };
     }
     sceneShipCentroid(id) {
+        if (this.sceneCenterProvider)
+            return this.sceneCenterProvider(id);
         const visual = this.records.get(id);
         if (!visual || visual.instanceActive <= 0)
             return null;
@@ -157,7 +163,7 @@ export class FleetPresentation {
      */
     reserveFleetCapacity(fleetCount, shipsPerFleet) {
         const fleets = Math.max(0, fleetCount | 0);
-        const per = Math.max(0, Math.min(CAP_NEAR, shipsPerFleet | 0));
+        const per = this.strategicOnly ? 1 : Math.max(0, Math.min(CAP_NEAR, shipsPerFleet | 0));
         const fleetNeed = Math.min(MAX_FLEET_SLOTS, this.slotAlloc.fleetHighWater + fleets);
         const shipNeed = Math.min(GLOBAL_MAX_INSTANCES, this.slotAlloc.shipHighWater + fleets * per);
         this.storage.ensureFleetGpuCapacity(fleetNeed);
@@ -183,7 +189,7 @@ export class FleetPresentation {
      * When high-water is full, still return hint/want so free-list holes can fit.
      */
     chooseShipBudget(counts) {
-        const want = Math.min(countShips(counts), CAP_NEAR);
+        const want = Math.min(countShips(counts), this.strategicOnly ? 1 : CAP_NEAR);
         if (want <= 0)
             return 0;
         let n = want;
@@ -207,6 +213,8 @@ export class FleetPresentation {
         this.upload.ensureGpuShipCapacity(this.slotAlloc.shipHighWater);
     }
     ensureSceneVisualCount(id, n) {
+        if (this.strategicOnly)
+            return this.records.has(id);
         const visual = this.records.get(id);
         if (!visual)
             return false;
@@ -215,7 +223,7 @@ export class FleetPresentation {
         const oldStart = visual.instanceStart;
         const oldCount = visual.instanceCapacity;
         if (restoring && oldCount > 0)
-            this.layer.killTrailRange(oldStart, oldCount);
+            this.killLegacyTrailRange(oldStart, oldCount);
         if (want === oldCount) {
             if (restoring) {
                 visual.instanceActive = want;
@@ -250,6 +258,8 @@ export class FleetPresentation {
         return true;
     }
     hideSceneTail(id, live) {
+        if (this.strategicOnly)
+            return;
         const visual = this.records.get(id);
         if (!visual)
             return;
@@ -260,7 +270,7 @@ export class FleetPresentation {
         const tail = visual.instanceCapacity - liveN;
         if (tail > 0) {
             this.zeroShipDraw(visual.instanceStart + liveN, tail);
-            this.layer.killTrailRange(visual.instanceStart + liveN, tail);
+            this.killLegacyTrailRange(visual.instanceStart + liveN, tail);
         }
         else
             this.writeSceneDrawSizes(visual, liveN);
@@ -336,7 +346,7 @@ export class FleetPresentation {
      * next frame flush (coalesced) so bulk spawn is not N× writeBuffer.
      * Re-add of the same id tombstones the prior slot first.
      */
-    addFleet(id, counts, state, remote) {
+    addFleet(id, counts, state, remote, relationship) {
         if (this.records.has(id)) {
             this.removeFleet(id);
         }
@@ -363,6 +373,8 @@ export class FleetPresentation {
         }
         const visual = {
             id,
+            relationship: fleetRelationship(relationship),
+            generation: nextFleetGeneration++,
             counts,
             state,
             remote,
@@ -419,7 +431,7 @@ export class FleetPresentation {
                 this.scene.positionShipsForSceneState(visual);
             }
             // Free-list reuse + fresh spawn: wipe trail rings so old segments never stitch.
-            this.layer.killTrailRange(visual.instanceStart, N);
+            this.killLegacyTrailRange(visual.instanceStart, N);
         }
         visual.poseInitialized = true;
         visual.poseSystemId = this.scene.fleetLocMatchesKepler(visual.state)
@@ -449,7 +461,7 @@ export class FleetPresentation {
         if (f.instanceCapacity > 0 &&
             shouldResetFleetTrails(prev, state) &&
             !(this.scene.fleetLocMatchesKepler(prev) && this.scene.fleetLocMatchesKepler(state))) {
-            this.layer.killTrailRange(f.instanceStart, f.instanceCapacity);
+            this.killLegacyTrailRange(f.instanceStart, f.instanceCapacity);
         }
     }
     /**
@@ -490,7 +502,7 @@ export class FleetPresentation {
             }
             this.storage.markShipDirty(start, cap);
             // Same indices as draw/ShipSim; capacity already ≥ high-water from add.
-            this.layer.killTrailRange(start, cap);
+            this.killLegacyTrailRange(start, cap);
         }
         this.slotAlloc.freeShipRange(start, cap);
         this.slotAlloc.freeFleetSlot(slot);
@@ -500,6 +512,10 @@ export class FleetPresentation {
         const followed = this.follow.followShipIndex;
         if (followed != null && followed >= start && followed < start + cap)
             this.follow.setFollowShipIndex(null);
+    }
+    killLegacyTrailRange(start, count) {
+        if (!this.strategicOnly)
+            this.layer.killTrailRange(start, count);
     }
     clearFleets() {
         this.follow.resetTracking();
@@ -512,11 +528,16 @@ export class FleetPresentation {
         this.storage.flushedFleetHw = 0;
         this.storage.dirtyFleetSlots.length = 0;
         this.storage.dirtyShipRangeCount = 0;
-        this.layer.setInstances(new Float32Array(0), 0);
+        if (this.strategicOnly)
+            this.layer.setLiveInstanceCount(0);
+        else
+            this.layer.setInstances(new Float32Array(0), 0);
         this.layer.setFleetGpuData(new Uint8Array(0), 0);
-        this.layer.setShipSimData(new Uint8Array(0), 0);
+        if (!this.strategicOnly)
+            this.layer.setShipSimData(new Uint8Array(0), 0);
         // Drop trail sample/line buffers so no ghost lines remain.
-        this.layer.ensureTrailCapacity(0);
+        if (!this.strategicOnly)
+            this.layer.ensureTrailCapacity(0);
     }
     /**
      * R5 — after each integrate: count a warm frame for spawn warm-up.

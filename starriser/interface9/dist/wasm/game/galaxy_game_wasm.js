@@ -69,6 +69,23 @@ export class PlanetaryModel {
         return v4;
     }
     /**
+     * @param {number} frame_body
+     * @param {number} at_ms
+     * @param {number} duration_seconds
+     * @param {Float64Array} points
+     * @param {number} clearance
+     * @returns {boolean}
+     */
+    route_is_clear(frame_body, at_ms, duration_seconds, points, clearance) {
+        const ptr0 = passArrayF64ToWasm0(points, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.planetarymodel_route_is_clear(this.__wbg_ptr, frame_body, at_ms, duration_seconds, ptr0, len0, clearance);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return ret[0] !== 0;
+    }
+    /**
      * @param {number} time_ms
      * @returns {Float64Array}
      */

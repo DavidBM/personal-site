@@ -14,6 +14,15 @@ export function createSlotLayout(director,count) {
     target=null;swaps=0;revision++;
   }
   function rebind(){keys=director.population.keys.slice();reset();}
+  function growCapacity(nextCount) {
+    if(!Number.isInteger(nextCount)||nextCount<count)throw Error('Slot capacity must grow');
+    const nextP=new Uint32Array(nextCount),nextL=new Uint32Array(nextCount);
+    nextP.set(physical);nextL.set(logical);
+    for(let i=count;i<nextCount;i++){nextP[i]=i;nextL[i]=i;}
+    physical=nextP;logical=nextL;count=nextCount;
+    nextPhysical=new Uint32Array(count);nextLogical=new Uint32Array(count);remap=new Uint32Array(count);used=new Uint8Array(count);
+    target=null;revision++;
+  }
   function request(ids) {
     if(ids.length!==count)throw new Error('Packing order must include the whole population');
     const seen=new Uint8Array(count),candidate=new Uint32Array(count);
@@ -78,7 +87,7 @@ export function createSlotLayout(director,count) {
     return ()=>{keys=nextKeys;data.fill(0);for(let i=0;i<count;i++)data[keys[i]]=physical[i]+1;revision++;};
   }
   reset();
-  return {data,get physical(){return physical;},get logical(){return logical;},prepareExtension,prepareRetirement,prepareMembership,reset,rebind,request,prepare,commit,liveFirst,get status(){return {pending:target!==null,revision,swaps};}};
+  return {data,get physical(){return physical;},get logical(){return logical;},prepareExtension,prepareRetirement,prepareMembership,growCapacity,reset,rebind,request,prepare,commit,liveFirst,get status(){return {pending:target!==null,revision,swaps};}};
 }
 export function slotLookupWgsl(capacity,read,count) {return /* wgsl */`
 fn groupSlot(group:u32,ordinal:u32)->u32 {

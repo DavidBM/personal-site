@@ -1,3 +1,4 @@
+import { ClusterFleetTotals } from '../survey/fleet-totals.js';
 import { SYSTEM_LOCAL_SPAN, pickSceneParkBodyIndex } from "../../solar-system-lod.js";
 import { FLEET_SHIP_DRAW_FLOATS } from "../../fleet-ship-pack.js";
 import { WARM_FRAMES, shouldForceIncludeFollowedFleet } from "../../fleet-lod.js";
@@ -15,6 +16,7 @@ import { SHIP_SIM_STRIDE, readShipSim, writeShipSim } from "../../ship-sim-layou
 import { SHIP_MODE_JUMP, SHIP_MODE_ORBIT } from "../../ship-flight-ref.js";
 import { compactBodySunLocal } from "../../system-scene/frame.js";
 import { initializeRemoteShipPose, writeRemoteFleetPath } from "./remote-path.js";
+import { sceneOutboundDurationMs } from './directed-present.wgsl.js';
 const EMPTY_FLEETS = new Map();
 /** Inbound hops occupy the destination system. */
 export function fleetLocSystemId(state) {
@@ -24,11 +26,22 @@ export function fleetLocSystemId(state) {
         return null;
     return id | 0;
 }
+/** A departure is a temporary source-side visual, not domain residency. */
+export function fleetDepartureSystemId(state, nowMs) {
+    if (state.state !== 'jumping' || nowMs - state.startTime >= sceneOutboundDurationMs(state.durationMs))
+        return null;
+    const id = state.startNode?.solarSystemId;
+    return id != null && Number.isFinite(id) ? id | 0 : null;
+}
+export function fleetVisibleInSystem(state, systemId, nowMs) {
+    return fleetLocSystemId(state) === systemId || fleetDepartureSystemId(state, nowMs) === systemId;
+}
 /** Compact-scene membership, local parking and transition resets. */
 export class FleetSceneParking {
     get records() { return this.visible.records; }
     get warmingFleetIds() { return this.visible.warmingFleetIds; }
     constructor(storage, visible, solarBodies, lookup, followIndex, layer, timeline) {
+        this.surveyTotals = new ClusterFleetTotals();
         /**
          * CPU SystemSceneSet (topology SolarSystem.id). S2 writes 0–1 look-at winner.
          * S3B ORs FLEET_FLAG_SYSTEM_SCENE from this set.
@@ -37,9 +50,11 @@ export class FleetSceneParking {
         this.revision = 0;
         /**
          * Same `FleetVisual` objects as `records`, keyed by topology solarSystemId
-         * (jumping uses endNode). Jewel work is `fleetsInJewel().get(id)`, not a scan.
+         * (jumping uses endNode plus its brief source departure). Jewel work is
+         * `fleetsInJewel().get(id)`, not a world-roster scan.
          */
         this.bySolarSystem = new Map();
+        this.departureSystems = new Map();
         this.flaggedSystemId = null;
         /** Scratch world pose for SCENE planet parking (no per-fleet alloc). */
         this.parkWorldScratch = { x: 0, y: 0, z: 0 };
@@ -82,23 +97,33 @@ export class FleetSceneParking {
     /**
      * Jewel loc is the loaded Kepler `solarBodies.systemId`, not a stale
      * SystemSceneSet. When no Kepler is loaded (S3B setSystemScene-only tests),
-     * fall back to the CPU set. Inbound jumping still uses endNode via
-     * {@link fleetTopologyLocFromState}.
+     * fall back to the CPU set. Jump departures retain their source briefly;
+     * this uses the same paused epoch clock as the directed outbound plan.
      */
     fleetLocMatchesKepler(state) {
-        const id = fleetLocSystemId(state);
-        if (id == null)
-            return false;
         const keplerId = this.solarBodies.systemId;
-        return keplerId == null ? this.systemSceneIds.has(id) : id === keplerId;
+        if (keplerId != null)
+            return fleetVisibleInSystem(state, keplerId, this.timeline.wallMs);
+        for (const id of this.systemSceneIds)
+            if (fleetVisibleInSystem(state, id, this.timeline.wallMs))
+                return true;
+        return false;
     }
-    /** Topology system this fleet occupies (inbound hops use the destination). */
+    /** Index both bounded presentation endpoints without changing topology loc. */
     indexVisual(visual) {
         this.unindexVisual(visual);
+        this.surveyTotals.set(visual.id, visual.state, visual.relationship);
         const id = fleetLocSystemId(visual.state);
         visual.locSystemId = id;
-        if (id == null)
+        if (id != null)
+            this.addToSystem(id, visual);
+        const source = fleetDepartureSystemId(visual.state, this.timeline.wallMs);
+        if (source == null || source === id)
             return;
+        this.departureSystems.set(visual.id, source);
+        this.addToSystem(source, visual);
+    }
+    addToSystem(id, visual) {
         let bucket = this.bySolarSystem.get(id);
         if (!bucket) {
             bucket = new Map();
@@ -107,19 +132,28 @@ export class FleetSceneParking {
         bucket.set(visual.id, visual);
     }
     unindexVisual(visual) {
+        this.surveyTotals.delete(visual.id);
         const id = visual.locSystemId;
-        if (id == null)
-            return;
+        if (id != null)
+            this.removeFromSystem(id, visual.id);
+        const source = this.departureSystems.get(visual.id);
+        if (source != null)
+            this.removeFromSystem(source, visual.id);
+        this.departureSystems.delete(visual.id);
+        visual.locSystemId = null;
+    }
+    removeFromSystem(id, fleetId) {
         const bucket = this.bySolarSystem.get(id);
         if (bucket) {
-            bucket.delete(visual.id);
+            bucket.delete(fleetId);
             if (bucket.size === 0)
                 this.bySolarSystem.delete(id);
         }
-        visual.locSystemId = null;
     }
     rebuildLocIndex() {
+        this.surveyTotals.clear();
         this.bySolarSystem.clear();
+        this.departureSystems.clear();
         this.flaggedSystemId = null;
         for (const visual of this.records.values()) {
             visual.locSystemId = null;
@@ -131,7 +165,19 @@ export class FleetSceneParking {
         const id = this.jewelSystemId();
         if (id == null)
             return EMPTY_FLEETS;
-        return this.bySolarSystem.get(id) ?? EMPTY_FLEETS;
+        const bucket = this.bucket(id);
+        this.expireDepartures(id, bucket);
+        return bucket;
+    }
+    expireDepartures(id, bucket) {
+        for (const visual of bucket.values()) {
+            if (this.departureSystems.get(visual.id) !== id || fleetVisibleInSystem(visual.state, id, this.timeline.wallMs))
+                continue;
+            this.departureSystems.delete(visual.id);
+            this.removeFromSystem(id, visual.id);
+            this.writeSceneMembership(visual, false);
+            this.revision++;
+        }
     }
     jewelSystemId() {
         const keplerId = this.solarBodies.systemId;

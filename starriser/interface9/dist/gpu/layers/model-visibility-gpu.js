@@ -1,11 +1,12 @@
+import { sceneCameraShader, bindSceneCamera } from '../scene-camera.js';
 import { readGpuBuffer } from '../buffer-readback.js';
 import { writeModelFrustumPlanes } from '../../lib/fleet-sim/visual/model-visibility.js';
 import { buildModelVisibilityWgsl, MODEL_VISIBILITY_GROUP_SIZE, MODEL_VISIBILITY_UNIFORM_BYTES } from '../../lib/fleet-sim/gpu/model-visibility.wgsl.js';
-function createBuffers(device, capacity, outputBytes) {
+function createBuffers(device, capacity, outputBytes, batchCount) {
     const uniform = device.createBuffer({ label: 'model-visibility-uniform', size: MODEL_VISIBILITY_UNIFORM_BYTES, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     let workspace = null, output = null;
     try {
-        workspace = device.createBuffer({ label: 'model-visibility-workspace', size: (capacity + Math.ceil(capacity / MODEL_VISIBILITY_GROUP_SIZE)) * 4, usage: GPUBufferUsage.STORAGE });
+        workspace = device.createBuffer({ label: 'model-visibility-workspace', size: (capacity + Math.ceil(capacity / MODEL_VISIBILITY_GROUP_SIZE) * batchCount) * 4, usage: GPUBufferUsage.STORAGE });
         output = device.createBuffer({ label: 'model-visible-indices-indirect', size: outputBytes, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_SRC });
         return { uniform, workspace, output };
     }
@@ -26,14 +27,14 @@ function createLayout(device) {
             { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
         ] });
 }
-function createPipelines(device, layout, capacity, indirectWords) {
-    const module = device.createShaderModule({ label: 'model-visibility', code: buildModelVisibilityWgsl(capacity, indirectWords) });
-    const pipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [layout] });
+function createPipelines(device, layout, capacity, indirectWords, batchCount) {
+    const module = device.createShaderModule({ label: 'model-visibility', code: sceneCameraShader(buildModelVisibilityWgsl(capacity, indirectWords, batchCount), []).replace('sphereVisible(pose.centerRel,', 'sphereVisible((sceneCamera.world * vec4<f32>(pose.centerRel,1.0)).xyz,') });
+    const pipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [layout, device.createBindGroupLayout({ entries: [] }), device.createBindGroupLayout({ entries: [{ binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } }] })] });
     const pipeline = (entryPoint) => device.createComputePipeline({ label: `model-visibility-${entryPoint}`, layout: pipelineLayout, compute: { module, entryPoint } });
     return { classify: pipeline('classify'), scan: pipeline('scanGroups'), scatter: pipeline('scatter') };
 }
 export class ModelVisibilityGpu {
-    constructor(bootstrap, capacity) {
+    constructor(bootstrap, capacity, ranges = []) {
         this.uniformData = new ArrayBuffer(MODEL_VISIBILITY_UNIFORM_BYTES);
         this.floats = new Float32Array(this.uniformData);
         this.words = new Uint32Array(this.uniformData);
@@ -43,12 +44,15 @@ export class ModelVisibilityGpu {
         this.bindGroup = null;
         this.candidateCount = 0;
         this.disposed = false;
+        this.ranges = ranges;
+        this.batchCount = Math.max(1, ranges.length);
         this.bootstrap = bootstrap;
         this.capacity = capacity;
         this.indirectOffset = Math.ceil(capacity * 4 / 256) * 256;
+        this.outputBytes = this.indirectOffset + (this.batchCount > 1 ? this.batchCount * 32 : 20);
         this.layout = createLayout(bootstrap.device);
-        this.pipelines = createPipelines(bootstrap.device, this.layout, capacity, this.indirectOffset / 4);
-        this.buffers = createBuffers(bootstrap.device, capacity, this.indirectOffset + 20);
+        this.pipelines = createPipelines(bootstrap.device, this.layout, capacity, this.indirectOffset / 4, this.batchCount);
+        this.buffers = createBuffers(bootstrap.device, capacity, this.outputBytes, this.batchCount);
         this.outputBuffer = this.buffers.output;
     }
     setInputs(ship, fleet, candidates) {
@@ -89,6 +93,10 @@ export class ModelVisibilityGpu {
         this.words[30] = indexCount;
         this.words[31] = Math.ceil(this.candidateCount / MODEL_VISIBILITY_GROUP_SIZE);
         this.words[32] = lodMask >>> 0;
+        for (let batch = 0; batch < this.ranges.length; batch++) {
+            this.words[36 + batch * 4] = this.ranges[batch].indexCount;
+            this.words[37 + batch * 4] = this.ranges[batch].firstIndex;
+        }
         this.bootstrap.device.queue.writeBuffer(this.buffers.uniform, 0, this.uniformData);
     }
     dispatch(encoder, pipeline, groups, label) {
@@ -96,9 +104,22 @@ export class ModelVisibilityGpu {
             return;
         const pass = encoder.beginComputePass({ label });
         pass.setPipeline(pipeline);
+        bindSceneCamera(this.bootstrap.device, pass, pipeline);
         pass.setBindGroup(0, this.bindGroup);
         pass.dispatchWorkgroups(groups);
         pass.end();
+    }
+    /** Compact explicit diagnostic read; never copies the visible index list. */
+    async readbackCount() {
+        this.assertAvailable();
+        if (this.candidateCount === 0)
+            return 0;
+        const bytes = await readGpuBuffer(this.bootstrap.device, this.outputBuffer, this.indirectOffset, this.outputBytes - this.indirectOffset);
+        const values = new Uint32Array(bytes);
+        let count = 0;
+        for (let batch = 0; batch < this.batchCount; batch++)
+            count += values[batch * 8 + 1] ?? 0;
+        return count;
     }
     async readback() {
         this.assertAvailable();
@@ -106,9 +127,12 @@ export class ModelVisibilityGpu {
         if (candidateCount === 0)
             return { candidateCount: 0, visibleCount: 0, indices: new Uint32Array(0) };
         // One copy includes both the complete list and args, even if the live loop advances later.
-        const bytes = await readGpuBuffer(this.bootstrap.device, this.outputBuffer, 0, this.indirectOffset + 20);
+        const bytes = await readGpuBuffer(this.bootstrap.device, this.outputBuffer, 0, this.outputBytes);
         this.assertAvailable();
-        const count = new DataView(bytes).getUint32(this.indirectOffset + 4, true);
+        const view = new DataView(bytes);
+        let count = 0;
+        for (let batch = 0; batch < this.batchCount; batch++)
+            count += view.getUint32(this.indirectOffset + batch * 32 + 4, true);
         if (count > candidateCount)
             throw new Error('Model visibility count exceeds selected candidates');
         return { candidateCount, visibleCount: count, indices: new Uint32Array(bytes, 0, count).slice() };

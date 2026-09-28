@@ -10,8 +10,8 @@
 import { CONNECTION_FLOATS_PER_SLOT, } from "../connection-line-store.js";
 import { MAP_MSAA_SAMPLES } from "../map-msaa.js";
 import { Line2Renderer } from "../../vendor/line2/index.js";
-/** Screen-space topology stroke (buffer px). Slightly thinner than M4 overlays (2.5). */
-export const CONNECTION_LINEWIDTH_PX = 1.75;
+/** Solid screen-space topology stroke (buffer px). */
+export const CONNECTION_LINEWIDTH_PX = 2;
 export class ConnectionLineGpuLayer {
     constructor(bootstrap) {
         this.name = "connection-lines";
@@ -22,7 +22,7 @@ export class ConnectionLineGpuLayer {
     }
     /**
      * @param options.sampleCount Must match the map color pass (default {@link MAP_MSAA_SAMPLES}).
-     *   Line2 also enables alphaToCoverage when sampleCount > 1 for long-edge AA.
+     *   Line2 uses geometric MSAA coverage or analytic edges at one sample.
      */
     init(options) {
         const { device, format } = this.bootstrap;
@@ -31,12 +31,13 @@ export class ConnectionLineGpuLayer {
         this.line2 = new Line2Renderer(device, {
             format,
             sampleCount,
-            alphaToCoverage: sampleCount > 1,
+            alphaToCoverage: false,
             splitPosition: true,
             material: {
                 color: [1, 1, 1, 0.9],
                 linewidth: CONNECTION_LINEWIDTH_PX,
                 worldUnits: false,
+                dashed: false,
                 // Topology edges: body-only (no round endcap pills / soft discs).
                 endcaps: false,
                 softAA: false,

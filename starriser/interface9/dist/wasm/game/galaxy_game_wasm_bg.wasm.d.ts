@@ -8,6 +8,7 @@ export const ephemeris_version: () => number;
 export const planetarymodel_new: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
 export const planetarymodel_phase_records: (a: number, b: number) => [number, number, number, number];
 export const planetarymodel_plan_route: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => [number, number, number, number];
+export const planetarymodel_route_is_clear: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number, number];
 export const planetarymodel_sample: (a: number, b: number) => [number, number, number, number];
 export const route_arrival_ms: (a: bigint, b: number) => [bigint, number, number];
 export const rule_version: () => number;

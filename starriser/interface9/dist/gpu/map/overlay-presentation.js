@@ -6,7 +6,7 @@ import { OVERLAY_COLOR_HOVER, OVERLAY_COLOR_SELECT, packEditHandleGizmoLine2, pa
 import { MAP_OVERLAY_FLOATS_PER_VERT } from "../shaders/map-overlay.wgsl.js";
 /** Editor handles and selection/hover overlays, independent of topology and fleet state. */
 export class MapOverlayPresentation {
-    constructor(overlay, overlayLines, getViewProj, hideGalaxySelectionRings) {
+    constructor(overlay, overlayLines, getViewProj, hideGalaxySelectionRings, reverseDepth = false) {
         // --- M4 edit handles + selection/hover rings ---
         this.activeHandles = null;
         this.editLayout = null;
@@ -25,6 +25,7 @@ export class MapOverlayPresentation {
         this.overlayLines = overlayLines;
         this.getViewProj = getViewProj;
         this.hideGalaxySelectionRings = hideGalaxySelectionRings;
+        this.reverseDepth = reverseDepth;
     }
     // --- M4 overlay geometry (low-level) ---
     /**
@@ -144,7 +145,7 @@ export class MapOverlayPresentation {
             return null;
         if (mat4Invert(this.invViewProj, this.getViewProj()) == null)
             return null;
-        const ray = rayFromNdc(ndcX, ndcY, this.invViewProj);
+        const ray = rayFromNdc(ndcX, ndcY, this.invViewProj, this.reverseDepth);
         const ground = intersectRayPlaneY0(ray.origin, ray.direction);
         if (!ground)
             return null;

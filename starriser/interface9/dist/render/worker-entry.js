@@ -7,8 +7,8 @@ let initializing = false;
 let disposed = false;
 let awaitingStateAck = false;
 let orderedWork = Promise.resolve();
-function send(message) {
-    scope.postMessage(message);
+function send(message, transfer = []) {
+    scope.postMessage(message, transfer);
 }
 function errorMessage(error) {
     return error instanceof Error ? error.message : String(error);
@@ -20,6 +20,11 @@ async function initialize(message) {
     try {
         const created = await createRenderRuntime({
             ...message,
+            canObserve: () => !awaitingStateAck && !disposed,
+            onStatePacket: (packet) => {
+                awaitingStateAck = true;
+                send({ type: "statePacket", packet }, [packet.data]);
+            },
             onState: (snapshot) => {
                 if (awaitingStateAck || disposed)
                     return;
@@ -67,6 +72,8 @@ async function dispatch(message) {
         return;
     }
     if (message.type === "ackState") {
+        if (message.buffer)
+            runtime?.recycleObservation(message.buffer);
         awaitingStateAck = false;
         return;
     }
@@ -99,6 +106,8 @@ scope.onmessage = (event) => {
         return;
     }
     if (message.type === "ackState") {
+        if (message.buffer)
+            runtime?.recycleObservation(message.buffer);
         awaitingStateAck = false;
         return;
     }

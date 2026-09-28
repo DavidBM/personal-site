@@ -1,3 +1,4 @@
+import { bindText, bindOptions, setText, setDisabled } from './dom-bindings.js';
 import { createStrategicOverview } from './strategic-overview.js';
 export function createOnlinePanel(parent) {
     const panel = document.createElement('section');
@@ -38,41 +39,55 @@ export function createOnlinePanel(parent) {
     const fleets = find('.online-fleets');
     const systems = find('.online-systems');
     const destinations = find('.online-destinations');
-    const status = find('.online-status');
-    const preview = find('.online-preview');
-    const input = (name) => find(`input[name="${name}"]`);
+    const status = bindText(find('.online-status'), { height: '4.5em', wrap: true }), preview = bindText(find('.online-preview'), { height: '4.5em', wrap: true });
+    const inputs = new Map(Array.from(panel.querySelectorAll('input')).map(input => [input.name, input]));
+    const input = (name) => inputs.get(name);
     const buttons = Array.from(panel.querySelectorAll('button'));
-    const overview = createStrategicOverview(find('.online-orders'));
+    const actions = new Map(buttons.filter(button => button.dataset.action).map(button => [button.dataset.action, button]));
+    const action = (name) => actions.get(name);
+    const orderPanel = find('.online-orders'), recoveryPanel = find('.online-recovery');
+    const recoveryText = bindText(find('.online-recovery-message'), { height: '10em', wrap: true }), pageText = bindText(find('.online-page'));
+    const connectText = bindText(form.querySelector('button'), { width: '12ch', height: '40px' }), jumpText = bindText(action('transfer'), { height: '40px' });
+    const overview = createStrategicOverview(orderPanel);
     const retained = find('.online-retained');
+    const fleetOptions = bindOptions(fleets), systemOptions = bindOptions(systems);
+    const destinationOptions = bindOptions(destinations), retainedOptions = bindOptions(retained);
     let busy = false;
     let blocked = false;
     let orders = [];
+    const needsFleet = new Set(['move', 'transfer', 'preview', 'route', 'focus']);
+    function disabled(button) {
+        const name = button.dataset.action ?? '';
+        if (busy || (needsFleet.has(name) && !fleets.value))
+            return true;
+        if (['move', 'transfer'].includes(name) && blocked)
+            return true;
+        if (['transfer', 'route'].includes(name) && !destinations.options.length)
+            return true;
+        return false;
+    }
     function updateButtons() {
-        var _a;
-        for (const button of buttons)
-            button.disabled = busy;
-        find('[data-action="move"]').disabled = busy || blocked;
-        find('[data-action="transfer"]').disabled = busy || blocked || !destinations.options.length;
-        updateRecoveryButtons();
-        find('[data-action="route"]').disabled = busy || !destinations.options.length;
-        for (const name of ['move', 'transfer', 'preview', 'route', 'focus']) {
-            (_a = find(`[data-action="${name}"]`)).disabled || (_a.disabled = !fleets.value);
+        for (const button of buttons) {
+            if (['continue', 'resolve', 'retry'].includes(button.dataset.action ?? ''))
+                continue;
+            setDisabled(button, disabled(button));
         }
+        updateRecoveryButtons();
     }
     function updateRecoveryButtons() {
         const selected = orders.find(value => value.key === retained.value);
-        find('[data-action="continue"]').disabled = busy || !selected?.expired || selected.continued;
+        setDisabled(action('continue'), busy || !selected?.expired || selected.continued);
         for (const name of ['resolve', 'retry'])
-            find(`[data-action="${name}"]`).disabled = busy || !selected;
+            setDisabled(action(name), busy || !selected);
     }
     function updateRecovery() {
         const selected = orders.find(value => value.key === retained.value);
         const copy = selected?.expired
             ? 'This order’s submission window has expired. Its outcome is still unknown and it may still complete. Continuing allows a separate new order; it does not cancel or retry this one.'
             : 'This original order remains unresolved. Check or retry it before issuing another order.';
-        find('.online-recovery-message').textContent = selected?.continued
-            ? 'You chose to continue. This original order remains unresolved and may still complete. Keep this page open to check or retry it.' : copy;
-        find('[data-action="continue"]').hidden = !selected?.expired || selected.continued;
+        setText(recoveryText, selected?.continued
+            ? 'You chose to continue. This original order remains unresolved and may still complete. Keep this page open to check or retry it.' : copy);
+        action('continue').hidden = !selected?.expired || selected.continued;
         updateButtons();
     }
     retained.addEventListener('change', updateRecovery);
@@ -85,63 +100,53 @@ export function createOnlinePanel(parent) {
     }
     return {
         form, fleets, systems, destinations, retained, overview,
-        action(name) { return find(`[data-action="${name}"]`); },
+        action, input, orderPanel,
         credentials: () => ({ server: input('server').value, fallback: input('fallback').value, credential: input('credential').value.trim(), pin: input('pin').value.trim() }),
         target: () => ({ x: coordinate('x'), z: coordinate('z') }),
-        status(message) { status.textContent = message; },
-        preview(message) { preview.textContent = message; },
-        jumpLabel(name) { find('[data-action="transfer"]').textContent = name ? `Jump to ${name}` : 'Jump'; },
+        status(message) { setText(status, message); },
+        preview(message) { setText(preview, message); },
+        jumpLabel(name) { setText(jumpText, name ? `Jump to ${name}` : 'Jump'); },
         onRouteChange(listener) {
             for (const element of [fleets, destinations, input('x'), input('z')])
                 element.addEventListener('change', listener);
         },
-        connected(value) { find('.online-orders').hidden = !value; form.querySelector('button').textContent = value ? 'Reconnect' : 'Connect'; },
+        connected(value) { orderPanel.hidden = !value; setText(connectText, value ? 'Reconnect' : 'Connect'); },
         busy(value) { busy = value; updateButtons(); },
         recovery(values, canIssue) {
             const selected = retained.value;
             orders = values;
             blocked = !canIssue;
-            retained.replaceChildren(...values.map(value => {
-                const option = document.createElement('option');
-                option.value = value.key;
-                option.textContent = `Fleet ${value.fleetId.slice(-6)} · order ${value.commandId.slice(-8)} · ${value.continued ? 'continued, unresolved' : 'unresolved'}`;
-                return option;
-            }));
+            retainedOptions.update(values, value => value.key, value => `Fleet ${value.fleetId.slice(-6)} · order ${value.commandId.slice(-8)} · ${value.continued ? 'continued, unresolved' : 'unresolved'}`);
             const blocking = values.find(value => !value.continued);
             retained.value = blocking?.key ?? values.find(value => value.key === selected)?.key ?? values[0]?.key ?? '';
-            find('.online-recovery').hidden = !values.length;
+            recoveryPanel.hidden = !values.length;
             updateRecovery();
         },
-        clearTopology() { systems.replaceChildren(); destinations.replaceChildren(); input('x').value = ''; input('z').value = ''; preview.textContent = ''; updateButtons(); },
+        clearTopology() { systemOptions.clear(); destinationOptions.clear(); input('x').value = ''; input('z').value = ''; setText(preview, ''); updateButtons(); },
         setTopology(topology, current) {
             const hosted = new Set(topology.hostedSystemIds);
             const permitted = new Set(topology.systems.filter(system => system.id !== current).map(system => system.id));
-            for (const [select, accepted] of [[systems, hosted], [destinations, permitted]]) {
-                select.replaceChildren(...topology.systems.filter(system => accepted.has(system.id)).map(system => {
-                    const option = document.createElement('option');
-                    option.value = system.id;
-                    option.textContent = system.name;
-                    return option;
-                }));
+            for (const [options, accepted] of [[systemOptions, hosted], [destinationOptions, permitted]]) {
+                options.update(topology.systems.filter(system => accepted.has(system.id)), system => system.id, system => system.name);
             }
             systems.value = current;
             updateButtons();
         },
         setFleets(values, offset, total, more) {
-            find('.online-page').textContent = total ? `${offset + 1}–${offset + values.length} of ${total}` : 'No controllable fleets in this system';
-            find('[data-action="more"]').hidden = !more;
-            const selected = fleets.value;
-            fleets.replaceChildren(...values.map(value => {
-                const option = document.createElement('option');
-                option.value = value.id;
-                option.textContent = `Fleet ${value.id.slice(-6)}${value.moving ? ' · moving' : ''}`;
-                return option;
-            }));
-            if (values.some(value => value.id === selected))
-                fleets.value = selected;
+            setText(pageText, total ? `${offset + 1}–${offset + values.length} of ${total}` : 'No controllable fleets in this system');
+            action('more').hidden = !more;
+            fleetOptions.update(values, value => value.id, value => `Fleet ${value.id.slice(-6)}${value.moving ? ' · moving' : ''}`);
             updateButtons();
         },
-        dispose: () => panel.remove(),
+        dispose() {
+            retained.removeEventListener('change', updateRecovery);
+            overview.clear();
+            fleetOptions.clear();
+            systemOptions.clear();
+            destinationOptions.clear();
+            retainedOptions.clear();
+            panel.remove();
+        },
     };
 }
 //# sourceMappingURL=online-panel.js.map

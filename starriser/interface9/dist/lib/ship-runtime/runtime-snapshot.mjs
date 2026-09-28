@@ -3,6 +3,7 @@ import {prepareDirectorSnapshot} from './director-snapshot.mjs';
 import {createLocalRoutes,modelKey} from './local-routes.mjs';
 import {routeJourney} from './live-route-planner.mjs';
 import {validateLiveEvent,routeIsNewer} from './event-validation.mjs';
+import {validateSolarBodyIndex} from './solar-capacity.mjs';
 const LIMIT_BYTES=8*1024*1024;
 function vector(value,bound) {return Array.isArray(value)&&value.length===3&&value.every(n=>Number.isFinite(n)&&Math.abs(n)<=bound);}
 function placements(input,groups) {
@@ -28,6 +29,10 @@ function seedRoutes(routes,director,plans,time) {
     if(!prepared)throw new Error('Snapshot route conflicts with current journey');routes.commit(prepared);
   }
   requireCurrentRoutes(routes,director,time);
+}
+
+function validateBodyReferences(director,capacity) {
+  for(const intent of director.intents)for(const journey of intent.journeys)validateSolarBodyIndex(journey?.planet,capacity);
 }
 function requireCurrentRoutes(routes,director,time) {
   for(const [group,intent] of director.intents.entries())for(const [cohort,journey] of intent.journeys.entries()) {
@@ -59,9 +64,10 @@ export function prepareRuntimeSnapshot(engine,input,inbox,{revision=0,replay=fal
   if(typeof encoded!=='string'||new TextEncoder().encode(encoded).length>LIMIT_BYTES)throw new Error('Runtime snapshot exceeds size limit');
   const value=structuredClone(input);header(value,engine,revision,replay);
   const director=prepareDirectorSnapshot(engine.director,value.director),routes=createLocalRoutes(director,engine.solar);
+  validateBodyReferences(director,engine.solar.capacity);
   const placement=placements(value.placements,director.capacity.groups),pressure=engine.pressure.prepareSnapshot(value.pressure);
   seedRoutes(routes,director,value.routes,value.at);
-  const view={director,routes,pressure:engine.pressure,pressureDefinitions:pressure.members.map(index=>pressure.definitions[index])};let validator=view;
+  const view={director,routes,solar:engine.solar,pressure:engine.pressure,pressureDefinitions:pressure.members.map(index=>pressure.definitions[index])};let validator=view;
   const restored=inbox.restore(value.stream,value.at,event=>validateLiveEvent(event,validator));
   restored.drain(value.at,event=>applySnapshotEvent(event,view,value.at));
   requireCurrentRoutes(routes,director,value.at);

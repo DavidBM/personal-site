@@ -8,12 +8,12 @@
  *
  * Per segment: **4 verts / 2 triangles** (side × along). The trail is a
  * **continuous body**: at each shared sample both adjacent segs use the same
- * screen-space miter offset (from prev/start/end/next), so same-side joint
+ * view-space miter offset (from prev/start/end/next), so same-side joint
  * verts **coincide**. Miter is **limited + bevelled** near sharp/short folds
  * so new samples never fling pin spikes or flip left/right each frame.
  *
  * Instance layout (80 B / segment = TRAIL_SEGMENT_FLOATS):
- *   start: pos.xyz + color.rgb + alpha
+ *   start: pos.xyz + color.rgb + alpha (-1 tags a solid 1px tiny-ship segment)
  *   end:   pos.xyz + color.rgb + alpha
  *   prev:  pos.xyz  (older neighbor; = start if none)
  *   next:  pos.xyz  (newer neighbor; = end if none)
@@ -115,6 +115,10 @@ export function writeTrailUniforms(out, view, projection, resolutionW, resolutio
     out[41] = originY;
     out[42] = originZ;
     out[43] = 0;
+}
+/** Jewel radius for per-trail brightness. 0 keeps every sample at full radial brightness. */
+export function writeTrailJewelRadius(out, radius) {
+    out[43] = radius > 0 ? radius : 0;
 }
 /** Set width mode after {@link writeTrailUniforms} (0=screen px, 1=world). */
 export function writeTrailWidthMode(out, mode) {
@@ -450,7 +454,8 @@ struct TrailUniforms {
   exposure : f32,
   /** Frame floating origin; endpoints subtract before modelView. */
   origin : vec3<f32>,
-  _pad3 : f32,
+  /** Jewel radius. 0 disables the radial brightness ramp. */
+  jewelRadius : f32,
 };
 
 @group(0) @binding(0) var<uniform> u : TrailUniforms;
@@ -471,6 +476,7 @@ struct VSIn {
   @location(8) instanceNext : vec3<f32>,
 };
 
+override analyticEdges:bool=false;
 struct VSOut {
   @builtin(position) clip : vec4<f32>,
   @location(0) vColor : vec4<f32>, // rgb + alpha (age still for diagnostics)
@@ -483,7 +489,20 @@ struct VSOut {
   @location(4) vAtlasU : vec2<f32>,
   /** View-space half-width at start (x) and end (y). */
   @location(5) vHalfW : vec2<f32>,
+  /** 1 at the jewel core, down to 0.5 outside 1.5 radii. */
+  @location(6) vRadial : f32,
+  @location(7) @interpolate(flat) vThin : u32,
+  @location(8) @interpolate(linear) vEdge:f32,
 };
+
+fn trailRadial(distance: f32, radius: f32) -> f32 {
+  if (radius <= 0.0) { return 1.0; }
+  let near = radius * 0.8;
+  let far = radius * 1.5;
+  if (distance <= near) { return 1.0; }
+  if (distance >= far) { return 0.5; }
+  return mix(1.0, 0.5, (distance - near) / (far - near));
+}
 
 // Stable continuous joints — match trailMiterOffsetScreen / pure TS.
 const TRAIL_MITER_LIMIT : f32 = 2.0;
@@ -588,6 +607,24 @@ fn trailViewSideAxis(trailDir: vec3<f32>, center: vec3<f32>) -> vec3<f32> {
   return side / sl;
 }
 
+/** Path-ordered incident sides at one sample. Both neighboring segments pass
+ * the same three points, including at short/folded joints, so their edge is
+ * identical in XYZ (and depth). A segment-local fallback would reopen a wedge. */
+fn trailViewJoint(older: vec3<f32>, point: vec3<f32>, newer: vec3<f32>) -> vec3<f32> {
+  let incoming = point - older; let outgoing = newer - point;
+  let inLen = length(incoming); let outLen = length(outgoing);
+  if (inLen < 1e-8 && outLen < 1e-8) { return vec3<f32>(1.0, 0.0, 0.0); }
+  if (inLen < 1e-8) { return trailViewSideAxis(outgoing / outLen, point); }
+  let a = trailViewSideAxis(incoming / inLen, point);
+  if (outLen < 1e-8) { return a; }
+  let b = trailViewSideAxis(outgoing / outLen, point);
+  let sum = a + b; let sumLen = length(sum);
+  if (sumLen < 1e-4) { return a; }
+  let miter = sum / sumLen;
+  if (dot(a, b) < TRAIL_MITER_BEVEL_DOT) { return miter; }
+  return miter * min(TRAIL_MITER_LIMIT, 1.0 / max(dot(miter, a), 1e-4));
+}
+
 @vertex
 fn vs_main(input : VSIn) -> VSOut {
   var out : VSOut;
@@ -596,6 +633,8 @@ fn vs_main(input : VSIn) -> VSOut {
   out.vSegEnd = vec3<f32>(0.0);
   out.vAtlasU = vec2<f32>(0.0);
   out.vHalfW = vec2<f32>(0.0);
+  out.vRadial = 1.0;
+  out.vThin = 0u;out.vEdge=0.0;
 
   // Dead expand slots (MID/FAR / tombstone): bail before mat4 work.
   // Required at 10k×CAP_NEAR full high-water trail draws (~3M instances).
@@ -626,10 +665,13 @@ fn vs_main(input : VSIn) -> VSOut {
 
   let wFull0 = mix(u.widthTail, u.widthHead, clamp(input.instanceAlphaStart, 0.0, 1.0));
   let wFull1 = mix(u.widthTail, u.widthHead, clamp(input.instanceAlphaEnd, 0.0, 1.0));
+  out.vRadial = trailRadial(length(mix(input.instanceStart, input.instanceEnd, 0.5)), u.jewelRadius);
 
   // Endpoints already origin-relative from integrate expand.
-  var start = u.modelView * vec4<f32>(input.instanceStart - u.origin, 1.0);
-  var end_ = u.modelView * vec4<f32>(input.instanceEnd - u.origin, 1.0);
+  let originalStart = u.modelView * vec4<f32>(input.instanceStart - u.origin, 1.0);
+  let originalEnd = u.modelView * vec4<f32>(input.instanceEnd - u.origin, 1.0);
+  var start = originalStart; var end_ = originalEnd;
+  var trimmedStart = false; var trimmedEnd = false;
 
   // Near-plane trim (cheap clip when segment crosses camera near)
   let perspective = abs(u.projection[2][3] + 1.0) < 1e-5;
@@ -637,10 +679,29 @@ fn vs_main(input : VSIn) -> VSOut {
     if (start.z < 0.0 && end_.z >= 0.0) {
       let t = trimSegmentAlpha(start, end_);
       end_ = vec4<f32>(mix(start.xyz, end_.xyz, t), end_.w);
+      trimmedEnd = true;
     } else if (end_.z < 0.0 && start.z >= 0.0) {
       let t = trimSegmentAlpha(end_, start);
       start = vec4<f32>(mix(end_.xyz, start.xyz, t), start.w);
+      trimmedStart = true;
     }
+  }
+
+  if(input.instanceAlphaStart<0.0){
+    // One screen-space pixel regardless of distance, MSAA or hull world width.
+    // No neighbor transforms, miter joins or atlas coordinates for tiny ships.
+    let a=u.projection*start;let b=u.projection*end_;
+    out.vThin=1u;out.vEdge=input.position.x;
+    out.vColor=vec4<f32>(col,along*input.instanceAlphaEnd);
+    if(a.w<=0.0 || b.w<=0.0){out.clip=vec4<f32>(0.0,0.0,2.0,1.0);return out;}
+    let delta=(b.xy/b.w-a.xy/a.w)*u.resolution;
+    let size=length(delta);
+    if(size<1e-5){out.clip=vec4<f32>(0.0,0.0,2.0,1.0);return out;}
+    let normal=vec2<f32>(-delta.y,delta.x)/size;
+    var clip=select(b,a,atStart);
+    clip=vec4<f32>(clip.xy+normal*input.position.x*select(1.0,2.0,analyticEdges)/max(u.resolution,vec2<f32>(1.0))*clip.w,clip.zw);
+    out.clip = clip;
+    return out;
   }
 
   let p0 = start.xyz;
@@ -656,9 +717,17 @@ fn vs_main(input : VSIn) -> VSOut {
     trailDir = vec3<f32>(0.0, 0.0, -1.0);
   }
 
-  // One side axis for the whole segment (midpoint) — no mid-seg left/right flip.
-  let mid = 0.5 * (p0 + p1);
-  let side = trailViewSideAxis(trailDir, mid);
+  // Only the neighbor at this vertex is transformed. Shared samples use exactly
+  // the same path-ordered inputs; camera-plane clipping creates an unjoined tip.
+  let neighbor = u.modelView * vec4<f32>(select(input.instanceNext, input.instancePrev, atStart) - u.origin, 1.0);
+  var side : vec3<f32>;
+  if (select(trimmedEnd, trimmedStart, atStart)) {
+    side = trailViewSideAxis(trailDir, mix(p0, p1, along));
+  } else if (atStart) {
+    side = trailViewJoint(neighbor.xyz, originalStart.xyz, originalEnd.xyz);
+  } else {
+    side = trailViewJoint(originalStart.xyz, originalEnd.xyz, neighbor.xyz);
+  }
   let sideSign = input.position.x;
 
   let halfW0 = trailViewHalfWidth(wFull0, p0.z);
@@ -675,6 +744,12 @@ fn vs_main(input : VSIn) -> VSOut {
 
 @fragment
 fn fs_main(input : VSOut) -> @location(0) vec4<f32> {
+  if(input.vThin!=0u){
+    let coverage=select(1.0,clamp(1.0-abs(input.vEdge),0.0,1.0),analyticEdges);
+    let alpha=coverage*clamp(input.vColor.a,0.0,1.0)*select(1.0,u.intensity,u.intensity>0.0);
+    return vec4<f32>(max(input.vColor.rgb,vec3<f32>(0.0))*alpha,alpha);
+  }
+
   // Path-correct across/along coords (same for solid + thruster).
   let trail = input.vSegEnd - input.vSegStart;
   let len2 = max(dot(trail, trail), 1e-12);
@@ -697,7 +772,7 @@ fn fs_main(input : VSOut) -> @location(0) vec4<f32> {
       let sm = uu * uu * (3.0 - 2.0 * uu);
       edge = 1.0 - sm;
     }
-    let inten = select(1.0, u.intensity, u.intensity > 0.0);
+    let inten = select(1.0, u.intensity, u.intensity > 0.0) * input.vRadial;
     let a = clamp(input.vColor.a, 0.0, 1.0) * edge * inten;
     if (a <= 0.001) {
       discard;
@@ -707,10 +782,11 @@ fn fs_main(input : VSOut) -> @location(0) vec4<f32> {
   }
 
   // Model 3D thruster path (world widthMode): atlas × tint × exposure.
-  let inten = select(1.0, u.intensity, u.intensity > 0.0);
+  let inten = select(1.0, u.intensity, u.intensity > 0.0) * input.vRadial;
   let expBoost = select(3.4, u.exposure, u.exposure > 0.0);
   let uTex = mix(input.vAtlasU.x, input.vAtlasU.y, t);
-  let texC = textureSample(trailTex, trailSamp, vec2<f32>(uTex, vTex));
+  // The trail atlas has one mip; explicit level permits the per-segment cheap path.
+  let texC = textureSampleLevel(trailTex, trailSamp, vec2<f32>(uTex, vTex), 0.0);
   let alpha = texC.a;
   if (alpha <= 0.001) {
     discard;

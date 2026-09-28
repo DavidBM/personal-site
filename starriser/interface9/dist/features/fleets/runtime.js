@@ -2,6 +2,7 @@ import { applyFleetOps, clearFleetWorld, createFleetWorld, removeInvalidFleets, 
 import { tickFleets } from "../../lib/fleet-sim/domain/fleet-simulation.js";
 import { trySpawnFleet, trySpawnParkedAt } from "../../lib/fleet-sim/domain/fleet-spawner.js";
 import { createBulkFleetSpawner } from "./bulk-spawn.js";
+import { acceptLocalMove } from "./local-move.js";
 /** One authority for fleet state. Renderers receive events, never mutable world maps. */
 export function createFleetRuntime(ports) {
     const world = createFleetWorld();
@@ -32,7 +33,7 @@ export function createFleetRuntime(ports) {
             : trySpawnFleet(world, ports.now(), ports.random);
         if (!fleet)
             return;
-        events.onFleetSpawned({ id: fleet.id, counts: fleet.counts, state: fleet.state });
+        events.onFleetSpawned({ id: fleet.id, counts: fleet.counts, state: fleet.state, relationship: fleet.relationship });
     };
     return {
         applyOps: (ops) => {
@@ -44,6 +45,13 @@ export function createFleetRuntime(ports) {
         },
         clear,
         generate,
+        moveLocal: (payload) => {
+            if (disposed)
+                return;
+            const fleet = acceptLocalMove(world, payload);
+            if (fleet)
+                publishState(fleet);
+        },
         generateBulk: (payload) => {
             if (disposed)
                 return;

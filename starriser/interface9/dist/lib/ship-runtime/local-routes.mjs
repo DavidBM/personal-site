@@ -1,5 +1,6 @@
 import {orbitRadius,orbitTilt} from './flight-layout.mjs';
 import {classOf,radiusOf} from './classes.mjs';
+import {validateSolarBodyIndex} from './solar-capacity.mjs';
 export const ROUTE_POINTS=16,ROUTE_WORDS=8+ROUTE_POINTS*4;
 export const modelKey=solar=>JSON.stringify([solar.sceneEpochMs,solar.definition.version,solar.definition.epochMs,solar.definition.origin,solar.definition.bodies]);
 export function approachRequest(solar,{type,planet=1,at=0,start,planeShift=0,end}) {
@@ -45,6 +46,7 @@ function matchesJourney(intent,revision,request,now){return intent?.revision===r
 export function createLocalRoutes(director,solar) {
   const data=new Float32Array(director.capacity.groups*2*ROUTE_WORDS),key=modelKey(solar),records=new Map();
   function validate({fleet,type,cohort=0,revision,request,result}) {
+    validateSolarBodyIndex(request.planet,solar.capacity);
     checkAddress(director,fleet,type,cohort);
     if(!matchesSource(request,result,type,key))return false;
     validateColumns(result.columns,request.end-request.at);
@@ -71,17 +73,17 @@ function packRoute(revision,request,result,type) {
 }
 export const ROUTE_CONTROL_WGSL=`struct LocalRoute {header:vec4<f32>,clock:vec4<f32>,points:array<vec4<f32>,${ROUTE_POINTS}>}`;
 export const ROUTE_GUIDANCE_WGSL=/* wgsl */`
-fn routeStep(initial:Ship,journey:Journey,now:f32,fallback:vec3<f32>)->NavigationResult {
+fn routeStep(initial:Ship,journey:Journey,now:f32,fallback:vec4<f32>)->NavigationResult {
   var s=initial;
   let cohort=navigationCohort(s);
   let route=groupRoute(groupOf(s),cohort);
-  if(route.header.x!=s.flight.x||route.header.z!=journey.range.z||route.header.y<2.0){return NavigationResult(s,fallback);}
+  if(route.header.x!=s.flight.x||route.header.z!=journey.range.z||route.header.y<2.0){return NavigationResult(s,fallback.xyz,fallback.w);}
   let count=u32(route.header.y);let planet=body(u32(route.header.z)-1u,now,u.control.x);
   let velocity=bodyVelocity(u32(route.header.z)-1u,now,u.control.x);let position=s.p.xyz-planet.xyz;
   // Integration resolves missed deadlines before this controller. Never
   // extrapolate an expired corridor if this guidance is called independently.
-  if(s.origin.w>=1.0){return NavigationResult(s,fallback);}
-  if(now>route.clock.y){return NavigationResult(s,velocity);}
+  if(s.origin.w>=1.0){return NavigationResult(s,fallback.xyz,fallback.w);}
+  if(now>route.clock.y){return NavigationResult(s,velocity,0.0);}
   var nearest=1e30;var segment=0u;var fraction=0.0;var point=route.points[0].xyz;
   for(var i=0u;i+1u<count;i++) {
     let a=route.points[i].xyz;let delta=route.points[i+1u].xyz-a;
@@ -107,6 +109,7 @@ fn routeStep(initial:Ship,journey:Journey,now:f32,fallback:vec3<f32>)->Navigatio
     arrival=length(position-onRing);
   }
   if(arrival<route.clock.w){s.origin.w=1.0;}
-  return NavigationResult(s,mix(fallback,desired,smoothstep(route.clock.w,route.clock.w*2.0,arrival)));
+  let blend=smoothstep(route.clock.w,route.clock.w*2.0,arrival);
+  return NavigationResult(s,mix(fallback.xyz,desired,blend),mix(fallback.w,max(length(next-position),abs(route.header.w)),blend));
 }
 `;

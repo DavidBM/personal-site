@@ -1,7 +1,5 @@
-/**
- * Right-side sun + planet list while a compact Kepler SCENE is loaded.
- * Click → UIActions.selectSceneBody (sun orbit / planet lockBody + 4K).
- */
+import { bindText, setText, setHidden } from './dom-bindings.js';
+import { createFleetCard, FLEET_CARD_CSS } from './fleet-card.js';
 export function stationedByPlanet(fleets) {
     const out = new Map();
     for (let i = 0; i < fleets.length; i++) {
@@ -39,6 +37,7 @@ function ensurePlanetPanelStyles() {
     const style = document.createElement("style");
     style.id = STYLE_ID;
     style.textContent = `
+${FLEET_CARD_CSS}
 .ui-planet-panel {
   max-height: calc(100vh - 24px);
   overflow-y: auto;
@@ -48,6 +47,8 @@ function ensurePlanetPanelStyles() {
 .ui-button.ui-planet-row {
   display: flex;
   align-items: baseline;
+  height: 24px; min-height: 24px; flex-shrink: 0;
+  contain: layout paint; overflow: hidden; white-space: nowrap;
   justify-content: space-between;
   gap: 8px;
   width: 100%;
@@ -63,6 +64,7 @@ function ensurePlanetPanelStyles() {
   cursor: pointer;
   user-select: none;
 }
+.ui-planet-row > span {min-width:0;overflow:hidden;text-overflow:ellipsis;}
 .ui-button.ui-planet-row:hover {
   background: rgba(26, 61, 102, 0.35);
   color: #c9d8ee;
@@ -80,6 +82,9 @@ function ensurePlanetPanelStyles() {
   text-transform: uppercase;
 }
 .ui-button.ui-fleet-row {
+  height:66px; min-height:66px;
+  display: grid; gap: 2px 5px; font-size: 9px; letter-spacing: 0;
+  border-color: rgba(105,151,192,.22); padding: 5px 6px;
   position: relative;
   overflow: hidden;
 }
@@ -114,33 +119,10 @@ function ensurePlanetPanelStyles() {
 `;
     document.head.appendChild(style);
 }
-function listIdentity(bodies, fleets, cap) {
-    let s = String(bodies.length);
-    for (let i = 0; i < bodies.length; i++) {
-        const b = bodies[i];
-        s += `|${b.index}:${b.catalogId}`;
-    }
-    for (let i = 0; i < fleets.length; i++) {
-        const f = fleets[i];
-        s += `|f:${f.id}:${f.shipCount}:${f.state}:${f.planetName ?? ""}`;
-    }
-    if (cap && cap.requested > cap.shown)
-        s += `|cap:${cap.shown}:${cap.requested}:${cap.cap}`;
-    return s;
-}
 function formatStationed(count) {
     if (!count || count.fleets <= 0)
         return "";
     return `${count.fleets}f · ${count.ships}`;
-}
-function applySelected(rows, focusIndex, fleetId) {
-    for (let i = 0; i < rows.length; i++) {
-        const el = rows[i];
-        const idx = el.dataset.index == null ? NaN : Number(el.dataset.index);
-        el.classList.toggle("selected", el.dataset.fleetId != null
-            ? el.dataset.fleetId === fleetId
-            : focusIndex != null && idx === focusIndex);
-    }
 }
 export function buildSystemPlanetPanel(ctx, actions, opts) {
     ensurePlanetPanelStyles();
@@ -169,145 +151,131 @@ export function buildSystemPlanetPanel(ctx, actions, opts) {
     list.element.style.display = "flex";
     list.element.style.flexDirection = "column";
     list.element.style.gap = "2px";
-    const rowComponents = [];
-    const rowEls = [];
-    let lastVisible = false;
-    let lastIdentity = "";
-    let lastFocus;
-    let lastFleet;
-    const rebuild = (bodies, fleets, fleetTotal, focusIndex, selectedFleetId, graphicsCap, sceneDraw) => {
-        for (const c of rowComponents)
-            c.destroy();
-        rowComponents.length = 0;
-        rowEls.length = 0;
-        while (list.element.firstChild) {
-            list.element.removeChild(list.element.firstChild);
-        }
-        const addLabel = (text) => {
-            const label = document.createElement("div");
-            label.className = "ui-system-section-label";
-            label.textContent = text;
-            list.element.appendChild(label);
-        };
-        addLabel("Celestial bodies");
-        const stationed = stationedByPlanet(fleets);
-        for (let i = 0; i < bodies.length; i++) {
-            const body = bodies[i];
-            const parked = stationed.get(body.name);
-            const btn = ctx.button({
-                id: `planet-row-${body.index}`,
-                parent: list.element,
-                text: body.name,
-                title: body.isSun ? "Orbit sun" : `Lock ${body.name}`,
-                className: "ui-planet-row",
-                onClick: () => {
-                    actions.selectSceneBody?.(body.index);
-                },
-            });
-            btn.element.dataset.index = String(body.index);
-            btn.element.textContent = "";
-            const nameEl = document.createElement("span");
-            nameEl.textContent = body.name;
-            const kindEl = document.createElement("span");
-            kindEl.className = "ui-planet-kind";
-            const parkedText = formatStationed(parked);
-            kindEl.textContent = parkedText ? `${body.kind} · ${parkedText}` : body.kind;
-            btn.element.appendChild(nameEl);
-            btn.element.appendChild(kindEl);
-            rowComponents.push(btn);
-            rowEls.push(btn.element);
-        }
-        addLabel(`Fleets · ${fleetTotal}`);
-        if (fleets.length === 0) {
-            const empty = document.createElement("div");
-            empty.className = "ui-system-empty";
-            empty.textContent = "No fleets in this system";
-            list.element.appendChild(empty);
-        }
-        for (const fleet of fleets) {
-            const btn = ctx.button({
-                id: `system-fleet-${fleet.id}`,
-                parent: list.element,
-                text: fleet.id,
-                title: `Select fleet ${fleet.id}`,
-                className: "ui-planet-row ui-fleet-row",
-                onClick: () => actions.selectSceneFleet?.(fleet.id),
-            });
-            btn.element.dataset.fleetId = fleet.id;
-            btn.element.textContent = "";
-            const nameEl = document.createElement("span");
-            nameEl.textContent = fleet.id;
-            const detailEl = document.createElement("span");
-            detailEl.className = "ui-planet-kind";
-            detailEl.textContent = formatSceneFleetDetail(fleet);
-            btn.element.append(nameEl, detailEl);
-            rowComponents.push(btn);
-            rowEls.push(btn.element);
-        }
-        if (fleetTotal > fleets.length) {
-            const more = ctx.button({ id: "system-fleet-load-more", parent: list.element,
-                text: `Load more · ${fleets.length} of ${fleetTotal}`,
-                title: "Load the next fleets in this system", className: "ui-planet-row",
-                onClick: () => actions.loadMoreSceneFleets?.() });
-            rowComponents.push(more);
-        }
-        if (graphicsCap && graphicsCap.requested > graphicsCap.shown) {
-            const cap = document.createElement("div");
-            cap.className = "ui-system-empty";
-            cap.textContent = `Graphics cap · ${graphicsCap.shown} of ${graphicsCap.requested} ships`;
-            list.element.appendChild(cap);
-        }
-        if (sceneDraw) {
-            addLabel("Draw");
-            const stats = document.createElement("div");
-            stats.className = "ui-system-empty";
-            stats.textContent = `${sceneDraw.fleets} fleets · ${sceneDraw.ships} ships · high ${sceneDraw.highFleets} · low ${sceneDraw.lowFleets}`;
-            list.element.appendChild(stats);
-        }
-        applySelected(rowEls, focusIndex, selectedFleetId);
+    // Rows own their listeners and survive changing counts, countdowns and GPU
+    // admission. Only true membership changes create/destroy components.
+    const bodiesHost = document.createElement("div");
+    const fleetsHost = document.createElement("div");
+    for (const host of [bodiesHost, fleetsHost]) {
+        Object.assign(host.style, { display: "flex", flexDirection: "column", gap: "2px" });
+    }
+    const label = (text, className = "ui-system-section-label") => {
+        const element = document.createElement("div");
+        element.className = className;
+        element.textContent = text;
+        return element;
     };
+    const fleetHeading = label("Fleets");
+    const empty = label("No fleets in this system", "ui-system-empty");
+    const cap = label("", "ui-system-empty");
+    const drawHeading = label("Draw"), draw = label("", "ui-system-empty");
+    const more = ctx.button({ id: "system-fleet-load-more", parent: list.element,
+        text: "Load more", title: "Load the next fleets in this system", className: "ui-planet-row",
+        onClick: () => actions.loadMoreSceneFleets?.() });
+    list.element.append(label("Celestial bodies"), bodiesHost, fleetHeading, fleetsHost, empty, more.element, cap, drawHeading, draw);
+    const bodyRows = new Map();
+    const fleetRows = new Map();
+    const headingText = bindText(fleetHeading), moreText = bindText(more.element, { height: '24px' });
+    const capText = bindText(cap, { height: '34px', wrap: true }), drawText = bindText(draw, { height: '34px', wrap: true });
+    let lastVisible = false;
+    function bodyRow(body) {
+        const component = ctx.button({ id: `planet-row-${body.index}`, parent: bodiesHost,
+            text: "", className: "ui-planet-row", onClick: () => actions.selectSceneBody?.(body.index) });
+        component.element.dataset.index = String(body.index);
+        const name = document.createElement("span"), kind = document.createElement("span");
+        kind.className = "ui-planet-kind";
+        component.element.append(name, kind);
+        return { component, name: bindText(name, { width: '40%', height: '16px' }), kind: bindText(kind, { width: '60%', height: '16px' }) };
+    }
+    function syncBodies(bodies, fleets, focus) {
+        const live = new Set(), stationed = stationedByPlanet(fleets);
+        let cursor = bodiesHost.firstChild;
+        for (const body of bodies) {
+            const key = `${body.index}:${body.catalogId}`;
+            live.add(key);
+            let row = bodyRows.get(key);
+            if (!row) {
+                row = bodyRow(body);
+                bodyRows.set(key, row);
+            }
+            const element = row.component.element;
+            setText(row.name, body.name);
+            const parked = formatStationed(stationed.get(body.name));
+            setText(row.kind, parked ? `${body.kind} · ${parked}` : body.kind);
+            const title = body.isSun ? "Orbit sun" : `Lock ${body.name}`;
+            if (element.title !== title)
+                element.title = title;
+            element.classList.toggle("selected", focus != null && body.index === focus);
+            if (cursor !== element)
+                bodiesHost.insertBefore(element, cursor);
+            cursor = element.nextSibling;
+        }
+        for (const [key, row] of bodyRows)
+            if (!live.has(key)) {
+                row.component.destroy();
+                bodyRows.delete(key);
+            }
+    }
+    function syncFleets(fleets, selected) {
+        const live = new Set();
+        let cursor = fleetsHost.firstChild;
+        for (const fleet of fleets) {
+            live.add(fleet.id);
+            let row = fleetRows.get(fleet.id);
+            if (!row) {
+                const component = ctx.button({ id: `system-fleet-${fleet.id}`, parent: fleetsHost, text: "",
+                    className: "ui-planet-row ui-fleet-row", onClick: () => actions.selectSceneFleet?.(fleet.id) });
+                component.element.dataset.fleetId = fleet.id;
+                row = { component, card: createFleetCard(component.element) };
+                fleetRows.set(fleet.id, row);
+            }
+            row.card.update(fleet);
+            row.component.element.classList.toggle("selected", fleet.id === selected);
+            if (cursor !== row.component.element)
+                fleetsHost.insertBefore(row.component.element, cursor);
+            cursor = row.component.element.nextSibling;
+        }
+        for (const [id, row] of fleetRows)
+            if (!live.has(id)) {
+                row.component.destroy();
+                fleetRows.delete(id);
+            }
+    }
+    function clearRows() {
+        for (const row of bodyRows.values())
+            row.component.destroy();
+        for (const row of fleetRows.values())
+            row.component.destroy();
+        bodyRows.clear();
+        fleetRows.clear();
+    }
     const sync = (next) => {
         if (!next.visible) {
             if (lastVisible) {
                 panel.element.style.display = "none";
+                clearRows();
                 lastVisible = false;
             }
-            lastIdentity = "";
-            lastFocus = undefined;
-            lastFleet = undefined;
             return;
         }
         if (!lastVisible) {
             panel.element.style.display = "";
             lastVisible = true;
         }
-        const fleets = next.fleets ?? [];
-        const fleetTotal = next.fleetTotal ?? fleets.length;
-        const fleetId = next.selectedFleetId ?? null;
-        const identity = listIdentity(next.bodies, fleets, next.graphicsCap)
-            + (next.sceneDraw ? `|d:${next.sceneDraw.fleets}:${next.sceneDraw.ships}:${next.sceneDraw.highFleets}:${next.sceneDraw.lowFleets}` : "");
-        if (identity === lastIdentity) {
-            for (let i = 0; i < fleets.length; i++) {
-                const fleet = fleets[i];
-                const el = rowEls.find((row) => row.dataset.fleetId === fleet.id);
-                const detail = el?.querySelector(".ui-planet-kind");
-                if (!detail)
-                    continue;
-                const text = formatSceneFleetDetail(fleet);
-                if (detail.textContent !== text)
-                    detail.textContent = text;
-            }
-            if (next.focusIndex !== lastFocus || fleetId !== lastFleet) {
-                applySelected(rowEls, next.focusIndex, fleetId);
-                lastFocus = next.focusIndex;
-                lastFleet = fleetId;
-            }
-            return;
-        }
-        rebuild(next.bodies, fleets, fleetTotal, next.focusIndex, fleetId, next.graphicsCap, next.sceneDraw);
-        lastIdentity = identity;
-        lastFocus = next.focusIndex;
-        lastFleet = fleetId;
+        const fleets = next.fleets ?? [], total = next.fleetTotal ?? fleets.length;
+        syncBodies(next.bodies, fleets, next.focusIndex);
+        syncFleets(fleets, next.selectedFleetId ?? null);
+        setText(headingText, `Fleets · ${total}`);
+        setHidden(empty, fleets.length > 0);
+        setHidden(more.element, total <= fleets.length);
+        setText(moreText, `Load more · ${fleets.length} of ${total}`);
+        const graphics = next.graphicsCap;
+        setHidden(cap, !graphics || graphics.requested <= graphics.shown);
+        if (graphics)
+            setText(capText, `Graphics cap · ${graphics.shown} of ${graphics.requested} ships`);
+        setHidden(draw, !next.sceneDraw);
+        setHidden(drawHeading, !next.sceneDraw);
+        if (next.sceneDraw)
+            setText(drawText, `${next.sceneDraw.fleets} fleets · ${next.sceneDraw.ships} ships`);
     };
     return { panel, sync };
 }

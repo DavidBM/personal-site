@@ -29,24 +29,36 @@ fn completeArrival(initial:Ship,i:u32,now:f32,last:u32)->Ship {
     let phase=variation(s.identity.w)*2.0*PI;let tilt=orbitTilt(shipType(s))+journey.range.w;
     destination=planet.xyz+orbitRadius(shipType(s),planet.w)*vec3<f32>(cos(phase),sin(phase)*sin(tilt),sin(phase)*cos(tilt));
   }
-  s.p=vec4<f32>(destination,s.p.w);velocity=ringVelocity(s,planetId,now,journey.range.w);
+  s.positionLow=vec4<f32>(0.0);s.p=vec4<f32>(destination,s.p.w);velocity=ringVelocity(s,planetId,now,journey.range.w);
   }
   if(u.warp.z>0.5){destination=recoveryClear(destination,dimensions(shipType(s)).w,now);}
-  s.p=vec4<f32>(destination,s.p.w);
+  s.positionLow=vec4<f32>(0.0);s.p=vec4<f32>(destination,s.p.w);
   s.v=vec4<f32>(velocity,s.v.w);s.a=vec4<f32>(0.0);s.aux.x=0.0;s.memory=vec4<f32>(0.0);
-  s.origin.w=2.0;s.tactic.w=now+1.0;s.q=attitude(s.q,s.v.xyz,1.0,PI);
+  s.origin=vec4<f32>(0.0,0.0,0.0,2.0);s.tactic.w=now+1.0;s.q=attitude(s.q,s.v.xyz,1.0,PI);
   recordCorrection(initial,s,i,now);resetEmitterHistory(s,i,now,last);return s;
 }
-fn integrateShip(original:Ship,i:u32,now:f32,dt:f32,controlled:bool,first:u32,last:u32)->Ship {
+// Exact event/deadline handling is shared, but never calls a controller. Carry
+// the remaining interval to one final integration, including its history range.
+struct ShipIntegration { ship:Ship, dt:f32, first:u32 }
+fn prepareShipIntegration(original:Ship,i:u32,now:f32,dt:f32,first:u32)->ShipIntegration {
   let start=now-dt;
   var s=original;let journey=journeyFor(s);
-  if(journey.mode.y>s.flight.x&&start>=journey.mode.z){s=integrateMotion(s,i,start,0.0,false,first,u32(floor(max(0.0,start)*60.0)));}
+  // Fresh production seeds carry an exact admission date, not the prior tick boundary.
+  if(s.origin.w != -2.0 && journey.mode.y>s.flight.x&&start>=journey.mode.z){s=integrateHeldMotion(s,i,start,0.0,first,u32(floor(max(0.0,start)*60.0)));}
   if(admitted(s)&&journey.mode.x==1.0&&now>=journey.mode.w&&(s.origin.w<1.0||s.flight.x!=journey.mode.y)) {
     let at=max(start,journey.mode.w);let tick=u32(floor(max(0.0,at)*60.0));
-    s=integrateMotion(s,i,at,at-start,false,first,tick);
+    s=integrateHeldMotion(s,i,at,at-start,first,tick);
     s=completeArrival(s,i,at,tick);
-    return integrateMotion(s,i,now,now-at,controlled,tick+1u,last);
+    return ShipIntegration(s,now-at,tick+1u);
   }
-  return integrateMotion(s,i,now,dt,controlled,first,last);
+  return ShipIntegration(s,dt,first);
+}
+fn integrateHeldShip(original:Ship,i:u32,now:f32,dt:f32,first:u32,last:u32)->Ship {
+  let interval=prepareShipIntegration(original,i,now,dt,first);
+  return integrateHeldMotion(interval.ship,i,now,interval.dt,interval.first,last);
+}
+fn integrateShip(original:Ship,i:u32,now:f32,dt:f32,first:u32,last:u32)->Ship {
+  let interval=prepareShipIntegration(original,i,now,dt,first);
+  return integrateMotion(interval.ship,i,now,interval.dt,interval.first,last);
 }
 `;

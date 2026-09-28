@@ -14,8 +14,8 @@ export function sunRelativePos(sunX, sunZ, gx, gy, gz) {
  * Look-at relative to the Kepler sun (origin y = 0). `outView` / `outViewProj`
  * are the SCENE matrices; galaxy `viewRel` stays eye/ship/pathEnd.
  */
-export function buildSystemSceneView(outView, outViewProj, proj, camX, camY, camZ, targetX, targetY, targetZ, sunX, sunZ) {
-    mat4LookAtRelative(outView, camX, camY, camZ, targetX, targetY, targetZ, sunX, 0, sunZ);
+export function buildSystemSceneView(outView, outViewProj, proj, camX, camY, camZ, targetX, targetY, targetZ, sunX, sunZ, up = { x: 0, y: 1, z: 0 }) {
+    mat4LookAtRelative(outView, camX, camY, camZ, targetX, targetY, targetZ, sunX, 0, sunZ, up.x, up.y, up.z);
     mat4ViewProj(outViewProj, proj, outView);
     return {
         sunX,

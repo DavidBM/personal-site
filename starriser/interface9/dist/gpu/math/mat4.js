@@ -17,6 +17,17 @@ export function mat4Perspective(out, fovyRad, aspect, near, far) {
     out[14] = (far * near) / (near - far);
     return out;
 }
+/** Finite RH WebGPU projection: near maps to 1, far to 0 for floating-point depth. */
+export function mat4PerspectiveReverseZ(out, fovyRad, aspect, near, far) {
+    const f = 1 / Math.tan(fovyRad / 2);
+    out.fill(0);
+    out[0] = f / aspect;
+    out[5] = f;
+    out[10] = near / (far - near);
+    out[11] = -1;
+    out[14] = (far * near) / (far - near);
+    return out;
+}
 /**
  * Camera axes for a RH Y-up look-at (same basis as {@link mat4LookAt}).
  * `z` is camera back (eye − center); `x` right; `y` camera-up.

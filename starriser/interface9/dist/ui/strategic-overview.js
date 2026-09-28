@@ -1,3 +1,4 @@
+import { bindText, setText } from './dom-bindings.js';
 export function createStrategicOverview(parent) {
     const root = document.createElement('section');
     root.className = 'online-overview';
@@ -6,56 +7,85 @@ export function createStrategicOverview(parent) {
     <tbody></tbody></table></div><p class="online-overview-page"></p>
     <button type="button" data-overview="previous">Previous systems</button><button type="button" data-overview="next">Next systems</button>`;
     parent.prepend(root);
-    let systems = [];
+    const body = root.querySelector('tbody'), detail = bindText(root.querySelector('.online-detail'));
+    const pageText = bindText(root.querySelector('.online-overview-page'));
+    const previous = root.querySelector('[data-overview="previous"]');
+    const next = root.querySelector('[data-overview="next"]');
     let hosted = new Set();
     const rows = new Map();
     let navigate = () => { };
+    function cellText(row) {
+        const label = document.createElement('span');
+        row.insertCell().append(label);
+        return bindText(label);
+    }
+    function createRow(id) {
+        const element = document.createElement('tr');
+        element.dataset.systemId = id;
+        const name = cellText(element), count = cellText(element), moving = cellText(element);
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.textContent = 'View';
+        button.addEventListener('click', () => { if (hosted.has(id))
+            navigate(id); });
+        element.insertCell().append(button);
+        return { element, name, count, moving, button };
+    }
     function render(snapshot) {
         const values = new Map(snapshot?.systems.map(value => [value.scope.systemId, value]));
         for (const [id, cells] of rows) {
             const counts = snapshot?.status === 'view' && values.get(id)?.counts;
-            cells.count.textContent = counts ? String(counts.presentFleets) : hosted.has(id) ? 'Unavailable' : 'Unavailable on this connection';
-            cells.moving.textContent = counts ? String(counts.movingFleets) : '—';
+            const count = counts ? String(counts.presentFleets) : hosted.has(id) ? 'Unavailable' : 'Unavailable on this connection';
+            setText(cells.count, count);
+            if (cells.element.title !== count)
+                cells.element.title = count;
+            setText(cells.moving, counts ? String(counts.movingFleets) : '—');
         }
     }
+    function syncRows(systems) {
+        const live = new Set();
+        let cursor = body.firstChild;
+        for (const system of systems) {
+            live.add(system.id);
+            let row = rows.get(system.id);
+            if (!row) {
+                row = createRow(system.id);
+                rows.set(system.id, row);
+            }
+            setText(row.name, system.name);
+            row.button.hidden = !hosted.has(system.id);
+            if (cursor !== row.element)
+                body.insertBefore(row.element, cursor);
+            cursor = row.element.nextSibling;
+        }
+        for (const [id, row] of rows)
+            if (!live.has(id)) {
+                row.element.remove();
+                rows.delete(id);
+            }
+    }
     return {
-        previous: root.querySelector('[data-overview="previous"]'),
-        next: root.querySelector('[data-overview="next"]'),
+        previous, next,
         onView(callback) { navigate = callback; },
         page(topology, current, offset) {
-            systems = topology.systems.slice(offset, offset + 32);
+            const systems = topology.systems.slice(offset, offset + 32);
             hosted = new Set(topology.hostedSystemIds);
-            rows.clear();
-            root.querySelector('.online-detail').textContent = `Detailed view: ${topology.systems.find(value => value.id === current)?.name ?? current}`;
-            const body = root.querySelector('tbody');
-            body.replaceChildren();
-            for (const system of systems) {
-                const row = body.insertRow();
-                row.dataset.systemId = system.id;
-                row.insertCell().textContent = system.name;
-                rows.set(system.id, { count: row.insertCell(), moving: row.insertCell() });
-                const cell = row.insertCell();
-                if (hosted.has(system.id)) {
-                    const button = document.createElement('button');
-                    button.type = 'button';
-                    button.textContent = 'View';
-                    button.addEventListener('click', () => navigate(system.id));
-                    cell.append(button);
-                }
-            }
-            root.querySelector('.online-overview-page').textContent = `${offset + 1}–${offset + systems.length} of ${topology.systems.length} systems`;
-            root.querySelector('[data-overview="previous"]').disabled = offset === 0;
-            root.querySelector('[data-overview="next"]').disabled = offset + 32 >= topology.systems.length;
+            setText(detail, `Detailed view: ${topology.systems.find(value => value.id === current)?.name ?? current}`);
+            syncRows(systems);
+            setText(pageText, `${systems.length ? offset + 1 : 0}–${offset + systems.length} of ${topology.systems.length} systems`);
+            previous.disabled = offset === 0;
+            next.disabled = offset + 32 >= topology.systems.length;
             render();
             return systems.filter(value => hosted.has(value.id)).map(value => value.id);
         },
         render, clear() {
             rows.clear();
-            root.querySelector('tbody').replaceChildren();
-            root.querySelector('.online-detail').textContent = 'Detailed view unavailable';
-            root.querySelector('.online-overview-page').textContent = '';
-            root.querySelector('[data-overview="previous"]').disabled = true;
-            root.querySelector('[data-overview="next"]').disabled = true;
+            hosted.clear();
+            body.replaceChildren();
+            setText(detail, 'Detailed view unavailable');
+            setText(pageText, '');
+            previous.disabled = true;
+            next.disabled = true;
         },
     };
 }

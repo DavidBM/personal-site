@@ -17,8 +17,8 @@ try {
       await cdp.waitForFunction('window.flightLab.engine.count===1099&&!window.flightLab.engine.shipStorage.status.pending');
       await cdp.evaluate(`document.querySelector('#pause').click()`);await cdp.waitForFunction('window.flightLab.time>window.birthStart+.5');
       const result=await cdp.evaluate(`(async()=>{
-        const e=window.flightLab.engine,w=new Uint32Array(await e.read(e.state,e.count*192)),f=new Float32Array(w.buffer),p=await e.readProgress();
-        return {count:e.count,added:e.director.alive-window.aliveStart,finite:f.every(Number.isFinite),ids:new Set(Array.from({length:e.count},(_,i)=>w[i*48+23])).size,
+        const e=window.flightLab.engine,w=new Uint32Array(await e.read(e.state,e.count*224)),f=new Float32Array(w.buffer),p=await e.readProgress();
+        return {count:e.count,added:e.director.alive-window.aliveStart,finite:f.every(Number.isFinite),ids:new Set(Array.from({length:e.count},(_,i)=>w[i*56+23])).size,
           progress:p.groups.reduce((n,g)=>n+g.live,0),alive:e.director.alive,errors:[...e.errors,document.querySelector('#error').textContent].filter(Boolean)};
       })()`);
       assert.equal(result.added,99);assert.equal(result.ids,1099);assert.equal(result.progress,result.alive);assert(result.finite);assert.deepEqual(result.errors,[]);

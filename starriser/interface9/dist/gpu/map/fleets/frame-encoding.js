@@ -1,7 +1,7 @@
-import { trailViewIntensity, SCENE_KERNEL_COUNT } from "./directed-present.wgsl.js";
+import { JEWEL_RADIUS } from "./directed-present.wgsl.js";
 const SCREEN_TRAILS = { depthAware: true, sceneTrailScale: false, screenPx: 1 };
 const HULL_TRAILS = { depthAware: true, sceneTrailScale: true };
-export function createFleetFrameEncoding(ships, models, coordinates, surface, directed = null, modelsLow = null) {
+export function createFleetFrameEncoding(ships, models, coordinates, surface, directed = null, modelsLow = null, modelsTiny = null) {
     const camera = {
         cameraY: 1, targetX: 0, targetZ: 0, viewportH: 1, viewportW: 1, tanHalfFov: 1, originX: 0, originY: 0, originZ: 0,
     };
@@ -21,27 +21,34 @@ export function createFleetFrameEncoding(ships, models, coordinates, surface, di
         options.follow = frame.following;
         options.systemSceneActive = frame.sceneOpen;
         options.hideNonSceneDraw = frame.sceneOpen || frame.galaxyFade < 1;
-        options.kernelTrailCount = frame.sceneOpen ? SCENE_KERNEL_COUNT : 0;
+        options.kernelTrailCount = frame.sceneOpen ? frame.sceneShipCapacity : 0;
     }
     function integrate(encoder, frame) {
         const space = frame.sceneOpen ? coordinates.system : coordinates.galaxy;
         const proj = frame.sceneOpen ? coordinates.sceneClip() : coordinates.projection;
         ships.prepareTrailVisibility(space.viewProj, space.view, frame.sceneOpen && !frame.referenceTrailVisibility, !frame.sceneOpen, proj, surface.height);
         ships.dispatchIntegrate(encoder, frame.nowMs, frame.dtMs, frame.fleetHighWater, frame.shipHighWater, camera, options);
+        const detail = models.getDetailThresholds?.();
+        directed?.setPresentationCamera?.(space.viewProj, space.origin, surface.height, proj[5], detail?.[0], detail?.[1]);
         directed?.encodeTick(encoder, frame.timeSec, Math.max(0, frame.dtMs) * 0.001, frame.sceneOpen, frame.nowMs);
+        if (frame.sceneOpen)
+            directed?.encodeFollowCamera?.(encoder, space.view, proj, coordinates.system.eye);
         ships.dispatchTrailExpand(encoder);
     }
     function prepareVisibility(encoder, frame) {
         const space = frame.sceneOpen ? coordinates.system : coordinates.galaxy;
-        models.prepareVisibility(encoder, space.viewProj, space.origin, frame.referenceModelVisibility);
-        modelsLow?.prepareVisibility(encoder, space.viewProj, space.origin, frame.referenceModelVisibility);
+        const hullSpace = frame.sceneOpen ? coordinates.hulls : space;
+        models.prepareVisibility(encoder, hullSpace.viewProj, hullSpace.origin, frame.referenceModelVisibility);
+        modelsLow?.prepareVisibility(encoder, hullSpace.viewProj, hullSpace.origin, frame.referenceModelVisibility);
+        modelsTiny?.setPixelGain(Math.abs(coordinates.sceneClip()[5]) * surface.height);
+        modelsTiny?.prepareVisibility(encoder, hullSpace.viewProj, hullSpace.origin, frame.referenceModelVisibility);
     }
     function encodeStrategicTrails(pass, frame) {
         if (!frame.sceneOpen || frame.hullsOn)
             return;
         const space = coordinates.system;
         ships.encodeTrails(pass, space.view, coordinates.sceneClip(), surface.width, surface.height, frame.distance, space.origin, {
-            ...SCREEN_TRAILS, intensity: trailViewIntensity(frame.distance),
+            ...SCREEN_TRAILS, intensity: 1, jewelRadius: JEWEL_RADIUS,
         });
     }
     function encodeShips(pass, frame) {
@@ -50,25 +57,37 @@ export function createFleetFrameEncoding(ships, models, coordinates, surface, di
         const space = frame.sceneOpen ? coordinates.system : coordinates.galaxy;
         ships.encode(pass, space.viewProj, 0.95, camera, frame.sceneOpen);
     }
-    function encodeModels(pass, frame) {
+    function encodeModels(pass, frame, withTrails = true) {
         if (!frame.sceneOpen || !frame.hullsOn)
             return;
         const space = coordinates.system;
-        // Rim eye and ShipSim/pathEnd are sun-local. GPU origin remains zero.
+        // Lighting remains sun-local; hull matrices subtract the camera origin first.
         if (frame.hullHighOn) {
-            models.encode(pass, space.viewProj, undefined, space.origin, space.eye, frame.timeSec);
+            models.encode(pass, coordinates.hulls.viewProj, undefined, coordinates.hulls.origin, space.eye, frame.timeSec);
         }
-        modelsLow?.encode(pass, space.viewProj, undefined, space.origin, space.eye, frame.timeSec);
+        modelsLow?.encode(pass, coordinates.hulls.viewProj, undefined, coordinates.hulls.origin, space.eye, frame.timeSec);
+        modelsTiny?.encode(pass, coordinates.hulls.viewProj, undefined, coordinates.hulls.origin, space.eye, frame.timeSec);
+        if (withTrails)
+            encodeHullTrails(pass, frame);
+    }
+    function encodeHullTrails(pass, frame, glowMode, opaqueDepth) {
+        if (!frame.sceneOpen || !frame.hullsOn)
+            return;
+        const space = coordinates.system;
         // Opaque hulls write depth before the depth-tested, non-writing pot trails.
         ships.encodeTrails(pass, space.view, coordinates.sceneClip(), surface.width, surface.height, frame.distance, space.origin, {
-            ...HULL_TRAILS, intensity: trailViewIntensity(frame.distance),
+            ...HULL_TRAILS, intensity: 1, jewelRadius: JEWEL_RADIUS, glowMode, opaqueDepth,
         });
     }
     function encodeDebug(pass, frame) {
         if (!frame.sceneOpen)
             return;
         directed?.encodeDensity?.(pass, coordinates.system.viewProj, frame.focusedBodyIndex);
+        const viewW = frame.cssWidth || surface.width;
+        const viewH = frame.cssHeight || surface.height;
+        directed?.encodeFleetAltitude?.(pass, coordinates.system.viewProj, viewW, viewH);
+        directed?.encodeRepulsion?.(pass, coordinates.system.viewProj, coordinates.system.view);
     }
-    return { prepare, integrate, prepareVisibility, encodeStrategicTrails, encodeShips, encodeModels, encodeDebug };
+    return { prepare, integrate, prepareVisibility, encodeStrategicTrails, encodeShips, encodeModels, encodeHullTrails, encodeDebug };
 }
 //# sourceMappingURL=frame-encoding.js.map

@@ -1,3 +1,4 @@
+import { bindText, setText } from '../ui/dom-bindings.js';
 const CHART_W = 220;
 const CHART_H = 52;
 const CHART_N = 90;
@@ -30,7 +31,7 @@ export function createRenderPerformancePanel(container) {
     });
     const draw = document.createElement("div");
     draw.style.color = "#7aa0b8";
-    draw.textContent = "";
+    const drawText = bindText(draw, { height: '28px', wrap: true });
     const fpsPane = makePane("FPS", "#7ee0a3");
     const cpuPane = makePane("Render CPU", "#8eddea");
     const gpuPane = makePane("GPU", "#e0b07e");
@@ -44,6 +45,7 @@ export function createRenderPerformancePanel(container) {
     let lastFps = 0;
     let lastWall = 0;
     let lastFrame = -1;
+    let nextPaintAt = 0;
     return {
         update(snapshot) {
             const now = performance.now();
@@ -59,19 +61,24 @@ export function createRenderPerformancePanel(container) {
             lastWall = now;
             const cpuMs = snapshot.metrics.lastCpuMs;
             const gpuMs = snapshot.metrics.lastGpuMs;
-            fpsPane.value.textContent = lastFps > 0 ? lastFps.toFixed(0) : "—";
-            cpuPane.value.textContent = `${cpuMs.toFixed(2)} ms`;
-            gpuPane.value.textContent = gpuMs > 0 ? `${gpuMs.toFixed(2)} ms` : "—";
-            const scene = snapshot.metrics.sceneDraw;
-            const cap = snapshot.metrics.graphicsCap;
-            draw.textContent = scene
-                ? `SCENE ${scene.fleets} fleets · ${scene.ships} ships · hull high ${scene.highFleets} · low ${scene.lowFleets}`
-                    + (cap ? ` · cap ${cap.shown}/${cap.cap}` : "")
-                : (cap ? `cap ${cap.shown}/${cap.cap}` : "");
             fpsHist[histAt] = lastFps;
             cpuHist[histAt] = cpuMs;
             gpuHist[histAt] = gpuMs;
             histAt = (histAt + 1) % CHART_N;
+            // Keep every observed sample; only DOM/chart painting is throttled.
+            // Telemetry is event-driven and bounded to 5 Hz; rendering continues independently.
+            if (now < nextPaintAt)
+                return;
+            nextPaintAt = now + 200;
+            setText(fpsPane.text, lastFps > 0 ? lastFps.toFixed(0) : "—");
+            setText(cpuPane.text, `${cpuMs.toFixed(2)} ms`);
+            setText(gpuPane.text, gpuMs > 0 ? `${gpuMs.toFixed(2)} ms` : "—");
+            const scene = snapshot.metrics.sceneDraw;
+            const cap = snapshot.metrics.graphicsCap;
+            setText(drawText, scene
+                ? `SCENE ${scene.fleets} fleets · ${scene.ships} ships`
+                    + (cap ? ` · cap ${cap.shown}/${cap.cap}` : "")
+                : (cap ? `cap ${cap.shown}/${cap.cap}` : ""));
             paintPane(fpsPane.ctx, fpsHist, histAt, 60, "#7ee0a3");
             paintPane(cpuPane.ctx, cpuHist, histAt, 4, "#8eddea");
             paintPane(gpuPane.ctx, gpuHist, histAt, 4, "#e0b07e");
@@ -97,7 +104,7 @@ function makePane(label, color) {
     canvas.style.display = "block";
     canvas.style.background = "rgba(8, 18, 28, 0.55)";
     wrap.append(head, canvas);
-    return { wrap, value, ctx: canvas.getContext("2d") };
+    return { wrap, text: bindText(value, { width: '10ch' }), ctx: canvas.getContext("2d") };
 }
 function niceMax(observed, floor) {
     const m = Math.max(observed, floor);

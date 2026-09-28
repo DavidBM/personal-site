@@ -1,5 +1,5 @@
 /** GPU capacity preservation and one coalesced upload phase per frame. */
-export function createFleetGpuUpload(storage, slotAlloc, layer) {
+export function createFleetGpuUpload(storage, slotAlloc, layer, strategicOnly = false) {
     /**
      * Grow GPU instance / ShipSim / trail buffers so every ship high-water index
      * is valid. Same geometric capacity; data uploads stay deferred to flush.
@@ -7,7 +7,7 @@ export function createFleetGpuUpload(storage, slotAlloc, layer) {
      */
     function ensureGpuShipCapacity(shipHw) {
         const hw = Math.max(0, shipHw | 0);
-        if (hw <= 0)
+        if (hw <= 0 || strategicOnly)
             return;
         const preserve = storage.flushedShipHw;
         if (hw > layer.getInstanceCapacity()) {
@@ -75,9 +75,13 @@ export function createFleetGpuUpload(storage, slotAlloc, layer) {
             return;
         // --- Ships (instances + ShipSim + trails) ---
         if (shipHw <= 0) {
-            layer.setInstances(EMPTY_INSTANCES, 0);
-            layer.setShipSimData(EMPTY_BYTES, 0);
-            layer.ensureTrailCapacity(0);
+            if (strategicOnly)
+                layer.setLiveInstanceCount(0);
+            else {
+                layer.setInstances(EMPTY_INSTANCES, 0);
+                layer.setShipSimData(EMPTY_BYTES, 0);
+                layer.ensureTrailCapacity(0);
+            }
             storage.flushedShipHw = 0;
             storage.dirtyShipRangeCount = 0;
             return;
@@ -98,7 +102,8 @@ export function createFleetGpuUpload(storage, slotAlloc, layer) {
             }
             const count = end - r.start;
             layer.uploadInstancesRange(storage.instanceData, r.start, count);
-            layer.uploadShipSimRange(storage.shipSimU8, r.start, count);
+            if (!strategicOnly)
+                layer.uploadShipSimRange(storage.shipSimU8, r.start, count);
         }
         storage.dirtyShipRangeCount = 0;
         storage.flushedShipHw = shipHw;

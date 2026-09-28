@@ -1,4 +1,4 @@
-/** Wall remaining for jumping/cooldown: startTime + durationMs − FrameTimeline.wallMs. */
+/** Jump or cooldown remaining on the simulation clock. Pause holds wallMs, so this holds. */
 export function sceneFleetRemainingSec(state, wallMs) {
     if (state.state !== "jumping" && state.state !== "cooldown")
         return null;

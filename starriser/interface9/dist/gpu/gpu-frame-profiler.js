@@ -37,8 +37,9 @@ export class FrameGpuProfiler {
         this.readBuffer = resources.readBuffer;
     }
     timestampWrites(kind, label) {
+        // Diagnostics must never stop an otherwise valid render frame.
         if (this.recorded.length >= MAX_PASSES)
-            throw new Error(`Frame profiler exceeds ${MAX_PASSES} passes`);
+            return undefined;
         const beginningOfPassWriteIndex = this.recorded.length * 2;
         this.recorded.push({ label: label ?? `${kind}-${this.recorded.length}`, kind });
         return { querySet: this.queries, beginningOfPassWriteIndex, endOfPassWriteIndex: beginningOfPassWriteIndex + 1 };
@@ -46,18 +47,17 @@ export class FrameGpuProfiler {
     createEncoder(device, descriptor = {}) {
         if (device !== this.device)
             throw new Error('Frame profiler cannot mix GPU devices');
-        this.recorded.length = 0;
         const encoder = device.createCommandEncoder(descriptor);
         const beginCompute = encoder.beginComputePass;
         const beginRender = encoder.beginRenderPass;
         encoder.beginComputePass = (options = {}) => {
             if ('timestampWrites' in options && options.timestampWrites)
-                throw new Error('Frame profiler cannot replace existing compute timestamps');
+                return beginCompute.call(encoder, options);
             return beginCompute.call(encoder, { ...options, timestampWrites: this.timestampWrites('compute', options.label) });
         };
         encoder.beginRenderPass = (options) => {
             if (options.timestampWrites)
-                throw new Error('Frame profiler cannot replace existing render timestamps');
+                return beginRender.call(encoder, options);
             return beginRender.call(encoder, { ...options, timestampWrites: this.timestampWrites('render', options.label) });
         };
         return encoder;
@@ -76,8 +76,10 @@ export class FrameGpuProfiler {
         if (this.recorded.length === 0)
             return null;
         const bytes = this.recorded.length * 16;
-        await this.readBuffer.mapAsync(GPUMapMode.READ, 0, bytes);
+        let mapped = false;
         try {
+            await this.readBuffer.mapAsync(GPUMapMode.READ, 0, bytes);
+            mapped = true;
             const values = new BigUint64Array(this.readBuffer.getMappedRange(0, bytes));
             const passes = this.recorded.map((pass, index) => ({
                 ...pass, ms: Number(values[index * 2 + 1] - values[index * 2]) / 1e6,
@@ -89,7 +91,9 @@ export class FrameGpuProfiler {
             };
         }
         finally {
-            this.readBuffer.unmap();
+            if (mapped)
+                this.readBuffer.unmap();
+            this.recorded.length = 0;
         }
     }
     dispose() {

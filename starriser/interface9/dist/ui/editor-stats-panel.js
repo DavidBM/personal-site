@@ -1,8 +1,14 @@
+import { bindText, setText } from './dom-bindings.js';
+import { createFleetCard } from './fleet-card.js';
 function createStatLine(ctx, parent, id, label) {
     const row = ctx.row({
         id: `${id}-row`,
         parent,
-        template: "minmax(0, 1fr) auto",
+        template: "minmax(0, 1fr) 12ch",
+    });
+    // Preserve ctx.row's fixed value track: contained text has no intrinsic width.
+    Object.assign(row.element.style, {
+        height: "18px", contain: "layout paint", overflow: "hidden", whiteSpace: "nowrap",
     });
     ctx.text({
         id: `${id}-label`,
@@ -19,6 +25,7 @@ function createStatLine(ctx, parent, id, label) {
     if (!(value.element instanceof HTMLSpanElement)) {
         throw new Error(`Expected span element for ${id} value`);
     }
+    value.element.style.cssText += "overflow:hidden;white-space:nowrap;text-align:right;font-size:11px;font-variant-numeric:tabular-nums";
     return value.element;
 }
 function createSection(ctx, parent, id, title) {
@@ -44,16 +51,6 @@ function createSection(ctx, parent, id, title) {
     heading.element.style.color = "#c9d8ee";
     heading.element.style.marginBottom = "2px";
     return wrap.element;
-}
-function describeFleetStatus(state, counts) {
-    const ships = counts.red + counts.blue + counts.green;
-    if (state.state === "jumping") {
-        return `Jumping (${ships} ships)`;
-    }
-    if (state.state === "cooldown") {
-        return `Cooling down (${ships} ships)`;
-    }
-    return `Awaiting (${ships} ships)`;
 }
 /**
  * Single top-right panel: galaxy map stats + live simulation totals + fleet list.
@@ -107,9 +104,9 @@ export function buildEditorStatsPanel(ctx) {
         text: "No fleets active.",
         muted: true,
     }).element;
-    const setSimText = (el, n) => {
-        el.textContent = String(n);
-    };
+    const simTexts = new Map([simFleets, simShips, simRed, simBlue, simGreen, simJumping, simCooldown, simAwaiting]
+        .map(element => [element, bindText(element, { height: '18px', lineHeight: '18px' })]));
+    const setSimText = (element, n) => setText(simTexts.get(element), String(n));
     // Throttle O(n) sim totals at mass scale so list rAF does not walk 50k maps
     // every batch during bulk add (fleet count still updates every paint).
     let totShips = 0;
@@ -138,6 +135,11 @@ export function buildEditorStatsPanel(ctx) {
         }
         lastTotalsAt = performance.now();
     };
+    const summary = document.createElement("span");
+    summary.className = "ui-label";
+    const summaryText = bindText(summary);
+    const cards = new Map();
+    let listMode = "";
     const render = (fleets) => {
         const now = performance.now();
         // ≤1000: always accurate. Larger: recompute at most every TOTALS_MIN_MS.
@@ -154,40 +156,53 @@ export function buildEditorStatsPanel(ctx) {
         setSimText(simJumping, totJumping);
         setSimText(simCooldown, totCooldown);
         setSimText(simAwaiting, totAwaiting);
-        // List
-        while (fleetList.element.firstChild) {
-            fleetList.element.removeChild(fleetList.element.firstChild);
-        }
+        renderList(fleets);
+    };
+    function renderList(fleets) {
         const fleetCount = fleets.size;
-        if (fleetCount === 0) {
-            fleetList.element.appendChild(fleetEmpty);
+        const mode = fleetCount === 0 ? "empty" : fleetCount > 10 ? "summary" : "cards";
+        if (mode !== listMode) {
+            fleetList.element.replaceChildren();
+            cards.clear();
+            listMode = mode;
+            if (mode === "empty")
+                fleetList.element.appendChild(fleetEmpty);
+            if (mode === "summary")
+                fleetList.element.appendChild(summary);
+        }
+        if (mode === "empty")
+            return;
+        if (mode === "summary") {
+            const text = `${fleetCount} active (list collapsed)`;
+            setText(summaryText, text);
             return;
         }
-        if (fleetCount > 10) {
-            const summary = document.createElement("span");
-            summary.textContent = `${fleetCount} active (list collapsed)`;
-            summary.className = "ui-label";
-            fleetList.element.appendChild(summary);
-            return;
-        }
+        renderCards(fleets);
+    }
+    function renderCards(fleets) {
+        for (const [id, row] of cards)
+            if (!fleets.has(id)) {
+                row.element.remove();
+                cards.delete(id);
+            }
+        let cursor = fleetList.element.firstChild;
         const entries = Array.from(fleets.entries()).sort((a, b) => a[0].localeCompare(b[0]));
         for (const [id, data] of entries) {
-            const row = document.createElement("div");
-            row.style.display = "flex";
-            row.style.flexDirection = "column";
-            row.style.gap = "2px";
-            const title = document.createElement("span");
-            title.textContent = id;
-            title.className = "ui-label";
-            const status = document.createElement("span");
-            status.textContent = describeFleetStatus(data.state, data.counts);
-            status.style.opacity = "0.8";
-            status.style.fontSize = "12px";
-            row.appendChild(title);
-            row.appendChild(status);
-            fleetList.element.appendChild(row);
+            let row = cards.get(id);
+            if (!row) {
+                const element = document.createElement('div');
+                element.className = 'fleet-card';
+                row = createFleetCard(element);
+                cards.set(id, row);
+            }
+            row.update({ id, relationship: data.relationship, shipCount: data.counts.red + data.counts.blue + data.counts.green, state: data.state.state,
+                micro: 'Open its system for live visual activity',
+                action: data.state.state === 'awaiting' && data.state.localMove ? 'Move order' : undefined });
+            if (cursor !== row.element)
+                fleetList.element.insertBefore(row.element, cursor);
+            cursor = row.element.nextSibling;
         }
-    };
+    }
     // Initial zeros for simulation section
     render(new Map());
     return {

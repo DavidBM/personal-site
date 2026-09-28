@@ -1,8 +1,9 @@
 import { readGpuTextureRgba8 } from "../buffer-readback.js";
 import { MAP_MSAA_SAMPLES } from "../map-msaa.js";
+import { depthPolicy } from "../map-depth.js";
 /** Owns multisample/depth and optional readback targets; no swapchain copies. */
 export class FrameAttachments {
-    constructor(bootstrap, canvas, isUnavailable) {
+    constructor(bootstrap, canvas, isUnavailable, reverseDepth = false) {
         /**
          * Multisampled color target for the map pass (resolve → swapchain).
          * Size tracks the drawing buffer; recreated on resize.
@@ -29,29 +30,30 @@ export class FrameAttachments {
         this.bootstrap = bootstrap;
         this.canvas = canvas;
         this.isUnavailable = isUnavailable;
+        this.depth = depthPolicy(reverseDepth);
     }
     /** Grow/recreate the MSAA color + depth attachments to match the drawing buffer. */
     ensureMsaaColor(width, height) {
         const w = Math.max(1, width | 0);
         const h = Math.max(1, height | 0);
-        if (this.msaaColor && this.msaaW === w && this.msaaH === h)
+        if (this.msaaDepth && this.msaaW === w && this.msaaH === h)
             return;
         this.msaaColor?.destroy();
         this.msaaDepth?.destroy();
-        this.msaaColor = this.bootstrap.device.createTexture({
+        this.msaaColor = MAP_MSAA_SAMPLES === 1 ? null : this.bootstrap.device.createTexture({
             label: "map-msaa-color",
             size: { width: w, height: h },
             sampleCount: MAP_MSAA_SAMPLES,
             format: this.bootstrap.format,
             usage: GPUTextureUsage.RENDER_ATTACHMENT,
         });
-        this.msaaColorView = this.msaaColor.createView();
+        this.msaaColorView = this.msaaColor?.createView() ?? null;
         this.msaaDepth = this.bootstrap.device.createTexture({
             label: "map-msaa-depth",
             size: { width: w, height: h },
             sampleCount: MAP_MSAA_SAMPLES,
-            format: "depth24plus",
-            usage: GPUTextureUsage.RENDER_ATTACHMENT,
+            format: this.depth.format,
+            usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
         });
         this.msaaDepthView = this.msaaDepth.createView();
         this.msaaW = w;

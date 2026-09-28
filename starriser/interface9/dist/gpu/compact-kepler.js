@@ -1,10 +1,11 @@
+import { ORBIT_SPACING_MULTIPLIER, SUN_RADIUS } from '../lib/ship-runtime/scene-scale.mjs';
 /**
  * Compact Kepler set for one Band B SCENE.
  *
  * Sun + ≤8 seed-selected catalog bodies. After pick, showcase orbits are
  * reassigned to even slots (inner 8 … outer 52) so discs do not collide;
- * pose compose applies {@link KEPLER_SCALE}. Sun visual radius is 0.005
- * (~5% of span 0.1). Do not plant SHOWCASE_BODIES at SolarSystem.position.
+ * pose compose applies the fixed {@link KEPLER_SCALE}. Scene configuration
+ * scales orbital spacing and sun size independently of planet radii. Do not plant SHOWCASE_BODIES at SolarSystem.position.
  */
 import { catalogById, catalogEntryToBody, PLANET_CATALOG, seedForCatalogId, } from "./planet-lib/planet-catalog.js";
 import { KEPLER_SCALE } from "./solar-system-lod.js";
@@ -15,10 +16,9 @@ export const COMPACT_SHOWCASE_ORBIT_INNER = 8;
 /** Even compact showcase orbit ceiling (k=0.1/56 → world 0.093). */
 export const COMPACT_SHOWCASE_ORBIT_OUTER = 52;
 /**
- * Compact sun visual radius (world). 5% of SYSTEM_LOCAL_SPAN (0.1).
- * Pin the product number so Schmitt enter still matches a 5px sun.
+ * Compact sun radius (world), independent of planetary spacing.
  */
-export const COMPACT_SUN_VISUAL_RADIUS = 0.005;
+export const COMPACT_SUN_VISUAL_RADIUS = SUN_RADIUS;
 function mulberry32(seed) {
     let a = seed >>> 0;
     return () => {
@@ -79,7 +79,8 @@ function pickPlanetEntries(catalogId) {
 /**
  * Sort by current showcase orbit, then reassign even slots so consecutive
  * compact world orbits clear (r_i + r_{i+1}). Period stays Keplerian
- * (T ∝ a^1.5); KEPLER_SCALE / SPAN are unchanged.
+ * (T ∝ a^1.5) in the authored catalog. Presentation spacing expands radii
+ * afterwards, preserving those periods and the shared ephemeris clock.
  */
 function spaceCompactShowcaseOrbits(planets) {
     const n = planets.length;
@@ -97,7 +98,7 @@ function spaceCompactShowcaseOrbits(planets) {
         const period = oldR > 1e-9
             ? p.orbitPeriodSec * Math.pow(newR / oldR, 1.5)
             : 14 + 76 * ((i + 1) / n);
-        out[i] = { ...p, orbitRadius: newR, orbitPeriodSec: period };
+        out[i] = { ...p, orbitRadius: newR * ORBIT_SPACING_MULTIPLIER, orbitPeriodSec: period };
     }
     return out;
 }

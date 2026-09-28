@@ -41,8 +41,9 @@ function writeNormalizedPlane(target, offset, x, y, z, w) {
     target[offset + 3] = distance;
 }
 /**
- * Six inward unit planes: left/right/bottom/top/near/far. Column-major WebGPU
- * projection clips Z to [0,W], so the near plane is row 2, not row 3 + row 2.
+ * Six inward unit planes: left/right/bottom/top/Z-min/Z-max. Column-major WebGPU
+ * projection clips Z to [0,W], using row 2 and row 3 − row 2 for the last pair.
+ * Reversed depth swaps their physical near/far meaning, but rejection is unchanged.
  * Degenerate/invalid planes stay zero (disabled); never discard uncertain geometry.
  * Target offset is in floats. The target must not overlap the input matrix.
  */

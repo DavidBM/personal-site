@@ -311,7 +311,7 @@ struct FleetGpu {
   _pad1: u32,
 };
 
-// Match ship-sim-layout.ts stride 224 (96-byte pose + 8 compact knots)
+// Match ship-sim-layout.ts stride 352 (96-byte pose + 8 paired knots)
 struct ShipSim {
   posX: f32,
   posY: f32,         // live height; CIRCULATE uses personal orbit height
@@ -338,6 +338,7 @@ struct ShipSim {
   omegaMax: f32,   // turn rate cap (rad/s); ≤0 → ORBIT_DEFAULT_OMEGA_MAX
   trailOwner: u32,
   knots: array<vec4<f32>, 8>,
+  knotAnchors: array<vec4<f32>, 8>,
 };
 
 @group(0) @binding(0) var<uniform> u: IntegrateUniforms;
@@ -1670,7 +1671,7 @@ fn tryAppendTrail(
   let stableScene = (flags & FLEET_FLAG_SYSTEM_SCENE) != 0u;
   // Triangle aft for strategic ribbons only (not model thruster pot).
   var aft = vec2<f32>(0.0, 0.0);
-  if (u.expandTrails != 2u) {
+  if (u.expandTrails != 2u || (ship.targetKind & 8192u)!=0u) {
     let sz = select(BASE_SHIP_SIZE, shipWorldSize, shipWorldSize > 1e-6);
     aft = triangleAftWorldOffset(ship.heading, sz);
   }
@@ -1713,9 +1714,10 @@ fn trailDrawAlpha(age01: f32, along01: f32) -> f32 {
 }
 
 /**
- * Fixed-slot line expand for one ribbon — walk ring backward like trailLiveSegments.
- * Dead / incomplete segments write degenerate alpha-0 verts (same pos).
- * Alpha: head opaque → tip transparent via along-trail index (not age alone).
+ * Dense live-segment expansion — walk ring backward like trailLiveSegments.
+ * Dead / incomplete pairs reserve no output geometry.
+ * Alpha: head opaque → tip transparent; paired scene knots use elapsed time,
+ * legacy ribbons use their historical along-trail index.
  * worldOff is added to every sample (model thruster pot = R(quat)*local).
  * alphaMul scales endpoint alpha (small emitters dimmer/thinner).
  * maxDrawSlots caps dense pack (host sizes trailLines accordingly).
@@ -1724,6 +1726,29 @@ fn trailSample4(ship: ShipSim, ringBase: u32, idx: u32, useKnots: bool) -> vec4<
   if (useKnots) { return ship.knots[idx]; }
   let b = ringBase + idx * TRAIL_SAMPLE_FLOATS;
   return vec4<f32>(trails[b], trails[b + 1u], trails[b + 2u], trails[b + 3u]);
+}
+// The map specializes this helper with the GPU-presented camera pair.
+fn trailPositionRelative(anchor:vec3<f32>,local:vec3<f32>)->vec3<f32>{
+  let camera=floor(u.origin*560.0);
+  return (anchor-camera)/560.0+(local/560.0-(u.origin-camera/560.0));
+}
+fn expandedShipTrailSample(ship:ShipSim,idx:u32,ringBase:u32,baseY:f32,worldOff:vec3<f32>,pathEnd:vec3<f32>,stableScene:bool)->vec3<f32>{
+  let sample=trailSample4(ship,ringBase,idx,stableScene);
+  if(stableScene && (ship.targetKind & 4096u)!=0u){
+    return trailPositionRelative(ship.knotAnchors[idx].xyz,vec3<f32>(sample.x,sample.w,sample.y))+worldOff;
+  }
+  return expandedTrailSample(sample,baseY,worldOff,pathEnd,stableScene);
+}
+// Clip a tail sample against a moving time boundary on its existing edge.
+// Used only by paired production knots; legacy ribbons retain their contract.
+fn clippedShipTrailSample(ship:ShipSim,idx:u32,ringBase:u32,baseY:f32,worldOff:vec3<f32>,pathEnd:vec3<f32>,stableScene:bool,cutoff:f32)->vec3<f32>{
+  let point=expandedShipTrailSample(ship,idx,ringBase,baseY,worldOff,pathEnd,stableScene);
+  let birth=trailSample4(ship,ringBase,idx,stableScene).z;
+  if(birth>=cutoff){return point;}
+  let nextIdx=(idx+1u)&(TRAIL_RING_SIZE-1u);
+  let nextBirth=trailSample4(ship,ringBase,nextIdx,stableScene).z;
+  let next=expandedShipTrailSample(ship,nextIdx,ringBase,baseY,worldOff,pathEnd,stableScene);
+  return mix(point,next,clamp((cutoff-birth)/max(nextBirth-birth,0.000001),0.0,1.0));
 }
 fn expandTrailLines(
   simIdx: u32,
@@ -1744,6 +1769,12 @@ fn expandTrailLines(
 ) {
   let mask = TRAIL_RING_SIZE - 1u;
   let useKnots = stableScene;
+  let timedTail=stableScene && (ship.targetKind & 4096u)!=0u;
+  let headBirth=trailSample4(ship,ringBase,(write-1u)&mask,useKnots).z;
+  // Live head + frozen samples bracketing a constant window. As the head grows,
+  // the oldest segment shrinks, without index-based fade/texture jumps.
+  let span=max(f32(TRAIL_SEGS-1u)*TRAIL_MAX_INTERVAL_MS,0.001);
+  let cutoff=select(-1e30,headBirth-span,timedTail);
   let _sim = simIdx;
   let segsF = max(f32(TRAIL_SEGS), 1.0);
   let aMul = max(alphaMul, 0.0);
@@ -1762,16 +1793,49 @@ fn expandTrailLines(
   // Simulation and sample append have already completed. Only the visual
   // emitter ribbon is rejected; hull visibility never controls this decision.
   if (!useKnots && !trailRibbonVisible(ringBase, write, nLive, baseY, worldOff, pathEnd, stableScene)) { return; }
-  // Keep the existing dense atomic allocation and the same indirect draw.
-  let drawSlot = atomicAdd(&trailDrawMeta[${META.EXPAND_COUNT}u], 1u);
-  if (drawSlot >= maxDrawSlots) { return; }
-  let lineBase = drawSlot * TRAIL_LINE_FLOATS_PER_SHIP;
+  let thin=timedTail && (ship.targetKind & 8192u)!=0u;
+  var segmentCount=min(TRAIL_SEGS,max(nLive,1u)-1u);
+  // The fixed-time window can expire older pairs before the storage ring does.
+  while(segmentCount>0u){
+    let newer=(write-segmentCount)&mask;
+    if(trailSample4(ship,ringBase,newer,useKnots).z>cutoff){break;}
+    segmentCount-=1u;
+  }
+  if(segmentCount==0u){return;}
+  segmentCount=select(segmentCount,1u,thin);
+  // Reserve only live segments. Tiny trails cost one quad, never five dead ones.
+  // Capacity remains expressed in max-size ribbons for host allocation compatibility.
+  let capacity=min(maxDrawSlots*TRAIL_SEGS,arrayLength(&trailLines)/TRAIL_SEGMENT_FLOATS);
+  let first=atomicAdd(&trailDrawMeta[${META.SEGMENT_COUNT}u],segmentCount);
+  if(first>=capacity){return;}
+  segmentCount=min(segmentCount,capacity-first);
+  atomicAdd(&trailDrawMeta[${META.EXPAND_COUNT}u],1u);
+  let lineBase=first*TRAIL_SEGMENT_FLOATS;
 
-  // Walk newest→oldest. First dead pair ⇒ remaining older segs are dead too
-  // (ring ages uniformly). Zero-fill the tail once and stop (big win when the
-  // ring is not full yet; full rings still write all live segs).
+  if(thin){
+    // One straight segment across the same continuously clipped time window.
+    var tail=(write-2u)&mask;
+    for(var depth=1u;depth<nLive;depth++){
+      tail=(write-1u-depth)&mask;
+      if(trailSample4(ship,ringBase,tail,true).z<=cutoff){break;}
+    }
+    let p0=clippedShipTrailSample(ship,tail,ringBase,baseY,worldOff,pathEnd,true,cutoff);
+    let p1=expandedShipTrailSample(ship,(write-1u)&mask,ringBase,baseY,worldOff,pathEnd,true);
+    trailLines[lineBase]=p0.x;trailLines[lineBase+1u]=p0.y;trailLines[lineBase+2u]=p0.z;
+    trailLines[lineBase+3u]=colorR;trailLines[lineBase+4u]=colorG;trailLines[lineBase+5u]=colorB;
+    // Negative start alpha tags a 1px solid segment, decoded before alpha use.
+    trailLines[lineBase+6u]=-1.0;
+    trailLines[lineBase+7u]=p1.x;trailLines[lineBase+8u]=p1.y;trailLines[lineBase+9u]=p1.z;
+    trailLines[lineBase+10u]=colorR;trailLines[lineBase+11u]=colorG;trailLines[lineBase+12u]=colorB;
+    trailLines[lineBase+13u]=aMul;
+    trailLines[lineBase+14u]=p0.x;trailLines[lineBase+15u]=p0.y;trailLines[lineBase+16u]=p0.z;
+    trailLines[lineBase+17u]=p1.x;trailLines[lineBase+18u]=p1.y;trailLines[lineBase+19u]=p1.z;
+    return;
+  }
+
+  // Walk only the live range; no clearing or submission of stale tail slots.
   // Each seg packs start+end+prev+next for continuous miter joints in draw VS.
-  for (var seg = 0u; seg < TRAIL_SEGS; seg++) {
+  for (var seg = 0u; seg < segmentCount; seg++) {
     let idxB = (write - 1u - seg) & mask; // newer
     let idxA = (write - 2u - seg) & mask; // older
     let sampA = trailSample4(ship, ringBase, idxA, useKnots);
@@ -1780,24 +1844,13 @@ fn expandTrailLines(
     let ageB = sampleAge01(sampB.z, u.nowRel);
     let vo = lineBase + seg * TRAIL_SEGMENT_FLOATS;
 
-    if (ageA >= 1.0 || ageB >= 1.0 || nLive < seg + 2u) {
-      // Degenerate this seg + all older segs (alpha 0). Positions irrelevant.
-      for (var s2 = seg; s2 < TRAIL_SEGS; s2++) {
-        let vo2 = lineBase + s2 * TRAIL_SEGMENT_FLOATS;
-        // Only alphas are read for discard; zero both endpoints.
-        trailLines[vo2 + 6u] = 0.0;
-        trailLines[vo2 + 13u] = 0.0;
-      }
-      break;
-    }
-
-    let p0 = expandedTrailSample(sampA, baseY, worldOff, pathEnd, stableScene);
-    let p1 = expandedTrailSample(sampB, baseY, worldOff, pathEnd, stableScene);
+    let p0 = clippedShipTrailSample(ship,idxA,ringBase,baseY,worldOff,pathEnd,stableScene,cutoff);
+    let p1 = expandedShipTrailSample(ship,idxB,ringBase,baseY,worldOff,pathEnd,stableScene);
     let x0 = p0.x; let y0 = p0.y; let z0 = p0.z;
     let x1 = p1.x; let y1 = p1.y; let z1 = p1.z;
     // along: 0 at newest sample, 1 at oldest expand tip
-    let alongB = f32(seg) / segsF;
-    let alongA = f32(seg + 1u) / segsF;
+    let alongB = select(f32(seg)/segsF,clamp((headBirth-sampB.z)/span,0.0,1.0),timedTail);
+    let alongA = select(f32(seg+1u)/segsF,clamp((headBirth-sampA.z)/span,0.0,1.0),timedTail);
     let a0 = trailDrawAlpha(ageA, alongA) * aMul;
     let a1 = trailDrawAlpha(ageB, alongB) * aMul;
 
@@ -1806,9 +1859,9 @@ fn expandTrailLines(
     var px = x0;
     var py = y0;
     var pz = z0;
-    if (nLive >= seg + 3u) {
+    if (nLive >= seg + 3u && sampA.z>cutoff) {
       let idxPrev = (write - 3u - seg) & mask;
-      let previous = expandedTrailSample(trailSample4(ship, ringBase, idxPrev, useKnots), baseY, worldOff, pathEnd, stableScene);
+      let previous = clippedShipTrailSample(ship,idxPrev,ringBase,baseY,worldOff,pathEnd,stableScene,cutoff);
       px = previous.x; py = previous.y; pz = previous.z;
     }
     var nx = x1;
@@ -1817,7 +1870,7 @@ fn expandTrailLines(
     // seg>0 ⇒ a newer live sample exists toward the ship (depth seg-1).
     if (seg > 0u) {
       let idxNext = (write - seg) & mask;
-      let next = expandedTrailSample(trailSample4(ship, ringBase, idxNext, useKnots), baseY, worldOff, pathEnd, stableScene);
+      let next = expandedShipTrailSample(ship,idxNext,ringBase,baseY,worldOff,pathEnd,stableScene);
       nx = next.x; ny = next.y; nz = next.z;
     }
 
@@ -1846,7 +1899,7 @@ fn expandTrailLines(
 
 /**
  * Expand center ribbon (mode 1) or triangular pot (mode 2) for one ship.
- * Mode 2: always 3 emitters with body-local offsets via ship quat.
+ * Mode 2: 3 high-detail emitters, 1 low-detail emitter, or 1px tiny centerline.
  * Host grows trailLines for dense ≤ modelOwned*3 (and caps maxSlots).
  */
 fn expandShipTrails(
@@ -1895,6 +1948,8 @@ fn expandShipTrails(
     simIdx, ringBase, write, colorR, colorG, colorB, baseY,
     o0, MODEL_TRAIL_E0_ALPHA, maxSlots, pathEndX, pathEndZ, pathEndY, stableScene, ship,
   );
+  // Mid-detail hulls need one ribbon; full detail keeps all three emitters.
+  if((ship.targetKind & 4096u)!=0u && (ship.targetKind & 1024u)==0u){return;}
   expandTrailLines(
     simIdx, ringBase, write, colorR, colorG, colorB, baseY,
     o1, MODEL_TRAIL_E1_ALPHA, maxSlots, pathEndX, pathEndZ, pathEndY, stableScene, ship,
@@ -2274,17 +2329,17 @@ fn cs_expand_trails(@builtin(global_invocation_id) gid3: vec3<u32>) {
 /**
  * After expand: pack DrawIndexedIndirectArgs for trail ribbons into the
  * same command table (words 0–4). No binding 7 — write via binding 6.
- * indexCount = TRAIL_TEMPLATE_INDEX_COUNT (body quad: 2 tris), instanceCount = dense * TRAIL_SEGS.
+ * indexCount = TRAIL_TEMPLATE_INDEX_COUNT (body quad: 2 tris), instanceCount = live segments.
  */
 @compute @workgroup_size(1)
 fn cs_trail_indirect(@builtin(global_invocation_id) gid3: vec3<u32>) {
   if (gid3.x != 0u) { return; }
-  let n = atomicLoad(&trailDrawMeta[${META.EXPAND_COUNT}u]);
-  let segs = TRAIL_SEGS;
+  let n = atomicLoad(&trailDrawMeta[${META.SEGMENT_COUNT}u]);
+  let capacity=atomicLoad(&trailDrawMeta[${META.MAX_LINE_SLOTS}u])*TRAIL_SEGS;
   // GPUBuffer DrawIndexedIndirect at table words 0–4 (binding 7, offset 0):
   //   indexCount, instanceCount, firstIndex, baseVertex, firstInstance
   trailIndirect[0] = ${TRAIL_TEMPLATE_INDEX_COUNT}u; // body-only 2-tri quad
-  trailIndirect[1] = n * segs;
+  trailIndirect[1] = min(n,capacity);
   trailIndirect[2] = 0u;
   trailIndirect[3] = 0u; // baseVertex as u32 bitcast of i32 0
   trailIndirect[4] = 0u;
@@ -2400,6 +2455,7 @@ struct ShipSim {
   targetKind: u32, orbitPhase: f32, accel: f32, cruiseV: f32,
   orbitR: f32, orbitOmega: f32, omegaMax: f32, trailOwner: u32,
   knots: array<vec4<f32>, 8>,
+  knotAnchors: array<vec4<f32>, 8>,
 };
 
 @group(0) @binding(0) var<uniform> u: IntegrateUniforms;

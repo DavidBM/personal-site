@@ -74,6 +74,7 @@ export function pickSceneBodyFromMap(opts) {
         targetX: opts.targetX,
         targetY: opts.targetY ?? 0,
         targetZ: opts.targetZ,
+        upX: opts.upX, upY: opts.upY, upZ: opts.upZ,
     });
     const poses = new Array(opts.poses.length);
     for (let i = 0; i < opts.poses.length; i++) {
@@ -238,6 +239,7 @@ export function createSystemFocusController(opts) {
                 targetX: st.targetX,
                 targetY: st.targetY,
                 targetZ: st.targetZ,
+                upX: st.upX, upY: st.upY, upZ: st.upZ,
                 fovyDeg: st.fovyDeg,
                 poses,
             });

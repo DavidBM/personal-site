@@ -12,11 +12,11 @@ try {
   await cdp.send('Page.navigate',{url:`http://127.0.0.1:${server.port}/tests/demo-ship-flight-poc/index.html?scenario=2&count=1000`});
   await cdp.waitForFunction('window.flightLab?.time>.25');
   await cdp.evaluate(`document.querySelector('#pause').click();window.storageTime=window.flightLab.time;`);
-  await cdp.evaluate(`(async()=>{const e=window.flightLab.engine;window.storageBefore=Array.from(new Uint32Array(await e.read(e.state,e.count*192)));})()`);
+  await cdp.evaluate(`(async()=>{const e=window.flightLab.engine;window.storageBefore=Array.from(new Uint32Array(await e.read(e.state,e.count*224)));})()`);
   await cdp.evaluate(`document.querySelector('#grow-storage').click()`);
   await cdp.waitForFunction('window.flightLab.engine.shipStorage.status.capacity===2000&&!window.flightLab.engine.shipStorage.status.pending');
   const grown=await cdp.evaluate(`(async()=>{
-    const e=window.flightLab.engine,w=new Uint32Array(await e.read(e.state,e.count*192));
+    const e=window.flightLab.engine,w=new Uint32Array(await e.read(e.state,e.count*224));
     return {unchanged:window.storageBefore.every((x,i)=>x===w[i]),time:e.now,paused:window.storageTime,status:e.shipStorage.status};
   })()`);
   assert(grown.unchanged);assert.equal(grown.time,grown.paused);
@@ -28,8 +28,8 @@ try {
   await cdp.evaluate(`document.querySelector('#trim-storage').click();document.querySelector('#pause').click();`);
   await cdp.waitForFunction('window.flightLab.time>window.storageTime+.3&&window.flightLab.engine.shipStorage.status.capacity===1000&&!window.flightLab.engine.shipStorage.status.pending');
   const running=await cdp.evaluate(`(async()=>{
-    const e=window.flightLab.engine,w=new Uint32Array(await e.read(e.state,e.count*192)),progress=await e.readProgress();
-    return {ids:new Set(Array.from({length:e.count},(_,i)=>w[i*48+23])).size,alive:progress.groups.reduce((n,g)=>n+g.live,0),
+    const e=window.flightLab.engine,w=new Uint32Array(await e.read(e.state,e.count*224)),progress=await e.readProgress();
+    return {ids:new Set(Array.from({length:e.count},(_,i)=>w[i*56+23])).size,alive:progress.groups.reduce((n,g)=>n+g.live,0),
       status:e.shipStorage.status,errors:[...e.errors,document.querySelector('#error').textContent].filter(Boolean)};
   })()`);
   assert.equal(running.ids,1000);assert.equal(running.alive,900);assert.deepEqual(running.errors,[]);

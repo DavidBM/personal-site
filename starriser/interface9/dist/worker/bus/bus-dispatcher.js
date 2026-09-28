@@ -170,10 +170,18 @@ export function createBusDispatcher(options, execute, failed) {
                 wake.schedule();
         }
     }
+    function queuedMessages() {
+        let count = 0;
+        for (const queue of queues)
+            count += queue.length;
+        for (const lane of lanes.values())
+            count += lane.queue.length;
+        return count;
+    }
     return {
         enqueue, drain, reserve: capacity.reserve,
         estimate: (message) => payloadBytes({ message }, options),
-        stats: () => ({ ...capacity.stats(), activeMessages: active, expiredMessages: expired }),
+        stats: () => ({ ...capacity.stats(), queuedMessages: queuedMessages(), activeMessages: active, expiredMessages: expired }),
         dispose() {
             disposed = true;
             capacity.dispose();

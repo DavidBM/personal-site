@@ -64,4 +64,19 @@ export function createLowPolyShipMesh() {
         materialName: "lowpoly-fighter",
     };
 }
+/** Four flat-shaded faces, +Z nose. No authored textures or class geometry. */
+export function createPyramidShipMesh() {
+    const verts = [], indices = [];
+    const points = [[0, 0, 1], [-.45, -.25, -.6], [.45, -.25, -.6], [0, .4, -.6]];
+    const faces = [[0, 1, 2], [0, 2, 3], [0, 3, 1], [1, 3, 2]];
+    for (const face of faces) {
+        const [a, b, c] = face.map(i => points[i]);
+        // Make winding outward independently of the chosen face ordering.
+        const n = faceNormal(a, b, c), center = a.map((v, i) => (v + b[i] + c[i]) / 3);
+        const outward = n.reduce((v, x, i) => v + x * center[i], 0) > 0;
+        tri(verts, indices, a, outward ? b : c, outward ? c : b, [[0, 0], [0, 0], [0, 0]]);
+    }
+    return { ...createLowPolyShipMesh(), interleaved: new Float32Array(verts), indices: new Uint32Array(indices),
+        vertexCount: 12, indexCount: 12, materialName: 'pyramid-arrow' };
+}
 //# sourceMappingURL=lowpoly-ship-mesh.js.map

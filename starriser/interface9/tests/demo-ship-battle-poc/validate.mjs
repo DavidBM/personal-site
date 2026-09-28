@@ -1,3 +1,4 @@
+import {validateRouteMemory} from './validate-route-memory.mjs';
 import {validatePopulationLifecycle} from './validate-population-lifecycle.mjs';
 import {validateRegrouping} from './validate-regrouping.mjs';
 import {validateRetirement} from './validate-retirement.mjs';
@@ -224,6 +225,7 @@ async function benchmark(ctx,canvas,count) {
   }finally{e.destroy();}
 }
 const modes=new Map([
+  ['route-memory',validateRouteMemory],
   ['pressure-events',validatePressureEvents],
   ['recovery-anchors',validateRecoveryAnchors],
   ['director-recovery',validateDirectorRecovery],

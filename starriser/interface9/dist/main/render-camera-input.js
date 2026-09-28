@@ -1,6 +1,6 @@
 import { renderGroundPoint, renderPointerRay } from "./render-picking.js";
 /** Local drag ownership is immediate; camera math and easing run only in worker. */
-export function createRenderCameraInput(client, controls, clearFocus = () => client.send({ type: "clearFocus" })) {
+export function createRenderCameraInput(client, controls, clearFocus = () => client.send({ type: "clearFocus" }), cancelAction = () => false) {
     const canvas = client.canvas;
     let dragging = false;
     const position = (event) => {
@@ -22,14 +22,20 @@ export function createRenderCameraInput(client, controls, clearFocus = () => cli
     };
     const key = (type, event) => {
         if (event.key === "Escape") {
-            if (type === "keyDown" && !event.repeat)
-                clearFocus();
+            if (type === "keyDown" && !event.repeat) {
+                if (cancelAction())
+                    event.preventDefault();
+                else
+                    clearFocus();
+            }
             return;
         }
         if (event.key === "F1") {
             event.preventDefault();
-            if (type === "keyDown" && !event.repeat)
+            if (type === "keyDown" && !event.repeat) {
+                cancelAction();
                 client.send({ type: "followRandomShip" });
+            }
             return;
         }
         client.send({ type: "input", input: { type, key: event.key, code: event.code } });

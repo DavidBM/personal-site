@@ -12,6 +12,12 @@
     "group": "Authoring & visual labs"
   },
   {
+    "path": "fleet-pilot.html",
+    "title": "Galaxy · Fleet pilot experiment",
+    "description": "Compare adaptive and delayed GPU pilots with 10,000–50,000 persistent ships, cheap darts and shared fleet guidance.",
+    "group": "Authoring & visual labs"
+  },
+  {
     "path": "galaxy.html",
     "title": "Galaxy Map Generator",
     "description": "Offline galaxy editor with procedural maps, fleets and solar-system exploration.",

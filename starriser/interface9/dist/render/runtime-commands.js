@@ -1,5 +1,7 @@
 import { replayGalaxyOps } from "../galaxy/galaxy-op-replayer.js";
 import { createCameraDirectorHost } from "../render/camera-director-host.js";
+// @ts-expect-error declarations live in class-tuning.mjs.d.ts
+import { scheduleShipTuning } from "../lib/ship-runtime/class-tuning.mjs";
 function moveCluster(ctx, command) {
     const { state, dragStarts } = ctx;
     const cluster = state.galaxy.getClusterById(command.clusterId);
@@ -95,6 +97,7 @@ function clearFleets(state) {
     state.sceneFleetRenderIds.clear();
     state.selectedFleetId = null;
     state.view.setSelectedFleetId(null);
+    state.view.setHoveredFleetId(null);
     state.camera.setFollowShip(null);
     state.view.setFollowShipIndex(null);
 }
@@ -147,6 +150,7 @@ function selectBody(ctx, command) {
     const catalogId = store.catalogIds[command.index] ?? store.defs[command.index]?.id;
     if (command.catalogId != null && command.catalogId !== catalogId)
         return;
+    stopFollowingShip(ctx.state);
     ctx.state.selectedFleetId = null;
     view.setSelectedFleetId(null);
     view.setFollowShipIndex(null);
@@ -161,6 +165,20 @@ function followShip(state, index) {
     state.view.setFollowShipIndex(index);
     state.camera.setFollowShip(index == null ? null : () => state.view.getLiveShipPose(index));
 }
+function stopFollowingShip(state) {
+    if (state.camera.isFollowing())
+        followShip(state, null);
+}
+function clearSelection(ctx) {
+    const { state } = ctx;
+    // Clearing only the GPU readback leaves the callback waiting forever for a
+    // new pose. Stop the camera first, then release selection/hi-res residency.
+    stopFollowingShip(state);
+    ctx.focus.clearFocus();
+    state.selectedFleetId = null;
+    state.view.setSelectedFleetId(null);
+    state.view.setFollowShipIndex(null);
+}
 function fleetTargetPosition(state, renderId) {
     const slot = state.view.readFleetGpuSlot(renderId);
     if (!slot)
@@ -172,16 +190,10 @@ function fleetTargetPosition(state, renderId) {
         z: slot.pathEndZ + (local ? state.view.solarBodies.systemZ : 0),
     };
 }
-function liveFleetTarget(state, renderId, shipIndex) {
-    if (!state.view.getFleetVisual(renderId))
-        return null;
-    const pose = state.view.getLiveShipPose(shipIndex);
-    return pose ? { x: pose.posX, y: pose.posY, z: pose.posZ } : fleetTargetPosition(state, renderId);
-}
 function sceneFleetFocusPoint(state, renderId) {
     const parked = fleetTargetPosition(state, renderId);
-    const local = typeof state.view.sceneShipCentroid === "function"
-        ? state.view.sceneShipCentroid(renderId)
+    const local = typeof state.view.sceneFleetTrackingPoint === "function"
+        ? state.view.sceneFleetTrackingPoint(renderId)
         : null;
     if (!local)
         return parked;
@@ -194,6 +206,7 @@ function sceneFleetFocusPoint(state, renderId) {
 function selectFleet(ctx, id) {
     const { state } = ctx;
     if (id == null) {
+        stopFollowingShip(state);
         state.selectedFleetId = null;
         state.view.setSelectedFleetId(null);
         state.view.setFollowShipIndex(null);
@@ -205,18 +218,23 @@ function selectFleet(ctx, id) {
     const parked = sceneFleetFocusPoint(state, renderId);
     if (!visual || !parked)
         return;
+    stopFollowingShip(state);
     ctx.focus.clearFocus();
     state.selectedFleetId = id;
     state.view.setSelectedFleetId(renderId);
     if (state.view.solarBodies.systemId == null)
         return;
-    state.camera.setSystemOrbitFree();
-    state.camera.focusOnPoint(parked.x, parked.z, state.camera.targetHeight());
+    const camera = state.view.getCameraState();
+    state.camera.setSystemOrbitTarget({
+        targetId: -1,
+        radius: Math.hypot(camera.eyeX - camera.targetX, camera.eyeY - camera.targetY, camera.eyeZ - camera.targetZ),
+        getPosition: () => state.view.getFleetVisual(renderId) === visual ? sceneFleetFocusPoint(state, renderId) : null,
+    });
 }
-function followFleet(ctx, id) {
+function followFleet(ctx, id, shipType) {
     const { state } = ctx;
     if (id == null) {
-        state.view.setFollowShipIndex(null);
+        followShip(state, null);
         state.camera.setSystemOrbitFree();
         return;
     }
@@ -225,8 +243,13 @@ function followFleet(ctx, id) {
     if (!visual || !fleetTargetPosition(state, renderId))
         return;
     selectFleet(ctx, id);
-    state.view.setFollowShipIndex(visual.instanceStart);
-    state.view.refreshFollowPoseFromGpu(visual.instanceStart);
+    const types = state.view.sceneShipTypes(renderId);
+    const chosen = shipType == null ? types[0] : types.find(row => row.type === shipType);
+    if (!chosen)
+        return;
+    const handle = state.view.getSceneShipHandle(renderId, chosen.ordinal);
+    if (handle != null)
+        followShip(state, handle);
 }
 function setSceneFleetIds(ctx, ids) {
     const { state } = ctx;
@@ -247,19 +270,46 @@ function applyFocus(ctx, command) {
             selectFleet(ctx, command.id);
             return true;
         case "followFleet":
-            followFleet(ctx, command.id);
+            followFleet(ctx, command.id, command.shipType);
+            return true;
+        case "hoverFleet":
+            state.view.setHoveredFleetId(command.id == null ? null : (state.sceneFleetRenderIds.get(command.id) ?? command.id));
             return true;
         case "debugDensityVoxels":
             state.view.setDebugDensityVoxels?.(command.on);
+            return true;
+        case "debugRepulsion":
+            state.view.setDebugRepulsion?.(command.on);
+            return true;
+        case "simulationRate":
+            state.view.setSimulationRate(command.hz);
+            return true;
+        case "clearQualityDiagnostics":
+            state.view.clearQualityDiagnostics();
+            return true;
+        case "starField":
+            state.view.setStarField(command.on);
+            return true;
+        case "highFx":
+            state.view.setHighFx(command.on);
+            return true;
+        case "fleetPaths":
+            state.view.setFleetPathsVisible(command.on);
+            return true;
+        case "fleetDebug":
+            state.view.setFleetDebugVisible(command.on);
+            return true;
+        case "simPause":
+            state.view.setSimPause(command);
+            return true;
+        case "shipTuning":
+            scheduleShipTuning(command);
             return true;
         case "pickBody":
             ctx.focus.tryPickBody(command.x, command.y);
             return true;
         case "clearFocus":
-            ctx.focus.clearFocus();
-            state.selectedFleetId = null;
-            state.view.setSelectedFleetId(null);
-            state.view.setFollowShipIndex(null);
+            clearSelection(ctx);
             return true;
         case "followShip":
             followShip(state, command.shipIndex);

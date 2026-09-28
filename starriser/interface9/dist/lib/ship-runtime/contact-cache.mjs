@@ -4,10 +4,14 @@ const BATTLE_QUERY_PREPARATION=/* wgsl */`  let query=applyJourney(s,u.clock.x,u
   let local=admitted(query)&&journeyLocalDt(query,u.clock.x,u.clock.y)>0.0;
   let enabled=local&&pressureEnabled()!=0.0;let order=groupOrder(groupOf(query));
   let memory=local&&u.control.w>=.5&&u.clock.x>=query.memory.z&&order.w==1u&&order.y<2u&&pursuers(index)>0.0;
-  typedGeometry[count+index]=FilterGeometry(query.p.xyz,sceneHull(shipType(query),journeyBodyRadius(query)),query.v.xyz,(u32(enabled)*QUERY_PRESSURE)|(u32(memory)*QUERY_MEMORY));
+  let bodyRadius=journeyBodyRadius(query);
+  let queryRadius=repelRadius(shipType(query),bodyRadius)+${CONTACT_PADDING}*sceneAdapt(bodyRadius);
+  typedGeometry[count+index]=FilterGeometry(query.p.xyz,queryRadius,query.v.xyz,(u32(enabled)*QUERY_PRESSURE)|(u32(memory)*QUERY_MEMORY));
 `;
 export const contactCacheWgsl=(queryPreparation=BATTLE_QUERY_PREPARATION)=>/* wgsl */`
 struct ContactGeometry {p:vec3<f32>,radius:f32,v:vec3<f32>,fleet:u32}
+// First half: contact radius, unpadded. Second half: query radius includes its
+// exact contactPush scene padding. Flags retain their independent bit meaning.
 struct FilterGeometry {p:vec3<f32>,radius:f32,v:vec3<f32>,flags:u32}
 const QUERY_PRESSURE:u32=1u;
 const QUERY_MEMORY:u32=2u;
@@ -18,7 +22,7 @@ fn contactOffset(index:u32)->u32{return u32(u.clock.z)*2u+index*8u;}
 fn contactMetadata(index:u32)->u32{return u32(u.clock.z)*10u+index*8u;}
 fn recordContact(s:Ship,index:u32,record:u32) {
   let at=contactOffset(record);let tags=contactMetadata(record);
-  let geometry=ContactGeometry(s.p.xyz,sceneHull(shipType(s),journeyBodyRadius(s)),s.v.xyz,s.identity.y);typedGeometry[record]=FilterGeometry(geometry.p,geometry.radius,geometry.v,0u);
+  let geometry=ContactGeometry(s.p.xyz,repelRadius(shipType(s),journeyBodyRadius(s)),s.v.xyz,s.identity.y);typedGeometry[record]=FilterGeometry(geometry.p,geometry.radius,geometry.v,0u);
   let p=bitcast<vec3<u32>>(s.p.xyz);let v=bitcast<vec3<u32>>(s.v.xyz);let c=bitcast<vec3<u32>>(contactCell(s.p.xyz));
   links[at]=p.x;links[at+1u]=p.y;links[at+2u]=p.z;links[at+3u]=bitcast<u32>(geometry.radius);
   links[at+4u]=v.x;links[at+5u]=v.y;links[at+6u]=v.z;links[at+7u]=s.identity.y;
@@ -49,3 +53,4 @@ ${queryPreparation}
 `;
 
 export const CONTACT_CACHE_WGSL=contactCacheWgsl();
+import {CONTACT_PADDING} from './force-clearance.mjs';

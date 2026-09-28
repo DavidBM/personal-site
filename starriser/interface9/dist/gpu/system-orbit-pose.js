@@ -17,9 +17,13 @@ export const SYSTEM_ORBIT_DRAG_PITCH_SENS = 0.004;
 export const SYSTEM_ORBIT_SELECT_MS = 350;
 export const SYSTEM_ORBIT_PITCH_MIN = -1.42;
 export const SYSTEM_ORBIT_PITCH_MAX = 1.42;
-/** Closest center distance retains a small visible gap above the body surface. */
-export const SYSTEM_ORBIT_BODY_MIN_R_MUL = 1.1;
-/** Surface-to-eye clearance also stays beyond the near plane with headroom. */
+/**
+ * Closest center distance as a fraction of the focused body.
+ * The old floor sat on the visual surface, so a sun-sized body stopped the
+ * camera outside the inner system and ships stayed small.
+ */
+export const SYSTEM_ORBIT_BODY_MIN_R_MUL = 0.08;
+/** Kept for callers; zoom may pass inside the visual body. */
 export const SYSTEM_ORBIT_SURFACE_NEAR_MUL = 1.25;
 export const SYSTEM_ORBIT_NEAR_MUL = 3;
 /**
@@ -138,7 +142,7 @@ export function systemOrbitBoomDistance(radiusWorld, bufferW, bufferH, fovyDeg, 
 export function systemOrbitMinRadius(bodyR, near = MAP_NEAR) {
     const radius = Math.max(0, bodyR);
     const nearPlane = Math.max(0, near);
-    return Math.max(SYSTEM_ORBIT_BODY_MIN_R_MUL * radius, radius + SYSTEM_ORBIT_SURFACE_NEAR_MUL * nearPlane, SYSTEM_ORBIT_NEAR_MUL * nearPlane);
+    return Math.max(SYSTEM_ORBIT_BODY_MIN_R_MUL * radius, SYSTEM_ORBIT_NEAR_MUL * nearPlane);
 }
 /** Distance where {@link SYSTEM_LOCAL_SPAN} projects to {@link SCENE_EXIT_PX}. */
 export function systemOrbitMaxRadius(viewportH, fovyDeg) {

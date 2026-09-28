@@ -1,12 +1,6 @@
-/**
- * Compact Kepler color and opaque surface depth for one sun and up to eight planets.
- * All scene hulls and trails depth-test against these surfaces, selected or not.
- * Atmosphere/corona stay transparent to occlusion. Per-body color and depth share
- * the existing uniforms; fs_scene_depth samples no textures. The focused body
- * keeps the same shared surface/scattering shading, dual poles and single 4K residency as its neighbors.
- * Lab LUT paths remain available but never run in the live frame loop.
- */
-import { MAP_MSAA_SAMPLES } from "../map-msaa.js";
+import { sceneCameraShader, bindSceneCamera } from '../scene-camera.js';
+import { MAP_MSAA_SAMPLES, MAP_SELECTIVE_MSAA } from "../map-msaa.js";
+import { depthPolicy } from "../map-depth.js";
 import { PLANET_BODY_UNIFORM_SIZE, PLANET_DISC_WGSL, PLANET_FRAME_UNIFORM_SIZE, } from "../planet-lib/planet-disc.wgsl.js";
 import { SUN_BODY_UNIFORM_SIZE, SUN_FRAME_UNIFORM_SIZE, SUN_IMPOSTOR_WGSL, } from "../planet-lib/sun-impostor.wgsl.js";
 import { fillPlanetBody, fillSunBody, writePlanetFrameUniforms, } from "../planet-lib/planet-frame-pack.js";
@@ -22,7 +16,7 @@ export { BODY_SCREEN_R_MIN };
 /** Band C impostor quad expand (Tutorial 13 off-axis). Draw assist only. */
 export const BAND_C_QUAD_MARGIN = 1.5;
 export class SolarBodyGpuLayer {
-    constructor(bootstrap) {
+    constructor(bootstrap, options) {
         this.name = "solar-bodies";
         this.planetPipe = null;
         this.planetAtmospherePipe = null;
@@ -33,6 +27,8 @@ export class SolarBodyGpuLayer {
         this.lastFocusAtmMode = DEFAULT_FOCUS_ATM_MODE;
         this.sunPipe = null;
         this.sunDepthPipe = null;
+        this.sunColorGroup = null;
+        this.planetColorGroups = new WeakMap();
         this.sunDepthGroup = null;
         this.planetDepthGroups = [];
         this.frameBuf = null;
@@ -49,6 +45,7 @@ export class SolarBodyGpuLayer {
         this.preparedDepth = [];
         this.preparedAtmosphere = [];
         this.bootstrap = bootstrap;
+        this.depth = depthPolicy(options?.reverseDepth);
     }
     getLastDrawCount() {
         return this.lastDrawCount;
@@ -104,11 +101,11 @@ export class SolarBodyGpuLayer {
         };
         const planetMod = device.createShaderModule({
             label: "map-planet-disc",
-            code: PLANET_DISC_WGSL,
+            code: sceneCameraShader(PLANET_DISC_WGSL, ["frame.viewProjRel"]),
         });
         const sunMod = device.createShaderModule({
             label: "map-sun-impostor",
-            code: SUN_IMPOSTOR_WGSL,
+            code: sceneCameraShader(SUN_IMPOSTOR_WGSL, ["frame.viewProjRel"]),
         });
         this.planetPipe = device.createRenderPipeline({
             label: "map-planet-disc-pipe",
@@ -120,7 +117,7 @@ export class SolarBodyGpuLayer {
                 targets: [{ format, blend: blendPremul }],
             },
             primitive: { topology: "triangle-list" },
-            multisample: { count: sampleCount },
+            multisample: { count: MAP_SELECTIVE_MSAA ? 1 : sampleCount },
         });
         this.planetDepthPipe = device.createRenderPipeline({
             label: "map-planet-disc-band-c-pipe",
@@ -133,9 +130,9 @@ export class SolarBodyGpuLayer {
             },
             primitive: { topology: "triangle-list" },
             depthStencil: {
-                format: "depth24plus",
+                format: this.depth.format,
                 depthWriteEnabled: true,
-                depthCompare: "less",
+                depthCompare: this.depth.opaqueCompare,
             },
             multisample: { count: sampleCount },
         });
@@ -146,8 +143,8 @@ export class SolarBodyGpuLayer {
             fragment: { module: planetMod, entryPoint: "fs_scene_atmosphere",
                 targets: [{ format, blend: blendPremul }] },
             primitive: { topology: "triangle-list" },
-            depthStencil: { format: "depth24plus", depthWriteEnabled: false, depthCompare: "less-equal" },
-            multisample: { count: sampleCount },
+            depthStencil: { format: this.depth.format, depthWriteEnabled: false, depthCompare: this.depth.transparentCompare },
+            multisample: { count: MAP_SELECTIVE_MSAA ? 1 : sampleCount },
         });
         // FOCUS LUT pipe — same depth state; group 1 is LUT tables.
         this.planetLutPipe = device.createRenderPipeline({
@@ -161,11 +158,11 @@ export class SolarBodyGpuLayer {
             },
             primitive: { topology: "triangle-list" },
             depthStencil: {
-                format: "depth24plus",
+                format: this.depth.format,
                 depthWriteEnabled: true,
-                depthCompare: "less",
+                depthCompare: this.depth.opaqueCompare,
             },
-            multisample: { count: sampleCount },
+            multisample: { count: MAP_SELECTIVE_MSAA ? 1 : sampleCount },
         });
         this.lut = createHillaireLutStack(device);
         this.sunPipe = device.createRenderPipeline({
@@ -178,7 +175,7 @@ export class SolarBodyGpuLayer {
                 targets: [{ format, blend: blendPremul }],
             },
             primitive: { topology: "triangle-list" },
-            multisample: { count: sampleCount },
+            multisample: { count: MAP_SELECTIVE_MSAA ? 1 : sampleCount },
         });
         this.sunDepthPipe = device.createRenderPipeline({
             label: "map-sun-depth",
@@ -186,7 +183,7 @@ export class SolarBodyGpuLayer {
             vertex: { module: sunMod, entryPoint: "vs_main" },
             fragment: { module: sunMod, entryPoint: "fs_depth", targets: [{ format, writeMask: 0 }] },
             primitive: { topology: "triangle-list" },
-            depthStencil: { format: "depth24plus", depthWriteEnabled: true, depthCompare: "less" },
+            depthStencil: { format: this.depth.format, depthWriteEnabled: true, depthCompare: this.depth.opaqueCompare },
             multisample: { count: sampleCount },
         });
         this.frameBuf = device.createBuffer({
@@ -212,6 +209,7 @@ export class SolarBodyGpuLayer {
                 { binding: 0, resource: { buffer: this.frameBuf } },
                 { binding: 1, resource: { buffer } },
             ] });
+        this.sunColorGroup = depthGroup(this.sunPipe, this.sunBodyBuf, "map-sun-bg");
         this.sunDepthGroup = depthGroup(this.sunDepthPipe, this.sunBodyBuf, "map-sun-depth-bg");
         this.planetDepthGroups = this.planetBodyBufs.map((buffer, index) => depthGroup(this.planetDepthPipe, buffer, `map-planet-depth-bg-${index}`));
         this.planetAtmosphereGroups = this.planetBodyBufs.map((buffer, index) => depthGroup(this.planetAtmospherePipe, buffer, `map-planet-atmosphere-bg-${index}`));
@@ -306,15 +304,7 @@ export class SolarBodyGpuLayer {
                     origin: { x: 0, y: 0, z: 0 },
                 });
                 this.bootstrap.device.queue.writeBuffer(this.sunBodyBuf, 0, this.sunBodyCpu);
-                const bg = this.bootstrap.device.createBindGroup({
-                    label: "map-sun-bg",
-                    layout: this.sunPipe.getBindGroupLayout(0),
-                    entries: [
-                        { binding: 0, resource: { buffer: this.frameBuf } },
-                        { binding: 1, resource: { buffer: this.sunBodyBuf } },
-                    ],
-                });
-                this.prepared.push({ kind: "sun", bindGroup: bg });
+                this.prepared.push({ kind: "sun", bindGroup: this.sunColorGroup });
                 if (this.sunDepthGroup) {
                     this.preparedDepth.push({ kind: "sun", bindGroup: this.sunDepthGroup });
                 }
@@ -375,11 +365,20 @@ export class SolarBodyGpuLayer {
                 entries.push({ binding: 10, resource: pack.poleSampler }, { binding: 11, resource: pack.poleNorth.createView() }, { binding: 12, resource: pack.poleSouth.createView() }, { binding: 13, resource: pack.cloudPoleNorth.createView() }, { binding: 14, resource: pack.cloudPoleSouth.createView() });
                 return entries;
             };
-            const colorBg = this.bootstrap.device.createBindGroup({
-                label: `map-planet-bg-${planetSlot}`,
-                layout: pipeForBg.getBindGroupLayout(0),
-                entries: makePlanetEntries(pipeForBg === this.planetPipe),
-            });
+            let cached = this.planetColorGroups.get(pack);
+            if (!cached) {
+                cached = new Map();
+                this.planetColorGroups.set(pack, cached);
+            }
+            let colorBg = cached.get(planetSlot);
+            if (!colorBg) {
+                colorBg = this.bootstrap.device.createBindGroup({
+                    label: `map-planet-bg-${planetSlot}`,
+                    layout: pipeForBg.getBindGroupLayout(0),
+                    entries: makePlanetEntries(pipeForBg === this.planetPipe),
+                });
+                cached.set(planetSlot, colorBg);
+            }
             let lutBindGroup;
             if (lutReady && this.planetLutPipe && this.lut) {
                 lutBindGroup =
@@ -417,9 +416,11 @@ export class SolarBodyGpuLayer {
             const cmd = this.prepared[i];
             if (cmd.kind === "sun") {
                 pass.setPipeline(this.sunPipe);
+                bindSceneCamera(this.bootstrap.device, pass, this.sunPipe);
             }
             else {
                 pass.setPipeline(this.planetPipe);
+                bindSceneCamera(this.bootstrap.device, pass, this.planetPipe);
             }
             pass.setBindGroup(0, cmd.bindGroup);
             pass.draw(6);
@@ -441,6 +442,7 @@ export class SolarBodyGpuLayer {
             if (!pipe)
                 continue;
             pass.setPipeline(pipe);
+            bindSceneCamera(this.bootstrap.device, pass, pipe);
             pass.setBindGroup(0, cmd.bindGroup);
             pass.draw(6);
             if (cmd.kind === "planet" && cmd.focused)
@@ -452,12 +454,15 @@ export class SolarBodyGpuLayer {
         if (!this.planetAtmospherePipe || this.preparedAtmosphere.length === 0)
             return;
         pass.setPipeline(this.planetAtmospherePipe);
+        bindSceneCamera(this.bootstrap.device, pass, this.planetAtmospherePipe);
         for (const group of this.preparedAtmosphere) {
             pass.setBindGroup(0, group);
             pass.draw(6);
         }
     }
     dispose() {
+        this.sunColorGroup = null;
+        this.planetColorGroups = new WeakMap();
         this.frameBuf?.destroy();
         this.sunBodyBuf?.destroy();
         for (const b of this.planetBodyBufs)

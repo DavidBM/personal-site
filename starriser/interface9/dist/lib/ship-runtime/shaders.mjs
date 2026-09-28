@@ -1,8 +1,16 @@
+import {BRAKING_WGSL} from './braking.mjs';
+import {SHIP_BYTES, SHIP_WGSL} from './ship-layout.mjs';
+import {NAVIGATION_INSPECTION_WGSL} from './navigation-inspection.mjs';
+import {ANGULAR_MOTION_WGSL} from './angular-motion.mjs';
+import {FORWARD_MOTION_WGSL} from './forward-motion.mjs';
+import {TRANSPORT_MOTION_WGSL} from './transport-motion.mjs';
+import {FORWARD_INTEGRATION_WGSL} from './forward-integration.mjs';
+import {OBSTACLE_PADDING,OBSTACLE_SOFT_REACH} from './force-clearance.mjs';
 import {simulationSlots} from './slot-layout.mjs';
 import {CORRECTION_WRITE,CORRECTION_READ} from './correction-gpu.mjs';
 import {ARRIVAL_CORRECTION_WGSL} from './arrival-correction.mjs';
 import {RECOVERY_WGSL} from './recovery-gpu.mjs';
-import {RUNTIME_SOLAR_WGSL} from './solar-runtime.mjs';
+import {runtimeSolarWgsl} from './solar-runtime.mjs';
 import {eventField,eventPoseRead} from './event-gpu.mjs';
 import {EVENT_MOTION_WGSL} from './event-motion.mjs';
 import {fleetCapacity} from './runtime-capacity.mjs';
@@ -13,19 +21,25 @@ import {SCHEDULE_WGSL} from './spatial-schedule.mjs';
 import {SOLAR_WGSL} from './solar-layout.mjs';
 import {EFFECTS_SIM,EFFECTS_DRAW} from './combat-effects.mjs';
 import {MEMORY_WGSL} from './tactical-memory.mjs';
-import {LIFECYCLE_WGSL} from './lifecycle.mjs';
+import {lifecycleWgsl} from './lifecycle.mjs';
+import {subDirectorWgsl} from './sub-director.mjs';
 import {controlWgsl} from './control.mjs';
 import {ENGAGEMENT_WGSL} from './engagement.mjs';
-import {CLASS_WGSL} from './classes.mjs';
+import {CLASS_WGSL, CLASS_TUNED_WGSL} from './classes.mjs';
 import {SCENE_ADAPT_WGSL} from './flight-layout.mjs';
+import {FLEET_TRAVEL_WGSL} from './fleet-travel.mjs';
+import {FLEET_PILOT_WGSL} from './fleet-pilot.mjs';
+import {PILOT_PREDICTION_WGSL} from './pilot-prediction.mjs';
+import {PILOT_CANDIDATES_WGSL} from './pilot-candidates.mjs';
+import {formationWgsl} from './formation.mjs';
 import {densitySimulation,densityDrawing} from './density.mjs';
-// Standalone experimental controller. No production imports or hidden orbit pose writer.
+// Shared production/laboratory physical controller. One authoritative pose writer.
 export const RING = 16;
-export const STRIDE = 192;
-export const SHIP_WGSL=`struct Ship { p: vec4<f32>, v: vec4<f32>, a: vec4<f32>, q: vec4<f32>, aux: vec4<f32>, identity: vec4<u32>, memory:vec4<f32>, flight:vec4<f32>, origin:vec4<f32>, tactic:vec4<f32>, fx:vec4<f32>, aim:vec4<f32> }`;
-const common = (solar=false)=>/* wgsl */`
+export const STRIDE = SHIP_BYTES;
+export {SHIP_WGSL} from './ship-layout.mjs';
+const common = (solar=false, tuned=false)=>/* wgsl */`
 ${SHIP_WGSL}
-${CLASS_WGSL}
+${tuned ? CLASS_TUNED_WGSL : CLASS_WGSL}
 ${SCENE_ADAPT_WGSL}
 const PI: f32 = 3.14159265359;
 const RING: u32 = 16u;
@@ -35,7 +49,7 @@ fn rotate(q: vec4<f32>, v: vec3<f32>) -> vec3<f32> { return v + 2.0 * cross(q.xy
 fn qmul(a: vec4<f32>, b: vec4<f32>) -> vec4<f32> {
   return vec4<f32>(a.w*b.xyz + b.w*a.xyz + cross(a.xyz,b.xyz), a.w*b.w-dot(a.xyz,b.xyz));
 }
-${solar?RUNTIME_SOLAR_WGSL:SOLAR_WGSL}
+${solar===false?SOLAR_WGSL:runtimeSolarWgsl(solar===true?undefined:solar)}
 fn emitter(s: Ship, e: u32) -> vec3<f32> {
   let size=dimensions(shipType(s)).xyz;
   let local=vec3<f32>((f32(e)-1.0)*0.5,select(-0.2,0.15,e==1u),-1.0)*size;
@@ -43,15 +57,15 @@ fn emitter(s: Ship, e: u32) -> vec3<f32> {
 }
 `;
 
-const simulationClock=solar=>/* wgsl */`
-struct Input { clock: vec4<f32>, control: vec4<f32>, warp: vec4<f32> ${solar?',trail:vec4<f32>':''} }
+const simulationClock=(solar,pilot)=>/* wgsl */`
+struct Input { clock: vec4<f32>, control: vec4<f32>, warp: vec4<f32> ${solar?',trail:vec4<f32>':''} ${pilot?',pilotMatrix:mat4x4<f32>,pilotOrigin:vec4<f32>,pilotView:vec4<f32>':''} }
 fn selectionTick(now:f32)->u32{return ${solar?'u32(u.clock.w)+(u32(u.warp.w)<<16u)':'u32(now*30.0)'};}
 fn redistributionPhase(now:f32)->u32{return ${solar?'u32(u.control.y)':'u32(now*8.0)%8u'};}
 fn trailFirst(now:f32,dt:f32)->u32{return ${solar?'u32(u.trail.x)':'u32(floor(max(0.0,now-dt)*60.0))+1u'};}
 fn trailLast(now:f32)->u32{return ${solar?'u32(u.trail.y)':'u32(floor(now*60.0))'};}
 `;
-export const simulation = (cellSize=4,capacity=fleetCapacity(2),pressureScopes=null,solar=false)=>common(solar) + /* wgsl */`
-${simulationClock(solar)}
+export const simulation = (cellSize=4,capacity=fleetCapacity(2),pressureScopes=null,solar=false)=>common(solar, true) + /* wgsl */`
+${simulationClock(solar,solar&&capacity.occupancy)}
 @group(0) @binding(0) var<uniform> u: Input;
 @group(0) @binding(1) var<storage,read> old: array<Ship>;
 @group(0) @binding(2) var<storage,read_write> next: array<Ship>;
@@ -60,11 +74,14 @@ struct Group { order:vec4<u32>, roster:vec4<u32> }
 @group(0) @binding(4) var<storage,read> orders: array<Group>;
 
 
-${controlWgsl(capacity,pressureScopes,solar,solar)}
+${controlWgsl(capacity,pressureScopes,solar,solar,solar)}
+${solar?formationWgsl(capacity.fleetCount,true,Boolean(capacity.occupancy)):''}
+${solar?(capacity.occupancy?FLEET_PILOT_WGSL:FLEET_TRAVEL_WGSL):''}
+${solar?subDirectorWgsl(Boolean(capacity.occupancy)):''}
 ${eventField('groupOrder','vec4<u32>','orders[group].order','order',solar)}
 ${simulationSlots(capacity,solar)}
 fn attitude(q: vec4<f32>, velocity: vec3<f32>, dt: f32, rate:f32) -> vec4<f32> {
-  if (length(velocity)<0.01) { return q; }
+  if (length(velocity)<0.000001) { return q; }
   let forward = rotate(q,vec3<f32>(0.0,0.0,1.0));
   let desired = unit(velocity);
   let angle = min(acos(clamp(dot(forward,desired),-1.0,1.0)),rate*dt);
@@ -73,6 +90,11 @@ fn attitude(q: vec4<f32>, velocity: vec3<f32>, dt: f32, rate:f32) -> vec4<f32> {
   if (length(axis)<0.00001) { axis=vec3<f32>(1.0,0.0,0.0); }
   return normalize(qmul(vec4<f32>(unit(axis)*sin(angle*0.5),cos(angle*0.5)),q));
 }
+${ANGULAR_MOTION_WGSL}
+${FORWARD_INTEGRATION_WGSL}
+${FORWARD_MOTION_WGSL}
+${BRAKING_WGSL}
+${TRANSPORT_MOTION_WGSL}
 
 fn pressureMix()->f32{return u.warp.x;}
 fn pressureEnabled()->f32{return u.warp.y;}
@@ -111,8 +133,9 @@ ${densitySimulation(64,cellSize,pressureScopes)}
 ${SCHEDULE_WGSL}
 fn clearSpatial(index:u32){clearTactical(index);clearSchedule(index);${solar?"if(index==0u){atomicStore(&heads[scheduleCounter()+1u],0u);}":""}}
 fn insertContact(i:u32,s:Ship,bucket:u32){links[i]=atomicAdd(&heads[bucket],1u);registerTarget(s);}
-${CONTACT_CACHE_WGSL}
+${solar&&capacity.occupancy?CONTACT_CACHE_WGSL.replace('local&&pressureEnabled()!=0.0','local&&pressureEnabled()!=0.0&&pilotDue(query,index)'):CONTACT_CACHE_WGSL}
 ${CONTACT_QUERY_WGSL}
+${solar&&capacity.occupancy?PILOT_CANDIDATES_WGSL+PILOT_PREDICTION_WGSL:''}
 fn validTarget(contact:u32,s:Ship,order:vec4<u32>)->bool {
   if(contact>=u32(u.clock.z)){return false;}
   let t=old[contact];let g=groupOf(t);
@@ -131,18 +154,18 @@ fn selectTarget(s:Ship,i:u32,order:vec4<u32>,now:f32)->u32 {
   }
   return selected;
 }
-fn obstacleForce(s:Ship,center:vec3<f32>,velocity:vec3<f32>,radius:f32)->vec3<f32> {
-  let d=s.p.xyz-center;let v=s.v.xyz-velocity;let a=sceneAdapt(max(radius,0.02));
+fn sphereObstacleForce(s:Ship,center:vec3<f32>,velocity:vec3<f32>,radius:f32,hull:f32,a:f32)->vec3<f32> {
+  let d=s.p.xyz-center;let v=s.v.xyz-velocity;
   let limits=vec4<f32>(dynamics(shipType(s)).xyz*a,dynamics(shipType(s)).w);
   // PoC: horizon = v/accel. Compact planets are smaller than that look-ahead,
   // so also start turning a sphere-radius out (orbit pad stays outside reach).
   let closing=max(length(v),limits.x*0.25);
-  let around=select(0.0,(radius+radius+0.3*a)/max(closing,0.01),a<0.99);
+  let around=select(0.0,(radius+radius+${OBSTACLE_PADDING}*a)/max(closing,0.01),a<0.99);
   let horizon=clamp(max(length(v)/max(limits.y,0.1),around),1.2,6.0);
   let tau=clamp(-dot(d,v)/max(dot(v,v),0.01),0.0,horizon);
-  let padded=radius+dimensions(shipType(s)).w*a+0.3*a;
+  let padded=radius+hull+${OBSTACLE_PADDING}*a;
   let clearance=length(d+v*tau)-padded;
-  let reach=1.5*a;
+  let reach=${OBSTACLE_SOFT_REACH}*a;
   if(clearance>reach){return vec3<f32>(0.0);}
   let escape=unit(vec3<f32>(variation(s.identity.w+101u)-.5,variation(s.identity.w+102u)-.5,variation(s.identity.w+103u)-.5));
   let normal=select(escape,unit(d),length(d)>.00001);
@@ -153,8 +176,22 @@ fn obstacleForce(s:Ship,center:vec3<f32>,velocity:vec3<f32>,radius:f32)->vec3<f3
   let buried=max(0.0,padded-length(d));
   return normal*(max(0.0,reach-clearance)+buried*4.0)*dodge + lateral*dodge*.3;
 }
+fn obstacleForce(s:Ship,center:vec3<f32>,velocity:vec3<f32>,radius:f32)->vec3<f32> {
+  let a=sceneAdapt(max(radius,0.02));
+  return sphereObstacleForce(s,center,velocity,radius,dimensions(shipType(s)).w*a,a);
+}
+fn capitalObstacleForce(s:Ship,capital:Ship,bodyRadius:f32)->vec3<f32> {
+  let a=sceneAdapt(bodyRadius);
+  if(a>=.99){return obstacleForce(s,capital.p.xyz,capital.v.xyz,dimensions(shipType(capital)).w);}
+  // Compact ships use authored sim-unit contact bubbles. The laboratory's
+  // unscaled colossus radius is ~34 units: using it here excludes a whole
+  // compact system and makes the fleet's sub-unit formation goals impossible.
+  return sphereObstacleForce(s,capital.p.xyz,capital.v.xyz,
+    repelRadius(shipType(capital),bodyRadius),repelRadius(shipType(s),bodyRadius),a);
+}
 fn avoidCapitals(s:Ship,i:u32)->vec3<f32> {
   if(u.warp.y==0.0){return vec3<f32>(0.0);}
+  let bodyRadius=journeyBodyRadius(s);
   var force=vec3<f32>(0.0);
   ${capacity.occupancy?`for(var g=0u;g<${capacity.groups}u;g++) {
     let live=groupOrder(g).x;if(live==0u){continue;}
@@ -163,7 +200,7 @@ fn avoidCapitals(s:Ship,i:u32)->vec3<f32> {
     for(var n=0u;n<live;n++) {
       let index=groupSlot(g,liveOrdinal(g,n));if(index==i){continue;}
       let capital=old[index];
-      force+=obstacleForce(s,capital.p.xyz,capital.v.xyz,dimensions(typeId).w);
+      force+=capitalObstacleForce(s,capital,bodyRadius);
     }
   }`:`for(var fleet=0u;fleet<${capacity.fleetCount}u;fleet++) {
     for(var typeId=30u;typeId<32u;typeId++) {
@@ -171,7 +208,7 @@ fn avoidCapitals(s:Ship,i:u32)->vec3<f32> {
       for(var n=0u;n<groupOrder(g).x;n++) {
         let index=groupSlot(g,liveOrdinal(g,n));if(index==i){continue;}
         let capital=old[index];
-        force+=obstacleForce(s,capital.p.xyz,capital.v.xyz,dimensions(typeId).w);
+        force+=capitalObstacleForce(s,capital,bodyRadius);
       }
     }
   }`}
@@ -188,8 +225,12 @@ fn avoidBodies(s:Ship,now:f32)->vec3<f32> {
     let sphere=body(index,now,u.control.x);
     if(sphere.w<=0.0){continue;}
     let a=sceneAdapt(max(sphere.w,0.02));
-    let avoidR=select(sphere.w,max(sphere.w*3.0,sphere.w),a<0.99);
-    acceleration+=obstacleForce(s,sphere.xyz,bodyVelocity(index,now,u.control.x),avoidR);
+    let hull=sphere.w+sceneHull(shipType(s),sphere.w)+${OBSTACLE_PADDING}*a;
+    let padded=select(hull,max(sphere.w*3.0,hull),a<.99);
+    // Match the hard exclusion shell and planner. Passing an inflated 3R as
+    // a raw body radius also tripled the ship adaptation and repelled hulls
+    // far outside otherwise valid corridors.
+    acceleration+=sphereObstacleForce(s,sphere.xyz,bodyVelocity(index,now,u.control.x),padded-${OBSTACLE_PADDING}*a,0.0,a);
   }
   return acceleration;
 }
@@ -202,7 +243,7 @@ fn separateFromBodies(s:Ship,now:f32)->vec3<f32> {
     let sphere=body(index,now,u.control.x);
     if(sphere.w<=0.0){continue;}
     let a=sceneAdapt(max(sphere.w,0.02));
-    let hull=sphere.w+sceneHull(shipType(s),sphere.w)+0.3*a;
+    let hull=sphere.w+sceneHull(shipType(s),sphere.w)+${OBSTACLE_PADDING}*a;
     let padded=select(hull,max(sphere.w*3.0,hull),a<0.99);
     let d=p-sphere.xyz;let dist=length(d);
     if(dist<padded){p=sphere.xyz+select(vec3<f32>(0.0,1.0,0.0),unit(d),dist>.00001)*padded;}
@@ -210,8 +251,8 @@ fn separateFromBodies(s:Ship,now:f32)->vec3<f32> {
   return p;
 }
 ${MEMORY_WGSL}
-${LIFECYCLE_WGSL}
-${navigationWgsl(solar)}
+${lifecycleWgsl(solar)}
+${navigationWgsl(solar,Boolean(capacity.occupancy))}
 ${ENGAGEMENT_WGSL}
 ${EFFECTS_SIM}
 fn tacticalVelocity(s:Ship,contact:Ship,order:vec4<u32>,now:f32)->vec3<f32> {
@@ -230,13 +271,16 @@ fn localStep(initial:Ship,i:u32,now:f32,dt:f32,controlDt:f32)->Ship {
   let journey0=journeyFor(s);
   if(journey0.range.z>0.0){limits=sceneLimits(typeId,body(u32(journey0.range.z)-1u,now,u.control.x).w);}
   let attacking=order.w==1u && order.y<2u;
+  ${solar&&capacity.occupancy?'if(!attacking&&fleetPilotActive(s)){return pilotPhysical(s,i,now,dt,controlDt,limits);}':''}
+  // Route progress and tactical memory share storage, but never meaning.
+  if(attacking && s.memory.z==-1.0){s.memory=vec4<f32>(0.0,0.0,0.0,s.memory.w);}
   var contact=u32(s.aux.x);
   if(!attacking){contact=0u;s.a.w=0.0;}
   if(attacking && (contact==0u || !validTarget(contact-1u,s,order))) { contact=selectTarget(s,i,order,now);s.a.w=0.0; }
   s.aux.x=f32(contact);
   if(attacking){s=refreshMemory(s,i,order,now);contact=u32(s.aux.x);}else{s.memory.x=0.0;}
   if(s.memory.w==0.0){s.memory.w=select(-1.0,1.0,(s.identity.w&1u)==0u);}
-  var desiredV=vec3<f32>(0.0);
+  var desiredV=vec3<f32>(0.0);var guidanceReach=0.0;
   if(order.w==1u && order.y==3u) { desiredV=vec3<f32>(select(-1.0,1.0,(s.identity.y%2u)==1u),0.0,0.0)*s.v.w; }
   if(attacking && contact>0u) {
     let enemy=old[contact-1u];
@@ -256,24 +300,29 @@ fn localStep(initial:Ship,i:u32,now:f32,dt:f32,controlDt:f32)->Ship {
   let journey=journeyFor(s);
   if(s.flight.w==1.0){desiredV=journeyVelocity(s,now);}
   let navigating=s.flight.w<0.0||(s.flight.w==1.0&&journey.range.z>0.0);
-  if(navigating){let navigation=navigationStep(s,journey,now);s=navigation.ship;desiredV=navigation.velocity;}
+  if(navigating){let navigation=navigationStep(s,journey,now);s=navigation.ship;desiredV=navigation.velocity;guidanceReach=navigation.reach;}
   if(!navigating){desiredV=capped(desiredV,limits.x);}
   // Broad director-owned return preference, not a prescribed ring or hard wall.
   let offset=s.p.xyz-encounterFrame(s);let distance=length(offset);let outward=unit(offset);
   let returnWeight=smoothstep(40.0+dimensions(typeId).w*2.0,140.0+dimensions(typeId).w*2.0,distance);
   if(attacking){desiredV-=outward*(max(0.0,dot(desiredV,outward))+limits.x*0.35)*returnWeight;}
+  ${solar?'if(!attacking){desiredV=subDirect(s,desiredV,limits,now);}':''}
   let avoid=avoidBodies(s,now);
-  var desiredA=(desiredV-s.v.xyz)*2.0+pressure(s)+avoid+avoidCapitals(s,i);
+  var desiredA=(desiredV-s.v.xyz)*2.0+pressure(s)+avoidCapitals(s,i);
   if(attacking&&contact>0u){let other=old[contact-1u];desiredA+=obstacleForce(s,other.p.xyz,other.v.xyz,dimensions(shipType(other)).w);}
   let spacing=neighborSeparation(s,i);
   // Contact escape gets steering priority; pursuit cannot pin coincident peers together.
   desiredA=mix(desiredA+spacing.xyz,spacing.xyz,spacing.w*.95);
-  // Travel accel stays scene-scaled; a live sphere dodge may exceed that cap.
-  let accelCap=max(limits.y,length(avoid));
-  let newA=s.a.xyz+capped(capped(desiredA,accelCap)-s.a.xyz,limits.z*controlDt);
-  s.a=vec4<f32>(newA,s.a.w);s.v=vec4<f32>(s.v.xyz+newA*dt,s.v.w);
-  s.p=vec4<f32>(s.p.xyz+s.v.xyz*dt,s.p.w);
-  s.p=vec4<f32>(separateFromBodies(s,now),s.p.w);s.q=attitude(s.q,facingDirection(s),dt,limits.w);return combatPresentation(s,now,dt);
+  // A formation target may lie beyond a planet. Once body avoidance consumes
+  // the available acceleration, following that target cannot cancel the escape
+  // or keep thrusting into the shell. The planet guard remains the last resort.
+  let bodyPriority=clamp(length(avoid)/max(limits.y,.0001),0.0,1.0);
+  desiredA=mix(desiredA+avoid,avoid,bodyPriority);
+  // Forces express steering intent. Locomotion owns the achievable turn and
+  // thrust together, so avoidance cannot translate the hull sideways.
+  s=localFlightMotion(s,desiredV,desiredA,guidanceReach,${solar&&!capacity.occupancy?'fleetAligning(s)':'false'},spacing,avoid,${solar&&!capacity.occupancy?'fleetTravelLimits(s,limits)':'limits'},dynamics(typeId).w,dt,controlDt);
+  s=correctShipPosition(s,separateFromBodies(s,now));
+  return combatPresentation(s,now,dt);
 }
 
 // Diagnostic entry point uses the actual runtime uniforms and model layout.
@@ -283,13 +332,14 @@ fn localStep(initial:Ship,i:u32,now:f32,dt:f32,controlDt:f32)->Ship {
   s.v=vec4<f32>(bodyVelocity(gid.x,u.clock.x,u.control.x),0.0);next[gid.x]=s;
 }
 
+${solar?NAVIGATION_INSPECTION_WGSL:''}
 ${integrationWgsl(solar)}
 ${solar?EVENT_MOTION_WGSL+CORRECTION_WRITE+ARRIVAL_CORRECTION_WGSL+RECOVERY_WGSL:''}
 ${recoveryEntry(solar)}
 @compute @workgroup_size(128) fn advance(@builtin(global_invocation_id) gid: vec3<u32>) {
   if(gid.x>=u32(u.clock.z)) { return; }
   let i=links[u32(u.clock.z)+gid.x];
-  next[i]=${solar?'advanceEventShip(old[i],i)':'integrateShip(old[i],i,u.clock.x,u.clock.y,true,trailFirst(u.clock.x,u.clock.y),trailLast(u.clock.x))'};
+  ${solar?'let stepped=advanceEventShip(old[i],i);next[i]=stepped;recordFormationPose(stepped);':'next[i]=integrateShip(old[i],i,u.clock.x,u.clock.y,true,trailFirst(u.clock.x,u.clock.y),trailLast(u.clock.x));'}
 }
 `;
 
@@ -375,7 +425,7 @@ fn displayShip(i: u32) -> Ship {
   ${solar?'if(director.events.clock.x>0.0&&director.events.directory[groupOf(p)].x>0u){return eventDisplay(i,p,s);}':''}
   ${solar?'':'if(s.flight.x!=p.flight.x&&s.origin.w<0.0){return s;}'}
   ${solar?'let end=view.config.z;return correctionDisplay(i,p,s,end-view.phase.w,end,view.clock.x,false);':''}
-${solar?'':`  s.p=vec4<f32>(mix(p.p.xyz,s.p.xyz,fraction),s.p.w);
+${solar?'':`  s=mixShipPosition(p,s,fraction);
   let sign=select(-1.0,1.0,dot(p.q,s.q)>=0.0);
   s.q=normalize(mix(p.q,s.q*sign,fraction));
   return s;`}
@@ -395,14 +445,19 @@ function recoveryEntry(solar){return solar?`@compute @workgroup_size(128) fn rec
   if(gid.x<u32(u.clock.z)){next[gid.x]=recoverShip(old[gid.x],gid.x,u.clock.x);}
 }`:"";}
 
-function integrationWgsl(solar){return /* wgsl */`
-fn ${solar?'integrateMotion':'integrateShip'}(original:Ship,i:u32,now:f32,dt:f32,controlled:bool,first:u32,last:u32)->Ship {
+// Use static call graphs: a held/event/recovery interval must not pull the
+// steering tree into its pipeline or duplicate it at each boundary when inlined.
+function integrationWgsl(solar){
+  return solar ? motionIntegrationWgsl(true, false) + motionIntegrationWgsl(true, true) : motionIntegrationWgsl(false, true);
+}
+function motionIntegrationWgsl(solar, controlled){return /* wgsl */`
+fn ${solar?(controlled?'integrateMotion':'integrateHeldMotion'):'integrateShip'}(original:Ship,i:u32,now:f32,dt:f32,${solar?'':'controlled:bool,'}first:u32,last:u32)->Ship {
   var s=original;
   let group=groupOf(s);
   if(!admitted(s)) { if(s.identity.z==1u){s.fx.x=now;}s.identity.z=0u;s.aux.x=0.0;s.aux.w=0.0;return s; }
   s.identity.z=1u;s=applyJourney(s,now,dt);
   let localDt=journeyLocalDt(s,now,dt);
-  if(localDt>0.0${solar?'||(controlled&&u.clock.y>0.0&&!inWarp(s,now))':''}) { ${solar?'if(controlled){s=localStep(s,i,now,localDt,u.clock.y);}else{s=heldMotion(s,localDt);}':'s=localStep(s,i,now,localDt,localDt);'} }
+  if(localDt>0.0${solar&&controlled?'||(u.clock.y>0.0&&!inWarp(s,now))':''}) { ${solar?(controlled?'s=localStep(s,i,now,localDt,u.clock.y);':'s=heldMotion(s,localDt);'):'s=localStep(s,i,now,localDt,localDt);'} }
   let emitting=u.control.z>0.5;
   let base=i*3u*RING;
   let corrected=s.flight.x!=original.flight.x&&s.origin.w<0.0;

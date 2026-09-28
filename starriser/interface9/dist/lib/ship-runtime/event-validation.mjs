@@ -4,6 +4,7 @@ import {STRATEGY} from './director.mjs';
 import {CLASSES,TYPES} from './classes.mjs';
 import {authorTactic,validateJourney} from './tactics.mjs';
 import {routeJourney} from './live-route-planner.mjs';
+import {validateSolarBodyIndex} from './solar-capacity.mjs';
 const FIELDS=new Set(['fleet','type','cohort','strategy','attackClass','attackType','joined','fire','battle','team','battleCenter','admit','survivalFraction','remaining','tactic','journey','pressure']);
 function integer(value,min,max,name){if(!Number.isInteger(value)||value<min||value>max)throw new Error(`Invalid live ${name}`);}
 function address(value,engine) {
@@ -48,10 +49,12 @@ function validateCommand(command,lane,engine) {
   if(!command||Object.keys(command).some(key=>!FIELDS.has(key)))throw new Error('Invalid live command fields');
   if(lane!==undefined&&['admit','survivalFraction','remaining'].some(key=>command[key]!==undefined))throw new Error('Population facts cannot use replacement lanes');
   address(command,engine);intent(command);membership(command);population(command,engine);
+  validateSolarBodyIndex(command.journey?.planet,engine.solar?.capacity);
   if(command.pressure!==undefined){if(command.type!==undefined)throw new Error('Pressure orders are fleet-level');pressureDefinition(engine.pressure,command.pressure);}
 }
 function validateRoute(plan,at,engine) {
   address(plan,engine);integer(plan.type,0,TYPES-1,'route ship type');
+  validateSolarBodyIndex(plan.request.planet,engine.solar?.capacity);
   routeJourney(plan);validateRouteBasis(plan);
   if(at<plan.request.at||at>=plan.request.end)throw new Error('Live route effect time must lie inside its local window');
   if(!engine.routes.validate(plan))throw new Error('Invalid live route model, revision or capability');

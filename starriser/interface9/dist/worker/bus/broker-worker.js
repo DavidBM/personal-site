@@ -11,6 +11,7 @@ import { serviceDelivery } from './service-transport.js';
 import { SERVICE_CONTROL, SERVICE_ROUTE } from './service-types.js';
 import { publishAdmitted } from './broker-publication.js';
 import { serializeBusMessage } from './bus-types.js';
+import { createBrokerMetrics } from './broker-metrics.js';
 const isRecord = (value) => typeof value === "object" && value !== null;
 const isBrokerMessage = (value) => {
     if (!isRecord(value))
@@ -44,6 +45,8 @@ export function busConstructor(bus) {
             throw new Error('Service worker is disconnected');
         return bus._observe(bus._sendOn(port, message, signal));
     });
+    const metrics = createBrokerMetrics(bus, () => ({ workers: workerPorts.size + 1, topics: subscriptions.size,
+        subscriptions: Array.from(subscriptions.values()).reduce((total, subscribers) => total + subscribers.size, 0), ...services.metrics() }));
     for (const type of [SERVICE_CONTROL, SERVICE_ROUTE]) {
         bus.on(type, (packet, meta) => services.receive('main', packet, meta.priority));
     }
@@ -173,6 +176,7 @@ export function busConstructor(bus) {
         for (const id of required)
             if (!ids.has(id) || !workerMetadata.get(id)?.connected)
                 throw new Error(`Required subscriber ${id} is unavailable`);
+        metrics.fanout(ids);
         return Array.from(ids, id => {
             const metadata = workerMetadata.get(id);
             const target = id === 'main' ? bus._target : workerPorts.get(id);
@@ -183,6 +187,7 @@ export function busConstructor(bus) {
         });
     }
     async function acknowledgedPublication(workerId, requestId, payload, priority, admissionId) {
+        metrics.publication();
         const target = workerId === 'main' ? bus._target : workerPorts.get(workerId);
         if (!target)
             throw new Error('Publisher disconnected');
@@ -249,6 +254,7 @@ export function busConstructor(bus) {
      * Handle publish requests from workers - route to all subscribers
      */
     function handlePublish(workerId, payload, priority) {
+        metrics.publication();
         const topic = getTopic(payload);
         if (!topic) {
             console.warn(`⚠️ Broker: Invalid topic in publish from ${workerId}`);
@@ -256,6 +262,7 @@ export function busConstructor(bus) {
         }
         const data = isRecord(payload) ? payload.data : undefined;
         const subscribers = subscriptions.get(topic);
+        metrics.fanout(subscribers);
         if (!subscribers || subscribers.size === 0) {
             if (debugLevel >= 2) {
                 console.log(`📭 Broker: No subscribers for topic "${topic}" from ${workerId}`);
@@ -395,6 +402,7 @@ export function busConstructor(bus) {
         workerPorts.clear();
         workerMetadata.clear();
         services.dispose();
+        metrics.dispose();
         bus._serviceTransportFailure = undefined;
         isReady = false;
         bus.signal.removeEventListener("abort", destroy);

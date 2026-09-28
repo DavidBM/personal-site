@@ -1,4 +1,5 @@
-import {CLASS_BY_TYPE,CLASSES} from './classes.mjs';
+import { SYSTEM_SPAN, BASE_SYSTEM_SPAN, BODY_UNIT_SCALE } from './scene-scale.mjs';
+import {CLASS_BY_TYPE,CLASS_REPEL_SCALE} from './classes.mjs';
 export const FLIGHT_GRID_SIDE=64;
 export const FLIGHT_CELL_SIZE=8;
 export const FLIGHT_GRID_CELLS=FLIGHT_GRID_SIDE**3;
@@ -9,6 +10,11 @@ export function planetOrbitAdapt(planetRadius) {
   const r=Math.max(0,planetRadius);
   if(!(r>0))return 0.02;
   return Math.min(1,Math.max(0.02,r/POC_PLANET_RADIUS));
+}
+/** Repulsion radius in sim units. Same value as WGSL `repelRadius`. */
+export function repelRadiusLab(type, _bodyLab) {
+  const kind=CLASS_BY_TYPE[(type??0)&31]??0;
+  return CLASS_REPEL_SCALE[kind]??1;
 }
 /** Kepler class rings sit at least this many body radii from the center. PoC keeps R+pad. */
 export const SCENE_ORBIT_CORE_MUL=3;
@@ -29,13 +35,15 @@ export function flightType(index,count) {
 /** Interceptor, fighter, bomber, battleship — 4 rungs, 128 slots × 4 = 512 groups. */
 export const SCENE_CLASS_TYPES=Object.freeze([0,12,22,30]);
 /** Compact field diameter (world). Same as SYSTEM_LOCAL_SPAN / COMPACT_SYSTEM_SPAN. */
-export const SCENE_SPAN=0.1;
+export const SCENE_SPAN=SYSTEM_SPAN;
 /** Compact → lab. Same as SCENE_LAB_SCALE. */
-export const SCENE_LAB=56/SCENE_SPAN;
-/** Interceptor crosses {@link SCENE_SPAN} in this many seconds. */
+export const SCENE_LAB=1/BODY_UNIT_SCALE;
+/** Baseline crossing time. Spacing and class speed edits do not change units. */
 export const SCENE_CROSS_SEC=60;
+/** Old interceptor cruise. Panel speeds stay independent of this pin. */
+export const SCENE_SPEED_REFERENCE=9;
 /** sceneLimits xyz scale on Kepler worlds. PoC (adapt≥0.99) keeps class speed. */
-export const SCENE_TRAVEL_ADAPT=(SCENE_SPAN/SCENE_CROSS_SEC)*SCENE_LAB/CLASSES[0].speed;
+export const SCENE_TRAVEL_ADAPT=(BASE_SYSTEM_SPAN/SCENE_CROSS_SEC)*SCENE_LAB/SCENE_SPEED_REFERENCE;
 /** Compact turn scale so trails do not whip. PoC (adapt≥0.99) keeps class turn. */
 export const SCENE_TURN_ADAPT=0.22;
 function classDistance(type,other) {
@@ -77,6 +85,7 @@ export function flightLane(index,count,type) {
 export const SCENE_ADAPT_WGSL=`
 fn sceneAdapt(bodyRadius:f32)->f32 {return clamp(bodyRadius/${POC_PLANET_RADIUS}.0,0.02,1.0);}
 fn sceneHull(typeId:u32,bodyRadius:f32)->f32 {return dimensions(typeId).w*sceneAdapt(bodyRadius);}
+fn repelRadius(typeId:u32,bodyRadius:f32)->f32 {return repelScale(typeId);}
 `;
 export const ORBIT_WGSL=`
 fn sceneLimits(typeId:u32,bodyRadius:f32)->vec4<f32> {

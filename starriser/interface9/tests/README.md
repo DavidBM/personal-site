@@ -161,68 +161,54 @@ Run explicitly:
 | Name | Purpose |
 |------|---------|
 | **fleet-perf-orbit-5m** | ~5M pure-orbit ships, trail ring 16; clamp to device storage limit; report integrate ms + ships/s |
-| **fleet-perf-renderer** | Actual map renderer at 960×640 and 1920×1080; 10,000 fleets / 480,000 packed ships; 256 local fleets / 12,288 scene agents; solar overview, focused 4K planet with textured models and trails, galaxy icons |
+| **fleet-perf-renderer** | Production map at 960×640 and 1920×1080; 10,000 fleet markers, 128 scene fleets / 10,000 live GPU ships; solar overview, focused planet with both hull assets and trails, galaxy icons |
+| **scene-warp-arrivals** | First and second arrival waves at 20 rendered frames/s plus a suspended warp; domain arrival must not interrupt the visible chord before the system rim |
+| **scene-warp-spacing** | Several fleets share a jump corridor; real GPU repulsion-bubble separation through mid-warp, endpoint and kernel compaction. `--query 'ships=2500&fleets=4'` exercises the full 10,000-ship capacity. |
+| **scene-hull-depth** | Production hull shader on physically separated thin armor; reversed floating depth must match the visible nearer-only reference regardless of triangle order, including sun-local offsets. Forward-depth control reproduces the old surface error. |
+| **scene-follow-camera** | Delayed GPU observations, stable fleet tracking, hull-relative ship chase and near-plane-safe close zoom on small/large hulls |
+| **scene-follow-stalls** | Delayed observations and 8–450ms frame gaps with concurrent fleet admission; camera remains attached to the GPU-owned warp through mapping rebuilds |
+| **scene-population-continuity** | Every-frame survivor identity, pose and drawn hull continuity during 10K admission, removal, compaction and slot reuse; frozen and moving variants |
+| **scene-departure-continuity** | Source-side warp departure, surviving ships, badge/follow retirement and direct solar-frame reuse |
+| **scene-fleet-cohesion** | Production mono-Colossus and mixed-class travel, progress distribution, angular readiness and persistent ship identity |
+| **fleet-travel-gpu** | Actual fleet reduction through index 49,999, order-time formation capture, refresh/retarget, bounded speed and empty-owner cases |
+| **[scene-route-guidance-gpu](scene-route-guidance-gpu/README.md)** | Relative leader offsets through repeated replans, bounded peer offsets, missing-anchor promotion, both pose pages, independent and waiting cases; historical absolute-offset control reproduces sideways target chasing. |
+| **[ship-forward-motion](ship-forward-motion/README.md)** | Six-class 30/120 Hz powered turns, reversals, stops, noisy targets and arrival; actual nose/velocity and combined acceleration bounds against the historical slipping controller. |
+| **[ship-forward-integration](ship-forward-integration/README.md)** | Analytic held turns/thrust against independent CPU integration, partitioned events, exact stops, zero-duration control updates and real moving birth history. |
+| **[ship-contact-rest-gpu](ship-contact-rest-gpu/README.md)** | Six-class stationary shallow-contact escape at 30/120 Hz; reproduces the angular-deadband stall and checks contact-only heading, unchanged throttle, ambient/zero/high-speed cancellation guards, raw turn/acceleration caps and nose alignment. |
+| **[ship-obstacle-scale-gpu](ship-obstacle-scale-gpu/README.md)** | Production compact capital/planet force scale, authored repulsion tuning, laboratory parity and 192 body/class/boundary cases agreeing with hard separation and planner obstacle radii. Historical controls reproduce oversized exclusion forces. |
+| **[scene-forward-flight](scene-forward-flight/README.md)** | Actual 192-ship orbit and coordinate-order simulation/presentation; per-class sideslip, displacement residuals, retained worst raw poses and frozen-time stability. Reports numerical precision limits and does not hide potential sphere corrections. |
+| **[ship-avoidance-gpu](ship-avoidance-gpu/README.md)** | Predictive crossing/head-on/overtaking encounters, stable passing sides, bounded contact coverage and explicit dense/fast failure cases. Optional 50K contact arithmetic timing; no full-frame claim. |
+| **[ship-angular-response-gpu](ship-angular-response-gpu/README.md)** | Actual runtime angular limits, pole-flip control, slow motion, orbit lag, local/warp transitions and GPU event/rebase/recovery state. Optional `--query benchmark=1` alternates equal-overhead 50K attitude-only kernel timings; not full-frame or presented-FPS evidence. |
+| **[ship-formation-gpu](ship-formation-gpu/README.md)** | Production loose escort steering: persistent 13-bit identities through row reordering, anchor/cloud translations, all six same-class waiting goals, bounded corrections, and raw turn/acceleration limits on small escort orbits. Steering-field equilibrium is distinct from full locomotion and collision-free packing. |
+| **[contact-mask-padding-gpu](contact-mask-padding-gpu/README.md)** | Actual cache constructor and force/filter contract across 25,920 class/body/gap/velocity/tuning cases; every positive repulsion response must survive the filter. Historical-mask control reproduces missed contacts; does not establish completeness of the capped hash neighborhood. |
+| **ship-model-catalog** | `--query assets=1` draws all six actual HIGH/LOW hulls, checks stable GPU class partitions, all eight packed-counter lanes and exact compact/reference pixel parity. Optional `benchmark=1` measures visibility only; `renderBenchmark=1` compares actual assets and `catalogPolicy=1` applies the catalog 48px HIGH cutoff, with changed visible counts reported. |
+| **scene-render-integration** | Individual GPU identity/follow, centers, interpolation, selection and per-ship detail, culling image comparison, compaction, replacement, last-fleet removal and live profiler longevity |
+| **scene-ship-lod** | Automatic HIGH/LOW transitions, hysteresis and manual overrides from top, bottom, level and oblique cameras at DPR 1 and 2; camera rotation must not shrink projected ship size |
 | **fleet-perf-large-topology** | Separate synthetic strategic workload: 7,000 clusters / 280,000 systems / 286,999 canonical connections plus 10,000 fleet icons / 480,000 packed ships; 2719×1822, height 1e6 and moving pan, 24 warmups / 64 timestamped frames. Verifies actual impostor LOD and no camera-driven geometry writes. This is not a replay of the user's galaxy or a substitute for the canonical scene workload. |
 
-The renderer benchmark uses 24 warm-up frames and 64 measured frames per mode,
-with an injected clock advancing exactly 1/120 second each frame. It records
-actual candidate/trail/agent counts, GPU indirect hull/emitter/segment counts and raw samples.
-The topology is 65 clusters and 769 systems; this does not establish headroom
-for every galaxy size. The focus workload retains 10,000 selected hulls and
-10,000 trail ships. Hulls outside the frustum are compacted away; independently,
-emitters whose complete live ribbon is outside the frustum skip expansion.
-The bounds use world width for model pots and the draw's physical-pixel width
-coefficient plus maximum view depth for strategic ribbons.
-Sample-ring append, ship integration and all ownership lists remain unchanged.
-Separate GPU replay diagnostics suppress hull or trail drawing and prove their
-visible pixel contribution while holding simulation and history constant. CPU update/encode time, summed
-GPU pass timestamps, first-to-last GPU elapsed time and drain-render-completion
-time are separate series. CPU and GPU pass p95 must each stay within 8.33 ms;
-completion includes queue/driver delivery overhead and is reported separately.
-The benchmark requires hardware timestamp queries. Run performance cases alone;
-a 60 Hz display does not establish 120 presented FPS.
+The renderer benchmark uses 136 warmup frames and 64 measured frames per mode,
+with an injected clock advancing exactly 1/120 second each frame and a 30 Hz
+simulation. Its topology is 65 clusters and 769 systems. It asserts 10,000 actual
+live GPU records in the solar/focus modes and checks disjoint HIGH/LOW visibility.
+Strategic mode skips detailed simulation. Pixel diagnostics suppress both hull
+layers or trail encoding after the timed window and require visible contribution.
+CPU encode time, summed GPU pass timestamps and completion time are separate
+series. CPU and GPU pass p95 must each stay within 8.33 ms; queue/driver delivery
+is reported separately. Hardware timestamp queries are required. Run performance
+cases alone; a 60 Hz display does not establish 120 presented FPS.
 
-On the AMD/RDNA3 desktop, the latest canonical 1920×1080 focus GPU p95 was
-8.383 ms, above the unchanged 8.333 ms gate; the other five mode/resolution
-pairs passed. These are shared-desktop measurements: read-only observation
-confirmed that the user's visible 6,978-cluster game advanced 15 frames in
-250 ms while an owned headed GPU scenario was running. That proves concurrent
-rendering during the observation, not its exact load during earlier samples.
-The same immutable benchmark build varied from 8.069 to 8.267 ms across matched
-runs. Current evidence does not establish a source regression or consistent
-120 FPS headroom. Preserve the failed samples and report this limit explicitly.
+`--query reference=1` disables model frustum compaction and trail rejection during
+timing. A subsequent untimed normal frame collects HIGH/LOW visibility, so those
+counts describe the normal diagnostic, not the reference's direct draw count.
+The former `baseline` and `ablation` query modes are no longer supported by this
+scenario. The archived [paired driver and evidence](../docs/evidence/rendering/2026-09-25-integration.md)
+compare the checkpoint and integration with identical fixtures and draw-only
+ablations. Earlier measurements remain in the [September 24 audit](../docs/evidence/rendering/2026-09-24-audit.md).
 
-RGBA readback, image comparisons and GPU replay proofs run **after all 64 timed
-frames**, then restore the saved GPU state. Earlier artifacts placed these heavy
-operations between warmup and timing, creating a readback/copy gap and leaving
-one extra zero-dt simulation step. Those raw results are retained but should not
-be compared directly with the corrected ordering. Compare revisions by running
-the same current fixture against each isolated build; retain every measured sample.
-
-For an immutable build predating the injected clock and profiler, use
-`--query baseline=1`. This comparison keeps the same workload and resolutions
-but uses live simulation time and externally times `renderOnce`. It reports CPU
-and completion time only; it cannot establish GPU headroom for that revision.
-
-`--query reference=1` disables model frustum compaction and trail rejection for each measured
-frame and uses the original uncached vertex calculation, with the same production
-mesh, material and selected candidates. Both paths use the original vertex
-calculation; the normal path draws only the GPU-compacted visible indices.
-All three visibility compute passes remain included in measured GPU time. The reference's
-direct draw count includes offscreen hulls and is not a visible-hull count.
-Trail rejection runs inside the existing integrate/expand dispatch; it adds no
-compute pass, storage buffer or draw. GPU emitter counts describe expanded
-ribbons and remain separate from the 10,000 ships that own trails.
-
-`--query ablation=1` is a separate diagnostic run: each variant gets a fresh
-deterministic fixture, the same moving clock and the same 88-frame solar prelude
-as the normal benchmark. Keep all agents and selected model indices, and compare
-the complete focused frame with only hull encoding or only depth-aware pot trail encoding suppressed.
-Each override is restored. These removed-pass timings attribute cost and do not
-count as renderer acceptance or replace the complete-workload gates.
-`--query ablation=depth` runs only focused planet depth suppression with the same
-moving workload; it measures that pass's cost without treating its altered
-occlusion as an acceptable image.
+Build with `--wasm` for production scene scenarios. A TypeScript-only build clears
+its output directory, including old WASM assets. See the current
+[scene rendering contract](../docs/scene-ship-rendering.md) for addressing and
+observation ownership.
 
 `FleetInstanceGpuLayer({ maxShips })` raises grow-only capacity for the test host only.
 
@@ -331,7 +317,7 @@ exact system count. This avoids intermittent rejection of random layouts whose
 degree and geometry constraints cannot be satisfied.
 
 `./tests/run.sh galaxy-fleet-generation-large --headed` additionally clicks
-**Generate 50K Fleets** on that galaxy. It verifies exactly 50,000 delivered
+**50K** on that galaxy. It verifies exactly 50,000 delivered
 spawns, completed renderer packing, fleet generation under 60 seconds and average
 render progress of at least 40 FPS. It is also in `all`; its runner timeout
 defaults to 120 seconds for both generation phases. An explicit `--timeout`
@@ -538,3 +524,55 @@ node tests/scripts/serve.mjs --port 9876
 - Chromium-first; WebGPU required (same product constraint as the app).
 - Headless WebGPU may need GPU/SwiftShader; if `smoke-webgpu` fails headless but works headed, try `--headed` or adjust Chromium flags in `tests/scripts/cdp.mjs`.
 - Scenario discovery: any `tests/*/index.html` except `common/` and `scripts/`.
+
+## Trail joins and fleet orders
+
+These focused scenarios use the production shaders and UI. Run each against an
+isolated build, with headed Chromium for hardware WebGPU:
+
+```sh
+node tests/scripts/run-test.mjs trail-joints-gpu --headed --dist-dir /tmp/galaxy-build
+node tests/scripts/run-test.mjs app-fleet-move --headed --dist-dir /tmp/galaxy-build
+node tests/scripts/run-test.mjs scene-route-lines --headed --dist-dir /tmp/galaxy-build
+```
+
+- **trail-joints-gpu** executes the production trail vertex function and rasterizes
+  the ribbon. Covers shared-edge continuity, curved/sharp/degenerate samples,
+  camera/near-plane crossing, a distant origin, both width modes and both depth
+  conventions. `capture=1` displays diagnostic and real-atlas renders;
+  `baseline=1` records the former independent-card defect without asserting the fix.
+- **app-fleet-move** follows real menu and canvas input through the offline fleet
+  authority: right-click and armed-click orders, sun-local coordinates, accepted
+  revisions, visible instructions, Escape cancellation and a delayed pick after
+  dismissal. `app-render-worker` provides the wider badge/follow/input regression.
+- **scene-route-lines** renders the production 4x-MSAA route overlay and measures
+  coverage-integrated opacity: default 0.12, hovered 0.55 and selected highlights
+  between 0.6 and 0.9. It checks selected-only forward animation, frozen/wrapped
+  clocks, no geometry upload during animation, bounded rounded-corner pixels,
+  buffer growth, selection priority, list shrink/clear/repopulation, destination
+  status colors and recreation. `capture=1` displays its resolved images. It tests
+  overlay rendering and resource lifetime, not route planning or fleet arrival.
+- **scene-fleet-routes** runs accepted movement intent through the actual Rust
+  worker and production GPU simulation at a 100K galaxy origin: sustained travel,
+  refresh during slow transit, arrival, no-teleport retarget, a sun detour and
+  scene teardown. Needs a build with WASM. This is a controlled-clock correctness
+  fixture, not an arrival-time promise or FPS measurement.
+- **scene-route-worker** checks the real browser planning worker, moving-body
+  snapshots, revision supersession and unsupported catalogs; also needs WASM.
+- **fleet-center-gpu** reduces actual 50K ship records, checks means, packed
+  colors, live heavy-ship representatives and retirement beyond index32,768.
+- **scene-marker-lifecycle** exercises High FX50K admission, scene exit,
+  downgrade and10K reentry, checking actual triangle rows for ghosts.
+
+`fleet-perf-renderer` accepts `orders=1` to install shared-Rust corridors for all
+128 admitted fleets before steady-state measurement. For example:
+
+```sh
+./tests/run.sh fleet-perf-renderer --headed --skip-build --dist-dir /tmp/galaxy-build \
+  --query 'ships=50000&width=1920&modes=solar,focus&orders=1'
+```
+
+Order setup and solver startup are untimed; fleet-order geometry/guidance and
+the normal rendering/simulation remain active during measurement. Report CPU,
+GPU pass and GPU interval timings separately; this does not establish displayed
+120FPS or collision-free motion.

@@ -1,3 +1,5 @@
+import {CORRECTION_AFTER, CORRECTION_HISTORY} from './ship-layout.mjs';
+import {MAX_SHIP_CAPACITY} from './ship-capacity.mjs';
 import {SHIP_WGSL} from './shaders.mjs';
 import {eventPoseAddress,poseWrite} from './event-gpu.mjs';
 import {correctionAddress,MAX_SHIP_CORRECTIONS,CORRECTIONS_PER_POPULATION} from './correction-gpu.mjs';
@@ -34,12 +36,12 @@ fn preserveBoundary(before:Ship,after:Ship,i:u32,row:vec4<u32>) {
     links[base]=bitcast<u32>(config.clock.x);links[base+1u]=links[directory];links[base+2u]=0u;links[base+3u]=0u;
     storePose(before,base+4u);
     for(var sample=0u;sample<48u;sample++) {
-      let value=bitcast<vec4<u32>>(history[i*48u+sample]);let at=base+100u+sample*4u;
+      let value=bitcast<vec4<u32>>(history[i*48u+sample]);let at=base+${CORRECTION_HISTORY}u+sample*4u;
       links[at]=value.x;links[at+1u]=value.y;links[at+2u]=value.z;links[at+3u]=value.w;
     }
     links[directory]=row.z;
   }
-  storePose(after,base+52u);
+  storePose(after,base+${CORRECTION_AFTER}u);
 }
 @compute @workgroup_size(128) fn regroup(@builtin(global_invocation_id) gid:vec3<u32>) {
   let i=gid.x;if(i>=config.counts.x){return;}let before=ships[i];var s=before;let row=membership[i];
@@ -47,10 +49,11 @@ fn preserveBoundary(before:Ship,after:Ship,i:u32,row:vec4<u32>) {
     s.identity.x=row.x;s.identity.y=row.y-1u;
     // Orders are owned by fleets: equal revision numbers need a fresh admission.
     s.flight.x=-1.0;s.tactic.x=-1.0;
-    if(s.flight.w>=2.0){s.v=vec4<f32>(s.v.xyz/max(.000001,length(s.v.xyz))*s.v.w*.75,s.v.w);s.a=vec4<f32>(0.0);s.flight.w=0.0;}
+    if(s.flight.w>=2.0){s.v=vec4<f32>(s.v.xyz/max(.000001,length(s.v.xyz))*s.v.w*.75,s.v.w);s.a=vec4<f32>(0.0);s.flight.w=0.0;s.origin=vec4<f32>(0.0,0.0,0.0,s.origin.w);}
   }
   if(row.y>0u||transferred(s.aux.x)){s.aux.x=0.0;}
-  if(row.y>0u||transferred(s.memory.x)){s.memory.x=0.0;}
+  if(row.y>0u){s.memory.x=0.0;if(s.memory.z==-1.0){s.memory.y=0.0;s.memory.z=0.0;}}
+  else if(s.memory.z!=-1.0 && transferred(s.memory.x)){s.memory.x=0.0;}
   if(row.y>0u){preserveBoundary(before,s,i,row);}
   ships[i]=s;
 }
@@ -60,8 +63,8 @@ export async function createRegroupingGpu(device) {
   const module=device.createShaderModule({code}),info=await module.getCompilationInfo();
   if(info.messages.some(m=>m.type==='error'))throw Error(info.messages.map(m=>m.message).join('\n'));
   const pipelines=await Promise.all(['inspect','regroup'].map(entryPoint=>device.createComputePipelineAsync({layout:'auto',compute:{module,entryPoint}})));
-  const rows=device.createBuffer({size:10000*16,usage:GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_DST});
-  const observation=device.createBuffer({size:10000*16,usage:GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_SRC});
+  const rows=device.createBuffer({size:MAX_SHIP_CAPACITY*16,usage:GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_DST});
+  const observation=device.createBuffer({size:MAX_SHIP_CAPACITY*16,usage:GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_SRC});
   const config=device.createBuffer({size:32,usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST});
   function dispatch(encoder,pipeline,count,entries) {
     const bind=device.createBindGroup({layout:pipeline.getBindGroupLayout(0),entries:entries.map(([binding,buffer])=>({binding,resource:{buffer}}))});

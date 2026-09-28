@@ -9,14 +9,18 @@ fn separationOffset(i:u32)->u32{return u32(u.clock.z)*18u+i*${CONTACT_QUERY_WORD
 fn pursuerOffset(i:u32,cell:u32)->u32{return separationOffset(i)+54u+cell;}
 fn neighborCell(center:vec3<i32>,cell:u32)->vec3<i32>{return center+vec3<i32>(i32(cell%3u)-1,i32(cell/3u%3u)-1,i32(cell/9u)-1);}
 fn possibleContact(s:FilterGeometry,other:FilterGeometry)->bool {
-  let gap=s.p.xyz-other.p.xyz;let squared=dot(gap,gap);
-  let clearance=s.radius+other.radius+0.15*min(1.0,(s.radius+other.radius)/0.4);
-  let closing=max(0.0,-dot(s.v.xyz-other.v,gap));
-  // Multiply the original inequality by distance before squaring its
-  // nonnegative sides. Conservative slack covers float32 cancellation.
-  let remaining=max(0.0,squared-closing*.4-squared*.00001);
-  let padded=clearance+.001;
-  return remaining*remaining<=padded*padded*squared;
+  let gap=s.p-other.p;let relative=s.v-other.v;
+  // Query radius carries the exact scene padding. The maximum response horizon
+  // encloses every acceleration-aware force horizon; a longer interval cannot
+  // increase the closest distance. Both use the same stencil reach bound.
+  let clearance=s.radius+other.radius;
+  let squared=dot(gap,gap);let reach=max(CONTACT_CELL_SIZE,clearance)+.002;
+  if(squared>reach*reach){return false;}
+  if(squared<=clearance*clearance){return true;}
+  let horizon=contactHorizon(length(relative),clearance,CONTACT_HORIZON_SECONDS);
+  let closest=contactClosest(gap,relative,horizon);
+  let padded=clearance+.001+length(gap)*.00001;
+  return dot(closest.xyz,closest.xyz)<=padded*padded;
 }
 // Independent cell queries need no workgroup shared state or barriers.
 @compute @workgroup_size(${QUERY_WORKGROUP_SIZE}) fn buildContactMasks(@builtin(global_invocation_id) gid:vec3<u32>) {
@@ -46,12 +50,12 @@ fn neighborSeparation(s:Ship,i:u32)->vec4<f32> {
       while(mask!=0u){
         let visit=half*32u+firstTrailingBit(mask);mask&=mask-1u;
         let other=loadContact(begin-1u+visit);
-        if(other.slot==i||any(other.cell!=c)||other.kind>=4u){continue;}
+        if(other.slot==i||any(other.cell!=c)){continue;}
         let response=contactPush(s,other);push+=response.xyz;urgency=max(urgency,response.w);
       }
     }
   }
-  return vec4<f32>(capped(push,1.0)*dynamics(shipType(s)).y,urgency);
+  return vec4<f32>(contactAcceleration(s,push),urgency);
 }
 `;
 

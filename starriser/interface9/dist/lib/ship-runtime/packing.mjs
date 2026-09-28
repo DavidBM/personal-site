@@ -1,3 +1,4 @@
+import {MAX_SHIP_CAPACITY} from './ship-capacity.mjs';
 import {PACKING_WGSL} from './packing-gpu.mjs';
 import {createTiming} from './clock-gpu.mjs';
 export async function createPacking(device,{agents,history,links,orders,layout,count,director,eventFrame,bindings=null}) {
@@ -8,7 +9,7 @@ export async function createPacking(device,{agents,history,links,orders,layout,c
   const pipelineLayout=device.createPipelineLayout({bindGroupLayouts:[bindLayout]});
   const pipelines=await Promise.all(['swapSlots','remapReferences'].map(entryPoint=>device.createComputePipelineAsync({layout:pipelineLayout,compute:{module,entryPoint}})));
   const make=(size,usage)=>device.createBuffer({size,usage:usage|GPUBufferUsage.COPY_DST});
-  const remap=make(10000*4,GPUBufferUsage.STORAGE),pairs=make(256*4,GPUBufferUsage.STORAGE),uniform=make(16,GPUBufferUsage.UNIFORM);
+  const remap=make(MAX_SHIP_CAPACITY*4,GPUBufferUsage.STORAGE),pairs=make(256*4,GPUBufferUsage.STORAGE),uniform=make(16,GPUBufferUsage.UNIFORM);
   function makeBind(r){return device.createBindGroup({layout:bindLayout,entries:[r.a,r.b,r.history,r.links,{buffer:remap},{buffer:pairs},{buffer:uniform}].map((resource,binding)=>({binding,resource}))});}
   let bind=makeBind(bindings??{a:{buffer:agents[0]},b:{buffer:agents[1]},history:{buffer:history},links:{buffer:links}});
   const timing=createTiming(device);let closed=false,batches=0,lastSwaps=0,generation=0,sampled=null,uploadBytes=0,lastUploadBytes=0;

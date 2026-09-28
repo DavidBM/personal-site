@@ -10,11 +10,12 @@ const TAP_TIME_MS = 200;
  * Canvas-only listeners miss mouseup when the cursor leaves the canvas
  * onto overlay panels — classic “keeps dragging when I return” bug.
  */
-export function createPointerEventRouter({ canvas, cameraController, controlsManager, editHandlePointer, getContextMenuController, publishPointerEvent, tryPickBody, tryPickSceneTarget, updateSceneHover, clearFocus, isSceneActive, onSceneAttack, }) {
+export function createPointerEventRouter({ canvas, cameraController, controlsManager, editHandlePointer, getContextMenuController, publishPointerEvent, tryPickBody, tryPickSceneTarget, updateSceneHover, clearFocus, isSceneActive, onSceneAttack, onSceneContextMenu, fleetMoveGesture, }) {
     const cleanup = [];
     /** Active primary map-drag (or edit-handle) owned by document listeners. */
     let mapDragSession = false;
     let editDragSession = false;
+    let fleetDragStart = null;
     /**
      * Document capture mouseup ends a drag session before the canvas bubble
      * mouseup. Skip a second body pick on that same up.
@@ -78,6 +79,7 @@ export function createPointerEventRouter({ canvas, cameraController, controlsMan
         document.removeEventListener("mousemove", onDocumentMouseMove, true);
         document.removeEventListener("mouseup", onDocumentMouseUp, true);
         document.removeEventListener("pointerup", onDocumentPointerUp, true);
+        document.removeEventListener("pointercancel", onDocumentPointerCancel, true);
         window.removeEventListener("blur", onWindowBlur);
     };
     const attachDocumentDrag = () => {
@@ -85,9 +87,22 @@ export function createPointerEventRouter({ canvas, cameraController, controlsMan
         document.addEventListener("mousemove", onDocumentMouseMove, true);
         document.addEventListener("mouseup", onDocumentMouseUp, true);
         document.addEventListener("pointerup", onDocumentPointerUp, true);
+        document.addEventListener("pointercancel", onDocumentPointerCancel, true);
         window.addEventListener("blur", onWindowBlur);
     };
+    function moveFleetGesture(event) {
+        if (fleetMoveGesture?.move(event)) {
+            event.preventDefault();
+            return true;
+        }
+        cameraController.onMouseDown(fleetDragStart);
+        fleetDragStart = null;
+        mapDragSession = cameraController.isDragging;
+        return false;
+    }
     function onDocumentMouseMove(event) {
+        if (fleetDragStart && moveFleetGesture(event))
+            return;
         if (!galaxyInputEnabled() && editDragSession) {
             editDragSession = false;
             editHandlePointer.setActiveClusterId(null);
@@ -107,7 +122,26 @@ export function createPointerEventRouter({ canvas, cameraController, controlsMan
         updateSceneHover?.(-1, -1);
         // Selection hover while dragging is noisy — skip bus publish on drag move.
     }
+    function endFleetGesture(event) {
+        fleetDragStart = null;
+        detachDocumentDrag();
+        if (!event) {
+            bodyPickConsumed = true;
+            fleetMoveGesture?.cancel();
+            controlsManager.clearPointerDownTimestamp();
+            return;
+        }
+        controlsManager.pointerUp(event.clientX, event.clientY);
+        bodyPickConsumed = fleetMoveGesture?.end(event) === true;
+        if (!bodyPickConsumed)
+            maybeLockBodyOnMouseUp(event);
+        controlsManager.clearPointerDownTimestamp();
+    }
     function endDragSession(event, button = 0) {
+        if (fleetDragStart) {
+            endFleetGesture(event);
+            return;
+        }
         const wasEdit = editDragSession;
         const wasMap = mapDragSession || cameraController.isDragging;
         editDragSession = false;
@@ -172,13 +206,15 @@ export function createPointerEventRouter({ canvas, cameraController, controlsMan
         controlsManager.clearPointerDownTimestamp();
     }
     function onDocumentMouseUp(event) {
-        if (!mapDragSession && !editDragSession && !cameraController.isDragging) {
+        if (fleetDragStart && event.button !== 0)
+            return;
+        if (!fleetDragStart && !mapDragSession && !editDragSession && !cameraController.isDragging) {
             return;
         }
         endDragSession(event, event.button);
     }
     function onDocumentPointerUp(event) {
-        if (!mapDragSession && !editDragSession && !cameraController.isDragging) {
+        if (!fleetDragStart && !mapDragSession && !editDragSession && !cameraController.isDragging) {
             return;
         }
         // Primary pointer only (mouse left / touch).
@@ -187,9 +223,12 @@ export function createPointerEventRouter({ canvas, cameraController, controlsMan
         endDragSession(event, event.button);
     }
     function onWindowBlur() {
-        if (mapDragSession || editDragSession || cameraController.isDragging) {
+        if (fleetDragStart || mapDragSession || editDragSession || cameraController.isDragging) {
             endDragSession(null);
         }
+    }
+    function onDocumentPointerCancel() {
+        endDragSession(null);
     }
     addCanvasListener("mousedown", (event) => {
         // Primary button only for edit-handle capture + left-click selection path.
@@ -210,6 +249,13 @@ export function createPointerEventRouter({ canvas, cameraController, controlsMan
             attachDocumentDrag();
             return;
         }
+        if (fleetMoveGesture?.begin(event)) {
+            fleetDragStart = event;
+            controlsManager.pointerDown(event.clientX, event.clientY);
+            attachDocumentDrag();
+            event.preventDefault();
+            return;
+        }
         cameraController.onMouseDown(event);
         controlsManager.pointerDown(event.clientX, event.clientY);
         if (cameraController.isDragging) {
@@ -222,7 +268,7 @@ export function createPointerEventRouter({ canvas, cameraController, controlsMan
     });
     addCanvasListener("mousemove", (event) => {
         // During document-owned drag, document listener owns move (may be off-canvas).
-        if (mapDragSession || editDragSession) {
+        if (fleetDragStart || mapDragSession || editDragSession) {
             return;
         }
         if (routeEdit("handleMove", event)) {
@@ -376,17 +422,17 @@ export function createPointerEventRouter({ canvas, cameraController, controlsMan
     });
     addCanvasListener("contextmenu", (event) => {
         const contextMenuController = getContextMenuController();
-        if (!contextMenuController)
-            return;
         if (!galaxyInputEnabled()) {
             event.preventDefault();
             event.stopPropagation();
-            contextMenuController.hide();
-            onSceneAttack?.(event.clientX, event.clientY);
+            contextMenuController?.hide();
+            (onSceneContextMenu ?? onSceneAttack)?.(event.clientX, event.clientY);
             return;
         }
         event.preventDefault();
         event.stopPropagation();
+        if (!contextMenuController)
+            return;
         const pick = contextMenuController.pickAndShow(event.clientX, event.clientY);
         if (!pick)
             return;
@@ -402,6 +448,8 @@ export function createPointerEventRouter({ canvas, cameraController, controlsMan
     });
     return {
         dispose() {
+            fleetMoveGesture?.cancel();
+            fleetDragStart = null;
             updateSceneHover?.(-1, -1);
             detachDocumentDrag();
             mapDragSession = false;

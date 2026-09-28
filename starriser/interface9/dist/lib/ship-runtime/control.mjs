@@ -1,17 +1,17 @@
 import {ROUTE_CONTROL_WGSL,ROUTE_WORDS} from './local-routes.mjs';
+import {formationStruct} from './formation.mjs';
 import {eventControlWgsl,eventOwnWgsl,eventField} from './event-gpu.mjs';
-import {SOLAR_WORDS} from './solar-runtime.mjs';
 import {pressureScopeWgsl} from './pressure-scopes.mjs';
 import {fleetCapacity} from './runtime-capacity.mjs';
 import {createTargetTables,targetTableWgsl} from './target-tables.mjs';
 // The layout is shared verbatim with CONTROL_WGSL; 16-byte blocks throughout.
 export const CONTROL_FLOATS=fleetCapacity(2).words;
 const GROUP_FLOATS=96;
-const MODE=Object.freeze({local:0,approach:1,warp:2,escape:3,orbit:-1,departure:-2});
+const MODE=Object.freeze({local:0,approach:1,warp:2,escape:3,orbit:-1,departure:-2,route:-3});
 export function createControl(director,pressure=null,solar=null,routes=null,clock=null) {
   const capacity=director.capacity;
   const solarOffset=capacity.words+(pressure?.layout.words??0);
-  const routesOffset=solarOffset+(solar?SOLAR_WORDS:0);
+  const routesOffset=solarOffset+(solar?solar.data.length:0);
   const data=new ArrayBuffer((routesOffset+(routes?.data.length??0))*4),f=new Float32Array(data),w=new Uint32Array(data);
   const syncTargets=createTargetTables(w,capacity.tableBase);
   const local=time=>time-(clock?.origin??0);
@@ -44,18 +44,22 @@ export function createControl(director,pressure=null,solar=null,routes=null,cloc
   function captureGroup(group){writeGroup(group);return new Uint32Array(data, (capacity.groupBase+group*GROUP_FLOATS)*4,GROUP_FLOATS);}
   sync();syncPressure();syncSolar();syncRoutes();return {data,frame,sync,syncNearby,syncPressure,syncSolar,syncRoutes,captureGroup,solarOffset,routesOffset};
 }
-export const controlWgsl=(capacity=fleetCapacity(2),pressure=null,solar=false,temporal=false)=>/* wgsl */`
+export const controlWgsl=(capacity=fleetCapacity(2),pressure=null,solar=false,temporal=false,formation=false)=>{
+  const form=formation?formationStruct(capacity.fleetCount,Boolean(capacity.occupancy)):null;
+  return /* wgsl */`
 struct Journey { mode:vec4<f32>, range:vec4<f32>, exit:vec4<f32> }
 struct Branch { goal:vec4<f32>, weights:vec4<f32> }
 struct GroupIntent { tactic:vec4<f32>, weapon:vec4<f32>, journeys:array<Journey,2>, branches:array<Branch,8> }
 ${pressure?pressureScopeWgsl(pressure):''}
 ${solar?ROUTE_CONTROL_WGSL:''}
 ${solar?eventControlWgsl(capacity):''}
-struct DirectorControl { frame:vec4<f32>, reserved:vec4<f32>, live:array<u32,${capacity.groups*8}>, groups:array<GroupIntent,${capacity.groups}>, ordinals:array<u32,${capacity.ordinalWords}>, targets:array<u32,${capacity.targetWords}>, battles:array<vec4<u32>,${capacity.fleetCount}>, encounters:array<vec4<f32>,${capacity.fleetCount}>, nearby:array<vec4<u32>,${capacity.fleetCount}> ${pressure?',pressure:PressureControl':''} ${solar?`,solar:SolarControl,routes:array<LocalRoute,${capacity.groups*2}>,events:EventControl`:''} }
-@group(0) @binding(8) var<storage,read> director:DirectorControl;
+${form?form.decl:''}
+struct DirectorControl { frame:vec4<f32>, reserved:vec4<f32>, live:array<u32,${capacity.groups*8}>, groups:array<GroupIntent,${capacity.groups}>, ordinals:array<u32,${capacity.ordinalWords}>, targets:array<u32,${capacity.targetWords}>, battles:array<vec4<u32>,${capacity.fleetCount}>, encounters:array<vec4<f32>,${capacity.fleetCount}>, nearby:array<vec4<u32>,${capacity.fleetCount}> ${pressure?',pressure:PressureControl':''} ${solar?`,solar:SolarControl,routes:array<LocalRoute,${capacity.groups*2}>,events:EventControl`:''}${form?form.fields:''} }
+@group(0) @binding(8) var<storage,${formation?'read_write':'read'}> director:DirectorControl;
 ${controlAccessors(solar,temporal)}
 ${targetTableWgsl(capacity)}
 `;
+};
 
 export const CONTROL_WGSL=controlWgsl();
 
