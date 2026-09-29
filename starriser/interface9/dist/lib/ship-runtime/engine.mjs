@@ -1,4 +1,4 @@
-import {preparePipelines,selectShaderEntries} from './pipeline-preparation.mjs';
+import {preparePipelines,selectShaderEntries,withGpuPreparationDiagnostics} from './pipeline-preparation.mjs';
 import {SHIP_WORDS} from './ship-layout.mjs';
 import {createCompileReporter} from './compile-status.mjs';
 import {pilotAdviceBytes} from './pilot-advice-layout.mjs';
@@ -209,7 +209,7 @@ async function initializeEngine(canvas,options,director,solar,lifetime,report) {
       const start=performance.now(),code=selectShaderEntries(modules[0],roots);
       const module=device.createShaderModule({label:`ship-${key}`,code});
       const info=await module.getCompilationInfo();
-      if(info.messages.some(x=>x.type==='error'))throw Error(info.messages.map(x=>x.message).join('\n'));
+      if(info.messages.some(x=>x.type==='error'))throw Error(info.messages.filter(x=>x.type==='error').map(x=>`ship-${key}:${x.lineNum}:${x.linePos}: ${x.message}`).join('\n'));
       timings.push({label:`WGSL ${key}`,durationMs:performance.now()-start,bytes:code.length});
       return module;
     })());
@@ -225,9 +225,9 @@ async function initializeEngine(canvas,options,director,solar,lifetime,report) {
     {label:'Clock rebasing',run:()=>createClockRebaser(device,agents,history,links,shipStorage.current.bindings)},
     {label:'Packing',run:()=>createPacking(device,{agents,history,links,orders:orderBuffer,layout:slotLayout,count,director,eventFrame,bindings:shipStorage.current.bindings})});
   report({phase:'compiling',label:'Ship kernels',completed:0,total:jobs.length});
-  const prepared=await preparePipelines(jobs,3,timing=>{
+  const prepared=await withGpuPreparationDiagnostics(device,()=>preparePipelines(jobs,3,timing=>{
     timings.push(timing);report({phase:'compiling',...timing,completed:++compiled,total:jobs.length});
-  }, progress=>report({phase:'compiling',label:'Ship kernels',...progress}));
+  }, progress=>report({phase:'compiling',label:'Ship kernels',...progress})));
   const pipelines=Object.fromEntries(entries.map((entry,i)=>[entry,prepared[i]]));
   const {advance:compute,clearFormation:formationClear,predictPilots:predict,recover:recovery,clearDensity:clear,
     buildDensity:populate,buildHullDensity:hullDensity,scheduleAgents:schedule,buildContactCache:cache,

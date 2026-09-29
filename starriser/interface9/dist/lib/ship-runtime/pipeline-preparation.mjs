@@ -1,6 +1,6 @@
 /** Bounded pipeline preparation; durations measure completion, not GPU execution. */
 export async function preparePipelines(jobs, concurrency = 3, onTiming = () => {}, onProgress = () => {}) {
-  const results = new Array(jobs.length); let cursor = 0, completed = 0;
+  const results = new Array(jobs.length); let cursor = 0, completed = 0, failure = null;
   const active = new Map();
   const progress = () => {
     const now = performance.now();
@@ -9,10 +9,18 @@ export async function preparePipelines(jobs, concurrency = 3, onTiming = () => {
     catch { /* Diagnostics cannot fail preparation. */ }
   };
   async function worker() {
-    while (cursor < jobs.length) {
+    while (cursor < jobs.length && !failure) {
       const index = cursor++, job = jobs[index], start = performance.now();
       active.set(index,{label:job.label,start}); progress();
       try { results[index] = await job.run(); }
+      catch (cause) {
+        const reason = typeof cause?.reason === 'string' ? `; reason=${cause.reason}` : '';
+        const detail = String(cause?.message ?? cause).replace(/\s+/g, ' ').slice(0, 1200);
+        const error = new Error(`GPU preparation "${job.label}" failed after ${((performance.now()-start)/1000).toFixed(1)}s: ${cause?.name ?? 'Error'}${reason}: ${detail}`);
+        error.cause = cause;
+        if (!failure) failure = error;
+        throw error;
+      }
       finally {
         active.delete(index); completed++;
         try { onTiming({ label: job.label, durationMs: performance.now() - start }); } catch { /* Diagnostics cannot fail preparation. */ }
@@ -21,10 +29,29 @@ export async function preparePipelines(jobs, concurrency = 3, onTiming = () => {
     }
   }
   // Drain in-flight jobs on failure: callers can safely dispose their resources.
-  const settled = await Promise.allSettled(Array.from({length: Math.min(jobs.length, Math.max(1, concurrency))}, worker));
-  const failed = settled.find(result => result.status === 'rejected');
-  if (failed) throw failed.reason;
+  await Promise.allSettled(Array.from({length: Math.min(jobs.length, Math.max(1, concurrency))}, worker));
+  if (failure) throw failure;
   return results;
+}
+
+/** Device errors can contain driver context omitted from GPUPipelineError.
+ * Observe only while preparing; do not suppress the browser's normal reporting.
+ * These are batch diagnostics, not attribution to a particular concurrent job.
+ */
+export async function withGpuPreparationDiagnostics(device, run) {
+  const messages = [];
+  const observe = event => {
+    const error = event.error;
+    const text = `${error?.constructor?.name ?? 'GPUError'}: ${String(error?.message ?? error).replace(/\s+/g, ' ').slice(0, 400)}`;
+    if (messages.length < 4 && !messages.includes(text)) messages.push(text);
+  };
+  device.addEventListener('uncapturederror', observe);
+  try { return await run(); }
+  catch (cause) {
+    if (!messages.length) throw cause;
+    const error = new Error(`${cause?.message ?? cause} | Device errors during preparation: ${messages.join(' | ')}`);
+    error.cause = cause; throw error;
+  } finally { device.removeEventListener('uncapturederror', observe); }
 }
 
 /** Remove unrelated functions before Tint sees a module. Bindings/layout stay fixed.
