@@ -6,7 +6,7 @@ ${eventPoseWrite}
 fn heldMotion(initial:Ship,dt:f32)->Ship {
   return heldForwardMotion(initial,dt);
 }
-fn advanceEventShip(initial:Ship,i:u32)->Ship {
+fn prepareEventShip(initial:Ship,i:u32)->ShipIntegration {
   journalEnabled=true;links[correctionDirectory(u32(u.clock.z))+i]=0u;
   let group=groupOf(initial);let count=director.events.directory[group].x;
   let events=director.events.clock.x!=0.0&&count>0u;
@@ -36,6 +36,31 @@ fn advanceEventShip(initial:Ship,i:u32)->Ship {
       if(after){at=end;tick=last;}else{eventRow=row;}
     }
   }
-  return integrateMotion(s,i,u.clock.x,dt,first,trailLast(u.clock.x));
+  return ShipIntegration(s,dt,first);
+}
+fn advanceEventShip(initial:Ship,i:u32)->Ship {
+  let interval=prepareEventShip(initial,i);
+  return integrateMotion(interval.ship,i,u.clock.x,interval.dt,interval.first,trailLast(u.clock.x));
+}
+`;
+
+// Scratch is the final two words per populated slot in the existing links binding.
+// It is transient: every prepare invocation overwrites it before movement reads it.
+export const ADVANCE_SCRATCH_WORDS=2;
+export const SPLIT_ADVANCE_WGSL=/* wgsl */`
+fn advanceScratch(i:u32)->u32{return arrayLength(&links)-u32(u.clock.z)*${ADVANCE_SCRATCH_WORDS}u+i*${ADVANCE_SCRATCH_WORDS}u;}
+@compute @workgroup_size(128) fn prepareAdvance(@builtin(global_invocation_id) gid:vec3<u32>) {
+  if(gid.x>=u32(u.clock.z)){return;}
+  let i=links[u32(u.clock.z)+gid.x];let interval=prepareEventShip(old[i],i);
+  next[i]=interval.ship;let at=advanceScratch(i);
+  links[at]=bitcast<u32>(interval.dt);links[at+1u]=interval.first;
+}
+fn advancePreparedShip(i:u32)->Ship {
+  // Invocation-private state does not survive a dispatch. Restore the final
+  // event row, but do not clear the correction chain built by prepareAdvance.
+  journalEnabled=true;let group=groupOf(old[i]);let count=director.events.directory[group].x;
+  if(director.events.clock.x!=0.0&&count>0u){eventGroup=group;eventRow=count;}
+  let at=advanceScratch(i);
+  return integrateMotion(next[i],i,u.clock.x,bitcast<f32>(links[at]),links[at+1u],trailLast(u.clock.x));
 }
 `;

@@ -12,7 +12,7 @@ import {ARRIVAL_CORRECTION_WGSL} from './arrival-correction.mjs';
 import {RECOVERY_WGSL} from './recovery-gpu.mjs';
 import {runtimeSolarWgsl} from './solar-runtime.mjs';
 import {eventField,eventPoseRead} from './event-gpu.mjs';
-import {EVENT_MOTION_WGSL} from './event-motion.mjs';
+import {EVENT_MOTION_WGSL,SPLIT_ADVANCE_WGSL} from './event-motion.mjs';
 import {fleetCapacity} from './runtime-capacity.mjs';
 import {navigationWgsl} from './navigation.mjs';
 import {CONTACT_QUERY_WGSL} from './contact-queries.mjs';
@@ -64,7 +64,7 @@ fn redistributionPhase(now:f32)->u32{return ${solar?'u32(u.control.y)':'u32(now*
 fn trailFirst(now:f32,dt:f32)->u32{return ${solar?'u32(u.trail.x)':'u32(floor(max(0.0,now-dt)*60.0))+1u'};}
 fn trailLast(now:f32)->u32{return ${solar?'u32(u.trail.y)':'u32(floor(now*60.0))'};}
 `;
-export const simulation = (cellSize=4,capacity=fleetCapacity(2),pressureScopes=null,solar=false)=>common(solar, true) + /* wgsl */`
+export const simulation = (cellSize=4,capacity=fleetCapacity(2),pressureScopes=null,solar=false,splitAdvance=false)=>common(solar, true) + /* wgsl */`
 ${simulationClock(solar,solar&&capacity.occupancy)}
 @group(0) @binding(0) var<uniform> u: Input;
 @group(0) @binding(1) var<storage,read> old: array<Ship>;
@@ -336,10 +336,11 @@ ${solar?NAVIGATION_INSPECTION_WGSL:''}
 ${integrationWgsl(solar)}
 ${solar?EVENT_MOTION_WGSL+CORRECTION_WRITE+ARRIVAL_CORRECTION_WGSL+RECOVERY_WGSL:''}
 ${recoveryEntry(solar)}
+${solar&&splitAdvance?SPLIT_ADVANCE_WGSL:''}
 @compute @workgroup_size(128) fn advance(@builtin(global_invocation_id) gid: vec3<u32>) {
   if(gid.x>=u32(u.clock.z)) { return; }
   let i=links[u32(u.clock.z)+gid.x];
-  ${solar?'let stepped=advanceEventShip(old[i],i);next[i]=stepped;recordFormationPose(stepped);':'next[i]=integrateShip(old[i],i,u.clock.x,u.clock.y,true,trailFirst(u.clock.x,u.clock.y),trailLast(u.clock.x));'}
+  ${solar?`let stepped=${splitAdvance?'advancePreparedShip(i)':'advanceEventShip(old[i],i)'};next[i]=stepped;recordFormationPose(stepped);`:'next[i]=integrateShip(old[i],i,u.clock.x,u.clock.y,true,trailFirst(u.clock.x,u.clock.y),trailLast(u.clock.x));'}
 }
 `;
 

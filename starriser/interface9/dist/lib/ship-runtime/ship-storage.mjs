@@ -5,13 +5,14 @@ import {spatialStorage} from './spatial-schedule.mjs';
 import {correctionWords} from './correction-gpu.mjs';
 import {EVENT_POSE_WORDS} from './event-gpu.mjs';
 import {filterGeometryBytes} from './contact-cache.mjs';
+import {ADVANCE_SCRATCH_WORDS} from './event-motion.mjs';
 
 // Allocation capacity is independent of the populated shader address space.
 // Bind only populated bytes: arrayLength and cached offsets still mean count.
 export function shipStorageSizes(count) {
   count=Math.max(1,count);const spatial=spatialStorage(count);
   return {a:count*SHIP_BYTES,b:count*SHIP_BYTES,history:count*SHIP_HISTORY_BYTES,geometry:filterGeometryBytes(count),
-    heads:(spatial.headWords+1)*4,links:(spatial.linkWords+count*EVENT_POSE_WORDS+correctionWords(count))*4};
+    heads:(spatial.headWords+1)*4,links:(spatial.linkWords+count*EVENT_POSE_WORDS+correctionWords(count)+count*ADVANCE_SCRATCH_WORDS)*4};
 }
 function validateCapacity(capacity,count) {
   if(!Number.isInteger(capacity)||capacity<Math.max(1,count)||capacity>MAX_SHIP_CAPACITY)throw new Error('Ship storage capacity must cover the population, up to 50000');

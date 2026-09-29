@@ -1,4 +1,5 @@
 import {preparePipelines,selectShaderEntries,withGpuPreparationDiagnostics} from './pipeline-preparation.mjs';
+import {prepareAdvancePipeline} from './advance-pipeline.mjs';
 import {SHIP_WORDS} from './ship-layout.mjs';
 import {createCompileReporter} from './compile-status.mjs';
 import {pilotAdviceBytes} from './pilot-advice-layout.mjs';
@@ -200,13 +201,15 @@ async function initializeEngine(canvas,options,director,solar,lifetime,report) {
     {binding:9,visibility:GPUShaderStage.COMPUTE,buffer:{type:'uniform'}}]});
   const pipelineLayout=device.createPipelineLayout({bindGroupLayouts:[layout]});
   const timings=[];let compiled=0;
-  const entries=['advance','clearFormation',...(pilotEnabled?['predictPilots']:[]),'recover','clearDensity','buildDensity','buildHullDensity','scheduleAgents','buildContactCache','buildContactMasks','buildPursuerQueries'];
-  const families=[['advance'],['clearFormation',...(pilotEnabled?['predictPilots']:[])],['recover'],entries.slice(pilotEnabled?4:3)];
-  const compiledModules=new Map();
-  function moduleFor(entryPoint){
-    const roots=families.find(group=>group.includes(entryPoint));const key=roots.join(',');
+  const spatialEntries=['clearDensity','buildDensity','buildHullDensity','scheduleAgents','buildContactCache','buildContactMasks','buildPursuerQueries'];
+  const entries=['advance','clearFormation',...(pilotEnabled?['predictPilots']:[]),'recover',...spatialEntries];
+  const families=[['advance'],['clearFormation',...(pilotEnabled?['predictPilots']:[])],['recover'],spatialEntries];
+  const compiledModules=new Map();let splitSource=null;
+  function moduleFor(entryPoint,split=false){
+    const roots=split?[entryPoint]:families.find(group=>group.includes(entryPoint));const key=(split?'split:':'')+roots.join(',');
     if(!compiledModules.has(key))compiledModules.set(key,(async()=>{
-      const start=performance.now(),code=selectShaderEntries(modules[0],roots);
+      if(split)splitSource??=simulation(cellSize,director.capacity,pressure.layout,solar.capacity,true);
+      const start=performance.now(),code=selectShaderEntries(split?splitSource:modules[0],roots);
       const module=device.createShaderModule({label:`ship-${key}`,code});
       const info=await module.getCompilationInfo();
       if(info.messages.some(x=>x.type==='error'))throw Error(info.messages.filter(x=>x.type==='error').map(x=>`ship-${key}:${x.lineNum}:${x.linePos}: ${x.message}`).join('\n'));
@@ -215,8 +218,14 @@ async function initializeEngine(canvas,options,director,solar,lifetime,report) {
     })());
     return compiledModules.get(key);
   }
-  const jobs=entries.map(entryPoint=>({label:entryPoint,run:async()=>device.createComputePipelineAsync({
-    label:`ship-${entryPoint}`,layout:pipelineLayout,compute:{module:await moduleFor(entryPoint),entryPoint}})}));
+  const compile=async(entryPoint,split=false)=>device.createComputePipelineAsync({
+    label:`ship-${split?'split-':''}${entryPoint}`,layout:pipelineLayout,compute:{module:await moduleFor(entryPoint,split),entryPoint}});
+  let eventPrepare=null;
+  const jobs=entries.map(entryPoint=>({label:entryPoint,run:async()=>{
+    if(entryPoint!=='advance')return compile(entryPoint);
+    const result=await prepareAdvancePipeline(compile,timing=>{timings.push(timing);report({phase:'compiling',...timing});});
+    eventPrepare=result.prepare;return result.pipeline;
+  }}));
   jobs.push(
     {label:'Progress sampler',run:()=>createProgressSampler(device,director)},
     {label:'Population spawn',run:()=>createPopulationSpawner(device,director.capacity.groups)},
@@ -478,7 +487,9 @@ async function initializeEngine(canvas,options,director,solar,lifetime,report) {
     orderPass(encoder,sample,shared);
     if(!pilotEnabled)computeStage(encoder,shared,formationClear,groups[current],director.capacity.fleetCount,sample?.(7));
     if(predict)computeStage(encoder,shared,predict,groups[current],Math.ceil(count/128),sample?.(8));
-    computeStage(encoder,shared,compute,groups[current],Math.ceil(count/128),passWrites(querySet,queryIndex+1,sample,9,'endOfPassWriteIndex'));
+    const movementWrites=passWrites(querySet,queryIndex+1,sample,9,'endOfPassWriteIndex');
+    if(eventPrepare)computeStage(encoder,shared,eventPrepare,groups[current],Math.ceil(count/128),profileEdge(movementWrites,'beginningOfPassWriteIndex'));
+    computeStage(encoder,shared,compute,groups[current],Math.ceil(count/128),eventPrepare?profileEdge(movementWrites,'endOfPassWriteIndex'):movementWrites);
   }
   function encodeCompute(encoder,recovering,querySet,queryIndex,sample) {
     // Separate passes preserve diagnostic timestamps; grouping is a measured option.
