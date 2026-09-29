@@ -38,7 +38,7 @@ export const PLANET_CLOUD_DRIFT_UV_PER_SEC = 0.0003;
 export const PLANET_EDGE_INNER = 0.992;
 export const PLANET_EDGE_OUTER = 1.0;
 export const ATM_OUTER = 1.28;
-const PLANET_DISC_CORE_WGSL = /* wgsl */ `
+export const PLANET_DISC_CORE_WGSL = /* wgsl */ `
 struct FrameUniforms {
   // Origin-relative view·proj (lab origin=0 ⇒ equals world viewProj).
   viewProjRel : mat4x4<f32>,

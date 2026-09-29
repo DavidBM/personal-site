@@ -1,3 +1,4 @@
+import { withGpuResourceDiagnostics } from './runtime-errors.js';
 import { FLEET_RELATIONSHIPS, RELATIONSHIP_COLORS } from "../contracts/fleet-relationship.js";
 import { GalaxySurveyLayer } from './map/survey/survey-layer.js';
 import { createPyramidShipMesh } from '../lib/fleet-sim/visual/lowpoly-ship-mesh.js';
@@ -356,7 +357,7 @@ export class WebGpuMapView {
             },
         });
         try {
-            view = new WebGpuMapView(canvas, bootstrap, options.fovyDeg ?? 60, options.skipShipModel === true, options.clock);
+            view = withGpuResourceDiagnostics(bootstrap.device, "Map startup resources", () => new WebGpuMapView(canvas, bootstrap, options.fovyDeg ?? 60, options.skipShipModel === true, options.clock));
             view.surfaceCleanup = options.onDispose ?? null;
             view.onRenderError = options.onRenderError;
             view.directed = createDirectedSceneHost(null, { instanceBase: MAX_FLEET_SLOTS, reverseDepth: MAP_REVERSE_DEPTH, onPreparation: options.onPreparation });
@@ -546,9 +547,8 @@ export class WebGpuMapView {
         return this.solarBodyLayer.getLastFocusAtmMode();
     }
     /**
-     * Bake the FOCUS LUT after submit / on promote. One in-flight.
-     * Never from encode / renderFrame / startLoop — lab and tests call this.
-     * Live map FOCUS stays RecurseDraw O’Neil (`lutReady = false`).
+     * Compatibility hook for older fixtures. Production uses shared O’Neil
+     * scattering and does not allocate or compile experimental LUT resources.
      */
     pumpLutBake() {
         this.solarBodyLayer.pumpLutBake();
