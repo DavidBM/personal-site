@@ -11,8 +11,10 @@ export function preparationNoticeText(status, sinceSnapshotMs = 0) {
         ready: 'Ship GPU setup ready', failed: 'Ship preparation failed', cancelled: 'Ship preparation cancelled' };
     const count = status.total == null ? '' : ` · ${status.completed}/${status.total} complete in this stage`;
     const waiting = active && age >= 5000 ? ` · Last runtime update ${(age / 1000).toFixed(0)}s ago` : '';
+    const running = active && status.active?.length ? `Pending: ${status.active.map(job => `${job.label} (${((job.elapsedMs + age) / 1000).toFixed(1)}s)`).join(', ')}` : status.label;
+    const queued = status.queued ? ` · ${status.queued} queued` : '';
     const detail = status.phase === 'cancelled' ? 'Outstanding GPU work may finish in the background.' : status.error?.split('\n')[0] ?? '';
-    return { heading: `${headings[status.phase]} · ${seconds}s elapsed`, detail: `${status.label}${count}${waiting}`,
+    return { heading: `${headings[status.phase]} · ${seconds}s elapsed`, detail: `${running}${count}${queued}${waiting}`,
         error: detail, active };
 }
 /** A preparation observation only: no controls, motion decisions, or busy idle timer. */
@@ -30,7 +32,7 @@ export function createRuntimePreparationNotice(parent) {
     error.style.pointerEvents = 'auto';
     element.append(heading, detail, error);
     parent.append(element);
-    const headingText = bindText(heading), detailText = bindText(detail, { height: '2.8em', wrap: true }), errorText = bindText(error, { height: '4.2em', wrap: true });
+    const headingText = bindText(heading), detailText = bindText(detail, { height: '4.2em', wrap: true }), errorText = bindText(error, { height: '4.2em', wrap: true });
     let value = null, receivedAt = 0, settledAt = 0, disposed = false;
     let timer;
     function stop() { clearInterval(timer); timer = undefined; }

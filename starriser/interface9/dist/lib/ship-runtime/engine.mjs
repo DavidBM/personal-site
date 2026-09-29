@@ -227,7 +227,7 @@ async function initializeEngine(canvas,options,director,solar,lifetime,report) {
   report({phase:'compiling',label:'Ship kernels',completed:0,total:jobs.length});
   const prepared=await preparePipelines(jobs,3,timing=>{
     timings.push(timing);report({phase:'compiling',...timing,completed:++compiled,total:jobs.length});
-  });
+  }, progress=>report({phase:'compiling',label:'Ship kernels',...progress}));
   const pipelines=Object.fromEntries(entries.map((entry,i)=>[entry,prepared[i]]));
   const {advance:compute,clearFormation:formationClear,predictPilots:predict,recover:recovery,clearDensity:clear,
     buildDensity:populate,buildHullDensity:hullDensity,scheduleAgents:schedule,buildContactCache:cache,

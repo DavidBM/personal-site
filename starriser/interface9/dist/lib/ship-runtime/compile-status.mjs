@@ -12,6 +12,10 @@ function stageCounts(event) {
 function copyStatus(event) {
   if (!PHASES.has(event?.phase) || typeof event.label !== 'string' || !event.label) return null;
   const value = { phase: event.phase, label: event.label.slice(0, 160), ...stageCounts(event) };
+  if (Array.isArray(event.active)) value.active = Object.freeze(event.active.slice(0,16)
+    .filter(job=>typeof job.label==='string' && Number.isFinite(job.elapsedMs) && job.elapsedMs>=0)
+    .map(job=>Object.freeze({label:job.label.slice(0,80),elapsedMs:job.elapsedMs})));
+  if (Number.isInteger(event.queued) && event.queued>=0) value.queued=event.queued;
   if (Number.isFinite(event.durationMs) && event.durationMs >= 0) value.durationMs = event.durationMs;
   if (typeof event.error === 'string') value.error = event.error.slice(0, 2000);
   return Object.freeze(value);

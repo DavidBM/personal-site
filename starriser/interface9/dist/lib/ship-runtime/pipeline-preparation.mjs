@@ -1,11 +1,23 @@
 /** Bounded pipeline preparation; durations measure completion, not GPU execution. */
-export async function preparePipelines(jobs, concurrency = 3, onTiming = () => {}) {
-  const results = new Array(jobs.length); let cursor = 0;
+export async function preparePipelines(jobs, concurrency = 3, onTiming = () => {}, onProgress = () => {}) {
+  const results = new Array(jobs.length); let cursor = 0, completed = 0;
+  const active = new Map();
+  const progress = () => {
+    const now = performance.now();
+    try { onProgress({completed,total:jobs.length,queued:jobs.length-cursor,
+      active:[...active.values()].map(job=>({label:job.label,elapsedMs:now-job.start}))}); }
+    catch { /* Diagnostics cannot fail preparation. */ }
+  };
   async function worker() {
     while (cursor < jobs.length) {
       const index = cursor++, job = jobs[index], start = performance.now();
+      active.set(index,{label:job.label,start}); progress();
       try { results[index] = await job.run(); }
-      finally { try { onTiming({ label: job.label, durationMs: performance.now() - start }); } catch { /* Diagnostics cannot fail preparation. */ } }
+      finally {
+        active.delete(index); completed++;
+        try { onTiming({ label: job.label, durationMs: performance.now() - start }); } catch { /* Diagnostics cannot fail preparation. */ }
+        progress();
+      }
     }
   }
   // Drain in-flight jobs on failure: callers can safely dispose their resources.
