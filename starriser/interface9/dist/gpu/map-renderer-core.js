@@ -349,6 +349,7 @@ export class WebGpuMapView {
         let view = null;
         const bootstrap = await createWebGpuBootstrap({
             canvas, pixelRatio: options.dpr, label: "galaxy-webgpu-map",
+            onGpuError: options.onGpuError,
             onDeviceLost: (info) => {
                 view?.stopLoop();
                 options.onDeviceLost?.(info);

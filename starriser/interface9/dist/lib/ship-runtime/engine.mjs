@@ -160,7 +160,11 @@ async function initializeEngine(canvas,options,director,solar,lifetime,report) {
   const {adapter,device,timestamps}=await acquireDevice(options,lifetime);
   const profiler=createGpuProfiler(device,timestamps,['Clear / recovery','Density + contacts','Hull volume','Spatial ordering','Contact cache','Contact filtering','Pursuer queries','Fleet reference','Pilot perception','Steer + separate + trails','Render']);
   const errors=[];
-  device.addEventListener('uncapturederror',e=>{errors.push(e.error.message); console.error(e.error.message);});
+  const onGpuError=e=>{
+    if(errors.length>=8||errors.includes(e.error.message))return;
+    errors.push(e.error.message);console.error(e.error.message);
+  };
+  device.addEventListener('uncapturederror',onGpuError);
   const make=(size,usage)=>device.createBuffer({size,usage});
   const storage=GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_SRC|GPUBufferUsage.COPY_DST;
   const shipStorage=createShipStorage(device,count);
@@ -697,7 +701,7 @@ async function initializeEngine(canvas,options,director,solar,lifetime,report) {
         stageKeplerBodies(bodies??[],time??now);
       }},
     followPoseBuffer:()=>followCpu[1-followMap],
-    destroy(){if(closed)return;closed=true;lifetimeToken={};followShip=null;planning?.reset();progress.destroy();packing.destroy();spawner.destroy();retirement.destroy();regrouping.destroy();rebaser.destroy();solar.destroy();profiler.destroy();shipStorage.destroy();for(const b of [uniform,view,orderBuffer,density,controlBuffer,classTuning,...followCpu])b.destroy();depth?.destroy();if(lifetime.ownsDevice)device.destroy();}};
+    destroy(){if(closed)return;closed=true;device.removeEventListener('uncapturederror',onGpuError);lifetimeToken={};followShip=null;planning?.reset();progress.destroy();packing.destroy();spawner.destroy();retirement.destroy();regrouping.destroy();rebaser.destroy();solar.destroy();profiler.destroy();shipStorage.destroy();for(const b of [uniform,view,orderBuffer,density,controlBuffer,classTuning,...followCpu])b.destroy();depth?.destroy();if(lifetime.ownsDevice)device.destroy();}};
   function rebaseTime(time) {
     if(closed)return false;
     const shift=clock.shiftFor(time);if(!shift)return false;

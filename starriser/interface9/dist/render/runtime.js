@@ -28,6 +28,7 @@ export async function createRenderRuntime(options) {
     const view = await WebGpuMapView.createForSurface(options.canvas, {
         ...options.viewport, skipShipModel: options.skipShipModel,
         onPreparation: options.onPreparation,
+        onGpuError: options.onGpuError,
         onDeviceLost: (info) => { runtime?.dispose(); options.onError(`WebGPU device lost: ${info.reason}: ${info.message}`); },
         onRenderError: (error) => options.onError(`WebGPU frame failed: ${String(error)}`),
     });

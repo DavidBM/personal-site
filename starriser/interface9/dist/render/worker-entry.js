@@ -20,6 +20,8 @@ async function initialize(message) {
     try {
         const created = await createRenderRuntime({
             ...message,
+            onGpuError: message => { if (!disposed)
+                send({ type: "gpuError", message }); },
             onPreparation: status => { if (!disposed)
                 send({ type: "preparation", status }); },
             canObserve: () => !awaitingStateAck && !disposed,

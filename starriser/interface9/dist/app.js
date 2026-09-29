@@ -1,3 +1,4 @@
+import { createGpuErrorNotice } from './ui/gpu-error-notice.js';
 import { showDockPanel } from './ui/mobile-layout.js';
 import { readStarField, writeStarField } from './main/graphics-settings.js';
 import { QualityDiagnosticsPanel } from './ui/quality-diagnostics.js';
@@ -58,6 +59,7 @@ export class App {
         this.fleetPathsVisible = readFleetPaths();
         this.fleetDebugVisible = false;
         this.fleetDebugLegend = null;
+        this.gpuErrorNotice = null;
         this.runtimePreparationNotice = null;
         this.online = null;
         this.onlineAttempt = 0;
@@ -143,9 +145,11 @@ export class App {
     async setupWebGpuGraphics() {
         assertWebGpuAvailable();
         this.runtimePreparationNotice = createRuntimePreparationNotice(document.body);
+        this.gpuErrorNotice = createGpuErrorNotice(document.body);
         const client = await RenderClient.create({
             container: document.body,
             onState: (snapshot) => this.handleRenderState(snapshot),
+            onGpuError: message => this.gpuErrorNotice?.update(message),
             onPreparation: status => this.runtimePreparationNotice?.update(status),
             onError: (error) => console.error("[Galaxy] Render worker failed:", error),
             signal: this.startupAbort.signal,
@@ -1489,6 +1493,8 @@ export class App {
         this.fleetDebugLegend = null;
         this.runtimePreparationNotice?.dispose();
         this.runtimePreparationNotice = null;
+        this.gpuErrorNotice?.dispose();
+        this.gpuErrorNotice = null;
         this.uiRoot.clear();
     }
     updateStats(stats) {

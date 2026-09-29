@@ -1,9 +1,4 @@
-/**
- * WebGPU device bootstrap (F2).
- *
- * Chromium-first. Fail loud when adapter/device cannot be created.
- * Does not construct Three; map/fleet layers will bind to this later.
- */
+import { observeGpuErrors } from './runtime-errors.js';
 import { createGpuBufferDevice } from "./device-buffers.js";
 import { buildRequiredLimits, requestDeviceWithFallback } from "./device-request.js";
 export { parseGpuBufferUsage } from "./device-buffers.js";
@@ -36,6 +31,7 @@ export async function createWebGpuBootstrap(options) {
     }
     const requiredLimits = buildRequiredLimits(adapter);
     const device = await requestDeviceWithFallback(adapter, options.label ?? "galaxy-webgpu");
+    const stopErrors = options.onGpuError ? observeGpuErrors(device, options.onGpuError) : () => { };
     const limits = {
         maxStorageBufferBindingSize: device.limits.maxStorageBufferBindingSize,
         maxBufferSize: device.limits.maxBufferSize,
@@ -54,6 +50,7 @@ export async function createWebGpuBootstrap(options) {
     });
     const context = options.canvas.getContext("webgpu");
     if (!context) {
+        stopErrors();
         device.destroy();
         throw new Error('Galaxy requires WebGPU. canvas.getContext("webgpu") returned null.');
     }
@@ -88,6 +85,7 @@ export async function createWebGpuBootstrap(options) {
     const initialSize = initialSurfaceSize(options.canvas);
     configureContext(initialSize.width, initialSize.height);
     const destroy = () => {
+        stopErrors();
         gpu.destroy();
     };
     const bootstrap = {
