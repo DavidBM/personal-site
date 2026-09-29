@@ -133,10 +133,10 @@ export async function createEngine(canvas, options={}) {
   const settings={...DEFAULT_ENGINE,...options},report=createCompileReporter(options.onCompileStatus);
   const lifetime={device:null,ownsDevice:false};let solar;
   try {
-    report({phase:'preparing',label:'Solar model and ship runtime'});
+    report({phase:'preparing',label:'Building ship director'});
     const director=createDirector(settings.count,{reserveFraction:settings.reserveFraction,fleetCount:settings.fleetCount,initialFleets:settings.initialFleets,identityStart:settings.identityStart,occupancy:settings.occupancy});
     const solarStart=performance.now();
-    solar=await createSolarRuntime({period:settings.period,...settings.solar});
+    solar=await createSolarRuntime({period:settings.period,...settings.solar,onProgress:label=>report({phase:'preparing',label})});
     report({phase:'preparing',label:'Solar model and WASM',durationMs:performance.now()-solarStart});
     const runtime=await initializeEngine(canvas,settings,director,solar,lifetime,report);
     report({phase:'ready',label:'Ship runtime ready'});return runtime;

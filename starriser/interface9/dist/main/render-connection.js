@@ -74,6 +74,9 @@ export function createRenderConnection(options) {
             return;
         const response = event.data;
         switch (response.type) {
+            case "preparation":
+                options.onPreparation?.(response.status);
+                break;
             case "ready":
                 clearTimeout(startupTimeout);
                 acceptState(response.snapshot);

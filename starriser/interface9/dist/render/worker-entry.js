@@ -20,6 +20,8 @@ async function initialize(message) {
     try {
         const created = await createRenderRuntime({
             ...message,
+            onPreparation: status => { if (!disposed)
+                send({ type: "preparation", status }); },
             canObserve: () => !awaitingStateAck && !disposed,
             onStatePacket: (packet) => {
                 awaitingStateAck = true;

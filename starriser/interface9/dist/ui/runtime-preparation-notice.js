@@ -10,8 +10,8 @@ export function preparationNoticeText(status, sinceSnapshotMs = 0) {
     const headings = { preparing: 'Preparing ships', checking: 'Checking GPU shaders', compiling: 'Compiling GPU pipelines',
         ready: 'Ship GPU setup ready', failed: 'Ship preparation failed', cancelled: 'Ship preparation cancelled' };
     const count = status.total == null ? '' : ` · ${status.completed}/${status.total} complete in this stage`;
-    const waiting = active && age >= 5000 ? ` · Last runtime update ${(age / 1000).toFixed(0)}s ago` : '';
-    const running = active && status.active?.length ? `Pending: ${status.active.map(job => `${job.label} (${((job.elapsedMs + age) / 1000).toFixed(1)}s)`).join(', ')}` : status.label;
+    const waiting = active && age >= 5000 ? ` · No new preparation event ${(age / 1000).toFixed(0)}s ago` : '';
+    const running = active && status.active?.length ? `${status.label} · Pending: ${status.active.map(job => `${job.label} (${((job.elapsedMs + age) / 1000).toFixed(1)}s)`).join(', ')}` : status.label;
     const queued = status.queued ? ` · ${status.queued} queued` : '';
     const detail = status.phase === 'cancelled' ? 'Outstanding GPU work may finish in the background.' : status.error?.split('\n')[0] ?? '';
     return { heading: `${headings[status.phase]} · ${seconds}s elapsed`, detail: `${running}${count}${queued}${waiting}`,
@@ -24,7 +24,7 @@ export function createRuntimePreparationNotice(parent) {
     element.role = 'status';
     element.setAttribute('aria-live', 'polite');
     element.hidden = true;
-    element.style.cssText = 'position:fixed;left:50%;bottom:64px;transform:translateX(-50%);z-index:1100;padding:8px 11px;background:#09131fee;border:1px solid #506e89;border-radius:4px;color:#c0d7ec;font:11px/1.4 monospace;width:min(540px,80vw);pointer-events:none';
+    element.style.cssText = 'position:fixed;left:50%;bottom:calc(64px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);z-index:1100;padding:8px 11px;background:#09131fee;border:1px solid #506e89;border-radius:4px;color:#c0d7ec;font:11px/1.4 monospace;width:min(540px,80vw);pointer-events:none';
     const heading = document.createElement('div'), detail = document.createElement('div'), error = document.createElement('div');
     detail.style.cssText = 'font-size:10px;color:#9bb1c6';
     error.style.cssText = 'font-size:10px;color:#edb2a6;overflow-wrap:anywhere';

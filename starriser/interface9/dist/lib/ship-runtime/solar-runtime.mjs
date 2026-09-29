@@ -3,10 +3,12 @@ import {SOLAR_BODY_CAPACITY,SOLAR_ORBIT_WORDS,solarWords} from './solar-capacity
 export * from './solar-capacity.mjs';
 export const LAB_SOLAR_BODY_COUNT=3;
 let rulesPromise;
-export function loadPlanetaryRules() {
+export function loadPlanetaryRules(onProgress=()=>{}) {
   // Relative to this module so /interface9/ and local /dist/ both resolve.
   const moduleUrl=new URL('../../wasm/game/galaxy_game_wasm.js',import.meta.url);
+  onProgress('Loading planetary module');
   rulesPromise??=import(moduleUrl.href).then(async module=>{
+    onProgress('Loading and instantiating planetary WASM');
     await module.default({module_or_path:new URL('./galaxy_game_wasm_bg.wasm',moduleUrl)});
     return module;
   });
@@ -20,11 +22,12 @@ export function labEphemeris(period=1800) {
     ...body(12.5*PLANET_SCALE,1.25*PLANET_SCALE,period*PLANET_SCALE/.62,2.2),
   ]};
 }
-export async function createSolarRuntime({period=1800,definition=labEphemeris(period),sceneEpochMs=0,rules=null,bodyCapacity=SOLAR_BODY_CAPACITY}={}) {
+export async function createSolarRuntime({period=1800,definition=labEphemeris(period),sceneEpochMs=0,rules=null,bodyCapacity=SOLAR_BODY_CAPACITY,onProgress=()=>{}}={}) {
   const words=solarWords(bodyCapacity);
   if(bodyCapacity<LAB_SOLAR_BODY_COUNT)throw new RangeError('The lab runtime requires capacity for three ephemeris bodies');
   definition=snapshotDefinition(definition);
-  const module=rules??await loadPlanetaryRules();
+  const module=rules??await loadPlanetaryRules(onProgress);
+  onProgress('Creating planetary model');
   validateModel(module,definition,sceneEpochMs);
   const model=new module.PlanetaryModel(definition.version,definition.epochMs,Float64Array.from(definition.origin),Float64Array.from(definition.bodies));
   const data=new Float32Array(words);data.set([...definition.origin,definition.version],4);

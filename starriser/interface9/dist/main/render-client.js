@@ -11,6 +11,7 @@ export class RenderClient {
         this.canvas = canvas;
         this.connection = createRenderConnection({
             endpoint: worker,
+            onPreparation: options.onPreparation,
             onState: (snapshot) => {
                 this.state = snapshot;
                 canvas.style.cursor = snapshot.cursor;

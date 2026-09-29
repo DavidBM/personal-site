@@ -108,7 +108,7 @@ function combatSlotsOf(runtime) {
     return occupied.filter((g) => g.joined).map((g) => g.slot);
 }
 export function createDirectedSceneHost(injected = null, options = {}) {
-    const preparation = createRuntimePreparation();
+    const preparation = createRuntimePreparation(undefined, options.onPreparation);
     let visualCapacity = options.capacity ?? DEFAULT_SHIP_CAPACITY;
     let requestedCapacity = visualCapacity;
     const depth = depthPolicy(options.reverseDepth);
@@ -1591,7 +1591,7 @@ export function createDirectedSceneHost(injected = null, options = {}) {
             const sceneReady = preparePipelines(sceneJobs, 2, timing => {
                 console.info('[ship-preparation]', timing.label, timing.durationMs.toFixed(1) + 'ms');
                 preparation.update({ phase: 'compiling', ...timing });
-            });
+            }, preparation.scene);
             // Attach a handler immediately; runtime preparation can finish later.
             const sceneSettled = sceneReady.then(() => null, error => error);
             pending ?? (pending = createRuntime({

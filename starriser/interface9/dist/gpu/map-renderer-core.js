@@ -358,7 +358,7 @@ export class WebGpuMapView {
             view = new WebGpuMapView(canvas, bootstrap, options.fovyDeg ?? 60, options.skipShipModel === true, options.clock);
             view.surfaceCleanup = options.onDispose ?? null;
             view.onRenderError = options.onRenderError;
-            view.directed = createDirectedSceneHost(null, { instanceBase: MAX_FLEET_SLOTS, reverseDepth: MAP_REVERSE_DEPTH });
+            view.directed = createDirectedSceneHost(null, { instanceBase: MAX_FLEET_SLOTS, reverseDepth: MAP_REVERSE_DEPTH, onPreparation: options.onPreparation });
             const directed = view.directed;
             // Compile once per renderer/device while domain data and assets arrive.
             // Do not hold the galaxy map's first frame behind ship preparation.

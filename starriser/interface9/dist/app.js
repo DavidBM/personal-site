@@ -142,9 +142,11 @@ export class App {
     /** Transfer the canvas once; workers own camera, GPU simulation, and rendering. */
     async setupWebGpuGraphics() {
         assertWebGpuAvailable();
+        this.runtimePreparationNotice = createRuntimePreparationNotice(document.body);
         const client = await RenderClient.create({
             container: document.body,
             onState: (snapshot) => this.handleRenderState(snapshot),
+            onPreparation: status => this.runtimePreparationNotice?.update(status),
             onError: (error) => console.error("[Galaxy] Render worker failed:", error),
             signal: this.startupAbort.signal,
         });
@@ -159,7 +161,6 @@ export class App {
         client.send({ type: "fleetPaths", on: this.fleetPathsVisible });
         this.scenePointerFeedback = createScenePointerFeedback(document.body);
         this.fleetDebugLegend = createFleetDebugLegend(document.body);
-        this.runtimePreparationNotice = createRuntimePreparationNotice(document.body);
         this.fleetMoveStatus = createFleetMoveStatus(document.body, () => this.cancelFleetMove());
         this.fleetContextMenu = createFleetContextMenu(document.body, {
             select: id => this.selectSceneFleet(id),
@@ -208,7 +209,6 @@ export class App {
     handleRenderState(snapshot) {
         if (this.disposed)
             return;
-        this.runtimePreparationNotice?.update(snapshot.scenePreparation ?? null);
         if (typeof snapshot.highFxSupported === 'boolean') {
             paintHighFx(snapshot.highFx === true, snapshot.highFxSupported);
             if (!snapshot.highFxSupported && this.highFxEnabled) {
