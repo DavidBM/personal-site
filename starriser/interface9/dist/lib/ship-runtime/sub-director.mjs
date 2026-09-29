@@ -49,17 +49,17 @@ fn shipIsAnchor(s: Ship, form: FleetForm) -> bool {
   }
   return false;
 }
-fn subDirect(s: Ship, desired: vec3<f32>, limits: vec4<f32>, now: f32) -> vec3<f32> {
-  ${fleetPilot?'if(fleetPilotActive(s)){return desired;}':''}
+fn subDirectRingWeight(s: Ship, now: f32) -> f32 {
+  ${fleetPilot?'if(fleetPilotActive(s)){return 1.0;}':''}
   let orbit = s.flight.w < -0.5 && s.flight.w > -1.5;
-  if (!orbit) { return formationSteer(s, desired, limits); }
+  if (!orbit) { return 0.0; }
   let fleet = s.identity.y;
-  if (fleet >= FORM_FLEETS) { return desired; }
+  if (fleet >= FORM_FLEETS) { return 1.0; }
   let form = director.forms[fleet];
   let n = form.head.y;
-  if (n == 0u) { return desired; }
+  if (n == 0u) { return 1.0; }
   let journey = journeyFor(s);
-  if (journey.range.z <= 0.0) { return formationSteer(s, desired, limits); }
+  if (journey.range.z <= 0.0) { return 0.0; }
   let page = 1u - (u32(u.trail.z) & 1u);
   var mean = vec3<f32>(0.0);
   var live = 0u;
@@ -69,16 +69,23 @@ fn subDirect(s: Ship, desired: vec3<f32>, limits: vec4<f32>, now: f32) -> vec3<f
     mean += pose.p.xyz;
     live++;
   }
-  if (live == 0u) { return formationSteer(s, desired, limits); }
+  if (live == 0u) { return 0.0; }
   mean /= f32(live);
   let planet = body(u32(journey.range.z) - 1u, now, u.control.x);
   let ring = destinationRing(classType(form.head.x), planet.w);
-  if (ring <= 0.0) { return formationSteer(s, desired, limits); }
+  if (ring <= 0.0) { return 0.0; }
   let dist = length(mean - planet.xyz);
   let ringW = 1.0 - smoothstep(ring * ${RING_INNER}, ring * ${RING_OUTER}, dist);
-  if (ringW <= 0.0) { return formationSteer(s, desired, limits); }
-  if (ringW >= 1.0) { return desired; }
-  return mix(formationSteer(s, desired, limits), desired, ringW);
+  if (ringW <= 0.0) { return 0.0; }
+  if (ringW >= 1.0) { return 1.0; }
+  return ringW;
+}
+fn subDirect(s: Ship, desired: vec3<f32>, limits: vec4<f32>, now: f32) -> vec3<f32> {
+  let ringW=subDirectRingWeight(s,now);
+  if(ringW>=1.0){return desired;}
+  let formed=formationSteer(s,desired,limits);
+  if(ringW<=0.0){return formed;}
+  return mix(formed,desired,ringW);
 }
 `;
 }

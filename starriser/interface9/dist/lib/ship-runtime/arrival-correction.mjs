@@ -37,28 +37,39 @@ fn completeArrival(initial:Ship,i:u32,now:f32,last:u32)->Ship {
   s.origin=vec4<f32>(0.0,0.0,0.0,2.0);s.tactic.w=now+1.0;s.q=attitude(s.q,s.v.xyz,1.0,PI);
   recordCorrection(initial,s,i,now);resetEmitterHistory(s,i,now,last);return s;
 }
-// Exact event/deadline handling is shared, but never calls a controller. Carry
-// the remaining interval to one final integration, including its history range.
+// All held intervals share one call site. Stages retain the original ordering:
+// admission at start, deadline integration/correction, optional remaining motion.
+// Capture journey before admission: the deadline predicate uses that same record.
 struct ShipIntegration { ship:Ship, dt:f32, first:u32 }
-fn prepareShipIntegration(original:Ship,i:u32,now:f32,dt:f32,first:u32)->ShipIntegration {
-  let start=now-dt;
-  var s=original;let journey=journeyFor(s);
-  // Fresh production seeds carry an exact admission date, not the prior tick boundary.
-  if(s.origin.w != -2.0 && journey.mode.y>s.flight.x&&start>=journey.mode.z){s=integrateHeldMotion(s,i,start,0.0,first,u32(floor(max(0.0,start)*60.0)));}
-  if(admitted(s)&&journey.mode.x==1.0&&now>=journey.mode.w&&(s.origin.w<1.0||s.flight.x!=journey.mode.y)) {
-    let at=max(start,journey.mode.w);let tick=u32(floor(max(0.0,at)*60.0));
-    s=integrateHeldMotion(s,i,at,at-start,first,tick);
-    s=completeArrival(s,i,at,tick);
-    return ShipIntegration(s,now-at,tick+1u);
+fn prepareShipIntegration(original:Ship,i:u32,now:f32,dt:f32,first:u32,last:u32,finishHeld:bool)->ShipIntegration {
+  let start=now-dt;let journey=journeyFor(original);
+  var s=original;var remaining=dt;var nextFirst=first;var stage=0u;
+  loop {
+    var at=now;var stepDt=remaining;var begin=nextFirst;var end=last;
+    if(stage==0u) {
+      stage=1u;
+      // Fresh production seeds keep their exact admission time.
+      if(!(s.origin.w != -2.0 && journey.mode.y>s.flight.x && start>=journey.mode.z)){continue;}
+      at=start;stepDt=0.0;begin=first;end=u32(floor(max(0.0,start)*60.0));
+    } else if(stage==1u) {
+      stage=2u;
+      if(!(admitted(s)&&journey.mode.x==1.0&&now>=journey.mode.w&&(s.origin.w<1.0||s.flight.x!=journey.mode.y))){continue;}
+      at=max(start,journey.mode.w);stepDt=at-start;begin=first;end=u32(floor(max(0.0,at)*60.0));
+    } else {
+      if(!finishHeld){break;}
+      stage=3u;
+    }
+    s=integrateHeldMotion(s,i,at,stepDt,begin,end);
+    if(stage==2u){s=completeArrival(s,i,at,end);remaining=now-at;nextFirst=end+1u;}
+    if(stage==3u){break;}
   }
-  return ShipIntegration(s,dt,first);
+  return ShipIntegration(s,remaining,nextFirst);
 }
 fn integrateHeldShip(original:Ship,i:u32,now:f32,dt:f32,first:u32,last:u32)->Ship {
-  let interval=prepareShipIntegration(original,i,now,dt,first);
-  return integrateHeldMotion(interval.ship,i,now,interval.dt,interval.first,last);
+  return prepareShipIntegration(original,i,now,dt,first,last,true).ship;
 }
 fn integrateShip(original:Ship,i:u32,now:f32,dt:f32,first:u32,last:u32)->Ship {
-  let interval=prepareShipIntegration(original,i,now,dt,first);
+  let interval=prepareShipIntegration(original,i,now,dt,first,last,false);
   return integrateMotion(interval.ship,i,now,interval.dt,interval.first,last);
 }
 `;
