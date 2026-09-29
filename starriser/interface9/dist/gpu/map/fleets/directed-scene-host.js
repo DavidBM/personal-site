@@ -4,6 +4,7 @@ import { simulationRate, DEFAULT_SIMULATION_RATE } from '../../../contracts/simu
 import { SHIP_SIM_STRIDE } from '../../ship-sim-layout.js';
 import { preparePipelines } from '../../../lib/ship-runtime/pipeline-preparation.mjs';
 import { sceneCameraShader, sceneSelectionShader, bindSceneCamera } from "../../scene-camera.js";
+import { createCheckedShaderModule } from '../../checked-shader-module.js';
 import { SceneCameraGpu } from './scene-camera-gpu.js';
 import { WARP_RIM_ORBIT_MULTIPLIER } from "../../../lib/ship-runtime/scene-scale.mjs";
 import { sceneFleetTypes } from './fleet-marker.js';
@@ -1354,7 +1355,7 @@ export function createDirectedSceneHost(injected = null, options = {}) {
     }
     async function buildAltitudePipeline(device) {
         preparation.update({ phase: 'compiling', label: 'Scene pipelines · fleet markers', completed: 3, total: 6 });
-        const module = device.createShaderModule({ code: sceneCameraShader(FLEET_MARKER_WGSL, ["u.vp"]) });
+        const module = await createCheckedShaderModule(device, 'fleet-markers', sceneCameraShader(FLEET_MARKER_WGSL, ["u.vp"]));
         altitudePipeline = await device.createRenderPipelineAsync({
             layout: "auto",
             vertex: { module, entryPoint: "vs" },
@@ -1377,7 +1378,7 @@ export function createDirectedSceneHost(injected = null, options = {}) {
             },
             multisample: { count: MAP_MSAA_SAMPLES },
         });
-        const selectionModule = device.createShaderModule({ code: sceneSelectionShader(SHIP_SELECTION_WGSL) });
+        const selectionModule = await createCheckedShaderModule(device, 'ship-selection', sceneSelectionShader(SHIP_SELECTION_WGSL));
         preparation.update({ phase: 'compiling', label: 'Scene pipelines · ship selection', completed: 4, total: 6 });
         selectionPipeline = await device.createRenderPipelineAsync({ layout: 'auto',
             vertex: { module: selectionModule, entryPoint: 'vs' },

@@ -37,8 +37,9 @@ fn sizeOf(slot: u32) -> vec2<f32> {
   let c=corners[v%6u];
   var offset=vec2<f32>(c.x*0.5, (c.y-1.0)*${stem / 2}.0);
   if(v>=6u) { offset=c*size*0.5-vec2<f32>(0,${stem}.0+size.y*0.5); }
-  out.clip=base;
-  out.clip.xy += offset*vec2<f32>(2.0,-2.0)/u.viewport.xy*base.w;
+  // Full-vector assignment keeps this portable without swizzle_assignment.
+  let clipOffset=offset*vec2<f32>(2.0,-2.0)/u.viewport.xy*base.w;
+  out.clip=vec4<f32>(base.xy+clipOffset,base.zw);
   out.xy=(c+1.0)*size*0.5;
   return out;
 }
