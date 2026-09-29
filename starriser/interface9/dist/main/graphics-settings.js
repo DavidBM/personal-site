@@ -1,7 +1,10 @@
+import { readGpuBudget } from './gpu-budget-settings.js';
 import { simulationRate, DEFAULT_SIMULATION_RATE } from '../contracts/simulation-rate.js';
 import { bindText, setText } from '../ui/dom-bindings.js';
 const HIGH_FX_KEY = 'galaxy.highFx';
 export function readHighFx() {
+    if (readGpuBudget() === 'compact')
+        return false;
     try {
         return globalThis.localStorage?.getItem(HIGH_FX_KEY) === 'true';
     }
@@ -71,6 +74,8 @@ export function writeSimulationRate(hz) {
     catch { /* Session setting still applies. */ }
 }
 export function readSelectiveMsaa() {
+    if (readGpuBudget() === 'compact')
+        return false;
     try {
         return globalThis.localStorage?.getItem('galaxy.selectiveMsaa') !== 'false';
     }
@@ -84,7 +89,8 @@ export function writeSelectiveMsaa(on) {
     }
     catch { /* Session storage unavailable. */ }
 }
-export function readHalfGlow() { try {
+export function readHalfGlow() { if (readGpuBudget() === 'compact')
+    return false; try {
     return globalThis.localStorage?.getItem('galaxy.halfGlow') !== 'false';
 }
 catch {
@@ -109,6 +115,8 @@ export function writeStarField(on) {
     catch { /* Session setting remains available. */ }
 }
 export function readRenderScale() {
+    if (readGpuBudget() === 'compact')
+        return 0.5;
     try {
         return localStorage.getItem('galaxy.renderScale') === '0.5' ? 0.5 : 1;
     }

@@ -1,3 +1,4 @@
+import { renderBudget, compactRenderBudget } from './render-budget.js';
 import { withGpuResourceDiagnostics } from './runtime-errors.js';
 import { FLEET_RELATIONSHIPS, RELATIONSHIP_COLORS } from "../contracts/fleet-relationship.js";
 import { GalaxySurveyLayer } from './map/survey/survey-layer.js';
@@ -176,18 +177,18 @@ export class WebGpuMapView {
         this.fleetPresentation = new FleetPresentation(this.fleetsLayer, () => this.disposed || bootstrap.isLost, this.solarBodies, this.timeline, true);
         this.modelLayer = new FleetModelGpuLayer(bootstrap, {
             reverseDepth: MAP_REVERSE_DEPTH,
-            maxInstances: MODEL_LOD_MAX_INSTANCES,
+            maxInstances: Math.min(MODEL_LOD_MAX_INSTANCES, renderBudget().ships),
             modelScale: MODEL_LOD_DEFAULT_SCALE,
             meshYawHalf: 0, // low-poly +Z forward
         });
         this.modelLowLayer = new FleetModelGpuLayer(bootstrap, {
             reverseDepth: MAP_REVERSE_DEPTH,
-            maxInstances: MODEL_LOD_MAX_INSTANCES,
+            maxInstances: Math.min(MODEL_LOD_MAX_INSTANCES, renderBudget().ships),
             modelScale: MODEL_LOD_DEFAULT_SCALE,
             meshYawHalf: 0,
         });
         this.modelTinyLayer = new FleetModelGpuLayer(bootstrap, {
-            reverseDepth: MAP_REVERSE_DEPTH, maxInstances: MODEL_LOD_MAX_INSTANCES,
+            reverseDepth: MAP_REVERSE_DEPTH, maxInstances: Math.min(MODEL_LOD_MAX_INSTANCES, renderBudget().ships),
             modelScale: MODEL_LOD_DEFAULT_SCALE, meshYawHalf: 0,
         });
         this.modelPresentation = new FleetModelPresentation({
@@ -244,7 +245,7 @@ export class WebGpuMapView {
         this.solarBodyLayer.init(msaa);
         this.lines.init(msaa);
         this.fleetsLayer.init(msaa);
-        this.fleetsLayer.configureScenePool(MAX_FLEET_SLOTS, SCENE_KERNEL_COUNT);
+        this.fleetsLayer.configureScenePool(MAX_FLEET_SLOTS, renderBudget().ships);
         this.modelLayer.init(msaa);
         this.modelLowLayer.init(msaa);
         this.modelTinyLayer.init(msaa);
@@ -360,7 +361,7 @@ export class WebGpuMapView {
             view = withGpuResourceDiagnostics(bootstrap.device, "Map startup resources", () => new WebGpuMapView(canvas, bootstrap, options.fovyDeg ?? 60, options.skipShipModel === true, options.clock));
             view.surfaceCleanup = options.onDispose ?? null;
             view.onRenderError = options.onRenderError;
-            view.directed = createDirectedSceneHost(null, { instanceBase: MAX_FLEET_SLOTS, reverseDepth: MAP_REVERSE_DEPTH, onPreparation: options.onPreparation });
+            view.directed = createDirectedSceneHost(null, { instanceBase: MAX_FLEET_SLOTS, reverseDepth: MAP_REVERSE_DEPTH, capacity: renderBudget().ships, maxCapacity: renderBudget().maxShips, fleetCount: renderBudget().fleets, onPreparation: options.onPreparation });
             const directed = view.directed;
             // Compile once per renderer/device while domain data and assets arrive.
             // Do not hold the galaxy map's first frame behind ship preparation.
@@ -1061,9 +1062,9 @@ export class WebGpuMapView {
         const have = this.sceneSlots.get(id);
         if (have != null && this.sceneSlotLive[have])
             return have;
-        if (this.sceneSlots.size >= MAX_SCENE_FLEETS)
+        if (this.sceneSlots.size >= renderBudget().fleets)
             return -1;
-        for (let slot = 0; slot < MAX_SCENE_FLEETS; slot++) {
+        for (let slot = 0; slot < renderBudget().fleets; slot++) {
             if (this.sceneSlotLive[slot])
                 continue;
             this.sceneSlotLive[slot] = 1;
@@ -1261,7 +1262,7 @@ export class WebGpuMapView {
     setSimulationRate(hz) { this.directed?.setSimulationRate(hz); }
     isHighFxEnabled() { return this.frameState.highFx; }
     supportsHighFx() {
-        return HIGH_FX_BIND_BYTES <= Math.min(this.bootstrap.device.limits.maxStorageBufferBindingSize, this.bootstrap.device.limits.maxBufferSize);
+        return !compactRenderBudget() && HIGH_FX_BIND_BYTES <= Math.min(this.bootstrap.device.limits.maxStorageBufferBindingSize, this.bootstrap.device.limits.maxBufferSize);
     }
     clearQualityDiagnostics() { this.qualityEpoch++; this.directed?.clearQuality(); }
     async sampleQualityDiagnostics() {
@@ -1280,7 +1281,7 @@ export class WebGpuMapView {
     }
     setStarField(on) { this.survey.stars.enabled = on; }
     setHighFx(on) {
-        const capacity = sceneShipCapacity(on === true);
+        const capacity = Math.min(sceneShipCapacity(on === true), renderBudget().maxShips);
         if (on && !this.supportsHighFx())
             return;
         this.frameState.highFx = on === true;

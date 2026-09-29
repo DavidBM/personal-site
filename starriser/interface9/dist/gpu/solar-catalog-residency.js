@@ -1,3 +1,4 @@
+import { renderBudget } from './render-budget.js';
 /**
  * View-owned catalog texture residency.
  *
@@ -179,7 +180,7 @@ export class SolarCatalogResidency {
      * RecurseDraw parent (preview / dummy) stays until hi resolves.
      */
     promoteHi(catalogId) {
-        if (!catalogId)
+        if (!catalogId || !renderBudget().highPlanetTextures)
             return "refused";
         if (this.hiId === catalogId && this.hiPack)
             return "ready";

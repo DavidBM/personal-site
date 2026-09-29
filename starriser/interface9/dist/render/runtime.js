@@ -1,3 +1,4 @@
+import { configureRenderBudget, compactRenderBudget } from '../gpu/render-budget.js';
 import { createSnapshotWriter } from "./snapshot-writer.js";
 import { configureMapQuality } from '../gpu/map-msaa.js';
 /** Worker-owned render composition. The same production runtime is usable in isolated scenarios. */
@@ -21,7 +22,8 @@ const FLEET_PACK_BUDGET_MS = 1;
 const FLEET_PACK_MAX_PER_FRAME = 256;
 const OBSERVATION_INTERVAL_MS = 1000 / 30;
 export async function createRenderRuntime(options) {
-    configureMapQuality(options.selectiveMsaa !== false, options.halfGlow !== false);
+    configureRenderBudget(options.gpuBudget);
+    configureMapQuality(!compactRenderBudget() && options.selectiveMsaa !== false, !compactRenderBudget() && options.halfGlow !== false);
     enableFrameDebug(options.frameDebug === true);
     setAssetBase(options.assetBase);
     let runtime;

@@ -1,3 +1,4 @@
+import { gpuBudgetControl } from './gpu-budget-control.js';
 import { renderResolutionControl } from './render-resolution-control.js';
 import { buildEditorGenerationPanel } from "./editor-generation-panel.js";
 import { buildEditorStatsPanel } from "./editor-stats-panel.js";
@@ -40,7 +41,7 @@ function addModeSwitcher(ctx, actions, mode) {
         },
     });
     if (mode === 'play')
-        switcher.content.append(renderResolutionControl(actions));
+        switcher.content.append(renderResolutionControl(actions), gpuBudgetControl());
     return switcher.element;
 }
 function buildEditorContextMenu(ctx, actions) {

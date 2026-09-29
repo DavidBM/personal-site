@@ -4,9 +4,13 @@
 const reporters = new WeakMap();
 export function observeGpuErrors(device, report) {
     const seen = new Set();
+    let reportedOom = false;
     const notify = (message) => {
-        if (seen.size >= 3)
+        const oom = message.includes('GPUOutOfMemoryError');
+        if (seen.size >= 3 && (!oom || reportedOom))
             return;
+        if (oom)
+            reportedOom = true;
         message = message.slice(0, 4000);
         if (seen.has(message))
             return;

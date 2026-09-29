@@ -1,3 +1,5 @@
+import { needsGpuBudgetFallback } from '../contracts/gpu-budget.js';
+import { readGpuBudget, saveGpuBudget, gpuBudgetReloadUrl } from './gpu-budget-settings.js';
 import { readSelectiveMsaa, readHalfGlow, readRenderScale } from './graphics-settings.js';
 import { createRenderConnection } from "./render-connection.js";
 import { readBrowserFrameDebug } from "./browser-frame-debug.js";
@@ -7,18 +9,28 @@ export class RenderClient {
         this.cleanup = [];
         this.state = null;
         this.lost = false;
+        this.gpuBudget = readGpuBudget();
+        this.recoveringMemory = false;
         this.renderScale = readRenderScale();
         this.canvas = canvas;
         this.connection = createRenderConnection({
             endpoint: worker,
-            onPreparation: options.onPreparation,
-            onGpuError: options.onGpuError,
+            onPreparation: status => options.onPreparation?.(this.gpuBudget === 'compact'
+                ? { ...status, label: `${status.label} · Low memory: 2K ships / 32 fleets` } : status),
+            onGpuError: message => {
+                if (!this.recoverGpuMemory(message, options.onGpuError))
+                    options.onGpuError?.(message);
+            },
             onState: (snapshot) => {
                 this.state = snapshot;
                 canvas.style.cursor = snapshot.cursor;
                 options.onState(snapshot);
             },
-            onError: (error) => { this.lost = true; options.onError(error); },
+            onError: (error) => {
+                this.lost = true;
+                if (!this.recoverGpuMemory(String(error), options.onGpuError))
+                    options.onError(error);
+            },
         });
     }
     static async create(options) {
@@ -42,9 +54,9 @@ export class RenderClient {
             const offscreen = canvas.transferControlToOffscreen();
             const motion = matchMedia("(prefers-reduced-motion: reduce)");
             const bootstrap = {
-                type: "initialize", canvas: offscreen,
+                type: "initialize", canvas: offscreen, gpuBudget: client.gpuBudget,
                 viewport: client.viewport(), reducedMotion: motion.matches,
-                frameDebug: readBrowserFrameDebug(), selectiveMsaa: readSelectiveMsaa(), halfGlow: readHalfGlow(),
+                frameDebug: readBrowserFrameDebug(), selectiveMsaa: client.gpuBudget === 'standard' && readSelectiveMsaa(), halfGlow: client.gpuBudget === 'standard' && readHalfGlow(),
                 assetBase: new URL("./", document.baseURI || window.location.href).href,
             };
             worker.postMessage(bootstrap, [offscreen]);
@@ -65,9 +77,27 @@ export class RenderClient {
             options.signal?.removeEventListener("abort", onAbort);
         }
     }
+    recoverGpuMemory(message, notify) {
+        if (this.recoveringMemory)
+            return true;
+        if (!needsGpuBudgetFallback(this.gpuBudget, message))
+            return false;
+        this.recoveringMemory = true;
+        saveGpuBudget('compact');
+        notify?.('GPU memory allocation failed. Restarting once in Low memory mode (2K ships / 32 fleets). The demo will reset.');
+        const url = gpuBudgetReloadUrl('compact', location.href);
+        // dispose destroys the device; the connection terminates an unresponsive
+        // worker after one second. A fresh page also releases decoded assets.
+        void this.dispose().finally(() => location.replace(url));
+        return true;
+    }
+    effectivePixelRatio() {
+        const scale = this.gpuBudget === 'compact' ? Math.min(0.5, this.renderScale) : this.renderScale;
+        return (window.devicePixelRatio || 1) * scale;
+    }
     viewport() {
         const rect = this.canvas.getBoundingClientRect();
-        return { width: Math.max(1, rect.width), height: Math.max(1, rect.height), dpr: (window.devicePixelRatio || 1) * this.renderScale };
+        return { width: Math.max(1, rect.width), height: Math.max(1, rect.height), dpr: this.effectivePixelRatio() };
     }
     observeViewport(motion) {
         let resizeRaf = 0;
@@ -115,7 +145,7 @@ export class RenderClient {
     resize(width, height) {
         this.canvas.style.width = `${Math.max(1, width)}px`;
         this.canvas.style.height = `${Math.max(1, height)}px`;
-        this.send({ type: "viewport", viewport: { width, height, dpr: (window.devicePixelRatio || 1) * this.renderScale } });
+        this.send({ type: "viewport", viewport: { width, height, dpr: this.effectivePixelRatio() } });
     }
     async dispose() {
         for (const clean of this.cleanup.splice(0))

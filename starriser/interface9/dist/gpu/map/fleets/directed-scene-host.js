@@ -110,7 +110,9 @@ function combatSlotsOf(runtime) {
 }
 export function createDirectedSceneHost(injected = null, options = {}) {
     const preparation = createRuntimePreparation(undefined, options.onPreparation);
-    let visualCapacity = options.capacity ?? DEFAULT_SHIP_CAPACITY;
+    const fleetCount = Math.max(1, Math.min(MAX_SCENE_FLEETS, options.fleetCount ?? MAX_SCENE_FLEETS));
+    const maxCapacity = Math.min(MAX_SHIP_CAPACITY, options.maxCapacity ?? MAX_SHIP_CAPACITY);
+    let visualCapacity = Math.min(maxCapacity, options.capacity ?? DEFAULT_SHIP_CAPACITY);
     let requestedCapacity = visualCapacity;
     const depth = depthPolicy(options.reverseDepth);
     let runtime = injected;
@@ -228,7 +230,7 @@ export function createDirectedSceneHost(injected = null, options = {}) {
         install: (slot, data) => runtime?.uploadSceneRoute?.(slot, data),
         changed: () => { routesDirty = true; },
     });
-    const nearbyPositions = createSceneNearbyPositions(MAX_SCENE_FLEETS);
+    const nearbyPositions = createSceneNearbyPositions(fleetCount);
     function debugRepresentatives() {
         if (!debugFleet || !selectedId)
             return [];
@@ -307,7 +309,7 @@ export function createDirectedSceneHost(injected = null, options = {}) {
             const layout = warpLayouts.get(fleet.slot ?? 0);
             return { ...fleet, seedShipCount: fleetSeedCount(fleet), formationOrigin: layout?.center, formationRadius: layout?.radius };
         });
-        return packFleetFormation(rows, MAX_SCENE_FLEETS, slotRanges);
+        return packFleetFormation(rows, fleetCount, slotRanges);
     }
     function applyOccupancy() {
         if (!runtime?.extras?.compactVisuals)
@@ -316,7 +318,7 @@ export function createDirectedSceneHost(injected = null, options = {}) {
         if (key === occupancyKey)
             return;
         occupancyKey = key;
-        runtime.extras.compactVisuals(occupancyVisuals({ fleets }));
+        runtime.extras.compactVisuals(occupancyVisuals({ fleets }, fleetCount));
         runtime.uploadFormation(fleetFormation(), true);
     }
     function allPaused() {
@@ -1270,7 +1272,7 @@ export function createDirectedSceneHost(injected = null, options = {}) {
         runtime?.invalidateNearby?.();
     }
     function bindFleets(next, buffer, poses, sims, trails) {
-        const prepared = next.slice(0, MAX_SCENE_FLEETS).map((f) => {
+        const prepared = next.filter(f => (f.slot ?? 0) < fleetCount).slice(0, fleetCount).map((f) => {
             const row = { ...f };
             attachPlan(row);
             row.serialBase = ships.serialBase(row.id ?? "");
@@ -1535,6 +1537,7 @@ export function createDirectedSceneHost(injected = null, options = {}) {
             return token === mapGen && owner === runtime && sampler === quality ? result : null;
         },
         setVisualCapacity(capacity) {
+            capacity = Math.min(capacity, maxCapacity);
             if (!Number.isInteger(capacity) || capacity < 1 || capacity > MAX_SHIP_CAPACITY)
                 throw new Error('Invalid scene ship capacity');
             visualCapacity = capacity;
@@ -1597,10 +1600,10 @@ export function createDirectedSceneHost(injected = null, options = {}) {
             const sceneSettled = sceneReady.then(() => null, error => error);
             pending ?? (pending = createRuntime({
                 onCompileStatus: preparation.engine,
-                device, canvas: null, count: requestedCapacity, fleetCount: MAX_SCENE_FLEETS, warpOffsetCapacity: MAX_SHIP_CAPACITY,
+                device, canvas: null, count: requestedCapacity, fleetCount, warpOffsetCapacity: maxCapacity,
                 // The map's frame profiler owns timestamps for all encoded passes.
                 fieldCapacity: 8, navigation: true, simHz: simulationHz || 60, timestamps: false,
-                occupancy: occupancyForScene(MAX_SCENE_FLEETS, 0),
+                occupancy: occupancyForScene(fleetCount, 0),
             }).then(async (created) => {
                 initializing = created;
                 const sceneError = await sceneSettled;
