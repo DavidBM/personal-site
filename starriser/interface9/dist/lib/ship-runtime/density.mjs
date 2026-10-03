@@ -12,7 +12,7 @@ fn activeField(index:u32)->u32{return ${scopes?'director.pressure.occupied[index
 `;
 
 import {SPACING_WGSL} from './spacing.mjs';
-export const densitySimulation=(side=64,cellSize=4,scopes=null)=>/* wgsl */`
+export const densitySimulation=(side=64,cellSize=4,scopes=null,hullWork=false)=>/* wgsl */`
 const FIELD_SIDE:u32=${side}u;
 const FIELD_CELLS:u32=${side**3}u;
 const FIELD_HALF:f32=${side*cellSize/2}.0;
@@ -80,7 +80,7 @@ fn depositHull(p:vec3<f32>,fleet:u32,mass:u32) {
   }
 }
 @compute @workgroup_size(64) fn buildHullDensity(@builtin(workgroup_id) group:vec3<u32>,@builtin(local_invocation_index) lane:u32) {
-  let index=hullSlot(group.x);if(index>=u32(u.clock.z)){return;}
+  let index=${hullWork?"director.pilotWork[group.x]":"hullSlot(group.x)"};if(index>=u32(u.clock.z)){return;}
   let s=old[index];if(!contributes(s)){return;}
   let typeId=shipType(s);let extent=dimensions(typeId).xyz;
   for(var field=0u;field<FIELD_COUNT;field++) {

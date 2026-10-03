@@ -1,7 +1,7 @@
 import { sceneCameraShader, bindSceneCamera } from '../scene-camera.js';
 import { readGpuBuffer } from '../buffer-readback.js';
 import { writeModelFrustumPlanes } from '../../lib/fleet-sim/visual/model-visibility.js';
-import { buildModelVisibilityWgsl, MODEL_VISIBILITY_GROUP_SIZE, MODEL_VISIBILITY_UNIFORM_BYTES } from '../../lib/fleet-sim/gpu/model-visibility.wgsl.js';
+import { buildModelVisibilityWgsl, MODEL_VISIBILITY_GROUP_SIZE, MODEL_VISIBILITY_UNIFORM_BYTES, MODEL_VISIBILITY_MAX_BATCHES } from '../../lib/fleet-sim/gpu/model-visibility.wgsl.js';
 function createBuffers(device, capacity, outputBytes, batchCount) {
     const uniform = device.createBuffer({ label: 'model-visibility-uniform', size: MODEL_VISIBILITY_UNIFORM_BYTES, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     let workspace = null, output = null;
@@ -27,14 +27,14 @@ function createLayout(device) {
             { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
         ] });
 }
-function createPipelines(device, layout, capacity, indirectWords, batchCount) {
-    const module = device.createShaderModule({ label: 'model-visibility', code: sceneCameraShader(buildModelVisibilityWgsl(capacity, indirectWords, batchCount), []).replace('sphereVisible(pose.centerRel,', 'sphereVisible((sceneCamera.world * vec4<f32>(pose.centerRel,1.0)).xyz,') });
+function createPipelines(device, layout, capacity, indirectWords, batchCount, partitions) {
+    const module = device.createShaderModule({ label: 'model-visibility', code: sceneCameraShader(buildModelVisibilityWgsl(capacity, indirectWords, batchCount, partitions), []).replace('sphereVisible(pose.centerRel,', 'sphereVisible((sceneCamera.world * vec4<f32>(pose.centerRel,1.0)).xyz,') });
     const pipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [layout, device.createBindGroupLayout({ entries: [] }), device.createBindGroupLayout({ entries: [{ binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } }] })] });
     const pipeline = (entryPoint) => device.createComputePipeline({ label: `model-visibility-${entryPoint}`, layout: pipelineLayout, compute: { module, entryPoint } });
     return { classify: pipeline('classify'), scan: pipeline('scanGroups'), scatter: pipeline('scatter') };
 }
 export class ModelVisibilityGpu {
-    constructor(bootstrap, capacity, ranges = []) {
+    constructor(bootstrap, capacity, ranges = [], partitions = false) {
         this.uniformData = new ArrayBuffer(MODEL_VISIBILITY_UNIFORM_BYTES);
         this.floats = new Float32Array(this.uniformData);
         this.words = new Uint32Array(this.uniformData);
@@ -46,12 +46,15 @@ export class ModelVisibilityGpu {
         this.disposed = false;
         this.ranges = ranges;
         this.batchCount = Math.max(1, ranges.length);
+        if (this.batchCount > MODEL_VISIBILITY_MAX_BATCHES)
+            throw new Error("Too many model visibility bins");
         this.bootstrap = bootstrap;
         this.capacity = capacity;
         this.indirectOffset = Math.ceil(capacity * 4 / 256) * 256;
-        this.outputBytes = this.indirectOffset + (this.batchCount > 1 ? this.batchCount * 32 : 20);
+        this.compositeOffset = this.indirectOffset + this.batchCount * 32;
+        this.outputBytes = this.compositeOffset + 16;
         this.layout = createLayout(bootstrap.device);
-        this.pipelines = createPipelines(bootstrap.device, this.layout, capacity, this.indirectOffset / 4, this.batchCount);
+        this.pipelines = createPipelines(bootstrap.device, this.layout, capacity, this.indirectOffset / 4, this.batchCount, partitions);
         this.buffers = createBuffers(bootstrap.device, capacity, this.outputBytes, this.batchCount);
         this.outputBuffer = this.buffers.output;
     }
@@ -71,18 +74,20 @@ export class ModelVisibilityGpu {
         this.candidateBuffer = candidates;
     }
     clearFrame() { this.candidateCount = 0; }
-    encode(encoder, viewProj, origin, modelScale, meshRadius, count, indexCount, lodMask = 0) {
+    encode(encoder, viewProj, origin, modelScale, meshRadius, count, indexCount, lodMask = 0, partitions) {
         this.assertAvailable();
+        if (partitions && partitions.length > 3)
+            throw new Error("Too many model visibility LOD partitions");
         this.candidateCount = Math.min(count, this.capacity);
         if (!this.bindGroup || this.candidateCount === 0)
             return;
-        this.writeUniforms(viewProj, origin, modelScale, meshRadius, indexCount, lodMask);
+        this.writeUniforms(viewProj, origin, modelScale, meshRadius, indexCount, lodMask, partitions);
         const groups = Math.ceil(this.candidateCount / MODEL_VISIBILITY_GROUP_SIZE);
         this.dispatch(encoder, this.pipelines.classify, groups, 'model-visibility-classify');
-        this.dispatch(encoder, this.pipelines.scan, 1, 'model-visibility-prefix');
+        this.dispatch(encoder, this.pipelines.scan, this.batchCount, 'model-visibility-prefix');
         this.dispatch(encoder, this.pipelines.scatter, groups, 'model-visibility-scatter');
     }
-    writeUniforms(viewProj, origin, modelScale, meshRadius, indexCount, lodMask) {
+    writeUniforms(viewProj, origin, modelScale, meshRadius, indexCount, lodMask, partitions) {
         writeModelFrustumPlanes(this.floats, 0, viewProj);
         this.floats[24] = origin.x;
         this.floats[25] = origin.y;
@@ -97,6 +102,15 @@ export class ModelVisibilityGpu {
             this.words[36 + batch * 4] = this.ranges[batch].indexCount;
             this.words[37 + batch * 4] = this.ranges[batch].firstIndex;
         }
+        const partBase = 36 + MODEL_VISIBILITY_MAX_BATCHES * 4;
+        this.words.fill(0, partBase);
+        let first = 0;
+        partitions?.forEach((part, index) => {
+            const count = Math.max(1, part.ranges.length), at = partBase + index * 4;
+            this.words.set([first, count, part.lodMask, 0], at);
+            this.floats.set([part.modelScale, part.meshRadius, 0, 0], partBase + 12 + index * 4);
+            first += count;
+        });
         this.bootstrap.device.queue.writeBuffer(this.buffers.uniform, 0, this.uniformData);
     }
     dispatch(encoder, pipeline, groups, label) {
@@ -110,18 +124,18 @@ export class ModelVisibilityGpu {
         pass.end();
     }
     /** Compact explicit diagnostic read; never copies the visible index list. */
-    async readbackCount() {
+    async readbackCount(firstBatch = 0, batchCount = this.batchCount) {
         this.assertAvailable();
         if (this.candidateCount === 0)
             return 0;
         const bytes = await readGpuBuffer(this.bootstrap.device, this.outputBuffer, this.indirectOffset, this.outputBytes - this.indirectOffset);
         const values = new Uint32Array(bytes);
         let count = 0;
-        for (let batch = 0; batch < this.batchCount; batch++)
+        for (let batch = firstBatch; batch < firstBatch + batchCount; batch++)
             count += values[batch * 8 + 1] ?? 0;
         return count;
     }
-    async readback() {
+    async readback(firstBatch = 0, batchCount = this.batchCount) {
         this.assertAvailable();
         const candidateCount = this.candidateCount;
         if (candidateCount === 0)
@@ -131,11 +145,11 @@ export class ModelVisibilityGpu {
         this.assertAvailable();
         const view = new DataView(bytes);
         let count = 0;
-        for (let batch = 0; batch < this.batchCount; batch++)
+        for (let batch = firstBatch; batch < firstBatch + batchCount; batch++)
             count += view.getUint32(this.indirectOffset + batch * 32 + 4, true);
         if (count > candidateCount)
             throw new Error('Model visibility count exceeds selected candidates');
-        return { candidateCount, visibleCount: count, indices: new Uint32Array(bytes, 0, count).slice() };
+        return { candidateCount, visibleCount: count, indices: new Uint32Array(bytes, this.batchCount > 1 ? view.getUint32(this.indirectOffset + firstBatch * 32 + 20, true) * 4 : 0, count).slice() };
     }
     assertAvailable() {
         if (this.disposed || this.bootstrap.isLost)

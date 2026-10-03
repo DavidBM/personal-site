@@ -100,8 +100,16 @@ export function sceneTrailExpandShader(source) {
     }
   let camera=floor(u.origin*560.0);`)
         .replace('fn expandedTrailSample(s:', 'fn legacyExpandedTrailSample(s:')
-        .replace('fn trailVisibilityModeEnabled() -> bool {', `fn trailVisibilityModeEnabled() -> bool {
-  if(sceneCamera.cameraHigh.w>0.0){return false;}`) + `
+        .replace('fn trailEyePlane() -> vec4<f32> {', `fn trailEyePlane() -> vec4<f32> {
+  if(sceneCamera.cameraHigh.w>0.0){return transpose(sceneCamera.relativeViewProj)[3];}`)
+        .replace('fn trailClipPlane(i:u32) -> vec4<f32> {', `fn trailClipPlane(i:u32) -> vec4<f32> {
+  if(sceneCamera.cameraHigh.w>0.0){
+    let rows=transpose(sceneCamera.relativeViewProj);
+    var plane=rows[2];
+    if(i<4u){plane=rows[3]+select(rows[i/2u],-rows[i/2u],(i&1u)!=0u);}
+    if(i==5u){plane=rows[3]-rows[2];}
+    return plane/max(length(plane.xyz),1e-20);
+  }`) + `
 fn expandedTrailSample(s:vec4<f32>,baseY:f32,worldOff:vec3<f32>,pathEnd:vec3<f32>,stableScene:bool)->vec3<f32>{
   let point=legacyExpandedTrailSample(s,baseY,worldOff,pathEnd,stableScene);
   if(sceneCamera.cameraHigh.w>0.0){return point+u.origin-sceneCamera.cameraHigh.xyz/560.0-sceneCamera.cameraLow.xyz;}

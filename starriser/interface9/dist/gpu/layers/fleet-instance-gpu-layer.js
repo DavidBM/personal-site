@@ -24,12 +24,12 @@ import { writeTrailVariantModulation, } from "../shaders/fleet-trails.wgsl.js";
 import { MODEL_TRAIL_EMITTER_COUNT, MODEL_TRAIL_EMITTERS, MODEL_TRAIL_VARIANTS, modelTrailDenseExpandBudget, modelTrailMaxWidthScale, } from "../../lib/fleet-sim/visual/model-trail-config.js";
 import { MODEL_LOD_MAX_INSTANCES, } from "../fleet-lod.js";
 import { buildFleetIntegrateWgsl, buildFleetIntegrateFastWgsl, FLEET_INTEGRATE_UNIFORM_SIZE, FLEET_INTEGRATE_BASE_UNIFORM_SIZE, FLEET_INTEGRATE_WORKGROUP, FLEET_INTEGRATE_SHIP_SIM_STRIDE, } from "../shaders/fleet-integrate.wgsl.js";
-import { DEFAULT_TRAIL_TEXTURE_URL, FLEET_TRAILS_WGSL, TRAIL_TEMPLATE_INDEX_COUNT, TRAIL_TEMPLATE_INDICES, TRAIL_TEMPLATE_STRIDE, TRAIL_UNIFORM_FLOATS, TRAIL_UNIFORM_SIZE, TRAIL_WIDTH_HEAD_PX, TRAIL_WIDTH_TAIL_PX, TRAIL_WORLD_WIDTH_HEAD, TRAIL_WORLD_WIDTH_TAIL, buildTrailTemplateInterleaved, resolveTrailDrawWidths, writeTrailJewelRadius, writeTrailUniforms, writeTrailWidthMode, writeTrailExposure, TRAIL_EXPOSURE_DEFAULT, } from "../shaders/fleet-trails.wgsl.js";
+import { DEFAULT_TRAIL_TEXTURE_URL, FLEET_TRAILS_WGSL, TRAIL_TEMPLATE_INDEX_COUNT, TRAIL_TEMPLATE_INDICES, TRAIL_TEMPLATE_STRIDE, TRAIL_UNIFORM_FLOATS, TRAIL_UNIFORM_SIZE, TRAIL_WIDTH_HEAD_PX, TRAIL_WIDTH_TAIL_PX, TRAIL_MITER_LIMIT, TRAIL_WORLD_MIN_PX, TRAIL_WORLD_WIDTH_HEAD, TRAIL_WORLD_WIDTH_TAIL, buildTrailTemplateInterleaved, resolveTrailDrawWidths, writeTrailJewelRadius, writeTrailUniforms, writeTrailWidthMode, writeTrailExposure, TRAIL_EXPOSURE_DEFAULT, } from "../shaders/fleet-trails.wgsl.js";
 import { computeTrailScreenWidthCoefficient, writeTrailVisibilityUniform, TRAIL_VISIBILITY_UNIFORM_BYTES } from "../../lib/fleet-sim/visual/trail-visibility.js";
 import { SCENE_TRAIL_WIDTH_MUL } from "../ship-motion-config.js";
 import { TRAIL_SAMPLE_FLOATS, resolveTrailLayout, } from "../fleet-trail-ref.js";
 import { FLEET_FLAG_SYSTEM_SCENE, FLEET_GPU_STRIDE, FleetGpuFields, TRAIL_SAMPLE_STRIDE, } from "../fleet-layout.js";
-import { TRAIL_INDIRECT_DISPATCH_BYTE, TRAIL_INDIRECT_META_BYTE, TRAIL_INDIRECT_WORKLIST_BYTE, trailIndirectTableBytes, writeDispatchIndirectArgs, } from "../../lib/fleet-sim/visual/trail-indirect-table.js";
+import { TRAIL_INDIRECT_DISPATCH_BYTE, TRAIL_INDIRECT_META_BYTE, TRAIL_INDIRECT_WORKLIST_BYTE, TRAIL_DRAW_ARGUMENT_BYTES, trailIndirectTableBytes, writeDispatchIndirectArgs, } from "../../lib/fleet-sim/visual/trail-indirect-table.js";
 import { readGpuBuffer } from "../buffer-readback.js";
 import { GLOBAL_MAX_INSTANCES, GPU_FLEET_CAPACITY_MIN, GPU_SHIP_CAPACITY_MIN, LOD_FAR_Y, LOD_MID_DIST, LOD_NEAR_DIST, LOD_NEAR_Y, nextGrowCapacity, } from "../fleet-lod.js";
 import { ShipSimFields } from "../ship-sim-layout.js";
@@ -84,8 +84,6 @@ export class FleetInstanceGpuLayer {
          * optional width-scale encode diagnostics.
          */
         this.trailUniformSlots = [];
-        /** @deprecated alias — prefer trailUniformSlots[0] */
-        this.trailUniformHandle = null;
         /** Shared Line2-style ribbon template (static). */
         this.trailTemplateVertHandle = null;
         this.trailTemplateIndexHandle = null;
@@ -102,21 +100,16 @@ export class FleetInstanceGpuLayer {
         this.shipSimHandle = null;
         this.trailSampleHandle = null;
         this.trailLineHandle = null;
-        /**
-         * Alias of {@link trailIndirectHandle} — expand/compact live in the same
-         * INDIRECT|STORAGE table (no second buffer). Writes use META byte offset.
-         */
-        this.trailDrawMetaHandle = null;
         /** One command table: draw args + dispatch + expand + compact worklist. */
         this.trailIndirectHandle = null;
-        this.trailDrawMetaBuffer = null;
         this.trailIndirectBuffer = null;
         /** Worklist slot capacity (simIdx entries after the 12-word header). */
         this.trailIndirectWorklistCap = 0;
         /** Scratch for host DispatchIndirectArgs (x,1,1) — reused, no per-frame alloc. */
         this.dispatchIndirectScratch = new Uint32Array(3);
-        /** Binding-6 metadata reset: emitters, capacity, worklist count/capacity, segments. */
-        this.trailMetaResetScratch = new Uint32Array(5);
+        /** Binding-6 reset: emitters, capacity, worklist count/capacity, segments, glow. */
+        this.trailMetaResetScratch = new Uint32Array(6);
+        this.trailExpandedThisFrame = false;
         /** Host worklist (simIdx) — CPU SystemSceneSet authority; GPU compact overwrites. */
         this.compactWorklistScratch = new Uint32Array(0);
         /** CPU mirror of FleetGpu rows for compact expected count (no mapAsync). */
@@ -125,7 +118,6 @@ export class FleetInstanceGpuLayer {
         this.computeTrailIndirectBindGroup = null;
         this.integrateUniformHandle = null;
         this.uniformBuffer = null;
-        this.trailUniformBuffer = null;
         /**
          * Last encodeTrails variant list actually written+drawn (for tests).
          * Each entry is the intensity / minAlpha / widthScale queued for that draw.
@@ -169,7 +161,6 @@ export class FleetInstanceGpuLayer {
         /** Live ships that contribute trail line verts this frame. */
         this.trailShipCount = 0;
         this.bindGroup = null;
-        this.trailBindGroup = null;
         /** Bind group for cs_fleets (uniforms + fleets only under auto layout). */
         this.computeFleetBindGroup = null;
         /** Bind group for cs_ships (full resource set). */
@@ -312,11 +303,13 @@ export class FleetInstanceGpuLayer {
             this.prepareScreenTrailVisibility(viewProj, view, enabled, widths, projection, resolutionH);
             return;
         }
-        writeTrailVisibilityUniform(this.trailVisibilityUniform, viewProj, view, Math.max(widths.widthHead, widths.widthTail) * 0.5, enabled);
+        writeTrailVisibilityUniform(this.trailVisibilityUniform, viewProj, view, Math.max(widths.widthHead, widths.widthTail) * 0.5 * TRAIL_MITER_LIMIT, enabled);
+        // Bound the 2x miter and the world ribbon's minimum pixel width (also covers tiny 1px lines).
+        this.trailVisibilityUniform[31] = computeTrailScreenWidthCoefficient(TRAIL_WORLD_MIN_PX * TRAIL_MITER_LIMIT, resolutionH ?? NaN, projection?.[5] ?? NaN);
     }
     prepareScreenTrailVisibility(viewProj, view, enabled, widths, projection, resolutionH) {
         // These are the same f32 width values later written to the draw uniform.
-        const fullPx = Math.max(Math.fround(widths.widthHead), Math.fround(widths.widthTail));
+        const fullPx = TRAIL_MITER_LIMIT * Math.max(Math.fround(widths.widthHead), Math.fround(widths.widthTail));
         const coefficient = computeTrailScreenWidthCoefficient(fullPx, resolutionH ?? NaN, projection?.[5] ?? NaN);
         writeTrailVisibilityUniform(this.trailVisibilityUniform, viewProj, view, 0, enabled, coefficient);
     }
@@ -728,8 +721,6 @@ export class FleetInstanceGpuLayer {
                 bindGroupDepth: null,
             });
         }
-        this.trailUniformHandle = this.trailUniformSlots[0].handle;
-        this.trailUniformBuffer = this.trailUniformSlots[0].buffer;
         const templateVerts = buildTrailTemplateInterleaved();
         this.trailTemplateVertHandle = gpu.createBuffer({
             label: "fleet-trails-template-verts",
@@ -922,10 +913,6 @@ export class FleetInstanceGpuLayer {
             slot.bindGroup = bindings[s].bindGroup;
             slot.bindGroupDepth = bindings[s].bindGroupDepth;
         }
-        // Keep legacy single-slot field in sync for any residual readers.
-        this.trailBindGroup = this.trailUniformSlots[0]?.bindGroup ?? null;
-        this.trailUniformBuffer = this.trailUniformSlots[0]?.buffer ?? null;
-        this.trailUniformHandle = this.trailUniformSlots[0]?.handle ?? null;
     }
     destroyInstances() {
         if (this.instanceHandle) {
@@ -1067,7 +1054,7 @@ export class FleetInstanceGpuLayer {
                 });
             }
         }
-        // cs_trail_indirect: meta view @256 + draw args @0 size 20 (non-overlapping).
+        // Meta @256 and trail/glow draw args @0 are non-overlapping storage views.
         if (this.computeTrailIndirectPipeline && this.trailIndirectBuffer) {
             const layout = this.computeTrailIndirectPipeline.getBindGroupLayout(0);
             this.computeTrailIndirectBindGroup = this.bootstrap.device.createBindGroup({
@@ -1086,7 +1073,7 @@ export class FleetInstanceGpuLayer {
                         resource: {
                             buffer: this.trailIndirectBuffer,
                             offset: 0,
-                            size: 20,
+                            size: TRAIL_DRAW_ARGUMENT_BYTES,
                         },
                     },
                 ],
@@ -1181,9 +1168,6 @@ export class FleetInstanceGpuLayer {
         });
         this.trailIndirectBuffer = gpu.getBuffer(this.trailIndirectHandle);
         this.trailIndirectWorklistCap = cap;
-        // Alias — same GPUBuffer, not a second INDIRECT allocation.
-        this.trailDrawMetaHandle = this.trailIndirectHandle;
-        this.trailDrawMetaBuffer = this.trailIndirectBuffer;
         gpu.writeBuffer(this.trailIndirectHandle, 0, new Uint32Array([TRAIL_TEMPLATE_INDEX_COUNT, 0, 0, 0, 0, 0, 1, 1]), 0, 32);
         if (old && old !== this.trailIndirectHandle) {
             gpu.destroyBuffer(old);
@@ -2655,6 +2639,7 @@ export class FleetInstanceGpuLayer {
         p2.end();
     }
     dispatchTrailExpand(encoder) {
+        this.trailExpandedThisFrame = false;
         if (!this.lastExpandTrails ||
             this.lastNFleets <= 0 ||
             !this.computeShipPipeline ||
@@ -2666,6 +2651,11 @@ export class FleetInstanceGpuLayer {
         if (this.lastKernelTrailCount <= 0)
             this.encodeCompactScene(encoder, this.lastCompactShipCount);
         this.encodeExpandTrails(encoder, groups);
+        this.trailExpandedThisFrame = groups > 0 && this.computeTrailIndirectBindGroup !== null;
+    }
+    /** GPU-authored glow presence, valid only after this frame's expansion. */
+    glowDrawArguments() {
+        return this.trailExpandedThisFrame ? this.trailIndirectBuffer : null;
     }
     /**
      * L5b fat trail ribbons (Line2-style expand, GPU expand buffer, no host pack).
@@ -2678,10 +2668,11 @@ export class FleetInstanceGpuLayer {
      *   one draw consumes the dense stream.
      *
      * Needs separate **origin-relative** view + projection (screen-space expand) and
-     * drawing-buffer resolution for correct pixel width. Pass the same floating
-     * `origin` used for model/ship draws so trail endpoints stay locked to ships.
+     * drawing-buffer resolution for correct pixel width. The shared scene-camera
+     * binding supplies the floating origin; the old positional argument is retained
+     * for component callers and has no effect.
      */
-    encodeTrails(pass, view, projection, resolutionW, resolutionH, cameraY, origin, options) {
+    encodeTrails(pass, view, projection, resolutionW, resolutionH, cameraY, _origin, options) {
         this.lastTrailEncodeVariants = [];
         const depthAware = options?.depthAware === true;
         const split = options?.glowMode;
@@ -2826,7 +2817,6 @@ export class FleetInstanceGpuLayer {
             this.bootstrap.gpu.destroyBuffer(slot.handle);
         }
         this.trailUniformSlots = [];
-        this.trailUniformHandle = null;
         if (this.trailTemplateVertHandle) {
             this.bootstrap.gpu.destroyBuffer(this.trailTemplateVertHandle);
             this.trailTemplateVertHandle = null;
@@ -2846,14 +2836,11 @@ export class FleetInstanceGpuLayer {
             this.bootstrap.gpu.destroyBuffer(this.trailIndirectHandle);
             this.trailIndirectHandle = null;
         }
-        this.trailDrawMetaHandle = null;
         this.trailIndirectBuffer = null;
-        this.trailDrawMetaBuffer = null;
         this.trailIndirectWorklistCap = 0;
         this.fleetGpuCpu = new Uint8Array(0);
         this.meshBuffer = null;
         this.uniformBuffer = null;
-        this.trailUniformBuffer = null;
         this.integrateUniformBuffer = null;
         this.pipeline = null;
         this.depthPipeline = null;
@@ -2866,7 +2853,6 @@ export class FleetInstanceGpuLayer {
         this.computeCompactPipeline = null;
         this.computeTrailIndirectPipeline = null;
         this.bindGroup = null;
-        this.trailBindGroup = null;
         this.computeFleetBindGroup = null;
         this.computeShipBindGroup = null;
         this.computeCompactBindGroup = null;

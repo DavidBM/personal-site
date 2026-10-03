@@ -17,11 +17,12 @@ const THRESHOLD_MS = 5;
 /** At most one frame breakdown log per this many ms. */
 const LOG_MIN_INTERVAL_MS = 1000;
 let enabled = false;
-/** Active frame: spans collected until frameDebugFrameTotal. */
 let frameSpans = null;
+let frameCounts = null;
+let spanDepth = 0;
 let frameT0 = 0;
 /** Last time we printed a frame breakdown (throttle). */
-let lastLogWallMs = 0;
+let lastLogWallMs = -Infinity;
 /** Best (slowest) suppressed frame while throttled — logged next window. */
 let pendingWorst = null;
 /** Whether frame debug logging is on (cached after first read). */
@@ -33,7 +34,9 @@ export function enableFrameDebug(on) {
     enabled = on;
     if (!on) {
         pendingWorst = null;
-        lastLogWallMs = 0;
+        frameSpans = null;
+        frameCounts = null;
+        lastLogWallMs = -Infinity;
     }
 }
 export function getFrameDebugThresholdMs() {
@@ -60,6 +63,8 @@ export function frameDebugBegin() {
         return 0;
     }
     frameSpans = [];
+    frameCounts = new Map();
+    spanDepth = 0;
     frameT0 = nowMs();
     return frameT0;
 }
@@ -70,79 +75,80 @@ export function frameDebugBegin() {
 export function frameDebugTime(label, fn, extra) {
     if (!isFrameDebugEnabled())
         return fn();
-    const t0 = nowMs();
+    const t0 = frameDebugSpanBegin();
     try {
         return fn();
     }
     finally {
-        const ms = nowMs() - t0;
-        if (frameSpans)
-            frameSpans.push({ label, ms, extra });
+        frameDebugSpanEnd(label, t0, extra);
     }
 }
 /** Manual span start (returns t0; 0 if debug off). */
 export function frameDebugSpanBegin() {
-    return isFrameDebugEnabled() ? nowMs() : 0;
+    if (!enabled || !frameSpans)
+        return 0;
+    spanDepth++;
+    return nowMs();
 }
 export function frameDebugSpanEnd(label, t0, extra) {
-    if (!isFrameDebugEnabled() || t0 === 0)
+    if (!enabled || !frameSpans)
         return;
     const ms = nowMs() - t0;
-    if (frameSpans)
-        frameSpans.push({ label, ms, extra });
+    spanDepth = Math.max(0, spanDepth - 1);
+    frameSpans.push({ label, ms, depth: spanDepth, extra });
+}
+/** Fleet/work counters only. No strings, timestamps or records allocated while disabled. */
+export function frameDebugCount(label, count = 1) {
+    if (enabled && frameCounts)
+        frameCounts.set(label, (frameCounts.get(label) ?? 0) + count);
 }
 /**
  * End the frame. If total ≥ threshold, log a breakdown at most once per
  * {@link LOG_MIN_INTERVAL_MS} (keeps the worst frame in each window).
  */
 export function frameDebugFrameTotal(label = "renderFrame TOTAL") {
-    if (!isFrameDebugEnabled() || frameT0 === 0) {
-        frameSpans = null;
-        frameT0 = 0;
+    if (!enabled || !frameSpans || !frameCounts)
         return;
+    const wall = nowMs(), totalMs = wall - frameT0;
+    if (totalMs >= THRESHOLD_MS && (!pendingWorst || totalMs > pendingWorst.totalMs)) {
+        pendingWorst = { label, at: frameT0, totalMs, spans: frameSpans, counts: frameCounts };
     }
-    const totalMs = nowMs() - frameT0;
-    const spans = frameSpans ?? [];
     frameSpans = null;
-    frameT0 = 0;
-    if (totalMs < THRESHOLD_MS)
+    frameCounts = null;
+    // Also flush on a healthy frame after a burst. Otherwise the last/worst
+    // suppressed frame disappears as soon as performance recovers.
+    if (!pendingWorst || wall - lastLogWallMs < LOG_MIN_INTERVAL_MS)
         return;
-    // Unaccounted = wall frame time minus sum of child spans (gaps / uninstrumented).
+    logFrame(formatFrame(pendingWorst));
+    pendingWorst = null;
+    lastLogWallMs = wall;
+}
+function formatFrame(frame) {
+    const { label, totalMs, spans, counts, at } = frame;
+    // Nested spans are inclusive detail, not additional time. Count only roots
+    // toward coverage so nested admission/table work cannot hide unmeasured gaps.
     let accounted = 0;
-    for (let i = 0; i < spans.length; i++)
-        accounted += spans[i].ms;
+    for (const span of spans)
+        if (span.depth === 0)
+            accounted += span.ms;
     const other = Math.max(0, totalMs - accounted);
     const sorted = spans.slice().sort((a, b) => b.ms - a.ms);
     const lines = [
-        `[frameDebug] ${label}: ${totalMs.toFixed(2)}ms (>${THRESHOLD_MS}ms) — breakdown:`,
+        `[frameDebug] ${label}: ${totalMs.toFixed(2)}ms at ${at.toFixed(1)}ms — CPU wall time; nested spans are inclusive:`,
     ];
     for (let i = 0; i < sorted.length; i++) {
         const s = sorted[i];
         const pct = totalMs > 0 ? (100 * s.ms) / totalMs : 0;
         const tail = s.extra ? `  ${s.extra}` : "";
-        lines.push(`  ${s.ms.toFixed(2).padStart(8)}ms (${pct.toFixed(1).padStart(5)}%)${tail}  ${s.label}`);
+        lines.push(`  ${s.ms.toFixed(2).padStart(8)}ms (${pct.toFixed(1).padStart(5)}%)${tail}  ${s.label}${s.depth ? ' [nested]' : ''}`);
     }
     if (other >= 0.5) {
         const pct = totalMs > 0 ? (100 * other) / totalMs : 0;
         lines.push(`  ${other.toFixed(2).padStart(8)}ms (${pct.toFixed(1).padStart(5)}%)  (uninstrumented / gaps)`);
     }
-    const wall = nowMs();
-    if (wall - lastLogWallMs >= LOG_MIN_INTERVAL_MS) {
-        // Flush any worse suppressed frame first, then this one if still worst.
-        if (pendingWorst && pendingWorst.totalMs > totalMs) {
-            logFrame(pendingWorst.lines.join("\n"));
-        }
-        else {
-            logFrame(lines.join("\n"));
-        }
-        pendingWorst = null;
-        lastLogWallMs = wall;
-        return;
-    }
-    // Throttled: keep the slowest frame in the window for the next log slot.
-    if (!pendingWorst || totalMs > pendingWorst.totalMs) {
-        pendingWorst = { totalMs, lines };
-    }
+    if (counts.size)
+        lines.push(`  Work: ${[...counts].map(([name, value]) => `${name}=${value}`).join(', ')}`);
+    return lines.join('\n');
 }
 /** @deprecated use frameDebugSpanBegin — kept for call sites */
 export function frameDebugEnd(label, t0, extra) {

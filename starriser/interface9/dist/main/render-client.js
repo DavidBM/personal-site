@@ -44,7 +44,7 @@ export class RenderClient {
         });
         options.container.appendChild(canvas);
         let client = null;
-        const onAbort = () => { void client?.dispose(); };
+        const onAbort = () => { client?.terminate(); };
         try {
             const worker = new Worker(new URL("../render/worker-entry.js", import.meta.url), {
                 type: "module", name: "galaxy-render",
@@ -151,6 +151,12 @@ export class RenderClient {
         for (const clean of this.cleanup.splice(0))
             clean();
         await this.connection.dispose();
+        this.canvas.remove();
+    }
+    terminate() {
+        for (const clean of this.cleanup.splice(0))
+            clean();
+        this.connection.terminate();
         this.canvas.remove();
     }
 }

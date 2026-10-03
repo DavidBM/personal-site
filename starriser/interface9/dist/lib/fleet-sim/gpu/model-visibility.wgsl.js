@@ -3,8 +3,10 @@ import { MODEL_SHIP_TYPES_WGSL, MODEL_SHIP_POSE_WGSL } from './model-ship-pose.w
 import { MODEL_CATALOG_MAX_BATCHES } from '../visual/ship-model-catalog.js';
 import { MODEL_VISIBILITY_EPSILON } from '../visual/model-visibility.js';
 export const MODEL_VISIBILITY_GROUP_SIZE = 64;
-export const MODEL_VISIBILITY_UNIFORM_BYTES = 144 + MODEL_CATALOG_MAX_BATCHES * 16;
-export function buildModelVisibilityWgsl(capacity, indirectOffsetWords, batchCount = 1) {
+export const MODEL_VISIBILITY_MAX_BATCHES = MODEL_CATALOG_MAX_BATCHES * 3;
+export const MODEL_VISIBILITY_UNIFORM_BYTES = 144 + MODEL_VISIBILITY_MAX_BATCHES * 16 + 3 * 32;
+export function buildModelVisibilityWgsl(capacity, indirectOffsetWords, batchCount = 1, partitions = false) {
+    const packs = Array.from({ length: Math.ceil(batchCount / 8) }, (_, i) => i);
     return /* wgsl */ `
 ${MODEL_SHIP_TYPES_WGSL}
 struct VisibilityUniforms {
@@ -15,7 +17,9 @@ struct VisibilityUniforms {
   _padA: u32,
   _padB: u32,
   _padC: u32,
-  ranges: array<vec4<u32>, ${MODEL_CATALOG_MAX_BATCHES}>,
+  ranges: array<vec4<u32>, ${MODEL_VISIBILITY_MAX_BATCHES}>,
+  partitions: array<vec4<u32>,3>,
+  bounds: array<vec4<f32>,3>,
 };
 @group(0) @binding(0) var<uniform> u: VisibilityUniforms;
 @group(0) @binding(1) var<storage, read> ships: array<ShipSim>;
@@ -31,14 +35,12 @@ const BATCHES: u32 = ${batchCount}u;
 const GROUPS: u32 = ${Math.ceil(capacity / MODEL_VISIBILITY_GROUP_SIZE)}u;
 // Four 8-bit class counts fit in each word. A group has at most 64 ships,
 // so additions cannot carry between adjacent counters (including full groups).
-var<workgroup> prefix: array<vec2<u32>, 64>;
-var<workgroup> batchTotals: array<u32, ${MODEL_CATALOG_MAX_BATCHES}>;
-fn candidateBatch(index: u32) -> u32 {
-  if (BATCHES == 1u || index >= u.candidateCount) { return 0u; }
-  let ship = candidates[index];
-  if (ship == 0xffffffffu) { return 0u; }
-  return min(ships[ship].targetKind & 255u, BATCHES - 1u);
+${packs.map(i => `var<workgroup> prefix${i}:array<vec2<u32>,64>;`).join("\n")}
+fn prefixCount(lane:u32,batch:u32)->u32{
+  ${packs.map(i => `if(batch<${(i + 1) * 8}u){return (prefix${i}[lane][(batch>>2u)&1u]>>((batch&3u)*8u))&255u;}`).join("\n")}
+  return 0u;
 }
+var<workgroup> batchTotals: array<u32, ${MODEL_VISIBILITY_MAX_BATCHES}>;
 fn sphereVisible(center: vec3<f32>, radius: f32) -> bool {
   for (var i = 0u; i < 6u; i++) {
     let plane = u.planes[i];
@@ -48,75 +50,117 @@ fn sphereVisible(center: vec3<f32>, radius: f32) -> bool {
   }
   return true;
 }
-fn candidateVisible(index: u32) -> bool {
-  if (index >= u.candidateCount) { return false; }
-  let shipIdx = candidates[index];
-  if (shipIdx == 0xffffffffu) { return false; }
-  let ship = ships[shipIdx];
-  if (!modelShipLodMatches(ship, u.lodMask)) { return false; }
-  if (ship.mode == SHIP_MODE_PAUSED) { return false; }
-  let pose = modelShipPose(ship, u.origin, u.modelScale);
-  return sphereVisible(pose.centerRel, u.meshRadius * abs(pose.hullScale));
+// Return a bin or sentinel; scatter reuses this decision, not another ship read.
+fn candidateBin(index:u32)->u32 {
+  if(index>=u.candidateCount){return 0xffffffffu;}
+  let shipIdx=candidates[index];
+  if(shipIdx==0xffffffffu){return 0xffffffffu;}
+  let ship=ships[shipIdx];
+  if(ship.mode==SHIP_MODE_PAUSED){return 0xffffffffu;}
+  var bin=0u;var scale=u.modelScale;var radius=u.meshRadius;
+  ${partitions ? `
+  var found=false;
+  for(var p=0u;p<3u;p++){
+    let part=u.partitions[p];
+    if(part.y>0u && modelShipLodMatches(ship,part.z)){
+      bin=part.x+min(ship.targetKind&255u,part.y-1u);
+      scale=u.bounds[p].x;radius=u.bounds[p].y;found=true;break;
+    }
+  }
+  if(!found){return 0xffffffffu;}
+  ` : `
+  if(!modelShipLodMatches(ship,u.lodMask)){return 0xffffffffu;}
+  bin=min(ship.targetKind&255u,BATCHES-1u);
+  `}
+  let pose=modelShipPose(ship,u.origin,scale);
+  if(!sphereVisible(pose.centerRel,radius*abs(pose.hullScale))){return 0xffffffffu;}
+  return bin;
 }
 @compute @workgroup_size(64)
 fn classify(@builtin(global_invocation_id) global: vec3<u32>, @builtin(local_invocation_id) local: vec3<u32>, @builtin(workgroup_id) group: vec3<u32>) {
-  let keep = candidateVisible(global.x);
-  let batch = candidateBatch(global.x);
+  let bin = candidateBin(global.x);
+  let keep = bin != 0xffffffffu;
+  let batch = select(0u,bin,keep);
   let component = batch >> 2u;
   let shift = (batch & 3u) * 8u;
-  var packed = vec2<u32>(0u);
-  if (keep) { packed[component] = 1u << shift; }
-  prefix[local.x] = packed;
+  ${packs.map(i => `var packed${i}=vec2<u32>(0u);
+  if(keep && batch/8u==${i}u){packed${i}[component&1u]=1u<<shift;}
+  prefix${i}[local.x]=packed${i};`).join("\n")}
   workgroupBarrier();
   for (var offset = 1u; offset < 64u; offset *= 2u) {
-    var add = vec2<u32>(0u);
-    if (local.x >= offset) { add = prefix[local.x - offset]; }
+    ${packs.map(i => `var add${i}=vec2<u32>(0u);
+    if(local.x>=offset){add${i}=prefix${i}[local.x-offset];}`).join("\n")}
     workgroupBarrier();
-    prefix[local.x] += add;
+    ${packs.map(i => `prefix${i}[local.x]+=add${i};`).join("\n")}
     workgroupBarrier();
   }
-  let rank = (prefix[local.x][component] >> shift) & 255u;
-  if (global.x < u.candidateCount) { workspace[global.x] = select(0u, rank, keep); }
+  let rank=prefixCount(local.x,batch);
+  if (global.x < u.candidateCount) { workspace[global.x] = select(0u, rank | (batch << 8u), keep); }
   if (local.x == 63u) {
     for (var b = 0u; b < BATCHES; b++) {
-      workspace[CAPACITY + b * GROUPS + group.x] = (prefix[63][b >> 2u] >> ((b & 3u) * 8u)) & 255u;
+      workspace[CAPACITY + b * GROUPS + group.x] = prefixCount(63u,b);
     }
   }
 }
-@compute @workgroup_size(${MODEL_CATALOG_MAX_BATCHES})
-fn scanGroups(@builtin(local_invocation_id) local: vec3<u32>) {
-  let b = local.x;
-  var count = 0u;
-  if (b < BATCHES) {
-    for (var group = 0u; group < u.groupCount; group++) {
-      let at = CAPACITY + b * GROUPS + group;
-      let amount = workspace[at];
-      workspace[at] = count;
-      count += amount;
-    }
+// Scan each mesh bin independently. Lanes first scan small contiguous chunks,
+// then share only their totals; no lane walks every candidate workgroup.
+var<workgroup> groupTotals: array<u32,128>;
+var<workgroup> batchOffsets: array<u32,${MODEL_VISIBILITY_MAX_BATCHES}>;
+@compute @workgroup_size(128)
+fn scanGroups(@builtin(local_invocation_id) local: vec3<u32>, @builtin(workgroup_id) workgroup: vec3<u32>) {
+  let b=workgroup.x;
+  let chunk=(u.groupCount+127u)/128u;
+  let start=local.x*chunk;
+  let end=min(start+chunk,u.groupCount);
+  var count=0u;
+  for(var group=start;group<end;group++){
+    let at=CAPACITY+b*GROUPS+group;
+    let amount=workspace[at];workspace[at]=count;count+=amount;
   }
-  batchTotals[b] = count;
+  groupTotals[local.x]=count;
   workgroupBarrier();
-  if (b >= BATCHES) { return; }
-  var first = 0u;
-  for (var previous = 0u; previous < b; previous++) { first += batchTotals[previous]; }
-  for (var group = 0u; group < u.groupCount; group++) { workspace[CAPACITY + b * GROUPS + group] += first; }
-  let args = INDIRECT + b * 8u;
-  visible[args] = select(u.indexCount, u.ranges[b].x, BATCHES > 1u);
-  visible[args + 1u] = count;
-  visible[args + 2u] = select(0u, u.ranges[b].y, BATCHES > 1u);
-  visible[args + 3u] = 0u;
-  visible[args + 4u] = 0u;
-  if (BATCHES > 1u) { visible[args + 5u] = first; }
+  for(var distance=1u;distance<128u;distance*=2u){
+    var add=0u;
+    if(local.x>=distance){add=groupTotals[local.x-distance];}
+    workgroupBarrier();groupTotals[local.x]+=add;workgroupBarrier();
+  }
+  let first=groupTotals[local.x]-count;
+  for(var group=start;group<end;group++){workspace[CAPACITY+b*GROUPS+group]+=first;}
+  if(local.x==127u){
+    let args=INDIRECT+b*8u;
+    visible[args]=select(u.indexCount,u.ranges[b].x,BATCHES>1u);
+    visible[args+1u]=groupTotals[127u];
+    visible[args+2u]=select(0u,u.ranges[b].y,BATCHES>1u);
+    visible[args+3u]=0u;visible[args+4u]=0u;
+  }
 }
 @compute @workgroup_size(64)
-fn scatter(@builtin(global_invocation_id) global: vec3<u32>, @builtin(workgroup_id) group: vec3<u32>) {
-  if (global.x >= u.candidateCount) { return; }
-  let rank = workspace[global.x];
-  if (rank == 0u) { return; }
-  let batch = candidateBatch(global.x);
-  let offset = workspace[CAPACITY + batch * GROUPS + group.x];
-  visible[offset + rank - 1u] = candidates[global.x];
+fn scatter(@builtin(global_invocation_id) global: vec3<u32>, @builtin(local_invocation_id) local: vec3<u32>, @builtin(workgroup_id) group: vec3<u32>) {
+  // The preceding dispatch published all bin totals. Resolve their small prefix
+  // here, keeping three passes and the same buffers/indirect argument ABI.
+  if(local.x<BATCHES){batchTotals[local.x]=visible[INDIRECT+local.x*8u+1u];}
+  workgroupBarrier();
+  if(local.x<BATCHES){
+    var first=0u;
+    for(var b=0u;b<local.x;b++){first+=batchTotals[b];}
+    batchOffsets[local.x]=first;
+    if(group.x==0u && BATCHES>1u){visible[INDIRECT+local.x*8u+5u]=first;}
+  }
+  if(group.x==0u && local.x==0u){
+    var high=0u;
+    for(var b=0u;b<${partitions ? 'u.partitions[0].y' : 'BATCHES'};b++){high+=batchTotals[b];}
+    let composite=INDIRECT+BATCHES*8u;
+    visible[composite]=3u;visible[composite+1u]=select(0u,1u,high>0u);
+    visible[composite+2u]=0u;visible[composite+3u]=0u;
+  }
+  workgroupBarrier();
+  if(global.x>=u.candidateCount){return;}
+  let packed=workspace[global.x];
+  let rank=packed&255u;
+  if(rank==0u){return;}
+  let batch=packed>>8u;
+  let offset=workspace[CAPACITY+batch*GROUPS+group.x]+batchOffsets[batch];
+  visible[offset+rank-1u]=candidates[global.x];
 }
 `;
 }

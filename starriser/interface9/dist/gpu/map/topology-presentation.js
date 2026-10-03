@@ -46,6 +46,11 @@ export class MapTopologyPresentation {
         this.modelClusterCentersDirty = true;
         this.surveyRevision = 0;
         this.modelTopologyContext = null;
+        /** undefined releases the lease; null is transit with no detailed catalog. */
+        this.retainedScene = undefined;
+        this.retainedDestination = null;
+        this.prefetchedDestination = null;
+        this.retainedPreviewIds = EMPTY_PREVIEW_KEEP;
         this.previews = previews;
         this.onSceneChanged = onSceneChanged;
     }
@@ -447,12 +452,46 @@ export class MapTopologyPresentation {
         const holdPending = this.sceneHysteresis.holdStartMs > 0;
         const lookAtChanged = Math.abs(lookAtX - this.lastSceneLookAtX) > 1e-3 ||
             Math.abs(lookAtZ - this.lastSceneLookAtZ) > 1e-3;
-        if (dChanged || holdPending || lookAtChanged || bufferH !== this.lastSceneBufferH) {
+        if (this.retainedScene !== undefined) {
+            this.lastSceneLookAtX = Infinity;
+            this.lastSceneBufferH = -1;
+            if (this.retainedScene != null)
+                this.prefetchedDestination = null;
+            const previous = this.sceneHysteresis.sceneId;
+            const rec = this.retainedScene == null ? undefined : this.sceneSystems.get(this.retainedScene);
+            this.sceneHysteresis.sceneId = rec?.id ?? null;
+            this.syncScenePointVisibility(previous, rec?.bufferIndex ?? null);
+            if (rec) {
+                this.loadCompactScene(rec);
+                this.publishScene(rec.id);
+            }
+            else {
+                if (this.solarBodies.systemId != null) {
+                    this.solarBodies.clear();
+                    this.publishScene(null);
+                }
+                this.prefetchRetainedDestination();
+            }
+        }
+        else if (dChanged || holdPending || lookAtChanged || bufferH !== this.lastSceneBufferH) {
             this.applySystemSceneLod(d, fovy, bufferH, lookAtX, lookAtZ, nowMs);
             this.lastSceneLookAtX = lookAtX;
             this.lastSceneLookAtZ = lookAtZ;
             this.lastSceneBufferH = bufferH;
         }
+    }
+    prefetchRetainedDestination() {
+        const id = this.retainedDestination;
+        if (id === this.prefetchedDestination)
+            return;
+        this.prefetchedDestination = id;
+        const rec = id == null ? null : this.sceneSystems.get(id);
+        this.retainedPreviewIds = rec ? new Set(buildCompactKepler(catalogIdFromSystemId(rec.id)).planets.map(p => p.id)) : EMPTY_PREVIEW_KEEP;
+        // Only the empty transit interval prefetches the next bounded preview set.
+        // High-detail textures still belong to the single active catalog/focus.
+        this.previews.retainPreviews(this.retainedPreviewIds);
+        for (const planet of this.retainedPreviewIds)
+            this.previews.requestPreview(planet);
     }
     resetSystemSceneLod() {
         this.sceneHysteresis.sceneId = null;

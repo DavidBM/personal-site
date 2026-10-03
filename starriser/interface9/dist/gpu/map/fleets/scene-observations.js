@@ -21,6 +21,9 @@ function readAttitude(f, at = 4) {
 function readWarp(f, slot) {
     if (f[31] < 2 || f[35] === -2 || f[30] <= f[29])
         return;
+    if (f[31] === 4)
+        return { x: f[52] + f[48], y: f[53] + f[49], z: f[54] + f[50], anchor: f[55],
+            vx: f[4], vy: f[5], vz: f[6], start: f[29], end: f[30], revision: f[28], epoch: slot.epoch, lag: slot.lag, scale: slot.scale };
     return { x: f[32], y: f[33], z: f[34], vx: f[4], vy: f[5], vz: f[6],
         start: f[29], end: f[30], revision: f[28], epoch: slot.epoch, lag: slot.lag, scale: slot.scale };
 }
@@ -49,7 +52,7 @@ function configureDirectedSample(slot, directed, timeMs) {
 function readWarpObservation(bytes, offset, slot, previous) {
     if (!slot.directed)
         return null;
-    const raw = new Float32Array(bytes, offset, 36);
+    const raw = new Float32Array(bytes, offset, 56);
     if (new Uint32Array(bytes, offset, 36)[23] !== slot.handle)
         return null;
     const warp = readWarp(raw, slot);
@@ -68,9 +71,8 @@ export class SceneObservations {
         this.nextSequence = 0;
         this.poseSequence = -1;
         this.pose = null;
-        this.device = device;
         this.centerBytes = fleetCapacity * 32;
-        this.bytes = this.centerBytes + 224 + 144;
+        this.bytes = this.centerBytes + 224 + SHIP_BYTES;
         this.centers = new Float32Array(fleetCapacity * 8);
         this.previousCenters = new Float32Array(this.centers.length);
         this.centerTimes = new Float64Array(fleetCapacity).fill(-Infinity);
@@ -114,7 +116,7 @@ export class SceneObservations {
         if (followed)
             encoder.copyBufferToBuffer(poses, followed.kernelIndex * SHIP_SIM_STRIDE, slot.buffer, this.centerBytes, 224);
         if (followed && directed)
-            encoder.copyBufferToBuffer(directed.buffer, followed.kernelIndex * SHIP_BYTES, slot.buffer, this.centerBytes + 224, 144);
+            encoder.copyBufferToBuffer(directed.buffer, followed.kernelIndex * SHIP_BYTES, slot.buffer, this.centerBytes + 224, SHIP_BYTES);
     }
     submitted(currentGeneration, currentHandle) {
         for (const slot of this.slots) {
@@ -193,7 +195,37 @@ export class SceneObservations {
     /** Real representative pose; a centroid can lie inside an orbited planet. */
     routeAnchor(slot) {
         const o = slot * 8, n = this.centers[o + 3] ?? 0;
-        return n > 0 ? { x: this.centers[o + 4], y: this.centers[o + 5], z: this.centers[o + 6], n } : null;
+        const dt = (this.centerTimes[slot] - this.previousCenterTimes[slot]) / 1000;
+        const inv = dt > 0 && dt < .2 && this.previousCenters[o + 3] === n ? 1 / dt : 0;
+        return n > 0 ? { x: this.centers[o + 4], y: this.centers[o + 5], z: this.centers[o + 6], n, observedMs: this.centerTimes[slot],
+            vx: (this.centers[o + 4] - this.previousCenters[o + 4]) * inv,
+            vy: (this.centers[o + 5] - this.previousCenters[o + 5]) * inv,
+            vz: (this.centers[o + 6] - this.previousCenters[o + 6]) * inv } : null;
+    }
+    translate(fleetSlot, delta) {
+        for (const slot of this.slots)
+            retainPending(slot);
+        for (const values of [this.centers, this.previousCenters]) {
+            const at = fleetSlot * 8;
+            for (let axis = 0; axis < 3; axis++) {
+                values[at + axis] += delta[axis];
+                values[at + 4 + axis] += delta[axis];
+            }
+        }
+        const pose = this.pose;
+        if (pose) {
+            pose.x += delta[0];
+            pose.y += delta[1];
+            pose.z += delta[2];
+            pose.posX = pose.x;
+            pose.posY = pose.y;
+            pose.posZ = pose.z;
+            if (pose.warp) {
+                pose.warp.x += delta[0] / pose.warp.scale;
+                pose.warp.y += delta[1] / pose.warp.scale;
+                pose.warp.z += delta[2] / pose.warp.scale;
+            }
+        }
     }
     invalidate(preserve) {
         // A physical mapping edit invalidates changed owners, not observations

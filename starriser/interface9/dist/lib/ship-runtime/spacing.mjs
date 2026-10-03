@@ -29,8 +29,8 @@ fn pairDirection(a:u32,b:u32)->vec3<f32> {
   let direction=unit(vec3<f32>(variation(key)-.5,variation(key+1u)-.5,variation(key+2u)-.5));
   return direction*select(-1.0,1.0,a>b);
 }
-// The 27-cell stencil guarantees a pair within one cell width is considered,
-// before the independent 64-record budget. Prediction cannot reach beyond it.
+// The search stencil covers one cell width. Bounded sampling is best effort;
+// prediction must not pretend it observed contacts beyond that distance.
 fn contactHorizon(relativeSpeed:f32,clearance:f32,requested:f32)->f32 {
   return min(requested,max(0.0,CONTACT_CELL_SIZE-clearance)/max(relativeSpeed,.00001));
 }
@@ -61,24 +61,28 @@ fn contactLinearAcceleration(s:Ship)->f32 {
   let adapt=sceneAdapt(journeyBodyRadius(s));
   return dynamics(shipType(s)).y*select(${SCENE_TRAVEL_ADAPT},adapt,adapt>=.99);
 }
-fn contactPredictiveShare(s:Ship,t:Contact)->f32 {
+struct ContactContext {radius:f32,padding:f32,acceleration:f32,lateral:f32,speed:f32,forward:vec3<f32>}
+fn contactContext(s:Ship)->ContactContext {
+  let typeId=shipType(s);let bodyRadius=journeyBodyRadius(s);
+  let acceleration=contactLinearAcceleration(s);let speed=length(s.v.xyz);
+  let lateral=max(.0001,min(${TURN_ACCEL_SHARE}*acceleration,max(speed,.1)*dynamics(typeId).w));
+  return ContactContext(repelRadius(typeId,bodyRadius),${CONTACT_PADDING}*sceneAdapt(bodyRadius),acceleration,lateral,speed,s.v.xyz/max(speed,1e-20));
+}
+fn contactPredictiveShare(s:Ship,t:Contact,mineRadius:f32)->f32 {
   // Cooperative local traffic: small escorts yield to a heavy moving anchor.
   // Equal peers retain their reciprocal response. This is steering priority,
   // not physical mass, and never discounts an already overlapping pair.
   if(s.flight.w>=0.0||s.identity.y!=t.fleet){return 1.0;}
-  let mine=max(repelRadius(shipType(s),journeyBodyRadius(s)),.0001);
+  let mine=max(mineRadius,.0001);
   let other=max(t.radius,.0001);
   let mineVolume=mine*mine*mine;let otherVolume=other*other*other;
   return min(1.0,2.0*otherVolume/(mineVolume+otherVolume));
 }
-fn contactPush(s:Ship,t:Contact)->vec4<f32> {
+fn contactPush(s:Ship,t:Contact)->vec4<f32> {return contactPushWith(s,t,contactContext(s));}
+fn contactPushWith(s:Ship,t:Contact,context:ContactContext)->vec4<f32> {
   let gap=s.p.xyz-t.p;let distance=length(gap);let relative=s.v.xyz-t.v;
-  let bodyRadius=journeyBodyRadius(s);let typeId=shipType(s);
-  let clearance=repelRadius(typeId,bodyRadius)+t.radius+${CONTACT_PADDING}*sceneAdapt(bodyRadius);
-  let acceleration=contactLinearAcceleration(s);
-  // Forward flight cannot use more lateral acceleration than speed * turn rate.
-  // A small rest floor permits a stationary ship to choose an escape heading.
-  let lateral=max(.0001,min(${TURN_ACCEL_SHARE}*acceleration,max(length(s.v.xyz),.1)*dynamics(typeId).w));
+  let clearance=context.radius+t.radius+context.padding;
+  let acceleration=context.acceleration;let lateral=context.lateral;
   let response=clamp(${ANGULAR_RAMP_SECONDS}+sqrt(2.0*clearance/lateral),.4,CONTACT_HORIZON_SECONDS);
   let closest=contactClosest(gap,relative,contactHorizon(length(relative),clearance,response));
   // Existing overlap already has a radial response below. Only additional
@@ -90,18 +94,19 @@ fn contactPush(s:Ship,t:Contact)->vec4<f32> {
   // Reciprocal peers each take half the displacement. Caps remain best effort:
   // fast ships/slow hulls can need more distance than this local stencil owns.
   let required=missing/max(closest.w*closest.w,.01);
-  let predicted=clamp(required/lateral,0.0,1.0)*f32(dot(gap,relative)<0.0)*contactPredictiveShare(s,t);
+  let predicted=clamp(required/lateral,0.0,1.0)*f32(dot(gap,relative)<0.0)*contactPredictiveShare(s,t,context.radius);
   let radial=select(pairDirection(s.identity.w,t.serial),gap/max(distance,.00001),distance>.00001);
   let side=contactLateral(gap,relative,clearance,s.identity.w,t.serial);
   let brake=clamp((required-lateral)/max(acceleration,.0001),0.0,1.0)*predicted;
-  let push=side*predicted+radial*overlap-unit(s.v.xyz)*brake;
+  let push=side*predicted+radial*overlap-context.forward*brake;
   return vec4<f32>(capped(push,1.0),max(predicted,overlap));
 }
-fn contactAcceleration(s:Ship,push:vec3<f32>)->vec3<f32> {
-  let force=capped(push,1.0)*contactLinearAcceleration(s);
+fn contactAcceleration(s:Ship,push:vec3<f32>)->vec3<f32> {return contactAccelerationWith(push,contactContext(s));}
+fn contactAccelerationWith(push:vec3<f32>,context:ContactContext)->vec3<f32> {
+  let force=capped(push,1.0)*context.acceleration;
   // The locomotion steering target is v + force * .5. Multiple contacts may
   // brake to zero, but may not request reverse thrust through their sum.
-  let speed=length(s.v.xyz);let forward=s.v.xyz/max(speed,1e-20);
+  let speed=context.speed;let forward=context.forward;
   let longitudinal=dot(force,forward);
   return (force-forward*longitudinal)+forward*max(longitudinal,-speed/${STEERING_RESPONSE_SECONDS});
 }

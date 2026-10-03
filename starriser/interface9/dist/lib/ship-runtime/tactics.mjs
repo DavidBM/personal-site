@@ -24,12 +24,12 @@ export function authorTactic(options={}) {
   return {name,splits,fleet,revision,at,blend,detour:options.detour,branches};
 }
 export function validateJourney(journey) {
-  if(!['local','approach','warp','escape','orbit','departure','route'].includes(journey.mode))throw new Error('Unknown journey mode');
+  if(!['local','approach','warp','escape','transit','orbit','departure','route'].includes(journey.mode))throw new Error('Unknown journey mode');
   if(!Number.isFinite(journey.at)||!Number.isFinite(journey.end)||journey.end<journey.at)throw new Error('Invalid journey clock');
   validateExit(journey.exit);
   validateNavigation(journey);
   integer(journey.revision,1,16777215,'journey revision');
-  if(journey.mode==='warp'||journey.mode==='escape') {
+  if(journey.mode==='warp'||journey.mode==='escape'||journey.mode==='transit') {
     if(journey.end===journey.at)throw new Error('Warp needs a positive interval');
   }
   return structuredClone(journey);

@@ -354,17 +354,18 @@ export class FleetSceneParking {
     writeParkedPathEnd(visual, timeSec) {
         if (visual.remote)
             return;
+        // CPU parking is an entry seed only. Once initialized in this system, the
+        // GPU follows the moving planet; do not compute a pose just to discard it.
+        const systemId = this.solarBodies.systemId;
+        if (visual.poseInitialized && visual.poseSystemId === systemId)
+            return;
         const park = this.sceneParkPose(visual, timeSec);
         if (!park)
             return;
         const { o, hash, lx, ly, lz, slot } = park;
-        const systemId = this.solarBodies.systemId;
         const prevFlags = this.storage.fleetGpuView.getUint32(o + FleetGpuFields.flags, true);
         const nextFlags = this.sceneParkFlags(visual, prevFlags);
         const entering = visual.poseInitialized && visual.poseSystemId !== systemId;
-        // Kepler follow is GPU `body(planetId, now)`. CPU pathEnd is a join seed.
-        if (visual.poseInitialized && visual.poseSystemId === systemId && !entering)
-            return;
         if (this.parkedPathMatches(o, lx, ly, lz, nextFlags) && !entering)
             return;
         this.writeScenePath(visual, o, hash, lx, ly, lz, nextFlags, !visual.poseInitialized || entering, visual.state.state !== "awaiting");

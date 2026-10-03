@@ -5,7 +5,8 @@
         <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
         <title>Galaxy Map Generator</title>
         <script type="module">
-            // Initialize the application when DOM is ready
+            // Production renderer defaults to shared GPU visual formations.
+            // Keep the real scene lifecycle (orbit, warp and ship follow) in this entry.
             document.addEventListener("DOMContentLoaded", async () => {
                 const { App } = await import("./dist/app.js");
                 try {

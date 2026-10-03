@@ -1,3 +1,4 @@
+import { createBattleClient } from "./features/battles/client.js";
 import { createGpuErrorNotice } from './ui/gpu-error-notice.js';
 import { showDockPanel } from './ui/mobile-layout.js';
 import { readStarField, writeStarField } from './main/graphics-settings.js';
@@ -22,6 +23,7 @@ import { createPointerEventRouter, } from "./main/pointer-event-router.js";
 import { createEditHandlePointerController, } from "./main/edit-handle-pointer.js";
 import { createRenderViewHooks } from "./main/render-view-hooks.js";
 import { RenderClient } from "./main/render-client.js";
+import { bindPageLifetime } from './main/page-lifetime.js';
 import { readRenderScale, writeRenderScale, readHalfGlow, writeHalfGlow, readSelectiveMsaa, writeSelectiveMsaa, readSimulationRate, writeSimulationRate, readHighFx, readFleetPaths, writeFleetPaths, writeHighFx, paintHighFx } from "./main/graphics-settings.js";
 import { createRenderCameraInput } from "./main/render-camera-input.js";
 import { pickRenderBody } from "./main/render-picking.js";
@@ -66,6 +68,7 @@ export class App {
         this.onlineNode = null;
         this.onlineTopology = null;
         this.busMetricsPanel = null;
+        this.battles = null;
         this.simPause = createSimPauseController();
         this.nextPlanetPanelAt = 0;
         this.lastSceneFleetIdsKey = "";
@@ -87,8 +90,9 @@ export class App {
         this.disposed = false;
         this.disposePromise = null;
         this.startupAbort = new AbortController();
+        this.pageLifetimeCleanup = null;
         this.subscriptionDispose = null;
-        this.localShowSequence = 1;
+        this.followHullRotation = true;
         this.authority = options.authority ?? 'offline';
         this.statsPanels = [];
         this.uiRoot = createUIRoot();
@@ -174,12 +178,20 @@ export class App {
                 this.renderClient?.send({ type: 'followFleet', id, shipType });
             },
             stop: () => this.renderClient?.send({ type: 'followFleet', id: null }),
+            followRotation: () => this.followHullRotation, setFollowRotation: on => this.setFollowRotation(on),
             attack: id => {
                 this.cancelFleetMove();
                 this.sceneSelectionGeneration++;
-                void this.issueLocalShowAttack({ kind: 'fleet', id });
+                const selected = this.renderClient?.snapshot()?.selectedFleetId;
+                if (selected)
+                    void this.battles?.fight(selected, id);
             },
             move: id => this.armFleetMove(id),
+            endBattle: id => {
+                const s = this.fleetStatus.byId.get(id)?.state;
+                if (s?.state === 'awaiting' && s.battle)
+                    this.battles?.end(s.battle.id);
+            },
         });
         this.cameraController = createRenderCameraInput(client, this.controlsManager, () => this.clearSceneSelection(), () => {
             this.fleetContextMenu?.hide();
@@ -323,6 +335,12 @@ export class App {
         try {
             if (this.disposed)
                 throw new Error("App disposed");
+            this.pageLifetimeCleanup ?? (this.pageLifetimeCleanup = bindPageLifetime(window, () => {
+                this.startupAbort.abort();
+                this.renderClient?.terminate();
+                this.mainBus.destroy();
+                void this.dispose();
+            }, () => window.location.reload()));
             await this.setupWebGpuGraphics();
             await this.initializeWorkers();
             if (this.disposed)
@@ -478,6 +496,12 @@ export class App {
                     },
                 },
             });
+            this.battles = createBattleClient(this.mainBus, async (attacker, defender) => {
+                const client = this.renderClient;
+                if (!client)
+                    return null;
+                return await client.query({ type: 'battleProbe', attacker, defender });
+            }, text => this.fleetMoveStatus?.notice(text));
             console.log("All workers initialized successfully");
             if (this.isSimPaused())
                 this.publishSimPause();
@@ -704,6 +728,13 @@ export class App {
         this.sceneSelectionGeneration++;
         this.fleetContextMenu?.hide();
         this.renderClient?.send({ type: "followRandomShip" });
+    }
+    setFollowRotation(enabled) {
+        this.followHullRotation = enabled;
+        const check = document.getElementById("follow-rotation");
+        if (check)
+            check.checked = enabled;
+        this.renderClient?.send({ type: "followRotation", enabled });
     }
     followSelectedFleet() {
         this.cancelFleetMove();
@@ -1018,35 +1049,14 @@ export class App {
             const snapshot = client.snapshot();
             if (!snapshot || !current())
                 return null;
+            const state = this.fleetStatus.byId.get(target.id)?.state;
             return { id: target.id, types: result.types, following: snapshot.following,
                 move: this.movableSceneFleet(target.id, snapshot),
-                attack: this.authority !== 'online' && snapshot.selectedFleetId != null && snapshot.selectedFleetId !== target.id };
+                battle: state?.state === 'awaiting' && Boolean(state.battle),
+                attack: this.authority !== 'online' && snapshot.selectedFleetId != null && snapshot.selectedFleetId !== target.id
+                    && this.movableSceneFleet(snapshot.selectedFleetId, snapshot) && this.movableSceneFleet(target.id, snapshot) };
         }, () => { if (empty && move && current())
             this.issueFleetMove(move); });
-    }
-    async issueLocalShowAttack(target) {
-        if (this.authority === 'online' || target.kind !== 'fleet')
-            return;
-        const client = this.renderClient;
-        if (!client)
-            return;
-        const selected = client.snapshot()?.selectedFleetId;
-        if (!selected || selected === target.id)
-            return;
-        const map = await client.query({ type: "kernelFleetMap" });
-        // @ts-expect-error JS helper copied into dist; declarations live in directed-map.mjs.d.ts
-        const { resolveLocalShowAttack } = await import("./gpu/map/fleets/directed-map.mjs");
-        const slots = resolveLocalShowAttack(map, selected, target);
-        if (!slots)
-            return;
-        const { encodeLocalShowAttack } = await import("./lib/ship-runtime/packet.js");
-        const packet = encodeLocalShowAttack({
-            attacker: slots.attacker,
-            target: slots.target,
-            sequence: this.localShowSequence++,
-            id: `local-show-${target.id}`,
-        });
-        client.sendDirectorPacket(packet);
     }
     updateSceneHover(x, y) {
         if (x < 0 || y < 0) {
@@ -1163,7 +1173,9 @@ export class App {
         }
         const node = snapshot.sceneNode;
         this.syncSceneFleetIds(node);
-        const key = `${snapshot.systemId}:${snapshot.focusIndex}:${snapshot.selectedFleetId}:${snapshot.sceneFleetCount}`;
+        // Arrival/admission can change fleet count every frame. Those updates share
+        // the panel's 5 Hz budget; only a new scene/focus/selection bypasses it.
+        const key = `${snapshot.systemId}:${snapshot.focusIndex}:${snapshot.selectedFleetId}`;
         const wallNow = performance.now();
         if (!force && key === this.lastPlanetPanelKey && wallNow < this.nextPlanetPanelAt)
             return;
@@ -1465,6 +1477,8 @@ export class App {
     }
     async disposeResources() {
         this.disposed = true;
+        this.pageLifetimeCleanup?.();
+        this.pageLifetimeCleanup = null;
         this.onlineAttempt++;
         this.startupAbort.abort();
         cancelGamePerfWork();
@@ -1479,6 +1493,8 @@ export class App {
         this.controlsManager.setEditModeActive(false);
         this.cursorStatsWidget?.dispose();
         this.subscriptionDispose?.();
+        this.battles?.dispose();
+        this.battles = null;
         this.fleetStatus.dispose();
         for (const panel of this.statsPanels)
             panel.dispose();

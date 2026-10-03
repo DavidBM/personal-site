@@ -9,6 +9,7 @@ export function createSnapshotWriter() {
     let buffer = null;
     const catalog = [];
     const seen = new Set();
+    const position = { x: 0, y: 0, z: 0 };
     const emptyTypes = [];
     return {
         recycle(data) { if (data.byteLength === SNAPSHOT_BUFFER_BYTES)
@@ -29,7 +30,7 @@ export function createSnapshotWriter() {
                 if (!slot)
                     return;
                 const row = count++, offset = SNAPSHOT_HEADER_WORDS + row * SNAPSHOT_ROW_WORDS;
-                const position = fleetSnapshotPosition(state, id, visual, slot);
+                fleetSnapshotPosition(state, id, visual, slot, position);
                 const center = header.systemId == null ? null : state.view.sceneMarkerCenter(visual.id);
                 const activity = state.view.sceneFleetActivity(visual.id);
                 words[offset] = state.view.getSceneShipHandle(visual.id, 0) ?? -1;

@@ -1,6 +1,8 @@
 import {SHIP_BYTES, writePositionLow} from '../../../lib/ship-runtime/ship-layout.mjs';
 import { ORBIT_SPACING_MULTIPLIER, SHIP_SPEED_MULTIPLIER, BASE_SYSTEM_SPAN, WARP_LANE_BASE_SPAN, WARP_LANE_LENGTH_MULTIPLIER, sceneWarpLaneLength } from '../../../lib/ship-runtime/scene-scale.mjs';
 import {DEFAULT_SHIP_CAPACITY} from '../../../lib/ship-runtime/ship-capacity.mjs';
+import {OPEN_ORBIT_SECONDS} from '../../../lib/ship-runtime/arrival-deadline.mjs';
+export {WARP_PLANET_ARRIVAL_SECONDS} from '../../../lib/ship-runtime/arrival-deadline.mjs';
 import {
   SCENE_LAB_SCALE,
   COMPACT_SYSTEM_SPAN,
@@ -152,6 +154,15 @@ function splitWants(wants, cap) {
 
 export function allocateSceneVisuals(fleets, options = {}) {
   const cap = options.cap ?? SCENE_VISUAL_CAP;
+  const pinned = fleets.findIndex(f => f.retainedCount > 0);
+  if (pinned >= 0) {
+    const kept = Math.min(cap, fleets[pinned].retainedCount | 0);
+    const others = fleets.filter((_, i) => i !== pinned);
+    const rest = allocateSceneVisuals(others, {cap: Math.max(0, cap-kept)});
+    let cursor=0;
+    const counts=fleets.map((_,i)=>i===pinned?kept:rest.counts[cursor++]);
+    return occupancyFromCounts(fleets,counts,fleets.reduce((n,f)=>n+visualWant(f),0),cap,sceneMembershipKey(fleets));
+  }
   const wants = fleets.map(visualWant);
   const requested = wants.reduce((sum, w) => sum + w, 0);
   const key = sceneMembershipKey(fleets);
@@ -284,14 +295,16 @@ export function compactCruiseSec(from, to) {
  * Coordinates are sun-local compact. Far inbound/outbound stay timed warp.
  * In-system stage is local cruise toward the rim (avoidBodies runs).
  */
+const ORBIT_PLAN = Object.freeze({ phase: "orbit", seed: "orbit", paused: false });
+const HIDDEN_PLAN = Object.freeze({ phase: "hide", seed: "orbit", paused: true });
 export function sceneMotionPlan(input) {
   input ??= {};
   const state = input.state;
   const nowMs = Number(input.nowMs) || 0;
-  if (!state || state.state === "awaiting") return { phase: "orbit", seed: "orbit", paused: false };
+  if (!state || state.state === "awaiting") return ORBIT_PLAN;
   if (state.state === "jumping") return sceneJumpPlan(input, state, nowMs);
   const left = Math.max(0, (state.startTime || 0) + (state.durationMs || 0) - nowMs);
-  if (left > STAGE_LEAD_MS) return { phase: "orbit", seed: "orbit", paused: false };
+  if (left > STAGE_LEAD_MS || !state.nextNode) return ORBIT_PLAN;
   const park = input.fromPos || { x: 0, y: 0, z: 0 };
   const { rim } = sceneWarpEndpoints(input, false);
   return { phase: "stage", seed: "local", paused: false, planet: true,
@@ -303,7 +316,7 @@ function sceneJumpPlan(input, state, nowMs) {
   const inbound = state.endNode?.solarSystemId === input.systemId;
   const duration = inbound ? Math.max(1, state.durationMs || 1) : sceneOutboundDurationMs(state.durationMs);
   if (!inbound && (state.startNode?.solarSystemId !== input.systemId || !(elapsed < duration))) {
-    return { phase: "hide", seed: "orbit", paused: true };
+    return HIDDEN_PLAN;
   }
   return timedWarpPlan(inbound, duration, elapsed, sceneWarpEndpoints(input, inbound));
 }
@@ -329,11 +342,11 @@ function sceneWarpEndpoints(input, inbound) {
     rim: { x: bearing.x * rimR, y: 0, z: bearing.z * rimR } };
 }
 
-export function stageCommand(now, slot, exit, revision, planet) {
+export function stageCommand(now, slot, exit, revision, planet, deadline = now + OPEN_ORBIT_SECONDS) {
   const journey = {
     mode: "departure",
     at: now,
-    end: now + 1e6,
+    end: deadline,
     exit,
     revision,
   };
@@ -341,14 +354,14 @@ export function stageCommand(now, slot, exit, revision, planet) {
   return { fleet: slot, journey };
 }
 
-export function orbitCommand(now, slot, planet, revision) {
+export function orbitCommand(now, slot, planet, revision, arrivalSeconds = OPEN_ORBIT_SECONDS) {
   return {
     fleet: slot,
     journey: {
       mode: "orbit",
       planet,
       at: now,
-      end: now + 1e6,
+      end: now + arrivalSeconds,
       exit: [0, 0, 0],
       revision,
     },
@@ -393,7 +406,7 @@ export function directedTickDecision(wallGap, simGap, dt, freeze = PRESENTATION_
 
 /** A GPU admission owns a coordinate frame as well as a logical fleet. */
 export function sceneFleetLifetimeKey(fleet) {
-  return JSON.stringify([fleet.id ?? "", fleet.generation ?? 0, fleet.systemId ?? null]);
+  return JSON.stringify([fleet.id ?? "", fleet.generation ?? 0, fleet.ownerSystemId ?? fleet.systemId ?? null]);
 }
 
 export function sceneFleetFingerprint(fleets, poses) {
@@ -475,6 +488,22 @@ function takeKernelHole(holes, n) {
   return null;
 }
 
+/** Return the first new ordinal when a retained range grows in place. */
+function resizeRetainedRange(ranges, slot, n, kernelCount, abandoned) {
+  const have = ranges.get(slot);
+  if (n < have.cap) {
+    abandoned.push({ start: have.start + n, cap: have.cap - n, slot });
+    ranges.set(slot, { start: have.start, cap: n });
+  }
+  if (n <= have.cap) return null;
+  const tail = have.start + have.cap;
+  const hole = holesFromRanges(ranges, kernelCount).find(h => h.start === tail);
+  const extra = Math.min(n - have.cap, hole?.cap ?? 0);
+  if (extra <= 0) return null;
+  ranges.set(slot, { start: have.start, cap: have.cap + extra });
+  return have.cap;
+}
+
 export function allocateKernelRanges(fleets, kernelCount, previous = null) {
   const prev = previous instanceof Map ? previous : new Map();
   const live = new Set(fleets.map((f) => (f.slot ?? 0) | 0));
@@ -488,23 +517,23 @@ export function allocateKernelRanges(fleets, kernelCount, previous = null) {
     ranges.set(slot, { start: r.start, cap: r.cap });
   }
   const grown = [];
+  const admissions = [];
   for (const fleet of bySlot(fleets)) {
     const slot = (fleet.slot ?? 0) | 0;
     const n = Math.max(0, fleet.shipCount | 0);
     const have = ranges.get(slot);
     if (have) {
-      if (n < have.cap) {
-        abandoned.push({ start: have.start + n, cap: have.cap - n, slot });
-        ranges.set(slot, { start: have.start, cap: n });
-      }
+      const from = resizeRetainedRange(ranges, slot, n, kernelCount, abandoned);
+      if (from !== null) { grown.push(slot); admissions.push({ slot, from }); }
       continue;
     }
     const placed = n > 0 ? takeKernelHole(holesFromRanges(ranges, kernelCount), n) : null;
     if (!placed) continue;
     ranges.set(slot, placed);
     grown.push(slot);
+    admissions.push({ slot, from: 0 });
   }
-  return { ranges, grown, abandoned };
+  return { ranges, grown, abandoned, admissions };
 }
 
 export function lowestHole(ranges, kernelCount) {
@@ -538,6 +567,7 @@ export function pickCompactMove(ranges, kernelCount) {
 }
 
 export function classSeedPlan(fleet, n) {
+  if (fleet.seedPlan) return fleet.seedPlan;
   const groupId = (fleet.groupId ?? fleet.slot ?? 0) >>> 0;
   if (fleet.type != null) {
     return { types: [fleet.type & 31], parts: [n], groups: [groupId] };

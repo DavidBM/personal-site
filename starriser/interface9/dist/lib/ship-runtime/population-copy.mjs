@@ -2,8 +2,8 @@ import {SHIP_BYTES,SHIP_HISTORY_BYTES} from './ship-layout.mjs';
 import {spatialStorage} from './spatial-schedule.mjs';
 import {EVENT_POSE_WORDS} from './event-gpu.mjs';
 import {CORRECTION_WORDS,CORRECTIONS_PER_POPULATION} from './correction-gpu.mjs';
-export function populationCopies(before,after) {
-  const a=spatialStorage(before),b=spatialStorage(after);
+export function populationCopies(before,after,bounded=false) {
+  const a=spatialStorage(before,bounded),b=spatialStorage(after,bounded);
   const oldDirectory=a.linkWords+before*EVENT_POSE_WORDS,newDirectory=b.linkWords+after*EVENT_POSE_WORDS;
   return [
     ['a',0,0,before*SHIP_BYTES],['b',0,0,before*SHIP_BYTES],['history',0,0,before*SHIP_HISTORY_BYTES],

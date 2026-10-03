@@ -251,17 +251,28 @@ async function fetchBitmapOrNull(url) {
         return null;
     }
 }
-function texFromBmpOrSolid(device, bmp, label, fallback) {
-    if (bmp)
-        return uploadBitmap(device, bmp, label);
-    return uploadSolid(device, fallback[0], fallback[1], fallback[2], fallback[3], label);
+/** Sequence large uploads through the view budget; failure releases partial packs. */
+async function uploadCatalogBitmaps(bitmaps, labels, upload) {
+    const textures = [];
+    try {
+        for (let i = 0; i < bitmaps.length; i++)
+            textures.push(bitmaps[i] ? await upload(bitmaps[i], labels[i]) : null);
+        return textures;
+    }
+    catch (error) {
+        for (const texture of textures)
+            texture?.destroy();
+        for (const bitmap of bitmaps)
+            bitmap?.close();
+        throw error;
+    }
 }
 /**
  * Load one catalog planet pack.
  * - preview: preview_* (or 4k albedo if preview missing). Dummy poles OK.
  * - hi: 4k albedo/normal/spec/night/clouds + real pole textures when paths exist.
  */
-export async function loadCatalogPlanetPack(device, maps, quality) {
+export async function loadCatalogPlanetPack(device, maps, quality, upload = (bitmap, label) => uploadBitmap(device, bitmap, label)) {
     const preview = quality === "preview";
     const albedoUrl = preview
         ? pickMap(maps, ["preview_albedo", "albedo"])
@@ -296,36 +307,21 @@ export async function loadCatalogPlanetPack(device, maps, quality) {
         fetchBitmapOrNull(cloudPoleNUrl),
         fetchBitmapOrNull(cloudPoleSUrl),
     ]);
+    const textures = await uploadCatalogBitmaps([albedoBmp, normalBmp, specBmp, nightBmp, cloudBmp, poleNBmp, poleSBmp, cloudPoleNBmp, cloudPoleSBmp], ['albedo', 'normal', 'spec', 'night', 'cloud', 'pole-n', 'pole-s', 'cloud-pole-n', 'cloud-pole-s'].map(name => `catalog-${name}-${quality}`), upload);
     const dummyPole = createDummyPoleTexture(device, `catalog-pole-dummy-${quality}`);
     return {
-        albedo: uploadBitmap(device, albedoBmp, `catalog-albedo-${quality}`),
-        normal: texFromBmpOrSolid(device, normalBmp, `catalog-normal-${quality}`, [
-            128, 128, 255, 255,
-        ]),
-        spec: texFromBmpOrSolid(device, specBmp, `catalog-spec-${quality}`, [
-            0, 0, 0, 255,
-        ]),
-        night: texFromBmpOrSolid(device, nightBmp, `catalog-night-${quality}`, [
-            0, 0, 0, 255,
-        ]),
-        cloud: texFromBmpOrSolid(device, cloudBmp, `catalog-cloud-${quality}`, [
-            0, 0, 0, 0,
-        ]),
+        albedo: textures[0],
+        normal: textures[1] ?? uploadSolid(device, 128, 128, 255, 255, `catalog-normal-${quality}`),
+        spec: textures[2] ?? uploadSolid(device, 0, 0, 0, 255, `catalog-spec-${quality}`),
+        night: textures[3] ?? uploadSolid(device, 0, 0, 0, 255, `catalog-night-${quality}`),
+        cloud: textures[4] ?? uploadSolid(device, 0, 0, 0, 0, `catalog-cloud-${quality}`),
         moon: uploadSolid(device, 80, 80, 80, 255, `catalog-moon-${quality}`),
         sampler: createBellySampler(device, `catalog-equirect-${quality}`),
         poleSampler: createPoleSampler(device, `catalog-poleSampler-${quality}`),
-        poleNorth: poleNBmp
-            ? uploadBitmap(device, poleNBmp, `catalog-pole-n-${quality}`)
-            : dummyPole,
-        poleSouth: poleSBmp
-            ? uploadBitmap(device, poleSBmp, `catalog-pole-s-${quality}`)
-            : dummyPole,
-        cloudPoleNorth: cloudPoleNBmp
-            ? uploadBitmap(device, cloudPoleNBmp, `catalog-cloud-pole-n-${quality}`)
-            : dummyPole,
-        cloudPoleSouth: cloudPoleSBmp
-            ? uploadBitmap(device, cloudPoleSBmp, `catalog-cloud-pole-s-${quality}`)
-            : dummyPole,
+        poleNorth: textures[5] ?? dummyPole,
+        poleSouth: textures[6] ?? dummyPole,
+        cloudPoleNorth: textures[7] ?? dummyPole,
+        cloudPoleSouth: textures[8] ?? dummyPole,
         urls: {
             albedo: albedoUrl,
             normal: normalUrl ?? "memory:flat-normal",

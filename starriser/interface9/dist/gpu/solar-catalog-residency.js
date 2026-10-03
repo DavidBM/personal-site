@@ -1,4 +1,5 @@
 import { renderBudget } from './render-budget.js';
+import { PlanetTextureUploads } from './planet-lib/texture-upload-queue.js';
 /**
  * View-owned catalog texture residency.
  *
@@ -8,8 +9,9 @@ import { renderBudget } from './render-budget.js';
  * One hi 4K+pole slot (`promoteHi` / `releaseHi`) — at most one {@link loadHi}
  * in flight (`hiLoading`); RecurseDraw parent until it lands.
  *
- * Never fetch inside renderFrame — {@link requestPreview} only admits and
- * schedules a microtask. Encode reads whatever is already resident.
+ * Never fetch inside renderFrame — {@link requestPreview} only admits work.
+ * Fetch/decode is async; pumpUploads copies one bounded stripe after submission.
+ * Deselect keeps one completed hi pack warm until replacement or system exit.
  */
 import { catalogMapsRecord } from "./planet-lib/catalog-assets.js";
 import { createDummyPoleTexture, createPoleSampler, destroyPlanetTexturePack, loadCatalogPlanetPack, uploadSolid, } from "./planet-lib/planet-textures.js";
@@ -84,6 +86,7 @@ export class SolarCatalogResidency {
         this.hiLoading = false;
         this.queued = new Set();
         this.device = device;
+        this.uploads = new PlanetTextureUploads(device);
         this.dummy = dummy ?? createDummyPlanetPack(device);
     }
     previewCount() {
@@ -162,6 +165,8 @@ export class SolarCatalogResidency {
      * concurrent cap — SCENE rebuild must evict the previous set.
      */
     retainPreviews(keep) {
+        if ((this.hiId && !keep.has(this.hiId)) || (this.hiPending && !keep.has(this.hiPending)))
+            this.releaseHi();
         for (const id of previewIdsToRelease(this.preview.keys(), keep)) {
             this.releasePreview(id);
         }
@@ -204,6 +209,10 @@ export class SolarCatalogResidency {
             this.hiLoading = false;
         });
     }
+    /** Exactly once after frame submission, outside the measured encode work. */
+    pumpUploads() { this.uploads.pump(); }
+    /** A deselection keeps one completed pack warm, bounded to the current system. */
+    cancelHiRequest() { this.hiPending = null; }
     releaseHi() {
         this.hiPending = null;
         if (this.hiPack) {
@@ -223,6 +232,7 @@ export class SolarCatalogResidency {
         return this.dummy;
     }
     dispose() {
+        this.uploads.dispose();
         this.releaseHi();
         for (const pack of this.preview.values()) {
             destroyPlanetTexturePack(pack);
@@ -239,7 +249,7 @@ export class SolarCatalogResidency {
         }
         try {
             const maps = catalogMapsRecord(id);
-            const pack = await loadCatalogPlanetPack(this.device, maps, "preview");
+            const pack = await loadCatalogPlanetPack(this.device, maps, "preview", (bitmap, label) => this.uploads.enqueue(bitmap, label, () => this.pending.has(id)));
             if (!this.pending.has(id)) {
                 destroyPlanetTexturePack(pack);
                 return;
@@ -266,7 +276,13 @@ export class SolarCatalogResidency {
             return;
         try {
             const maps = catalogMapsRecord(id);
-            const pack = await loadCatalogPlanetPack(this.device, maps, "hi");
+            // Never hold two high packs during replacement (important on mobile).
+            if (this.hiPack) {
+                destroyPlanetTexturePack(this.hiPack);
+                this.hiPack = null;
+                this.hiId = null;
+            }
+            const pack = await loadCatalogPlanetPack(this.device, maps, "hi", (bitmap, label) => this.uploads.enqueue(bitmap, label, () => this.hiPending === id));
             if (this.hiPending !== id) {
                 destroyPlanetTexturePack(pack);
                 return;

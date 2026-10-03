@@ -3,6 +3,7 @@ import { renderSnapshot, sceneDiagnostics, sceneFleetPage } from "./runtime-stat
 import { pickRuntimeSceneTarget, pickRuntimeFleetHalo } from './scene-picking.js';
 export async function queryRenderRuntime(state, query, remote = []) {
     switch (query.type) {
+        case 'followDiagnostics': return state.view.followDiagnostics();
         case "qualitySample": return state.view.sampleQualityDiagnostics();
         case "snapshot": return renderSnapshot(state, remote);
         case "measureFrame": return state.view.measureOneFrameEndToEndMs();
@@ -15,6 +16,7 @@ export async function queryRenderRuntime(state, query, remote = []) {
             return { id: query.id, types: state.view.sceneShipTypes(renderId) };
         }
         case "pickFleetHalo": return pickRuntimeFleetHalo(state, query.x, query.y);
+        case 'battleProbe': return state.view.battleProbe(query.attacker, query.defender);
         case "kernelFleetMap": return state.view.kernelFleetMap?.() ?? [];
         case "sceneFleetPage": return sceneFleetPage(state, remote, query.offset, query.limit);
         case "sceneDiagnostics": return sceneDiagnostics(state);

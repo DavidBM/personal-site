@@ -14,6 +14,7 @@ export class WarpEffect {
         this.width = 0;
         this.height = 0;
         this.strength = 0;
+        this.lastActiveMs = -Infinity;
         this.data = new Float32Array(16);
         this.bootstrap = bootstrap;
         this.coordinates = coordinates;
@@ -23,10 +24,11 @@ export class WarpEffect {
         this.warm(frame.highFx);
         if (!frame.highFx || !frame.sceneOpen || !frame.warp || !depth) {
             this.strength = 0;
-            if (!frame.highFx)
+            if (!frame.highFx || !frame.sceneOpen || frame.nowMs - this.lastActiveMs >= 1000)
                 this.releaseTarget();
             return null;
         }
+        this.lastActiveMs = frame.nowMs;
         const requested = Math.min(1, Math.max(0, frame.warp.strength));
         this.strength += (requested - this.strength) * (1 - Math.exp(-Math.min(50, Math.max(0, frame.dtMs)) / 110));
         if (this.strength < .002 || !writeWarpView(this.data, frame.warp, this.coordinates, width, height, this.strength, frame.timeSec))

@@ -51,7 +51,7 @@ export class QualityDiagnosticsPanel {
                     `Resident ${c[0]} · ${result.width}×${result.height}`,
                     `Hull tiny / low / full: ${c[1]} / ${c[2]} / ${c[3]}`,
                     `Visible hulls: ${result.visible.join(" / ")}`,
-                    `Pilot 1 / 10 / 30 Hz: ${c[11]} / ${c[12]} / ${c[13]}`,
+                    `Pilot every 8 / 2 / 1 ticks: ${c[11]} / ${c[12]} / ${c[13]}`,
                     `Managed ${c[10]} · invalid advice ${c[18]}`,
                     `Warp ${c[14]} · combat ${c[15]} · timed ${c[16]}`,
                     `Missing guide ${c[17]} · emitters ${result.emitters}`,

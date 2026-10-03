@@ -114,7 +114,8 @@ export class SceneFleetTelemetry {
             if (!(f[at + 3] > 0))
                 continue;
             this.travel.set(slot, { center: Array.from(f.subarray(at, at + 3)), count: f[at + 3], speed: f[at + 7],
-                progress: Array.from(f.subarray(at + 8, at + 10)), quorum: f[at + 11], token: f[at + 12], departure: f[at + 13], observedMs: this.time, observedWallMs: this.sampleWallMs });
+                progress: Array.from(f.subarray(at + 8, at + 10)), quorum: f[at + 11], token: f[at + 12], departure: f[at + 13], turboCount: f[at + 14],
+                arrivalRemaining: f[at + 13] === 3 || f[at + 13] === 4 ? f[at + 15] : undefined, observedMs: this.time, observedWallMs: this.sampleWallMs });
         }
     }
     invalidate() { this.travel.clear(); this.ships = []; this.nextAt = 0; this.debugRevision++; }

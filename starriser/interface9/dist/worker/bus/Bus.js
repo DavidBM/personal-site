@@ -341,7 +341,8 @@ export class Bus {
     }
     _rejectPendingRequests() {
         for (const pending of this._pendingRequests.values()) {
-            clearTimeout(pending.timeout);
+            if (pending.timeout !== undefined)
+                clearTimeout(pending.timeout);
             pending.cleanup?.();
             pending.reject(new Error("Bus destroyed"));
         }
@@ -389,7 +390,8 @@ export class Bus {
         if (!pending)
             return false;
         this._pendingRequests.delete(id);
-        clearTimeout(pending.timeout);
+        if (pending.timeout !== undefined)
+            clearTimeout(pending.timeout);
         pending.cleanup?.();
         if (failure)
             pending.reject(Object.assign(new Error(failure.message), { code: failure.code }));

@@ -19,30 +19,39 @@ function collectSceneFleetRefs(state, remote) {
     refs.push(...remote.slice(0, SNAPSHOT_SCENE_FLEET_LIMIT - refs.length));
     return refs;
 }
-function snapshotLocalPos(state, visual, slot) {
+function snapshotLocalPos(state, visual, slot, out) {
     const c = typeof state.view.sceneShipCentroid === "function"
         ? state.view.sceneShipCentroid(visual.id)
         : null;
     if (c)
         return c;
-    return { x: slot.pathEndX, y: slot.pathEndY, z: slot.pathEndZ };
+    out.x = slot.pathEndX;
+    out.y = slot.pathEndY;
+    out.z = slot.pathEndZ;
+    return out;
 }
-export function fleetSnapshotPosition(state, id, visual, slot) {
+export function fleetSnapshotPosition(state, id, visual, slot, out = { x: 0, y: 0, z: 0 }) {
     const sceneLocal = (slot.flags & 128) !== 0 && state.view.solarBodies.systemId != null;
-    const local = snapshotLocalPos(state, visual, slot);
+    const local = snapshotLocalPos(state, visual, slot, out);
     if (sceneLocal) {
-        return {
-            x: local.x + state.view.solarBodies.systemX,
-            y: local.y,
-            z: local.z + state.view.solarBodies.systemZ,
-        };
+        out.x = local.x + state.view.solarBodies.systemX;
+        out.y = local.y;
+        out.z = local.z + state.view.solarBodies.systemZ;
+        return out;
     }
     if (state.selectedFleetId === id) {
         const pose = state.view.getLiveShipPose(visual.instanceStart);
-        if (pose)
-            return { x: pose.posX, y: pose.posY, z: pose.posZ };
+        if (pose) {
+            out.x = pose.posX;
+            out.y = pose.posY;
+            out.z = pose.posZ;
+            return out;
+        }
     }
-    return { x: local.x, y: local.y || 0, z: local.z };
+    out.x = local.x;
+    out.y = local.y || 0;
+    out.z = local.z;
+    return out;
 }
 function observeSceneFleet(state, id, visual) {
     const slot = state.view.readFleetGpuSlot(visual.id);

@@ -3,18 +3,30 @@ export function lifecycleWgsl(solar = false) {
     ? `let exit=journey.exit.xyz+warpOffset(s);
     let duration=max(.000001,s.flight.z-s.flight.y);
     let direction=unit(exit-s.origin.xyz);
-    s.v=vec4<f32>((exit-s.origin.xyz)/duration,s.v.w);s.a=vec4<f32>(0.0);
+    var velocity=(exit-s.origin.xyz)/duration;
+    if(s.flight.w==4.0){
+      // Receding endpoint solve spreads f32 chord error over remaining time.
+      // Position remains continuously integrated, including the last warp tick.
+      velocity=((exit-s.positionAnchor.xyz)-s.positionLow.xyz)/max(.000001,s.flight.z-s.positionAnchor.w);
+    }
+    s.v=vec4<f32>(velocity,s.v.w);s.a=vec4<f32>(0.0);
     s=warpShipPosition(s,min(now,s.flight.z));
     s.positionAnchor.w=min(now,s.flight.z);
-    if(now>=s.flight.z){s.p=vec4<f32>(exit,s.p.w);s.positionLow=vec4<f32>(0.0);s=initializeShipPosition(s);}
+    if(now>=s.flight.z&&s.flight.w!=4.0){s.p=vec4<f32>(exit,s.p.w);s.positionLow=vec4<f32>(0.0);s=initializeShipPosition(s);}
     s.q=flightAttitude(s.q,s.v.xyz);s.aux.x=0.0;`
     : `let exit=journey.exit.xyz+formationOffset(s);
     let duration=max(.000001,s.flight.z-s.flight.y);
     let direction=unit(exit-s.origin.xyz);
-    s.v=vec4<f32>((exit-s.origin.xyz)/duration,s.v.w);s.a=vec4<f32>(0.0);
+    var velocity=(exit-s.origin.xyz)/duration;
+    if(s.flight.w==4.0){
+      // Receding endpoint solve spreads f32 chord error over remaining time.
+      // Position remains continuously integrated, including the last warp tick.
+      velocity=((exit-s.positionAnchor.xyz)-s.positionLow.xyz)/max(.000001,s.flight.z-s.positionAnchor.w);
+    }
+    s.v=vec4<f32>(velocity,s.v.w);s.a=vec4<f32>(0.0);
     s=warpShipPosition(s,min(now,s.flight.z));
     s.positionAnchor.w=min(now,s.flight.z);
-    if(now>=s.flight.z){s.p=vec4<f32>(exit,s.p.w);s.positionLow=vec4<f32>(0.0);s=initializeShipPosition(s);}
+    if(now>=s.flight.z&&s.flight.w!=4.0){s.p=vec4<f32>(exit,s.p.w);s.positionLow=vec4<f32>(0.0);s=initializeShipPosition(s);}
     s.q=flightAttitude(s.q,direction);s.aux.x=0.0;`;
   return /* wgsl */`
 fn navigationCohort(s:Ship)->u32 {

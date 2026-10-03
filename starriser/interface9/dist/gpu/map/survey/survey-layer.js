@@ -48,13 +48,13 @@ export class GalaxySurveyLayer {
     }
     consumeLayout(frame) {
         if (!this.layoutReady)
-            this.prepareLayout(frame.cssWidth, frame.cssHeight, frame.tanHalfFov, frame.galaxyFade >= 0.02);
+            this.prepareLayout(frame.cssWidth, frame.cssHeight, frame.tanHalfFov, frame.strategicVisible && frame.galaxyFade >= 0.02);
         this.layoutReady = false;
     }
     prepare(frame) {
         this.count = 0;
         this.consumeLayout(frame);
-        if (frame.galaxyFade < 0.02)
+        if (!frame.strategicVisible || frame.galaxyFade < 0.02)
             return;
         if (this.revision !== this.topology.surveyRevision) {
             this.textCache.clear();

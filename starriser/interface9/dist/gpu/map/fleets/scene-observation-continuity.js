@@ -10,7 +10,7 @@ export class SceneObservationContinuity {
             if (!fleet.id || fleet.shipCount <= 0)
                 continue;
             const slot = fleet.slot ?? 0;
-            const owner = { id: fleet.id, generation: fleet.generation ?? 0, systemId: fleet.systemId ?? null };
+            const owner = { id: fleet.id, generation: fleet.generation ?? 0, systemId: fleet.ownerSystemId ?? fleet.systemId ?? null };
             const previous = this.owners.get(slot);
             if (sameOwner(previous, owner))
                 retained.add(slot);

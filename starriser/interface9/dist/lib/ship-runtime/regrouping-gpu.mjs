@@ -1,3 +1,4 @@
+import {spatialShaderSource} from './event-gpu.mjs';
 import {CORRECTION_AFTER, CORRECTION_HISTORY} from './ship-layout.mjs';
 import {MAX_SHIP_CAPACITY} from './ship-capacity.mjs';
 import {SHIP_WGSL} from './shaders.mjs';
@@ -52,15 +53,15 @@ fn preserveBoundary(before:Ship,after:Ship,i:u32,row:vec4<u32>) {
     if(s.flight.w>=2.0){s.v=vec4<f32>(s.v.xyz/max(.000001,length(s.v.xyz))*s.v.w*.75,s.v.w);s.a=vec4<f32>(0.0);s.flight.w=0.0;s.origin=vec4<f32>(0.0,0.0,0.0,s.origin.w);}
   }
   if(row.y>0u||transferred(s.aux.x)){s.aux.x=0.0;}
-  if(row.y>0u){s.memory.x=0.0;if(s.memory.z==-1.0){s.memory.y=0.0;s.memory.z=0.0;}}
-  else if(s.memory.z!=-1.0 && transferred(s.memory.x)){s.memory.x=0.0;}
+  if(row.y>0u){s.memory.x=0.0;if(s.memory.z<0.0){s.memory.y=0.0;s.memory.z=0.0;}}
+  else if(s.memory.z>=0.0 && transferred(s.memory.x)){s.memory.x=0.0;}
   if(row.y>0u){preserveBoundary(before,s,i,row);}
   ships[i]=s;
 }
 `;
 
-export async function createRegroupingGpu(device) {
-  const module=device.createShaderModule({code}),info=await module.getCompilationInfo();
+export async function createRegroupingGpu(device,bounded=false) {
+  const module=device.createShaderModule({code:spatialShaderSource(code,bounded)}),info=await module.getCompilationInfo();
   if(info.messages.some(m=>m.type==='error'))throw Error(info.messages.map(m=>m.message).join('\n'));
   const pipelines=await Promise.all(['inspect','regroup'].map(entryPoint=>device.createComputePipelineAsync({layout:'auto',compute:{module,entryPoint}})));
   const rows=device.createBuffer({size:MAX_SHIP_CAPACITY*16,usage:GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_DST});

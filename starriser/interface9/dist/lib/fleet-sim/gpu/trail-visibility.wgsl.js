@@ -7,7 +7,7 @@ struct TrailVisibilityUniforms {
   halfWidth: f32,
   enabled: f32,
   widthMode: f32, // 0 = fixed world half-width; 1 = screen coefficient * depth.
-  _pad: f32,
+  minScreenHalfWidth: f32,
 };
 
 fn expandedTrailPoint(sampleBase: u32, baseY: f32, worldOff: vec3<f32>, pathEnd: vec3<f32>, stableScene: bool) -> vec3<f32> {
@@ -43,14 +43,16 @@ fn trailPlaneMargin(plane: vec4<f32>, center: vec3<f32>, radius: f32) -> f32 {
   return ${MODEL_VISIBILITY_EPSILON} * max(1.0, dot(abs(plane.xyz), abs(center)) + abs(plane.w) + radius);
 }
 
+fn trailEyePlane() -> vec4<f32> { return u.trailVisibility.eyePlane; }
+fn trailClipPlane(i:u32) -> vec4<f32> { return u.trailVisibility.planes[i]; }
 fn trailMaxHalfWidth(center: vec3<f32>, extent: vec3<f32>) -> f32 {
-  if (u.trailVisibility.widthMode == 0.0) { return u.trailVisibility.halfWidth; }
-  let eye = u.trailVisibility.eyePlane;
+  let eye = trailEyePlane();
   let eyeDistance = dot(eye.xyz, center) + eye.w;
   let eyeExtent = dot(abs(eye.xyz), extent);
   // The live VS evaluates width on each centerline endpoint before side offset.
   // AABB support bounds both endpoint depths; padding protects f32 cancellation.
   let maxDepth = abs(eyeDistance) + eyeExtent + trailPlaneMargin(eye, center, eyeExtent);
+  if(u.trailVisibility.widthMode == 0.0){return max(u.trailVisibility.halfWidth,u.trailVisibility.minScreenHalfWidth*maxDepth);}
   return u.trailVisibility.halfWidth * maxDepth;
 }
 
@@ -60,14 +62,14 @@ fn trailBoundsVisible(low: vec3<f32>, high: vec3<f32>) -> bool {
   if (!trailFinitePoint(center) || !trailFinitePoint(extent)) { return true; }
   let halfWidth = trailMaxHalfWidth(center, extent);
   if (!(halfWidth >= 0.0 && halfWidth <= 3.402823466e+38)) { return true; }
-  let eye = u.trailVisibility.eyePlane;
+  let eye = trailEyePlane();
   let eyeRadius = dot(abs(eye.xyz), extent) + halfWidth * length(eye.xyz);
   let eyeDistance = dot(eye.xyz, center) + eye.w;
   // Legacy near trim can extrapolate across the eye plane. Keep the whole
   // ambiguous ribbon instead of assuming its original endpoints bound that trim.
   if (abs(eyeDistance) <= eyeRadius + trailPlaneMargin(eye, center, eyeRadius)) { return true; }
   for (var i = 0u; i < 6u; i++) {
-    let plane = u.trailVisibility.planes[i];
+    let plane = trailClipPlane(i);
     let radius = dot(abs(plane.xyz), extent) + halfWidth;
     let distance = dot(plane.xyz, center) + plane.w;
     if (distance < -radius - trailPlaneMargin(plane, center, radius)) { return false; }

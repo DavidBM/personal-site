@@ -27,6 +27,8 @@ export function acceptLocalMove(world, payload) {
     const fleet = world.fleets.get(payload?.id);
     if (!fleet || fleet.state.state === "jumping")
         return null;
+    if (fleet.state.state === "awaiting" && fleet.state.battle)
+        return null;
     const { node, destination } = payload;
     if (!node || node.clusterId !== fleet.currentNode.clusterId || node.solarSystemId !== fleet.currentNode.solarSystemId)
         return null;

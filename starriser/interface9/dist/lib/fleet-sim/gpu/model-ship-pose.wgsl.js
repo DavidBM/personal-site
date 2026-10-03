@@ -87,7 +87,10 @@ fn modelShipPose(ship: ShipSim, origin: vec3<f32>, modelScale: f32) -> ModelShip
   let shipPos = vec3<f32>(ship.posX, ship.posY, ship.posZ);
   // Directed present-copy already wrote sun-local compact pose. Rebuilding a
   // polar ring around pathEnd (limb-parked) sat the mesh beside the planet.
-  if (inScene) {
+  // The presented pose owns its coordinate frame. Logical fleet membership can
+  // leave the source while a retained departure still renders here; its orbit
+  // fields contain split coordinates, not the legacy polar orbit parameters.
+  if (inScene || (ship.targetKind & 4096u) != 0u) {
     pose.centerRel = shipPos-origin;
     if((ship.targetKind & 4096u)!=0u){
       pose.centerRel=(vec3<f32>(ship.orbitPhase,ship.orbitOmega,ship.omegaMax)/560.0-origin)

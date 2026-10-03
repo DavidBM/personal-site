@@ -1,10 +1,11 @@
+import {BATTLE_DECL,battleFields} from './visual-battle.mjs';
 import {SHIP_BYTES} from './ship-layout.mjs';
 // JavaScript describes membership; GPU state owns references and anchor poses.
 import { CLASS_BY_TYPE, ORBIT_SPEED_FRACTION } from "./classes.mjs";
 import { fleetComposition, visualParts } from "./fleet-mix.mjs";
 import { SCENE_ROUTE_DECL } from "./scene-route.mjs";
 import { CONTACT_PADDING, OBSTACLE_PADDING, OBSTACLE_SOFT_REACH } from "./force-clearance.mjs";
-import {PILOT_ADVICE_DECL,PILOT_ADVICE_FIELD} from './pilot-advice-layout.mjs';
+import {PILOT_ADVICE_DECL,pilotAdviceField} from './pilot-advice-layout.mjs';
 
 export const FORM_FLEETS = 128;
 export const FORM_ANCHORS = 8;
@@ -71,11 +72,13 @@ function classRunOrdinals(kinds, parts, anchorClass) {
  * Anchor ordinals for one fleet. `explicitType` is a single-class fleet.
  * Ordinals match `writeFleetSeed`'s fleet-local index.
  */
-export function formationAnchors(shipCount, explicitType = null, id = 0, admittedCount = shipCount) {
+export function formationAnchors(shipCount, explicitType = null, id = 0, admittedCount = shipCount, seedPlan = null) {
   const empty = { anchorClass: 0, ordinals: [] };
   const total = Math.max(0, shipCount | 0);
   if (total <= 1) return empty;
-  const { kinds, parts } = formationRuns(total, explicitType, id);
+  const { kinds, parts } = seedPlan
+    ? { kinds: seedPlan.types.map(type => CLASS_BY_TYPE[type]), parts: [...seedPlan.parts] }
+    : formationRuns(total, explicitType, id);
   retainAdmittedParts(parts, admittedCount);
   let anchorClass = -1;
   for (let i = 0; i < kinds.length; i++) {
@@ -86,9 +89,11 @@ export function formationAnchors(shipCount, explicitType = null, id = 0, admitte
   return { anchorClass, ordinals };
 }
 
-function writeFleetFormation(words, fleet, slot, warpRanges) {
-  const record = formationAnchors(fleet.seedShipCount ?? fleet.shipCount | 0, fleet.type ?? null, fleet.id ?? fleet.slot ?? 0, fleet.shipCount);
+/** Replace one CPU metadata record; never touches GPU anchor/guide pose pages. */
+export function writeFleetFormation(words, fleet, slot, warpRanges) {
+  const record = formationAnchors(fleet.seedShipCount ?? fleet.shipCount | 0, fleet.type ?? null, fleet.id ?? fleet.slot ?? 0, fleet.shipCount, fleet.seedPlan);
   const at = slot * FORM_RECORD_WORDS;
+  words.fill(0, at, at + FORM_RECORD_WORDS);
   words[at] = record.anchorClass >>> 0;
   words[at + 1] = record.ordinals.length >>> 0;
   const range = warpRanges?.get(slot);
@@ -109,12 +114,12 @@ export function packFleetFormation(fleets, fleetCount = FORM_FLEETS, warpRanges 
   return words;
 }
 
-export function formationStruct(fleetCount, pilot = false) {
+export function formationStruct(fleetCount, pilot = false, shipCapacity = undefined,bodyCapacity=16,visual=false) {
   const n = fleetCount | 0;
   const poses = n * FORM_POSE_VEC4S_PER_FLEET;
   return {
-    decl: `${pilot ? PILOT_ADVICE_DECL : ""}\n${SCENE_ROUTE_DECL}\nstruct FleetForm { head: vec4<u32>, ordinals0: vec4<u32>, ordinals1: vec4<u32>, origin:vec4<f32> }\nstruct FleetTravel { center:vec4<f32>, direction:vec4<f32>, progress:vec4<f32>, state:vec4<f32> }\nstruct FleetGuide { ship:Ship, limits:vec4<f32>, status:vec4<f32> }`,
-    fields: `,forms:array<FleetForm,${n}>,formPoses:array<vec4<u32>,${poses}>,fleetGuides:array<FleetGuide,${n}>,fleetTravel:array<FleetTravel,${n}>,sceneRoutes:array<SceneRoute,${n}>${pilot ? PILOT_ADVICE_FIELD : ""},warpOffsets:array<vec4<f32>>`,
+    decl: `${visual ? BATTLE_DECL : ""}${pilot ? PILOT_ADVICE_DECL : ""}\n${SCENE_ROUTE_DECL}\nstruct FleetForm { head: vec4<u32>, ordinals0: vec4<u32>, ordinals1: vec4<u32>, origin:vec4<f32> }\nstruct FleetTravel { center:vec4<f32>, direction:vec4<f32>, progress:vec4<f32>, state:vec4<f32> }\nstruct FleetGuide { ship:Ship, limits:vec4<f32>, status:vec4<f32> }`,
+    fields: `,forms:array<FleetForm,${n}>,formPoses:array<vec4<u32>,${poses}>,fleetGuides:array<FleetGuide,${n}>,fleetTravel:array<FleetTravel,${n}>,sceneRoutes:array<SceneRoute,${n}>${pilot ? pilotAdviceField(shipCapacity,n,bodyCapacity) : ""}${visual ? battleFields(n) : ""},warpOffsets:array<vec4<f32>>`,
   };
 }
 

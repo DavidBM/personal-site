@@ -152,7 +152,8 @@ export function createRenderConnection(options) {
             const fail = (error) => { pending.delete(id); cleanup(); reject(error); };
             const abort = () => fail(new Error('Render query cancelled'));
             const timeout = deadline === null ? undefined : setTimeout(() => fail(new Error(`Render query ${kind} timed out`)), deadline);
-            const cleanup = () => { clearTimeout(timeout); signal?.removeEventListener('abort', abort); };
+            const cleanup = () => { if (timeout !== undefined)
+                clearTimeout(timeout); signal?.removeEventListener('abort', abort); };
             pending.set(id, { kind, resolve, reject, cleanup });
             signal?.addEventListener('abort', abort, { once: true });
             post(message(id), transfer);
@@ -181,6 +182,11 @@ export function createRenderConnection(options) {
         attachProjection(attachment) {
             return request('attachProjection', id => ({ type: 'attachProjection', id, ...attachment }), [attachment.port])
                 .catch(error => { attachment.port.close(); throw error; });
+        },
+        terminate() {
+            // Page navigation cannot wait for a worker acknowledgment or a timer.
+            stopping = true;
+            release(new Error('Render worker terminated'));
         },
         dispose() {
             if (closed)

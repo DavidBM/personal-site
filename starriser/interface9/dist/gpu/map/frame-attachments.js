@@ -33,13 +33,17 @@ export class FrameAttachments {
         this.depth = depthPolicy(reverseDepth);
     }
     /** Grow/recreate the MSAA color + depth attachments to match the drawing buffer. */
-    ensureMsaaColor(width, height) {
+    ensureMsaaColor(width, height, needDepth = true) {
         const w = Math.max(1, width | 0);
         const h = Math.max(1, height | 0);
-        if (this.msaaDepth && this.msaaW === w && this.msaaH === h)
-            return;
+        if (this.msaaW !== w || this.msaaH !== h)
+            this.resizeColor(w, h);
+        if (needDepth)
+            this.ensureDepth(w, h);
+    }
+    resizeColor(w, h) {
         this.msaaColor?.destroy();
-        this.msaaDepth?.destroy();
+        this.releaseDepth();
         this.msaaColor = MAP_MSAA_SAMPLES === 1 ? null : this.bootstrap.device.createTexture({
             label: "map-msaa-color",
             size: { width: w, height: h },
@@ -48,6 +52,17 @@ export class FrameAttachments {
             usage: GPUTextureUsage.RENDER_ATTACHMENT,
         });
         this.msaaColorView = this.msaaColor?.createView() ?? null;
+        this.msaaW = w;
+        this.msaaH = h;
+        if (this.resolveColor && (this.lastResolveW !== w || this.lastResolveH !== h)) {
+            this.resolveColor.destroy();
+            this.resolveColor = null;
+            this.resolveColorView = null;
+        }
+    }
+    ensureDepth(w, h) {
+        if (this.msaaDepth)
+            return;
         this.msaaDepth = this.bootstrap.device.createTexture({
             label: "map-msaa-depth",
             size: { width: w, height: h },
@@ -56,13 +71,11 @@ export class FrameAttachments {
             usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
         });
         this.msaaDepthView = this.msaaDepth.createView();
-        this.msaaW = w;
-        this.msaaH = h;
-        if (this.resolveColor && (this.lastResolveW !== w || this.lastResolveH !== h)) {
-            this.resolveColor.destroy();
-            this.resolveColor = null;
-            this.resolveColorView = null;
-        }
+    }
+    releaseDepth() {
+        this.msaaDepth?.destroy();
+        this.msaaDepth = null;
+        this.msaaDepthView = null;
     }
     /** Offscreen COPY_SRC resolve target for {@link readbackColorOnce}. */
     ensureResolveColor(width, height) {

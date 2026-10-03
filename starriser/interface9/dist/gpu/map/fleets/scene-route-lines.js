@@ -1,5 +1,6 @@
 import { sceneCameraShader, bindSceneCamera } from '../../scene-camera.js';
 import { MAP_MSAA_SAMPLES } from '../../map-msaa.js';
+import { ROUTE_CORRIDOR_SHADER } from './scene-route-corridor.wgsl.js';
 export const ROUTE_SHADER = /* wgsl */ `
 override analyticEdges:bool=false;
 struct U { vp:mat4x4<f32>, selected:f32, hovered:f32, phase:f32, allPaths:f32, viewport:vec4<f32> }
@@ -63,6 +64,7 @@ fn joinOffset(previous:vec4<f32>,p:vec4<f32>,next:vec4<f32>,normal:vec2<f32>)->v
 export class SceneRouteLines {
     constructor(device, format, depth) {
         this.vertexBytes = 128 * 32 * 32;
+        this.corridors = new Map();
         this.data = new Float32Array(24);
         this.count = 0;
         this.device = device;
@@ -83,6 +85,16 @@ export class SceneRouteLines {
         });
         this.bind = device.createBindGroup({ layout: this.pipeline.getBindGroupLayout(0),
             entries: [{ binding: 0, resource: { buffer: this.uniform } }] });
+        const corridor = device.createShaderModule({ label: 'fleet-route-corridor', code: sceneCameraShader(ROUTE_CORRIDOR_SHADER, ['u.vp']) });
+        this.corridorPipeline = device.createRenderPipeline({ label: 'fleet-route-corridor', layout: 'auto',
+            vertex: { module: corridor, entryPoint: 'vs', buffers: [{ arrayStride: 80, stepMode: 'instance', attributes: [0, 1, 2, 3, 4].map(shaderLocation => ({ shaderLocation, offset: shaderLocation * 16, format: 'float32x4' })) }] },
+            fragment: { module: corridor, entryPoint: 'fs', targets: [{ format, blend: {
+                            color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha' }, alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' }
+                        } }] },
+            primitive: { topology: 'triangle-list' }, depthStencil: { format: depth, depthWriteEnabled: false, depthCompare: 'always' },
+            multisample: { count: MAP_MSAA_SAMPLES } });
+        this.corridorBind = device.createBindGroup({ layout: this.corridorPipeline.getBindGroupLayout(0),
+            entries: [{ binding: 0, resource: { buffer: this.uniform } }] });
     }
     createVertices() {
         return this.device.createBuffer({ label: 'fleet-route-lines', size: this.vertexBytes,
@@ -90,8 +102,12 @@ export class SceneRouteLines {
     }
     update(routes) {
         const values = [];
+        this.corridors.clear();
         for (const row of routes) {
+            const first = values.length / 20;
             this.routeSegments(values, row);
+            if ((row.corridorRadius ?? 0) > 0 && values.length / 20 > first)
+                this.corridors.set(row.slot, { first, count: values.length / 20 - first });
             if (row.points.length === 0)
                 this.destinationMark(values, row);
             if (row.waypoints?.length)
@@ -117,7 +133,7 @@ export class SceneRouteLines {
             const start = points[i - 1], end = points[i];
             const before = distance;
             distance += Math.hypot(end[0] - start[0], end[1] - start[1], end[2] - start[2]);
-            values.push(...(points[i - 2] ?? start), before, ...start, row.slot, ...end, distance, ...(points[i + 1] ?? end), 0, ...row.color, row.guide ? 1 : 0);
+            values.push(...(points[i - 2] ?? start), before, ...start, row.slot, ...end, distance, ...(points[i + 1] ?? end), row.corridorRadius ?? 0, ...row.color, row.guide ? 1 : 0);
         }
     }
     destinationMark(values, row) {
@@ -141,6 +157,14 @@ export class SceneRouteLines {
         this.data[21] = Math.max(1, height);
         this.data[22] = Math.max(1, pixelRatio);
         this.device.queue.writeBuffer(this.uniform, 0, this.data);
+        const corridor = this.corridors.get(selected);
+        if (corridor) {
+            pass.setPipeline(this.corridorPipeline);
+            bindSceneCamera(this.device, pass, this.corridorPipeline);
+            pass.setBindGroup(0, this.corridorBind);
+            pass.setVertexBuffer(0, this.vertices);
+            pass.draw(12 * 6, corridor.count, 0, corridor.first);
+        }
         pass.setPipeline(this.pipeline);
         bindSceneCamera(this.device, pass, this.pipeline);
         pass.setBindGroup(0, this.bind);

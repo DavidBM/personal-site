@@ -55,7 +55,7 @@ export async function createSolarRuntime({period=1800,definition=labEphemeris(pe
   return {definition,sceneEpochMs,capacity:bodyCapacity,data,plan,bodyAt,velocityAt,encounterAt,advance,serverTime,get time(){return phaseTime;},
     destroy(){if(!closed){closed=true;model.free();}}};
 }
-export function runtimeSolarWgsl(bodyCapacity=SOLAR_BODY_CAPACITY) {
+export function runtimeSolarWgsl(bodyCapacity=SOLAR_BODY_CAPACITY,cached=false) {
   solarWords(bodyCapacity);
   return /* wgsl */`
 const PLANET_SCALE:f32=50.0;
@@ -64,16 +64,28 @@ struct SolarOrbit {shape:vec4<f32>,uAxis:vec4<f32>,vAxis:vec4<f32>}
 struct SolarControl {clock:vec4<f32>,origin:vec4<f32>,orbits:array<SolarOrbit,${bodyCapacity}>}
 // A runtime bound avoids driver unrolling proportional to storage capacity.
 fn solarBodyCount()->u32{return min(SOLAR_CAPACITY,u32(max(0.0,director.solar.clock.y)));}
-fn body(i:u32,t:f32,period:f32)->vec4<f32> {
+fn bodyAnalytic(i:u32,t:f32,period:f32)->vec4<f32> {
   if(i>=${bodyCapacity}u){return vec4<f32>(0.0);}
   let orbit=director.solar.orbits[i];let phase=orbit.shape.w+(t-director.solar.clock.x)*orbit.shape.z;
   return vec4<f32>(director.solar.origin.xyz+orbit.shape.x*(orbit.uAxis.xyz*cos(phase)+orbit.vAxis.xyz*sin(phase)),orbit.shape.y);
 }
-fn bodyVelocity(i:u32,t:f32,period:f32)->vec3<f32> {
+fn bodyVelocityAnalytic(i:u32,t:f32,period:f32)->vec3<f32> {
   if(i>=${bodyCapacity}u){return vec3<f32>(0.0);}
   let orbit=director.solar.orbits[i];let phase=orbit.shape.w+(t-director.solar.clock.x)*orbit.shape.z;
   return orbit.shape.x*orbit.shape.z*(-orbit.uAxis.xyz*sin(phase)+orbit.vAxis.xyz*cos(phase));
 }
+fn body(i:u32,t:f32,period:f32)->vec4<f32>{
+  ${cached?'if(i<SOLAR_CAPACITY&&director.pilotBodies[i].velocity.w==t){return director.pilotBodies[i].position;}':''}
+  return bodyAnalytic(i,t,period);
+}
+fn bodyVelocity(i:u32,t:f32,period:f32)->vec3<f32>{
+  ${cached?'if(i<SOLAR_CAPACITY&&director.pilotBodies[i].velocity.w==t){return director.pilotBodies[i].velocity.xyz;}':''}
+  return bodyVelocityAnalytic(i,t,period);
+}
+${cached?`@compute @workgroup_size(64) fn preparePilotBodies(@builtin(global_invocation_id) gid:vec3<u32>){
+  let i=gid.x;if(i>=SOLAR_CAPACITY){return;}
+  director.pilotBodies[i]=PilotBody(bodyAnalytic(i,u.clock.x,u.control.x),vec4<f32>(bodyVelocityAnalytic(i,u.clock.x,u.control.x),u.clock.x));
+}`:''}
 fn encounter(t:f32,period:f32)->vec3<f32>{return body(1u,t,period).xyz+vec3<f32>(0.0,100.0,0.0);}
 `;
 }

@@ -21,10 +21,14 @@ fn eventIndex(group:u32,row:u32)->u32{return group*${MAX_GROUP_EVENTS+1}u+row;}
 export function eventField(name,type,base,field,enabled) {
   return `fn ${name}(group:u32)->${type}{${enabled?`if(ownEvent(group)){return director.events.rows[eventIndex(group,eventRow)].${field};}`:''}return ${base};}`;
 }
-export const eventPoseAddress=/* wgsl */`
-fn eventPoseBase(count:u32)->u32{return count*${2+CONTACT_WORDS+CONTACT_QUERY_WORDS}u+65536u;}
+export const eventPoseAddressFor=(bounded=false)=>/* wgsl */`
+fn eventPoseBase(count:u32)->u32{return count*${2+CONTACT_WORDS+(bounded?0:CONTACT_QUERY_WORDS)}u+65536u;}
 fn eventPoseAt(count:u32,ship:u32,event:u32,side:u32)->u32{return eventPoseBase(count)+(ship*${MAX_GROUP_EVENTS*2}u+event*2u+side)*${SHIP_WORDS}u;}
 `;
+export const eventPoseAddress=eventPoseAddressFor();
+// Every event/retirement/packing/rebase consumer uses this same address block.
+// Specialization changes the layout declaration, never individual access sites.
+export const spatialShaderSource=(source,bounded=false)=>bounded?source.replaceAll(eventPoseAddress,eventPoseAddressFor(true)):source;
 export const poseWrite=/* wgsl */`
 fn storePose(s:Ship,base:u32) {
 ${FIELDS.map((field,k)=>`  {let value=${field==='identity'?`s.${field}`:`bitcast<vec4<u32>>(s.${field})`};links[base+${k*4}u]=value.x;links[base+${k*4+1}u]=value.y;links[base+${k*4+2}u]=value.z;links[base+${k*4+3}u]=value.w;}`).join('\n')}

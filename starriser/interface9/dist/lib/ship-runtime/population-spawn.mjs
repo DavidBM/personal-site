@@ -1,3 +1,4 @@
+import {spatialShaderSource} from './event-gpu.mjs';
 import {SHIP_WORDS, CORRECTION_AFTER, CORRECTION_HISTORY} from './ship-layout.mjs';
 import {MAX_SHIP_CAPACITY} from './ship-capacity.mjs';
 import {SHIP_WGSL} from './shaders.mjs';
@@ -79,8 +80,8 @@ fn clearBirth(point:vec3<f32>,size:f32)->vec3<f32> {
   links[correctionDirectory(config.counts.y)+i]=record+1u;
 }
 `;
-export async function createPopulationSpawner(device,maximumBatches) {
-  const module=device.createShaderModule({code}),info=await module.getCompilationInfo();
+export async function createPopulationSpawner(device,maximumBatches,bounded=false) {
+  const module=device.createShaderModule({code:spatialShaderSource(code,bounded)}),info=await module.getCompilationInfo();
   if(info.messages.some(m=>m.type==='error'))throw Error(info.messages.map(m=>m.message).join('\n'));
   const pipeline=await device.createComputePipelineAsync({layout:'auto',compute:{module,entryPoint:'spawn'}});
   const records=device.createBuffer({size:maximumBatches*64,usage:GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_DST});

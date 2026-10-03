@@ -31,12 +31,12 @@ fn movedHandle(handle:f32)->f32 {
   return f32(remap[u32(handle)-1u]+1u);
 }
 fn remapPose(base:u32) {
-  for(var k=0u;k<2u;k++){if(k==1u && bitcast<f32>(links[base+26u]) == -1.0){continue;}let at=base+16u+k*8u;links[at]=bitcast<u32>(movedHandle(bitcast<f32>(links[at])));}
+  for(var k=0u;k<2u;k++){if(k==1u && bitcast<f32>(links[base+26u]) < 0.0){continue;}let at=base+16u+k*8u;links[at]=bitcast<u32>(movedHandle(bitcast<f32>(links[at])));}
 }
 @compute @workgroup_size(128) fn remapReferences(@builtin(global_invocation_id) gid:vec3<u32>) {
   let i=gid.x;if(i>=config.x){return;}
-  a[i].aux.x=movedHandle(a[i].aux.x);if(a[i].memory.z!=-1.0){a[i].memory.x=movedHandle(a[i].memory.x);}
-  b[i].aux.x=movedHandle(b[i].aux.x);if(b[i].memory.z!=-1.0){b[i].memory.x=movedHandle(b[i].memory.x);}
+  a[i].aux.x=movedHandle(a[i].aux.x);if(a[i].memory.z>=0.0){a[i].memory.x=movedHandle(a[i].memory.x);}
+  b[i].aux.x=movedHandle(b[i].aux.x);if(b[i].memory.z>=0.0){b[i].memory.x=movedHandle(b[i].memory.x);}
   if(config.z>0u){for(var row=0u;row<8u;row++){remapPose(eventPoseBase(config.x)+i*${EVENT_POSE_WORDS}u+row*${SHIP_WORDS}u);}}
   var record=links[correctionDirectory(config.x)+i];
   for(var n=0u;n<${MAX_SHIP_CORRECTIONS}u&&record>0u;n++) {

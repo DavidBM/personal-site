@@ -1,4 +1,4 @@
-export const MEMORY_WGSL=/* wgsl */`
+export const tacticalMemoryWgsl=(bounded=false)=>/* wgsl */`
 fn clearTactical(index:u32){if(index<u32(u.clock.z)){atomicStore(&heads[32768u+index],0u);}}
 fn registerTarget(s:Ship) {
   let handle=u32(s.aux.x);
@@ -10,14 +10,20 @@ fn validThreat(index:u32,s:Ship)->bool {
   let threat=old[index];return admitted(threat)&&permittedFleet(threat.identity.y,s.identity.y)&&groupOrder(groupOf(threat)).w==1u&&!inWarp(threat,u.clock.x);
 }
 fn nearbyPursuer(s:Ship,i:u32)->u32 {
-  if(pursuers(i)==0.0){return 0u;}
+  ${bounded?`if(pursuers(i)==0.0){return 0u;}let advice=director.pilotAdvice[i];
+  if(advice.state.x!=s.identity.w){return 0u;}
+  for(var k=0u;k<4u;k++){
+    let h=advice.contacts[k];if(h==0u||h>u32(u.clock.z)){continue;}
+    let peer=old[h-1u];if(peer.identity.w==advice.serials[k]&&peer.aux.x==f32(i+1u)&&validThreat(h-1u,s)){return h;}
+  }return 0u;`:`  if(pursuers(i)==0.0){return 0u;}
   var found=0u;var nearest=36.0;
   for(var cell=0u;cell<27u;cell++) {
     let handle=links[pursuerOffset(i,cell)];if(handle==0u){continue;}
     let delta=old[handle-1u].p.xyz-s.p.xyz;let distance=dot(delta,delta);
     if(distance<nearest){nearest=distance;found=handle;}
   }
-  return found;
+  return found;`}
+
 }
 fn refreshMemory(initial:Ship,i:u32,order:vec4<u32>,now:f32)->Ship {
   var s=initial;
@@ -49,3 +55,5 @@ fn evadePursuer(s:Ship,contact:Ship,incoming:vec3<f32>,now:f32)->vec3<f32> {
   return capped(incoming+unit(side)*dynamics(shipType(s)).x*strength,dynamics(shipType(s)).x);
 }
 `;
+
+export const MEMORY_WGSL=tacticalMemoryWgsl();

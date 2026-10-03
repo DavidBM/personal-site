@@ -1,8 +1,9 @@
+import {spatialShaderSource} from './event-gpu.mjs';
 import {MAX_SHIP_CAPACITY} from './ship-capacity.mjs';
 import {PACKING_WGSL} from './packing-gpu.mjs';
 import {createTiming} from './clock-gpu.mjs';
 export async function createPacking(device,{agents,history,links,orders,layout,count,director,eventFrame,bindings=null}) {
-  const module=device.createShaderModule({code:PACKING_WGSL}),info=await module.getCompilationInfo();
+  const module=device.createShaderModule({code:spatialShaderSource(PACKING_WGSL,Boolean(director.capacity.occupancy))}),info=await module.getCompilationInfo();
   if(info.messages.some(m=>m.type==='error'))throw new Error(info.messages.map(m=>m.message).join('\n'));
   const visibility=GPUShaderStage.COMPUTE;
   const bindLayout=device.createBindGroupLayout({entries:Array.from({length:7},(_,binding)=>({binding,visibility,buffer:{type:binding===6?'uniform':binding>=4?'read-only-storage':'storage'}}))});

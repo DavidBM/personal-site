@@ -1,3 +1,4 @@
+import {VISUAL_FLEET_WGSL,VISUAL_EVENT_INTEGRATION_WGSL} from './visual-fleet.mjs';
 import {BRAKING_WGSL} from './braking.mjs';
 import {SHIP_BYTES, SHIP_WGSL} from './ship-layout.mjs';
 import {NAVIGATION_INSPECTION_WGSL} from './navigation-inspection.mjs';
@@ -11,16 +12,16 @@ import {CORRECTION_WRITE,CORRECTION_READ} from './correction-gpu.mjs';
 import {ARRIVAL_CORRECTION_WGSL} from './arrival-correction.mjs';
 import {RECOVERY_WGSL} from './recovery-gpu.mjs';
 import {runtimeSolarWgsl} from './solar-runtime.mjs';
-import {eventField,eventPoseRead} from './event-gpu.mjs';
-import {EVENT_MOTION_WGSL,SPLIT_ADVANCE_WGSL} from './event-motion.mjs';
+import {eventField,eventPoseRead,spatialShaderSource} from './event-gpu.mjs';
+import {eventMotionWgsl,splitAdvanceWgsl} from './event-motion.mjs';
 import {fleetCapacity} from './runtime-capacity.mjs';
 import {navigationWgsl} from './navigation.mjs';
 import {CONTACT_QUERY_WGSL} from './contact-queries.mjs';
-import {CONTACT_CACHE_WGSL} from './contact-cache.mjs';
-import {SCHEDULE_WGSL} from './spatial-schedule.mjs';
+import {CONTACT_CACHE_WGSL,contactCacheWgsl} from './contact-cache.mjs';
+import {scheduleWgsl} from './spatial-schedule.mjs';
 import {SOLAR_WGSL} from './solar-layout.mjs';
 import {EFFECTS_SIM,EFFECTS_DRAW} from './combat-effects.mjs';
-import {MEMORY_WGSL} from './tactical-memory.mjs';
+import {tacticalMemoryWgsl} from './tactical-memory.mjs';
 import {lifecycleWgsl} from './lifecycle.mjs';
 import {subDirectorWgsl} from './sub-director.mjs';
 import {controlWgsl} from './control.mjs';
@@ -30,14 +31,15 @@ import {SCENE_ADAPT_WGSL} from './flight-layout.mjs';
 import {FLEET_TRAVEL_WGSL} from './fleet-travel.mjs';
 import {FLEET_PILOT_WGSL} from './fleet-pilot.mjs';
 import {PILOT_PREDICTION_WGSL} from './pilot-prediction.mjs';
-import {PILOT_CANDIDATES_WGSL} from './pilot-candidates.mjs';
+import {PILOT_RECOVERY_WGSL} from './pilot-recovery.mjs';
+import {BOUNDED_PILOT_WGSL} from './bounded-pilot.mjs';
 import {formationWgsl} from './formation.mjs';
 import {densitySimulation,densityDrawing} from './density.mjs';
 // Shared production/laboratory physical controller. One authoritative pose writer.
 export const RING = 16;
 export const STRIDE = SHIP_BYTES;
 export {SHIP_WGSL} from './ship-layout.mjs';
-const common = (solar=false, tuned=false)=>/* wgsl */`
+const common = (solar=false, tuned=false,cached=false)=>/* wgsl */`
 ${SHIP_WGSL}
 ${tuned ? CLASS_TUNED_WGSL : CLASS_WGSL}
 ${SCENE_ADAPT_WGSL}
@@ -49,7 +51,7 @@ fn rotate(q: vec4<f32>, v: vec3<f32>) -> vec3<f32> { return v + 2.0 * cross(q.xy
 fn qmul(a: vec4<f32>, b: vec4<f32>) -> vec4<f32> {
   return vec4<f32>(a.w*b.xyz + b.w*a.xyz + cross(a.xyz,b.xyz), a.w*b.w-dot(a.xyz,b.xyz));
 }
-${solar===false?SOLAR_WGSL:runtimeSolarWgsl(solar===true?undefined:solar)}
+${solar===false?SOLAR_WGSL:runtimeSolarWgsl(solar===true?undefined:solar,cached)}
 fn emitter(s: Ship, e: u32) -> vec3<f32> {
   let size=dimensions(shipType(s)).xyz;
   let local=vec3<f32>((f32(e)-1.0)*0.5,select(-0.2,0.15,e==1u),-1.0)*size;
@@ -64,7 +66,7 @@ fn redistributionPhase(now:f32)->u32{return ${solar?'u32(u.control.y)':'u32(now*
 fn trailFirst(now:f32,dt:f32)->u32{return ${solar?'u32(u.trail.x)':'u32(floor(max(0.0,now-dt)*60.0))+1u'};}
 fn trailLast(now:f32)->u32{return ${solar?'u32(u.trail.y)':'u32(floor(now*60.0))'};}
 `;
-export const simulation = (cellSize=4,capacity=fleetCapacity(2),pressureScopes=null,solar=false,splitAdvance=false)=>common(solar, true) + /* wgsl */`
+const simulationSource = (cellSize=4,capacity=fleetCapacity(2),pressureScopes=null,solar=false,splitAdvance=false)=>common(solar, true,Boolean(solar&&capacity.occupancy)) + /* wgsl */`
 ${simulationClock(solar,solar&&capacity.occupancy)}
 @group(0) @binding(0) var<uniform> u: Input;
 @group(0) @binding(1) var<storage,read> old: array<Ship>;
@@ -76,7 +78,8 @@ struct Group { order:vec4<u32>, roster:vec4<u32> }
 
 ${controlWgsl(capacity,pressureScopes,solar,solar,solar)}
 ${solar?formationWgsl(capacity.fleetCount,true,Boolean(capacity.occupancy)):''}
-${solar?(capacity.occupancy?FLEET_PILOT_WGSL:FLEET_TRAVEL_WGSL):''}
+${solar?(capacity.occupancy?PILOT_RECOVERY_WGSL+FLEET_PILOT_WGSL:FLEET_TRAVEL_WGSL):''}
+${capacity.visualFormation?VISUAL_FLEET_WGSL:''}
 ${solar?subDirectorWgsl(Boolean(capacity.occupancy)):''}
 ${eventField('groupOrder','vec4<u32>','orders[group].order','order',solar)}
 ${simulationSlots(capacity,solar)}
@@ -103,8 +106,7 @@ fn contributes(s:Ship)->bool{return s.identity.z!=0u&&admitted(s)&&!inWarp(s,u.c
 fn journeyBodyRadius(s:Ship)->f32 {
   let j=journeyFor(s);
   if(j.range.z==0.0){return 45.0;}
-  let planet=body(u32(j.range.z)-1u,u.clock.x,u.control.x);
-  return select(45.0,planet.w,planet.w>0.0);
+  ${solar?"let radius=director.solar.orbits[min(u32(j.range.z)-1u,SOLAR_CAPACITY-1u)].shape.y;return select(45.0,radius,radius>0.0);":"let planet=body(u32(j.range.z)-1u,u.clock.x,u.control.x);return select(45.0,planet.w,planet.w>0.0);"}
 }
 // PoC class metres. Compact visual hull in lab is BASE*VISUAL_MUL (0.8*0.05);
 // AGENT*LAB_SCALE=1 so that is one triangle after present-copy.
@@ -129,13 +131,16 @@ fn hullSlot(slot:u32)->u32 {
   }`}
   return u32(u.clock.z);
 }
-${densitySimulation(64,cellSize,pressureScopes)}
-${SCHEDULE_WGSL}
-fn clearSpatial(index:u32){clearTactical(index);clearSchedule(index);${solar?"if(index==0u){atomicStore(&heads[scheduleCounter()+1u],0u);}":""}}
+${densitySimulation(64,cellSize,pressureScopes,Boolean(solar&&capacity.occupancy))}
+${scheduleWgsl(Boolean(solar&&capacity.occupancy))}
+fn clearSpatial(index:u32){clearTactical(index);clearSchedule(index);${solar&&capacity.occupancy?"if(index==0u){clearPilotWork();}":""}${solar?"if(index==0u){atomicStore(&heads[scheduleCounter()+1u],0u);}":""}}
 fn insertContact(i:u32,s:Ship,bucket:u32){links[i]=atomicAdd(&heads[bucket],1u);registerTarget(s);}
-${solar&&capacity.occupancy?CONTACT_CACHE_WGSL.replace('local&&pressureEnabled()!=0.0','local&&pressureEnabled()!=0.0&&pilotDue(query,index)'):CONTACT_CACHE_WGSL}
-${CONTACT_QUERY_WGSL}
-${solar&&capacity.occupancy?PILOT_CANDIDATES_WGSL+PILOT_PREDICTION_WGSL:''}
+${solar&&capacity.occupancy?contactCacheWgsl('',{typed:false,capitalWork:true}):CONTACT_CACHE_WGSL}
+${solar&&capacity.occupancy?`fn neighborSeparation(s:Ship,i:u32)->vec4<f32>{
+  let advice=director.pilotAdvice[i];
+  return select(vec4<f32>(0.0),advice.spacing,advice.state.x==s.identity.w&&pressureEnabled()!=0.0);
+}`:CONTACT_QUERY_WGSL}
+${solar&&capacity.occupancy?BOUNDED_PILOT_WGSL+PILOT_PREDICTION_WGSL:''}
 fn validTarget(contact:u32,s:Ship,order:vec4<u32>)->bool {
   if(contact>=u32(u.clock.z)){return false;}
   let t=old[contact];let g=groupOf(t);
@@ -214,9 +219,9 @@ fn avoidCapitals(s:Ship,i:u32)->vec3<f32> {
   }`}
   return force;
 }
-fn avoidBodies(s:Ship,now:f32)->vec3<f32> {
-  if(u.warp.z<0.5||journeyLocalDt(s,now,u.clock.y)<=0.0){return vec3<f32>(0.0);}
-  var acceleration=vec3<f32>(0.0);
+fn bodyAvoidance(s:Ship,now:f32)->vec4<f32> {
+  if(u.warp.z<0.5||journeyLocalDt(s,now,u.clock.y)<=0.0){return vec4<f32>(0.0,0.0,0.0,1e20);}
+  var acceleration=vec3<f32>(0.0);var clearance=1e20;
   // Four fleet-sticky spheres. CPU ranks; this is never ships × catalog.
   let slots=director.nearby[s.identity.y];
   for(var b=0u;b<4u;b++) {
@@ -230,10 +235,13 @@ fn avoidBodies(s:Ship,now:f32)->vec3<f32> {
     // Match the hard exclusion shell and planner. Passing an inflated 3R as
     // a raw body radius also tripled the ship adaptation and repelled hulls
     // far outside otherwise valid corridors.
-    acceleration+=sphereObstacleForce(s,sphere.xyz,bodyVelocity(index,now,u.control.x),padded-${OBSTACLE_PADDING}*a,0.0,a);
+    let force=sphereObstacleForce(s,sphere.xyz,bodyVelocity(index,now,u.control.x),padded-${OBSTACLE_PADDING}*a,0.0,a);
+    acceleration+=force;
+    if(dot(force,force)>0.0){clearance=min(clearance,max(.02,length(s.p.xyz-sphere.xyz)-padded));}
   }
-  return acceleration;
+  return vec4<f32>(acceleration,clearance);
 }
+fn avoidBodies(s:Ship,now:f32)->vec3<f32>{return bodyAvoidance(s,now).xyz;}
 fn separateFromBodies(s:Ship,now:f32)->vec3<f32> {
   var p=s.p.xyz;
   let slots=director.nearby[s.identity.y];
@@ -250,7 +258,7 @@ fn separateFromBodies(s:Ship,now:f32)->vec3<f32> {
   }
   return p;
 }
-${MEMORY_WGSL}
+${tacticalMemoryWgsl(Boolean(solar&&capacity.occupancy))}
 ${lifecycleWgsl(solar)}
 ${navigationWgsl(solar,Boolean(capacity.occupancy))}
 ${ENGAGEMENT_WGSL}
@@ -267,13 +275,15 @@ fn tacticalVelocity(s:Ship,contact:Ship,order:vec4<u32>,now:f32)->vec3<f32> {
   return unit(lead-s.p.xyz)*s.v.w;
 }
 fn localStep(initial:Ship,i:u32,now:f32,dt:f32,controlDt:f32)->Ship {
-  var s=initial;let typeId=shipType(s);var limits=dynamics(typeId);let order=groupOrder(groupOf(s));
+  ${capacity.visualFormation?'return visualShipStep(initial,dt);':`var s=initial;let typeId=shipType(s);var limits=dynamics(typeId);let order=groupOrder(groupOf(s));
   let journey0=journeyFor(s);
   if(journey0.range.z>0.0){limits=sceneLimits(typeId,body(u32(journey0.range.z)-1u,now,u.control.x).w);}
   let attacking=order.w==1u && order.y<2u;
   ${solar&&capacity.occupancy?'if(!attacking&&fleetPilotActive(s)){return pilotPhysical(s,i,now,dt,controlDt,limits);}':''}
+  // End the tagged local recovery lifetime before combat/legacy guidance owns it.
+  ${solar&&capacity.occupancy?'if(s.tactic.x<0.0){s.tactic=vec4<f32>(0.0,0.0,now,s.tactic.w);s.aim=vec4<f32>(0.0);s.memory.w=0.0;s.a.w=0.0;s.aux.y=0.0;s.aux.z=0.0;s.fx.z=0.0;}':''}
   // Route progress and tactical memory share storage, but never meaning.
-  if(attacking && s.memory.z==-1.0){s.memory=vec4<f32>(0.0,0.0,0.0,s.memory.w);}
+  if(attacking && s.memory.z<0.0){s.memory=vec4<f32>(0.0,0.0,0.0,s.memory.w);}
   var contact=u32(s.aux.x);
   if(!attacking){contact=0u;s.a.w=0.0;}
   if(attacking && (contact==0u || !validTarget(contact-1u,s,order))) { contact=selectTarget(s,i,order,now);s.a.w=0.0; }
@@ -322,7 +332,7 @@ fn localStep(initial:Ship,i:u32,now:f32,dt:f32,controlDt:f32)->Ship {
   // thrust together, so avoidance cannot translate the hull sideways.
   s=localFlightMotion(s,desiredV,desiredA,guidanceReach,${solar&&!capacity.occupancy?'fleetAligning(s)':'false'},spacing,avoid,${solar&&!capacity.occupancy?'fleetTravelLimits(s,limits)':'limits'},dynamics(typeId).w,dt,controlDt);
   s=correctShipPosition(s,separateFromBodies(s,now));
-  return combatPresentation(s,now,dt);
+  return combatPresentation(s,now,dt);`}
 }
 
 // Diagnostic entry point uses the actual runtime uniforms and model layout.
@@ -334,17 +344,24 @@ fn localStep(initial:Ship,i:u32,now:f32,dt:f32,controlDt:f32)->Ship {
 
 ${solar?NAVIGATION_INSPECTION_WGSL:''}
 ${integrationWgsl(solar)}
-${solar?EVENT_MOTION_WGSL+CORRECTION_WRITE+ARRIVAL_CORRECTION_WGSL+RECOVERY_WGSL:''}
+${solar?eventMotionWgsl(capacity.visualFormation)+CORRECTION_WRITE+(capacity.visualFormation?VISUAL_EVENT_INTEGRATION_WGSL:ARRIVAL_CORRECTION_WGSL)+RECOVERY_WGSL:''}
 ${recoveryEntry(solar)}
-${solar&&splitAdvance?SPLIT_ADVANCE_WGSL:''}
+${solar&&splitAdvance?splitAdvanceWgsl(capacity.visualFormation):''}
+${solar&&capacity.occupancy?`@compute @workgroup_size(128) fn advanceTransit(@builtin(global_invocation_id) gid:vec3<u32>){
+  let fleet=u32(u.pilotView.w);let form=director.forms[fleet];
+  if(gid.x>=form.head.w){return;}
+  let i=form.head.z+gid.x;if(i>=u32(u.clock.z)){return;}
+  let s=old[i];if(s.identity.z==0u||s.identity.y!=fleet){next[i]=s;return;}
+  next[i]=applyJourney(s,u.clock.x,u.clock.y);
+}`:''}
 @compute @workgroup_size(128) fn advance(@builtin(global_invocation_id) gid: vec3<u32>) {
   if(gid.x>=u32(u.clock.z)) { return; }
-  let i=links[u32(u.clock.z)+gid.x];
-  ${solar?`let stepped=${splitAdvance?'advancePreparedShip(i)':'advanceEventShip(old[i],i)'};next[i]=stepped;recordFormationPose(stepped);`:'next[i]=integrateShip(old[i],i,u.clock.x,u.clock.y,true,trailFirst(u.clock.x,u.clock.y),trailLast(u.clock.x));'}
+  let i=${capacity.visualFormation?'gid.x':'links[u32(u.clock.z)+gid.x]'};
+  ${solar?`let stepped=${splitAdvance?'advancePreparedShip(i)':'advanceEventShip(old[i],i)'};next[i]=stepped;${capacity.visualFormation?'':'recordFormationPose(stepped);'}`:'next[i]=integrateShip(old[i],i,u.clock.x,u.clock.y,true,trailFirst(u.clock.x,u.clock.y),trailLast(u.clock.x));'}
 }
 `;
 
-export const drawing = (cellSize=4,capacity=fleetCapacity(2),pressureScopes=null,solar=false)=>common(solar) + /* wgsl */`
+const drawingSource = (cellSize=4,capacity=fleetCapacity(2),pressureScopes=null,solar=false)=>common(solar) + /* wgsl */`
 struct View { eye: vec4<f32>, aim: vec4<f32>, clock: vec4<f32>, config: vec4<f32>, interpolation: vec4<f32> ${solar?',phase:vec4<f32>':''} }
 @group(0) @binding(0) var<uniform> view: View;
 @group(0) @binding(1) var<storage,read> ships: array<Ship>;
@@ -416,6 +433,8 @@ ${EFFECTS_DRAW}
 }
 `;
 
+export const simulation=(cellSize=4,capacity=fleetCapacity(2),pressureScopes=null,solar=false,splitAdvance=false)=>spatialShaderSource(simulationSource(cellSize,capacity,pressureScopes,solar,splitAdvance),Boolean(solar&&capacity.occupancy));
+export const drawing=(cellSize=4,capacity=fleetCapacity(2),pressureScopes=null,solar=false)=>spatialShaderSource(drawingSource(cellSize,capacity,pressureScopes,solar),Boolean(solar&&capacity.occupancy));
 export const SIM=simulation();
 export const DRAW=drawing();
 

@@ -24,7 +24,8 @@ export function computeTrailScreenWidthCoefficient(fullWidthPx, resolutionH, pro
 }
 /**
  * Six normalized frustum planes, view-Z camera plane, width, enabled, width mode,
- * one zero pad. Mode 0 stores world half-width; mode 1 stores a screen coefficient.
+ * minimum screen half-width coefficient. Mode 0 stores padded world half-width;
+ * mode 1 stores a padded screen coefficient. The layer fills the minimum-width tail.
  * Matrices and expanded bounds share the draw's local origin and rigid view.
  * Input matrices must not overlap target; target may alias the integrate UBO tail.
  * Invalid inputs disable rejection. The view plane detects legacy near-trim
@@ -73,13 +74,13 @@ function crossesCameraPlane(uniform, bounds, halfWidth) {
     return Math.abs(plane.distance) <= plane.radius + plane.margin;
 }
 function boundsHalfWidth(uniform, bounds) {
-    if (uniform[30] === 0)
+    if (uniform[30] === 0 && !uniform[31])
         return uniform[28];
     const depth = planeBounds(uniform, 24, bounds, 0);
     // The affine view-Z extremum bounds every original endpoint. Its dot-product
     // margin also covers cancellation before a depth-dependent width is expanded.
     const maxDepth = Math.abs(depth.distance) + depth.radius + depth.margin;
-    return uniform[28] * maxDepth;
+    return uniform[30] === 0 ? Math.max(uniform[28], uniform[31] * maxDepth) : uniform[28] * maxDepth;
 }
 function validUniform(uniform) {
     if (uniform.length < UNIFORM_FLOATS || !finiteValues(uniform, 31))

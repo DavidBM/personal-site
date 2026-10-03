@@ -73,8 +73,10 @@ function applyFleets(ctx, command) {
             state.fleets.remove(command.id);
             state.fleetIds.delete(command.id);
             state.sceneFleetIds.delete(command.id);
-            if (state.selectedFleetId === command.id)
+            if (state.selectedFleetId === command.id) {
+                stopFollowingShip(state, 'fleet-removed');
                 selectFleet(ctx, null);
+            }
             state.view.removeFleet(command.id);
             return true;
         case "clearFleets":
@@ -98,8 +100,8 @@ function clearFleets(state) {
     state.selectedFleetId = null;
     state.view.setSelectedFleetId(null);
     state.view.setHoveredFleetId(null);
-    state.camera.setFollowShip(null);
-    state.view.setFollowShipIndex(null);
+    state.camera.setFollowShip(null, 'fleets-cleared');
+    state.view.setFollowShipIndex(null, 'fleets-cleared');
 }
 function resetDirector(state) {
     state.director = createCameraDirectorHost({ applyPose: (pose) => state.camera.applyDirectorPose(pose) });
@@ -150,7 +152,7 @@ function selectBody(ctx, command) {
     const catalogId = store.catalogIds[command.index] ?? store.defs[command.index]?.id;
     if (command.catalogId != null && command.catalogId !== catalogId)
         return;
-    stopFollowingShip(ctx.state);
+    stopFollowingShip(ctx.state, 'body-selected');
     ctx.state.selectedFleetId = null;
     view.setSelectedFleetId(null);
     view.setFollowShipIndex(null);
@@ -161,19 +163,21 @@ function selectBody(ctx, command) {
     else
         ctx.focus.lockBody(command.index);
 }
-function followShip(state, index) {
-    state.view.setFollowShipIndex(index);
-    state.camera.setFollowShip(index == null ? null : () => state.view.getLiveShipPose(index));
+function followShip(state, index, reason = 'follow-command') {
+    if (state.view.setFollowShipIndex(index, reason) === false)
+        return false;
+    state.camera.setFollowShip(index == null ? null : () => state.view.getLiveShipPose(index), reason);
+    return true;
 }
-function stopFollowingShip(state) {
+function stopFollowingShip(state, reason) {
     if (state.camera.isFollowing())
-        followShip(state, null);
+        followShip(state, null, reason);
 }
 function clearSelection(ctx) {
     const { state } = ctx;
     // Clearing only the GPU readback leaves the callback waiting forever for a
     // new pose. Stop the camera first, then release selection/hi-res residency.
-    stopFollowingShip(state);
+    stopFollowingShip(state, 'selection-cleared');
     ctx.focus.clearFocus();
     state.selectedFleetId = null;
     state.view.setSelectedFleetId(null);
@@ -206,7 +210,7 @@ function sceneFleetFocusPoint(state, renderId) {
 function selectFleet(ctx, id) {
     const { state } = ctx;
     if (id == null) {
-        stopFollowingShip(state);
+        stopFollowingShip(state, 'fleet-deselected');
         state.selectedFleetId = null;
         state.view.setSelectedFleetId(null);
         state.view.setFollowShipIndex(null);
@@ -218,7 +222,7 @@ function selectFleet(ctx, id) {
     const parked = sceneFleetFocusPoint(state, renderId);
     if (!visual || !parked)
         return;
-    stopFollowingShip(state);
+    stopFollowingShip(state, 'fleet-selected');
     ctx.focus.clearFocus();
     state.selectedFleetId = id;
     state.view.setSelectedFleetId(renderId);
@@ -240,22 +244,44 @@ function followFleet(ctx, id, shipType) {
     }
     const renderId = state.sceneFleetRenderIds.get(id) ?? id;
     const visual = state.view.getFleetVisual(renderId);
-    if (!visual || !fleetTargetPosition(state, renderId))
+    if (!visual || !fleetTargetPosition(state, renderId)) {
+        state.view.noteFollowEvent?.('rejected:fleet-not-visible');
         return;
-    selectFleet(ctx, id);
+    }
     const types = state.view.sceneShipTypes(renderId);
     const chosen = shipType == null ? types[0] : types.find(row => row.type === shipType);
-    if (!chosen)
+    if (!chosen) {
+        state.view.noteFollowEvent?.('rejected:class-not-admitted');
         return;
+    }
     const handle = state.view.getSceneShipHandle(renderId, chosen.ordinal);
-    if (handle != null)
-        followShip(state, handle);
+    if (handle == null) {
+        state.view.noteFollowEvent?.('rejected:ship-not-admitted');
+        return;
+    }
+    // Acquire before releasing other camera targets. Reselecting during empty
+    // transit must not temporarily drop the only lease that owns the local frame.
+    if (!followShip(state, handle, 'fleet-follow'))
+        return;
+    ctx.focus.clearFocus();
+    state.selectedFleetId = id;
+    state.view.setSelectedFleetId(renderId);
 }
 function setSceneFleetIds(ctx, ids) {
     const { state } = ctx;
+    const wasListed = state.selectedFleetId != null && state.sceneFleetIds?.has(state.selectedFleetId);
     state.sceneFleetIds = new Set(ids);
-    if (state.selectedFleetId != null && !state.sceneFleetIds.has(state.selectedFleetId))
-        selectFleet(ctx, null);
+    if (state.selectedFleetId == null || state.sceneFleetIds.has(state.selectedFleetId))
+        return;
+    const renderId = state.sceneFleetRenderIds.get(state.selectedFleetId) ?? state.selectedFleetId;
+    // This is the UI's logical roster, not a retirement command. A late departing
+    // fleet or retained follow can legitimately outlive membership in that roster.
+    if (state.camera.isFollowing() || state.view.isSceneFleetResident?.(renderId)) {
+        if (wasListed)
+            state.view.noteFollowEvent?.('roster:left-system-follow-preserved');
+        return;
+    }
+    selectFleet(ctx, null);
 }
 function applyFocus(ctx, command) {
     const { state } = ctx;
@@ -314,6 +340,9 @@ function applyFocus(ctx, command) {
         case "followShip":
             followShip(state, command.shipIndex);
             return true;
+        case "followRotation":
+            state.camera.setFollowRotation(command.enabled);
+            return true;
         case "followRandomShip": {
             if (state.camera.isFollowing())
                 followShip(state, null);
@@ -337,7 +366,7 @@ function applyNavigation(ctx, command) {
                 if (ctx.focus.getFocusIndex() != null)
                     ctx.focus.clearFocus();
                 if (state.camera.isFollowing())
-                    stopFollowingShip(state);
+                    stopFollowingShip(state, 'touch-navigation');
             }
             if (command.input.type === "doubleClick")
                 ctx.focus.clearFocus();

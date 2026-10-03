@@ -43,28 +43,35 @@ changing Rust rules; the frontend watcher does not rebuild Rust.
 
 ## Ship motion system
 
-Open **Ship simulation lab** on the homepage, or visit
-[/tests/demo-ship-flight-poc/](tests/demo-ship-flight-poc/) on your local server.
-The six scenarios demonstrate individual 3D movement, mixed ship classes,
-planetary navigation, warp, director-controlled battles and scoped density at
-1,000–10,000 visual ships. The normal frontend build includes its required WASM.
+The live `galaxy.html` scene uses shared GPU route formations: one guide per
+fleet, stable per-ship curve offsets and continuous damped individual motion.
+Automatic arrivals, departures and authored moves share obstacle-aware routes.
+Planetary rings, heavy-ship escorts, visible speed-boost cues and persistent
+trails retain individual identity. Following a ship keeps its fleet alive across
+system changes and warp. Normal
+admission is 10K ships, optional High FX raises it to 50K, and Low memory uses
+2K. These are visual representatives, not galaxy-wide logical ship counts.
 
-The separate [fleet pilot experiment](fleet-pilot.html) compares adaptive and
-delayed GPU guidance with 10K–50K identifiable ships and cheap dart rendering.
-Its [measured report](docs/research/ship-motion/2026-09-27-pilot-experiment.md)
-describes the controller, costs and remaining gaps before production adoption.
+Start with [how fleets move](docs/fleet-motion.md), [journeys and follow](docs/fleet-navigation.md)
+and the [graphics stack](docs/graphics-stack.md). The
+[runtime guide](docs/ship-runtime.md) supplies APIs and tuning;
+[pipeline inventory](docs/graphics-pipelines.md) lists the actual production passes.
+The [performance evidence index](docs/evidence/rendering/README.md) separates
+controlled comparisons, isolated simulation timings and user-reported results.
+The scene deliberately avoids independent predictive collision searches: stable
+slots and shared clearance provide its distribution, with inter-fleet overlap
+and abrupt-retarget clearance remaining visual limits.
 
-Start with the [ship motion system overview](docs/research/ship-motion/README.md)
-for the core ideas, supported primitives and control API, or the
-[runtime integration and tuning guide](docs/ship-runtime.md) for APIs and examples.
-The defined runtime is implemented in the lab; production renderer/network
-integration and full production-frame performance qualification remain separate work.
-The [research archive](docs/research/ship-motion/archive.md) preserves design studies,
-reviews and measurement evidence.
+The [ship flight lab](tests/demo-ship-flight-poc/) and separate
+[fleet pilot experiment](fleet-pilot.html) remain useful isolated scenarios.
+They do not define all production behavior or establish multiplayer combat
+integration. The normal frontend build includes the required shared WASM.
+The [research archive](docs/research/ship-motion/archive.md) preserves earlier
+studies and evidence; the [agent timeline](agent-to-agent/README.md) provides
+dated implementation handoffs.
 
-Picking this up as an agent? Read the [personal ship-motion handoff](agent-to-agent/2026-09-13-ship-motion.md)
-for context, lessons learned and a suggested starting point from the agent who worked on it.
-The [agent-to-agent timeline](agent-to-agent/README.md) collects dated handoffs across the project.
+Use the [documentation index](docs/README.md) to find current contracts, module
+owners, labs and evidence without treating historical plans as current behavior.
 
 ## Start a local multiplayer universe
 

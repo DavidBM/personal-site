@@ -1,4 +1,4 @@
-import { computeJumpDuration, getNextNode } from "./fleet-pathfinding.js";
+import { computeJumpDuration, getNextNode, previewNextNode } from "./fleet-pathfinding.js";
 /**
  * Post-jump dwell (fleets **web worker** jump ownership — not GPU ship sim).
  * 2 min parked so the 30 s hop is not immediately followed by another.
@@ -15,6 +15,13 @@ export function randomCooldownMs(random = Math.random) {
 export function startNextJump(world, fleet, now, 
 /** Optional — spawn path publishes once via fleet_spawned with jumping state. */
 publishState) {
+    const announced = fleet.state.state === "cooldown" ? fleet.state.nextNode : undefined;
+    const preview = previewNextNode(world, fleet);
+    // Changed topology/orders must not launch toward a different gate than the
+    // published departure. Normal topology invalidation removes these owners.
+    if (announced && (!preview || announced.clusterId !== preview.clusterId ||
+        announced.solarSystemId !== preview.solarSystemId))
+        return false;
     const nextNode = getNextNode(world, fleet);
     if (!nextNode)
         return false;
@@ -39,6 +46,7 @@ export function advanceFleet(world, fleet, now, publishState, publishRemoved, ra
                 startTime: arrivedAt,
                 node: fleet.currentNode,
                 durationMs: randomCooldownMs(random),
+                nextNode: previewNextNode(world, fleet) ?? undefined,
             };
             publishState(fleet);
         }

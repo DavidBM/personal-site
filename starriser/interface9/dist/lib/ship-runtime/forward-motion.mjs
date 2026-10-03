@@ -40,14 +40,17 @@ fn forwardMotionWithEscape(initial:Ship,steering:vec3<f32>,limits:vec4<f32>,turn
 // One owner for acceleration/jerk and pose integration. Guidance controllers
 // supply a turn and scalar speed; neither writes velocity independently.
 fn poweredForwardMotion(initial:Ship,omega:vec3<f32>,wanted:f32,limits:vec4<f32>,dt:f32,controlDt:f32)->Ship {
+  return poweredForwardMotionResponse(initial,omega,wanted,limits,dt,controlDt,${STEERING_RESPONSE_SECONDS},${THRUST_RAMP_SECONDS},0.0);
+}
+fn poweredForwardMotionResponse(initial:Ship,omega:vec3<f32>,wanted:f32,limits:vec4<f32>,dt:f32,controlDt:f32,response:f32,ramp:f32,feedforward:f32)->Ship {
   let speed=length(initial.v.xyz);let acceleration=max(.0001,limits.y);
   let before=rotate(initial.q,vec3<f32>(0.0,0.0,1.0));
   let forward=rotate(angularRotation(initial.q,omega*dt),vec3<f32>(0.0,0.0,1.0));
   let normal=(speed+acceleration*controlDt)*length(cross(omega,forward));
   let axial=sqrt(max(0.0,acceleration*acceleration-normal*normal));
   let brake=sqrt(max(0.0,pow(acceleration*${DECELERATION_MULTIPLIER},2.0)-normal*normal));
-  let desired=clamp((wanted-speed)/${STEERING_RESPONSE_SECONDS},-brake,axial);
-  let jerk=min(limits.z,acceleration/${THRUST_RAMP_SECONDS});
+  let desired=clamp(feedforward+(wanted-speed)/response,-brake,axial);
+  let jerk=min(limits.z,acceleration/ramp);
   let previous=dot(initial.a.xyz,before);
   let thrust=clamp(previous+clamp(desired-previous,-jerk*controlDt,jerk*controlDt),-brake,axial);
   return integrateForwardMotion(initial,omega,thrust,dt);

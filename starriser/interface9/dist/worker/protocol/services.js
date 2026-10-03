@@ -31,6 +31,7 @@ export const FleetServices = {
     spawned: defineEvent('fleets.spawned', { ordered: 'fleets' }),
     batch: defineEvent('fleets.batch', { ordered: 'fleets' }),
     state: defineEvent('fleets.state', { ordered: 'fleets' }),
+    stateBatch: defineEvent('fleets.stateBatch', { ordered: 'fleets' }),
     removed: defineEvent('fleets.removed', { ordered: 'fleets' }),
 };
 //# sourceMappingURL=services.js.map

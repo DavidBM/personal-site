@@ -38,9 +38,12 @@ fn flightAttitude(q:vec4<f32>,velocity:vec3<f32>)->vec4<f32> {
   return angularRotation(q,error.xyz*error.w);
 }
 fn steerLocalAttitude(initial:Ship,direction:vec3<f32>,dt:f32,turnRate:f32,requestedRate:f32)->Ship {
+  return steerLocalAttitudeResponse(initial,direction,dt,turnRate,requestedRate,${ANGULAR_RAMP_SECONDS},${ANGULAR_SETTLE_SECONDS});
+}
+fn steerLocalAttitudeResponse(initial:Ship,direction:vec3<f32>,dt:f32,turnRate:f32,requestedRate:f32,ramp:f32,settle:f32)->Ship {
   var s=initial;
   if(dt<=0.0 || s.origin.w == -2.0 || s.flight.w >= 2.0){return s;}
-  let rate=max(0.0,turnRate);let acceleration=rate/${ANGULAR_RAMP_SECONDS};
+  let rate=max(0.0,turnRate);let acceleration=rate/ramp;
   // Class edits may lower the cap. This explicit retune clamp precedes ordinary
   // acceleration-limited integration; unchanged limits preserve both bounds.
   let previous=capped(localAngularVelocity(s),rate);
@@ -48,7 +51,7 @@ fn steerLocalAttitude(initial:Ship,direction:vec3<f32>,dt:f32,turnRate:f32,reque
   if(length(direction)>=${ANGULAR_SPEED_EPSILON}) {
     let error=headingError(s.q,direction);
     let angle=max(0.0,error.w-${ANGULAR_DIRECTION_EPSILON});
-    let speed=min(min(rate,max(0.0,requestedRate)),min(angle/${ANGULAR_SETTLE_SECONDS},sqrt(2.0*acceleration*angle)));
+    let speed=min(min(rate,max(0.0,requestedRate)),min(angle/settle,sqrt(2.0*acceleration*angle)));
     desired=error.xyz*speed;
   }
   let omega=previous+capped(desired-previous,acceleration*dt);

@@ -3,7 +3,7 @@ function localTime(warp, nowMs) {
 }
 /** Mirror the presentation shader's f32 operations, including its clock epoch. */
 export function warpPosition(warp, nowMs) {
-    const elapsed = Math.fround(Math.max(warp.start, Math.min(warp.end, localTime(warp, nowMs))) - warp.start);
+    const elapsed = Math.fround(Math.max(warp.start, Math.min(warp.end, localTime(warp, nowMs))) - (warp.anchor ?? warp.start));
     const axis = (origin, velocity) => Math.fround(Math.fround(origin + Math.fround(velocity * elapsed)) * warp.scale);
     return { x: axis(warp.x, warp.vx), y: axis(warp.y, warp.vy), z: axis(warp.z, warp.vz) };
 }
@@ -12,6 +12,8 @@ export function rebaseWarpMotion(warp, epoch) {
     if (epoch === warp.epoch)
         return;
     const shift = epoch - warp.epoch;
+    if (warp.anchor != null)
+        warp.anchor = Math.fround(warp.anchor - shift);
     warp.start = Math.fround(warp.start - shift);
     warp.end = Math.fround(warp.end - shift);
     warp.epoch = epoch;

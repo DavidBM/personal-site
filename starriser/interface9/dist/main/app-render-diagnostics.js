@@ -44,6 +44,7 @@ export function installAppRenderDiagnostics(app) {
         pickRandomShipPose: () => app.renderClient?.query({ type: "pickShip" }) ?? Promise.resolve(null),
         observeYear1: () => observeYear1(app),
         renderSnapshot: () => app.renderClient?.query({ type: "snapshot" }),
+        followDiagnostics: () => app.renderClient?.query({ type: 'followDiagnostics' }),
         readbackColor: () => app.renderClient?.query({ type: "colorReadback" }),
         dispose: () => app.dispose(),
     };

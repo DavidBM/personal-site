@@ -40,3 +40,33 @@ export function sceneRouteStart(center,destination,bodies,padding=0) {
   const point=center.map((value,i)=>value+axis[i]*distance);
   return clear(point,bodies,padding)?point:null;
 }
+
+/** Prove the small escape from a conservatively inflated shell. Never aim
+ * through the containing body just because the destination is on its far side.
+ * Other shells may not be crossed. Failure is explicit and leaves GPU safety
+ * in charge until a later representative observation permits planning. */
+export function sceneRouteIngress(center,destination,bodies,padding=0) {
+  if(!validInput(center,destination,bodies,padding))return null;
+  if(clear(center,bodies,padding))return center.slice();
+  const inside=bodies.filter(body=>Math.hypot(center[0]-body.x,center[1]-body.y,center[2]-body.z)<=body.radius+padding+CLEARANCE);
+  const away=[0,0,0];
+  for(const body of inside){
+    const delta=[center[0]-body.x,center[1]-body.y,center[2]-body.z],n=Math.hypot(...delta);
+    if(n<CLEARANCE)return null;
+    for(let i=0;i<3;i++)away[i]+=delta[i]/n;
+  }
+  const n=Math.hypot(...away);if(n<CLEARANCE)return null;
+  const axis=away.map(v=>v/n);
+  // Distance to every containing center must increase along the escape ray.
+  if(inside.some(body=>axis[0]*(center[0]-body.x)+axis[1]*(center[1]-body.y)+axis[2]*(center[2]-body.z)<0))return null;
+  let distance=0;
+  for(const body of inside)distance=Math.max(distance,rayInterval(center,axis,body,padding)?.[1]??0);
+  distance+=CLEARANCE;
+  for(const body of bodies){
+    if(inside.includes(body))continue;
+    const hit=rayInterval(center,axis,body,padding);
+    if(hit&&hit[1]>=0&&hit[0]<=distance)return null;
+  }
+  const point=center.map((v,i)=>v+axis[i]*distance);
+  return clear(point,bodies,padding)?point:null;
+}

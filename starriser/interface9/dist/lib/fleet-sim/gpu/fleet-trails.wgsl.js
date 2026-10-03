@@ -688,7 +688,7 @@ fn vs_main(input : VSIn) -> VSOut {
   }
 
   if(input.instanceAlphaStart<0.0){
-    // One screen-space pixel regardless of distance, MSAA or hull world width.
+    // Negative alpha carries screen width: normal 1px, turbo up to 2.5px.
     // No neighbor transforms, miter joins or atlas coordinates for tiny ships.
     let a=u.projection*start;let b=u.projection*end_;
     out.vThin=1u;out.vEdge=input.position.x;
@@ -699,7 +699,8 @@ fn vs_main(input : VSIn) -> VSOut {
     if(size<1e-5){out.clip=vec4<f32>(0.0,0.0,2.0,1.0);return out;}
     let normal=vec2<f32>(-delta.y,delta.x)/size;
     var clip=select(b,a,atStart);
-    clip=vec4<f32>(clip.xy+normal*input.position.x*select(1.0,2.0,analyticEdges)/max(u.resolution,vec2<f32>(1.0))*clip.w,clip.zw);
+    let width=clamp(-input.instanceAlphaStart,1.0,2.5);
+    clip=vec4<f32>(clip.xy+normal*input.position.x*select(width,width+1.0,analyticEdges)/max(u.resolution,vec2<f32>(1.0))*clip.w,clip.zw);
     out.clip = clip;
     return out;
   }

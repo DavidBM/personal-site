@@ -1,3 +1,4 @@
+import { setHidden } from './dom-bindings.js';
 /** View-only explanation for the selected-fleet sampled diagnostics. */
 export function createFleetDebugLegend(parent) {
     const element = document.createElement('div');
@@ -8,6 +9,6 @@ export function createFleetDebugLegend(parent) {
     element.textContent = 'Selected fleet · ≤12 samples · 5 Hz · hidden after 1s stale\nWhite: latest mean · magenta: sampled route frame · gray: frame distance\nYellow: navigation heading × reach · green: measured velocity ×2s\nBlue: post-formation intent ×2s / repulsion radius · red: body avoidance ×1s²\nCues exclude neighbor/contact forces. Dashed paths show automatic intent.';
     element.style.whiteSpace = 'pre-line';
     parent.append(element);
-    return { show(on) { element.hidden = !on; }, dispose() { element.remove(); } };
+    return { show(on) { setHidden(element, !on); }, dispose() { element.remove(); } };
 }
 //# sourceMappingURL=fleet-debug-legend.js.map

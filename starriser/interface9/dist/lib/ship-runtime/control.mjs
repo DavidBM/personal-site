@@ -7,7 +7,7 @@ import {createTargetTables,targetTableWgsl} from './target-tables.mjs';
 // The layout is shared verbatim with CONTROL_WGSL; 16-byte blocks throughout.
 export const CONTROL_FLOATS=fleetCapacity(2).words;
 const GROUP_FLOATS=96;
-const MODE=Object.freeze({local:0,approach:1,warp:2,escape:3,orbit:-1,departure:-2,route:-3});
+const MODE=Object.freeze({local:0,approach:1,warp:2,escape:3,transit:4,orbit:-1,departure:-2,route:-3});
 export function createControl(director,pressure=null,solar=null,routes=null,clock=null) {
   const capacity=director.capacity;
   const solarOffset=capacity.words+(pressure?.layout.words??0);
@@ -45,7 +45,7 @@ export function createControl(director,pressure=null,solar=null,routes=null,cloc
   sync();syncPressure();syncSolar();syncRoutes();return {data,frame,sync,syncNearby,syncPressure,syncSolar,syncRoutes,captureGroup,solarOffset,routesOffset};
 }
 export const controlWgsl=(capacity=fleetCapacity(2),pressure=null,solar=false,temporal=false,formation=false)=>{
-  const form=formation?formationStruct(capacity.fleetCount,Boolean(capacity.occupancy)):null;
+  const form=formation?formationStruct(capacity.fleetCount,Boolean(capacity.occupancy),capacity.pilotCapacity,solar===true?undefined:solar,Boolean(capacity.visualFormation)):null;
   return /* wgsl */`
 struct Journey { mode:vec4<f32>, range:vec4<f32>, exit:vec4<f32> }
 struct Branch { goal:vec4<f32>, weights:vec4<f32> }

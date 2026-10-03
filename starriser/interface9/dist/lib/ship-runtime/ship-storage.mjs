@@ -9,17 +9,17 @@ import {ADVANCE_SCRATCH_WORDS} from './event-motion.mjs';
 
 // Allocation capacity is independent of the populated shader address space.
 // Bind only populated bytes: arrayLength and cached offsets still mean count.
-export function shipStorageSizes(count) {
-  count=Math.max(1,count);const spatial=spatialStorage(count);
-  return {a:count*SHIP_BYTES,b:count*SHIP_BYTES,history:count*SHIP_HISTORY_BYTES,geometry:filterGeometryBytes(count),
+export function shipStorageSizes(count,bounded=false) {
+  count=Math.max(1,count);const spatial=spatialStorage(count,bounded);
+  return {a:count*SHIP_BYTES,b:count*SHIP_BYTES,history:count*SHIP_HISTORY_BYTES,geometry:bounded?32:filterGeometryBytes(count),
     heads:(spatial.headWords+1)*4,links:(spatial.linkWords+count*EVENT_POSE_WORDS+correctionWords(count)+count*ADVANCE_SCRATCH_WORDS)*4};
 }
 function validateCapacity(capacity,count) {
   if(!Number.isInteger(capacity)||capacity<Math.max(1,count)||capacity>MAX_SHIP_CAPACITY)throw new Error('Ship storage capacity must cover the population, up to 50000');
 }
 function destroyBundle(bundle){for(const buffer of Object.values(bundle.buffers))buffer.destroy();}
-function makeBundle(device,capacity,sizes,count) {
-  const buffers={},allocated=shipStorageSizes(capacity);
+function makeBundle(device,capacity,sizes,count,bounded) {
+  const buffers={},allocated=shipStorageSizes(capacity,bounded);
   const limit=Math.min(device.limits?.maxStorageBufferBindingSize??Infinity,device.limits?.maxBufferSize??Infinity);
   if(Object.values(allocated).some(size=>size>limit))throw new Error(`Ship capacity ${capacity} exceeds this device's storage limit`);
   try {
@@ -28,16 +28,16 @@ function makeBundle(device,capacity,sizes,count) {
   const bindings=Object.fromEntries(Object.entries(buffers).map(([name,buffer])=>[name,{buffer,size:sizes[name]}]));
   return {count,capacity,buffers,bindings,bytes:Object.values(allocated).reduce((sum,n)=>sum+n,0)};
 }
-export function createShipStorage(device,count) {
+export function createShipStorage(device,count,bounded=false) {
   validateCapacity(count,1);
-  let sizes=shipStorageSizes(count),lastCopyBytes=0;
-  let current=makeBundle(device,count,sizes,count),retired=null,pending=null,closed=false,revision=0,copiedBytes=0,peakBytes=current.bytes,error=null;
+  let sizes=shipStorageSizes(count,bounded),lastCopyBytes=0;
+  let current=makeBundle(device,count,sizes,count,bounded),retired=null,pending=null,closed=false,revision=0,copiedBytes=0,peakBytes=current.bytes,error=null;
   function replace(nextCount,capacity,prepareBindings,initialize,customCopies) {
     if(closed)return false;
     validateCapacity(capacity,nextCount);
     if((capacity===current.capacity&&nextCount===count)||retired)return false;
-    const nextSizes=shipStorageSizes(nextCount),next=makeBundle(device,capacity,nextSizes,nextCount);let commit,migrated=0;
-    const copies=copyPlan(count,nextCount,sizes,customCopies);
+    const nextSizes=shipStorageSizes(nextCount,bounded),next=makeBundle(device,capacity,nextSizes,nextCount,bounded);let commit,migrated=0;
+    const copies=copyPlan(count,nextCount,sizes,customCopies,bounded);
     try {
       commit=prepareBindings(next);
       const encoder=device.createCommandEncoder({label:'resize ship storage'});
@@ -68,7 +68,7 @@ export function createShipStorage(device,count) {
     destroy(){if(closed)return;closed=true;destroyBundle(current);if(retired)destroyBundle(retired);retired=null;}};
 }
 
-function copyPlan(before,after,sizes,custom) {
+function copyPlan(before,after,sizes,custom,bounded) {
   if(custom)return custom;
-  return before===after?Object.entries(sizes).map(([name,size])=>[name,0,0,size]):populationCopies(before,after);
+  return before===after?Object.entries(sizes).map(([name,size])=>[name,0,0,size]):populationCopies(before,after,bounded);
 }

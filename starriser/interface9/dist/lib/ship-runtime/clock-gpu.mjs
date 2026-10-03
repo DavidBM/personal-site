@@ -1,12 +1,13 @@
 import {SHIP_WORDS, CORRECTION_AFTER, CORRECTION_HISTORY} from './ship-layout.mjs';
 import {correctionAddress,MAX_SHIP_CORRECTIONS} from './correction-gpu.mjs';
-import {eventPoseAddress} from './event-gpu.mjs';
+import {eventPoseAddress,spatialShaderSource} from './event-gpu.mjs';
 import {SHIP_WGSL} from './shaders.mjs';
 function fields(buffer) {
   const at=`${buffer}[i]`;
-  const timers=['aux.y','aux.z','fx.y','fx.z','tactic.w'];
-  return timers.map(field=>`${at}.${field}=max(0.0,${at}.${field}-shift.x);`).join('\n')+`
-    if(${at}.memory.z!=-1.0){${at}.memory.y=max(0.0,${at}.memory.y-shift.x);${at}.memory.z=max(0.0,${at}.memory.z-shift.x);}
+  const timers=['fx.y','tactic.w'];
+  const combat=['aux.y','aux.z','fx.z'].map(field=>`${at}.${field}=max(0.0,${at}.${field}-shift.x);`).join('\n');
+  return `if(${at}.tactic.x>=0.0){${combat}}\n`+timers.map(field=>`${at}.${field}=max(0.0,${at}.${field}-shift.x);`).join('\n')+`
+    if(${at}.memory.z>=0.0){${at}.memory.y=max(0.0,${at}.memory.y-shift.x);${at}.memory.z=max(0.0,${at}.memory.z-shift.x);}
     if(${at}.origin.w == -2.0){${at}.origin.x-=shift.x;}
     ${at}.positionAnchor.w-=shift.x;${at}.flight.y-=shift.x;${at}.flight.z-=shift.x;${at}.tactic.z-=shift.x;
     ${at}.fx.x=select(-1.0,${at}.fx.x-shift.x,${at}.fx.x>=shift.x);`;
@@ -21,8 +22,10 @@ ${SHIP_WGSL}
 ${eventPoseAddress}
 ${correctionAddress}
 fn rebasePose(base:u32) {
-  let routeProgress=bitcast<f32>(eventPoses[base+26u]) == -1.0;
+  let pilot=bitcast<f32>(eventPoses[base+36u])<0.0;
+  let routeProgress=bitcast<f32>(eventPoses[base+26u]) < 0.0;
   for(var field=0u;field<${SHIP_WORDS}u;field++) {
+    if(pilot&&(field==17u||field==18u||field==42u)){continue;}
     if(routeProgress && (field==25u || field==26u)){continue;}
     let timer=field==17u||field==18u||field==25u||field==26u||field==41u||field==42u||field==39u;
     let date=field==55u||field==29u||field==30u||field==38u||(field==32u&&bitcast<f32>(eventPoses[base+35u]) == -2.0);
@@ -57,8 +60,8 @@ fn rebaseCorrections(i:u32,count:u32) {
   history[i].w=select(-1.0,birth-shift.x,birth>=shift.x);
 }
 `;
-export async function createClockRebaser(device,agents,history,links,bindings=null) {
-  const module=device.createShaderModule({code}),info=await module.getCompilationInfo();
+export async function createClockRebaser(device,agents,history,links,bindings=null,bounded=false) {
+  const module=device.createShaderModule({code:spatialShaderSource(code,bounded)}),info=await module.getCompilationInfo();
   if(info.messages.some(m=>m.type==='error'))throw new Error(info.messages.map(m=>m.message).join('\n'));
   const pipeline=await device.createComputePipelineAsync({layout:'auto',compute:{module,entryPoint:'rebase'}});
   const uniform=device.createBuffer({size:16,usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST});

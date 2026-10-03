@@ -33,7 +33,8 @@ export function createServiceClient(bus) {
                 if (!waiting.delete(request))
                     return;
                 waitingBytes -= packet.bytes ?? 0;
-                clearTimeout(timer);
+                if (timer !== undefined)
+                    clearTimeout(timer);
                 options.signal?.removeEventListener('abort', canceled);
                 if (state)
                     state.pending--;

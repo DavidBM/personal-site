@@ -1,10 +1,10 @@
 import {eventPoseWrite} from './event-gpu.mjs';
-export const EVENT_MOTION_WGSL=/* wgsl */`
+export const eventMotionWgsl=(visual=false)=>/* wgsl */`
 ${eventPoseWrite}
 // Controllers run once per simulation tick. Between exact directive boundaries,
 // retain scalar thrust and angular velocity; warp still evaluates analytically.
 fn heldMotion(initial:Ship,dt:f32)->Ship {
-  return heldForwardMotion(initial,dt);
+  return ${visual?'moveShipPosition(initial,initial.v.xyz*dt)':'heldForwardMotion(initial,dt)'};
 }
 fn prepareEventShip(initial:Ship,i:u32)->ShipIntegration {
   journalEnabled=true;links[correctionDirectory(u32(u.clock.z))+i]=0u;
@@ -47,11 +47,11 @@ fn advanceEventShip(initial:Ship,i:u32)->Ship {
 // Scratch is the final two words per populated slot in the existing links binding.
 // It is transient: every prepare invocation overwrites it before movement reads it.
 export const ADVANCE_SCRATCH_WORDS=2;
-export const SPLIT_ADVANCE_WGSL=/* wgsl */`
+export const splitAdvanceWgsl=(visual=false)=>/* wgsl */`
 fn advanceScratch(i:u32)->u32{return arrayLength(&links)-u32(u.clock.z)*${ADVANCE_SCRATCH_WORDS}u+i*${ADVANCE_SCRATCH_WORDS}u;}
 @compute @workgroup_size(128) fn prepareAdvance(@builtin(global_invocation_id) gid:vec3<u32>) {
   if(gid.x>=u32(u.clock.z)){return;}
-  let i=links[u32(u.clock.z)+gid.x];let interval=prepareEventShip(old[i],i);
+  let i=${visual?'gid.x':'links[u32(u.clock.z)+gid.x]'};let interval=prepareEventShip(old[i],i);
   next[i]=interval.ship;let at=advanceScratch(i);
   links[at]=bitcast<u32>(interval.dt);links[at+1u]=interval.first;
 }

@@ -23,6 +23,7 @@ export class SelectiveMsaa {
         this.depth = null;
         this.w = 0;
         this.h = 0;
+        this.sourceDepth = null;
         this.bootstrap = bootstrap;
         const device = bootstrap.device;
         const color = device.createShaderModule({ label: 'selective-color-copy', code: SELECTIVE_COPY_WGSL });
@@ -35,21 +36,31 @@ export class SelectiveMsaa {
             depthStencil: { format: 'depth32float', depthWriteEnabled: true, depthCompare: 'always' } });
     }
     ensure(w, h, sourceDepth) {
-        if (w === this.w && h === this.h)
-            return;
-        this.disposeTargets();
-        this.w = w;
-        this.h = h;
+        if (w !== this.w || h !== this.h) {
+            this.disposeTargets();
+            this.w = w;
+            this.h = h;
+        }
         const device = this.bootstrap.device;
-        this.color = device.createTexture({ label: 'selective-body-color', size: [w, h], format: this.bootstrap.format,
-            usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING });
-        this.depth = device.createTexture({ label: 'selective-opaque-depth', size: [w, h], format: 'depth32float',
-            usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING });
-        this.colorView = this.color.createView();
-        this.depthView = this.depth.createView();
-        this.copyGroup = device.createBindGroup({ layout: this.copy.getBindGroupLayout(0), entries: [{ binding: 0, resource: this.colorView }] });
-        this.depthGroup = device.createBindGroup({ layout: this.resolveDepth.getBindGroupLayout(0), entries: [{ binding: 0, resource: sourceDepth }] });
+        if (!this.color) {
+            this.color = device.createTexture({ label: 'selective-body-color', size: [w, h], format: this.bootstrap.format,
+                usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING });
+            this.colorView = this.color.createView();
+            this.copyGroup = device.createBindGroup({ layout: this.copy.getBindGroupLayout(0), entries: [{ binding: 0, resource: this.colorView }] });
+        }
+        if (!sourceDepth)
+            return;
+        if (!this.depth) {
+            this.depth = device.createTexture({ label: 'selective-opaque-depth', size: [w, h], format: 'depth32float',
+                usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING });
+            this.depthView = this.depth.createView();
+        }
+        if (this.sourceDepth !== sourceDepth) {
+            this.sourceDepth = sourceDepth;
+            this.depthGroup = device.createBindGroup({ layout: this.resolveDepth.getBindGroupLayout(0), entries: [{ binding: 0, resource: sourceDepth }] });
+        }
     }
+    releaseDepth() { this.depth?.destroy(); this.depth = null; this.sourceDepth = null; }
     seedColor(encoder, target) {
         const pass = encoder.beginRenderPass({ label: 'selective-seed-msaa', colorAttachments: [{ view: target, loadOp: 'clear', storeOp: 'store', clearValue: [0, 0, 0, 0] }] });
         pass.setPipeline(this.copy);
@@ -64,7 +75,7 @@ export class SelectiveMsaa {
         pass.draw(3);
         pass.end();
     }
-    disposeTargets() { this.color?.destroy(); this.depth?.destroy(); this.color = null; this.depth = null; }
+    disposeTargets() { this.color?.destroy(); this.color = null; this.releaseDepth(); }
     dispose() { this.disposeTargets(); this.w = 0; this.h = 0; }
 }
 //# sourceMappingURL=selective-msaa.js.map

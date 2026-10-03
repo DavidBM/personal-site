@@ -1,3 +1,4 @@
+import {spatialShaderSource} from './event-gpu.mjs';
 import {CORRECTION_AFTER} from './ship-layout.mjs';
 import {SHIP_BYTES, SHIP_WORDS, SHIP_HISTORY_BYTES} from './ship-layout.mjs';
 import {MAX_SHIP_CAPACITY} from './ship-capacity.mjs';
@@ -45,7 +46,7 @@ ${SHIP_WGSL}
 @group(0) @binding(4) var<storage,read> history:array<vec4<f32>>;
 @group(0) @binding(5) var<storage,read_write> nextHistory:array<vec4<f32>>;
 ${moves}
-fn translated(initial:Ship)->Ship {var s=initial;s.aux.x=moved(s.aux.x);if(s.memory.z!=-1.0){s.memory.x=moved(s.memory.x);}return s;}
+fn translated(initial:Ship)->Ship {var s=initial;s.aux.x=moved(s.aux.x);if(s.memory.z>=0.0){s.memory.x=moved(s.memory.x);}return s;}
 @compute @workgroup_size(128) fn gather(@builtin(global_invocation_id) gid:vec3<u32>) {
   let i=gid.x;if(i>=config.y){return;}let old=rows[i].x;
   nextA[i]=translated(a[old]);nextB[i]=translated(b[old]);
@@ -58,7 +59,7 @@ const journal=/* wgsl */`
 ${moves}
 ${address}
 fn copyWords(source:u32,destination:u32,length:u32){for(var j=0u;j<length;j++){links[destination+j]=oldLinks[source+j];}}
-fn translatePose(at:u32) {for(var field=16u;field<=24u;field+=8u){if(field==24u && bitcast<f32>(links[at+26u]) == -1.0){continue;}links[at+field]=bitcast<u32>(moved(bitcast<f32>(links[at+field])));}}
+fn translatePose(at:u32) {for(var field=16u;field<=24u;field+=8u){if(field==24u && bitcast<f32>(links[at+26u]) < 0.0){continue;}links[at+field]=bitcast<u32>(moved(bitcast<f32>(links[at+field])));}}
 @compute @workgroup_size(128) fn gather(@builtin(global_invocation_id) gid:vec3<u32>) {
   let i=gid.x;if(i>=config.y){return;}let row=rows[i];
   if(config.z>0u) {
@@ -74,15 +75,15 @@ fn translatePose(at:u32) {for(var field=16u;field<=24u;field+=8u){if(field==24u 
   }
 }
 `;
-async function pipeline(device,code,entryPoint) {
-  const module=device.createShaderModule({code}),info=await module.getCompilationInfo();
+async function pipeline(device,code,entryPoint,bounded) {
+  const module=device.createShaderModule({code:spatialShaderSource(code,bounded)}),info=await module.getCompilationInfo();
   if(info.messages.some(m=>m.type==='error'))throw Error(info.messages.map(m=>m.message).join('\n'));
   return device.createComputePipelineAsync({layout:'auto',compute:{module,entryPoint}});
 }
 function bind(device,pipeline,entries){return device.createBindGroup({layout:pipeline.getBindGroupLayout(0),entries:entries.map(([binding,resource])=>({binding,resource}))});}
 function run(encoder,pipeline,group,count){const pass=encoder.beginComputePass();pass.setPipeline(pipeline);pass.setBindGroup(0,group);pass.dispatchWorkgroups(Math.ceil(count/128));pass.end();}
-export async function createRetirementGpu(device) {
-  const pipelines=await Promise.all([pipeline(device,probe,'inspect'),pipeline(device,poses,'gather'),pipeline(device,journal,'gather')]);
+export async function createRetirementGpu(device,bounded=false) {
+  const pipelines=await Promise.all([pipeline(device,probe,'inspect',bounded),pipeline(device,poses,'gather',bounded),pipeline(device,journal,'gather',bounded)]);
   const make=(size,usage)=>device.createBuffer({size,usage});
   const result=make(MAX_SHIP_CAPACITY*16,GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_SRC),rows=make(MAX_SHIP_CAPACITY*16,GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_DST),remap=make(MAX_SHIP_CAPACITY*4,GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_DST),uniform=make(16,GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST);
   return {async inspect(resources,earliest,read) {

@@ -5,10 +5,14 @@ export class SceneShipAccess {
     constructor() {
         this.fleets = new Map();
         this.handles = new Map();
+        this.population = { fleets: 0, ships: 0 };
     }
+    /** Seeded, mapped population, not the allocator's requested visual budget. */
+    drawStats() { return this.population; }
     /** O(scene fleets), only on membership/table changes. Physical moves keep owners. */
     sync(fleets, ranges) {
         const live = new Set();
+        let fleetCount = 0, shipCount = 0;
         for (const fleet of fleets) {
             if (!fleet.id)
                 continue;
@@ -17,6 +21,10 @@ export class SceneShipAccess {
             const range = ranges.get(entry.slot);
             entry.start = range?.start ?? -1;
             entry.count = Math.min(fleet.shipCount, range?.cap ?? 0);
+            if (entry.count > 0) {
+                fleetCount++;
+                shipCount += entry.count;
+            }
             fleet.serialBase = entry.base;
         }
         for (const [id] of this.fleets)
@@ -25,6 +33,9 @@ export class SceneShipAccess {
         for (const [id, row] of this.handles) {
             if (this.fleets.get(row.handle.fleetId) !== row.owner || row.handle.ordinal >= row.owner.count)
                 this.handles.delete(id);
+        }
+        if (this.population.fleets !== fleetCount || this.population.ships !== shipCount) {
+            this.population = { fleets: fleetCount, ships: shipCount };
         }
     }
     ensureFleet(fleet) {
@@ -61,6 +72,6 @@ export class SceneShipAccess {
     }
     fleetSlot(fleetId) { return this.fleets.get(fleetId)?.slot ?? null; }
     serialBase(fleetId) { return this.fleets.get(fleetId)?.base; }
-    clear() { this.fleets.clear(); this.handles.clear(); }
+    clear() { this.fleets.clear(); this.handles.clear(); this.population = { fleets: 0, ships: 0 }; }
 }
 //# sourceMappingURL=scene-ship-access.js.map

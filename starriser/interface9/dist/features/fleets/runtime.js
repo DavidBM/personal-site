@@ -3,11 +3,14 @@ import { tickFleets } from "../../lib/fleet-sim/domain/fleet-simulation.js";
 import { trySpawnFleet, trySpawnParkedAt } from "../../lib/fleet-sim/domain/fleet-spawner.js";
 import { createBulkFleetSpawner } from "./bulk-spawn.js";
 import { acceptLocalMove } from "./local-move.js";
+import { createFleetStateBatch } from "./state-batch.js";
 /** One authority for fleet state. Renderers receive events, never mutable world maps. */
 export function createFleetRuntime(ports) {
     const world = createFleetWorld();
+    const held = new Map();
     let disposed = false;
     const events = ports.events;
+    const transitions = createFleetStateBatch(events);
     const publishState = (fleet) => {
         events.onFleetState({ id: fleet.id, state: fleet.state });
     };
@@ -21,6 +24,7 @@ export function createFleetRuntime(ports) {
     });
     const clear = () => {
         bulk.cancel();
+        held.clear();
         clearFleetWorld(world);
     };
     const generate = (payload) => {
@@ -35,13 +39,48 @@ export function createFleetRuntime(ports) {
             return;
         events.onFleetSpawned({ id: fleet.id, counts: fleet.counts, state: fleet.state, relationship: fleet.relationship });
     };
+    const battlePort = {
+        member(id) {
+            const f = world.fleets.get(id);
+            if (!f)
+                return null;
+            return { node: f.currentNode, jumping: f.state.state === 'jumping',
+                battle: f.state.state === 'awaiting' ? f.state.battle?.id ?? null : null };
+        },
+        order(id, order) {
+            const f = world.fleets.get(id);
+            if (!f)
+                return;
+            if (!held.has(id))
+                held.set(id, { state: f.state, at: ports.now() });
+            const distance = order.radius * (order.side === 0 ? -.5 : .5);
+            const localMove = { revision: order.stage === 'pursuit' ? order.revision : 1,
+                orderId: -order.id * 2 - Number(order.stage === 'engaged'), destination: order.stage === 'pursuit' ? order.center :
+                    { x: order.center.x + order.axis.x * distance, y: order.center.y, z: order.center.z + order.axis.z * distance } };
+            f.state = { state: 'awaiting', node: f.currentNode, battle: order, localMove };
+            publishState(f);
+        },
+        release(id, battle) {
+            const f = world.fleets.get(id), old = held.get(id);
+            if (f?.state.state !== 'awaiting' || f.state.battle?.id !== battle)
+                return;
+            held.delete(id);
+            f.state = old?.state ?? { state: 'awaiting', node: f.currentNode };
+            if (f.state.state === 'cooldown')
+                f.state = { ...f.state, startTime: f.state.startTime + ports.now() - old.at };
+            publishState(f);
+        },
+    };
     return {
+        battlePort,
         applyOps: (ops) => {
             if (disposed)
                 return;
             applyFleetOps(world, ops);
-            for (const id of removeInvalidFleets(world))
+            for (const id of removeInvalidFleets(world)) {
+                held.delete(id);
                 publishRemoved(id);
+            }
         },
         clear,
         generate,
@@ -61,7 +100,12 @@ export function createFleetRuntime(ports) {
         tick: () => {
             if (disposed)
                 return;
-            tickFleets(world, ports.now(), publishState, publishRemoved, ports.random);
+            try {
+                tickFleets(world, ports.now(), transitions.state, transitions.removed, ports.random);
+            }
+            finally {
+                transitions.flush();
+            }
         },
         fleetCount: () => world.fleets.size,
         dispose: () => {

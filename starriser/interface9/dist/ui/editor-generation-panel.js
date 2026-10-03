@@ -78,7 +78,7 @@ export function buildEditorGenerationPanel(ctx, actions) {
     view.className = "micro-actions";
     view.append(microButton("Follow", "Follow the selected fleet", () => actions.followSelectedFleet?.()), microButton("Random", "Follow a random ship", () => actions.followRandomShip()), microButton("Clear", "Clear the galaxy", () => actions.clearGalaxy()));
     controls.content.appendChild(view);
-    controls.content.append(simulationRateControl(actions), renderResolutionControl(actions), gpuBudgetControl(), check("Selective MSAA · reload", "selective-msaa", on => actions.setSelectiveMsaa?.(on), actions.isSelectiveMsaaEnabled?.() ?? true), check("½ glow · selective MSAA · reload", "half-glow", on => actions.setHalfGlow?.(on), actions.isHalfGlowEnabled?.() ?? true), check("GPU detail diagnostics", "quality-diagnostics", on => actions.setQualityDiagnostics?.(on), actions.isQualityDiagnosticsEnabled?.() ?? false), check("Star field", "star-field", on => actions.setStarField?.(on), actions.isStarFieldEnabled?.() ?? true), check("High FX · 50K ships", "high-fx", (on) => actions.setHighFx?.(on), actions.isHighFxEnabled?.() ?? false), check("All fleet paths", "fleet-paths", (on) => actions.setFleetPathsVisible?.(on), actions.isFleetPathsVisible?.() ?? false), check("Selected fleet debug", "fleet-debug", (on) => actions.setFleetDebugVisible?.(on), actions.isFleetDebugVisible?.() ?? false), check("Density", "debug-density-voxels", (on) => actions.setDebugDensityVoxels?.(on)), check("Repulsion", "debug-ship-repulsion", (on) => actions.setDebugRepulsion?.(on)));
+    controls.content.append(check("Follow hull rotation", "follow-rotation", on => actions.setFollowRotation?.(on), true), simulationRateControl(actions), renderResolutionControl(actions), gpuBudgetControl(), check("High hull MSAA · reload", "selective-msaa", on => actions.setSelectiveMsaa?.(on), actions.isSelectiveMsaaEnabled?.() ?? true), check("½ trail glow · reload", "half-glow", on => actions.setHalfGlow?.(on), actions.isHalfGlowEnabled?.() ?? true), check("GPU detail diagnostics", "quality-diagnostics", on => actions.setQualityDiagnostics?.(on), actions.isQualityDiagnosticsEnabled?.() ?? false), check("Star field", "star-field", on => actions.setStarField?.(on), actions.isStarFieldEnabled?.() ?? true), check("High FX · 50K ships", "high-fx", (on) => actions.setHighFx?.(on), actions.isHighFxEnabled?.() ?? false), check("All fleet paths", "fleet-paths", (on) => actions.setFleetPathsVisible?.(on), actions.isFleetPathsVisible?.() ?? false), check("Selected fleet debug", "fleet-debug", (on) => actions.setFleetDebugVisible?.(on), actions.isFleetDebugVisible?.() ?? false), check("Density", "debug-density-voxels", (on) => actions.setDebugDensityVoxels?.(on)), check("Repulsion", "debug-ship-repulsion", (on) => actions.setDebugRepulsion?.(on)));
     return { panel: controls, getGenerationParams: read };
 }
 function addField(parent, label, id, value, actions) {
@@ -104,9 +104,9 @@ function check(label, id, onChange, checked = false) {
     box.id = id;
     box.checked = checked;
     if (id === 'selective-msaa')
-        row.title = 'Antialias hulls and lines at 4× while planets and soft effects remain single-sampled. Uncheck for no MSAA. Applies on reload.';
+        row.title = '4× MSAA only on maximum-detail ship hulls. Lines use analytic antialiasing; other hull LODs, planets and trails stay single-sampled. Applies on reload.';
     if (id === 'half-glow')
-        row.title = 'Half-resolution broad trail glow with selective MSAA. Tiny trails and sharp cores remain full resolution. Applies on reload.';
+        row.title = 'Half-resolution broad trail glow, independent of MSAA. Tiny trails and sharp cores remain full resolution. Applies on reload.';
     if (readGpuBudget() === 'compact' && (id === 'selective-msaa' || id === 'half-glow')) {
         box.disabled = true;
         box.checked = false;

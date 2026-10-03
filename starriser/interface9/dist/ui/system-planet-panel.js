@@ -1,7 +1,11 @@
 import { bindText, setText, setHidden } from './dom-bindings.js';
-import { createFleetCard, FLEET_CARD_CSS } from './fleet-card.js';
-export function stationedByPlanet(fleets) {
-    const out = new Map();
+import { FLEET_CARD_CSS } from './fleet-card.js';
+import { createVisibleFleetCards } from './visible-fleet-cards.js';
+export function stationedByPlanet(fleets, out = new Map()) {
+    for (const row of out.values()) {
+        row.fleets = 0;
+        row.ships = 0;
+    }
     for (let i = 0; i < fleets.length; i++) {
         const name = fleets[i].planetName;
         if (!name)
@@ -14,6 +18,9 @@ export function stationedByPlanet(fleets) {
         row.fleets++;
         row.ships += fleets[i].shipCount | 0;
     }
+    for (const [name, row] of out)
+        if (row.fleets === 0)
+            out.delete(name);
     return out;
 }
 /** Right-side fleet meta: `12 · jumping 12s Inferno`. */
@@ -172,8 +179,13 @@ export function buildSystemPlanetPanel(ctx, actions, opts) {
         text: "Load more", title: "Load the next fleets in this system", className: "ui-planet-row",
         onClick: () => actions.loadMoreSceneFleets?.() });
     list.element.append(label("Celestial bodies"), bodiesHost, fleetHeading, fleetsHost, empty, more.element, cap, drawHeading, draw);
-    const bodyRows = new Map();
+    const bodyRows = [];
+    const visibleCards = createVisibleFleetCards(panel.content);
+    const destroyPanel = panel.destroy;
+    panel.destroy = () => { clearRows(); visibleCards.dispose(); destroyPanel(); };
     const fleetRows = new Map();
+    const stationed = new Map();
+    let bodyVersion = 0, fleetVersion = 0;
     const headingText = bindText(fleetHeading), moreText = bindText(more.element, { height: '24px' });
     const capText = bindText(cap, { height: '34px', wrap: true }), drawText = bindText(draw, { height: '34px', wrap: true });
     let lastVisible = false;
@@ -184,19 +196,39 @@ export function buildSystemPlanetPanel(ctx, actions, opts) {
         const name = document.createElement("span"), kind = document.createElement("span");
         kind.className = "ui-planet-kind";
         component.element.append(name, kind);
-        return { component, name: bindText(name, { width: '40%', height: '16px' }), kind: bindText(kind, { width: '60%', height: '16px' }) };
+        return { component, catalogId: body.catalogId, seen: bodyVersion,
+            name: bindText(name, { width: '40%', height: '16px' }), kind: bindText(kind, { width: '60%', height: '16px' }) };
+    }
+    function currentBodyRow(body) {
+        let row = bodyRows[body.index];
+        if (row?.catalogId !== body.catalogId) {
+            row?.component.destroy();
+            row = bodyRow(body);
+            bodyRows[body.index] = row;
+        }
+        row.seen = bodyVersion;
+        return row;
+    }
+    function pruneBodies() {
+        for (let i = 0; i < bodyRows.length; i++) {
+            const row = bodyRows[i];
+            if (row && row.seen !== bodyVersion) {
+                row.component.destroy();
+                bodyRows[i] = undefined;
+            }
+        }
     }
     function syncBodies(bodies, fleets, focus) {
-        const live = new Set(), stationed = stationedByPlanet(fleets);
+        bodyVersion++;
+        stationedByPlanet(fleets, stationed);
         let cursor = bodiesHost.firstChild;
         for (const body of bodies) {
-            const key = `${body.index}:${body.catalogId}`;
-            live.add(key);
-            let row = bodyRows.get(key);
-            if (!row) {
-                row = bodyRow(body);
-                bodyRows.set(key, row);
-            }
+            // Replacing a catalog entry destroys its old node. Advance a cursor that
+            // points at that node before currentBodyRow detaches it.
+            const old = bodyRows[body.index];
+            if (old && old.catalogId !== body.catalogId && cursor === old.component.element)
+                cursor = cursor.nextSibling;
+            const row = currentBodyRow(body);
             const element = row.component.element;
             setText(row.name, body.name);
             const parked = formatStationed(stationed.get(body.name));
@@ -209,25 +241,22 @@ export function buildSystemPlanetPanel(ctx, actions, opts) {
                 bodiesHost.insertBefore(element, cursor);
             cursor = element.nextSibling;
         }
-        for (const [key, row] of bodyRows)
-            if (!live.has(key)) {
-                row.component.destroy();
-                bodyRows.delete(key);
-            }
+        pruneBodies();
     }
     function syncFleets(fleets, selected) {
-        const live = new Set();
+        fleetVersion++;
         let cursor = fleetsHost.firstChild;
         for (const fleet of fleets) {
-            live.add(fleet.id);
             let row = fleetRows.get(fleet.id);
             if (!row) {
                 const component = ctx.button({ id: `system-fleet-${fleet.id}`, parent: fleetsHost, text: "",
                     className: "ui-planet-row ui-fleet-row", onClick: () => actions.selectSceneFleet?.(fleet.id) });
                 component.element.dataset.fleetId = fleet.id;
-                row = { component, card: createFleetCard(component.element) };
+                component.element.setAttribute('aria-label', `Select ${fleet.id}`);
+                row = { component, card: visibleCards.add(component.element), seen: fleetVersion };
                 fleetRows.set(fleet.id, row);
             }
+            row.seen = fleetVersion;
             row.card.update(fleet);
             row.component.element.classList.toggle("selected", fleet.id === selected);
             if (cursor !== row.component.element)
@@ -235,18 +264,22 @@ export function buildSystemPlanetPanel(ctx, actions, opts) {
             cursor = row.component.element.nextSibling;
         }
         for (const [id, row] of fleetRows)
-            if (!live.has(id)) {
+            if (row.seen !== fleetVersion) {
+                row.card.destroy();
                 row.component.destroy();
                 fleetRows.delete(id);
             }
     }
     function clearRows() {
-        for (const row of bodyRows.values())
+        for (const row of bodyRows)
+            row?.component.destroy();
+        for (const row of fleetRows.values()) {
+            row.card.destroy();
             row.component.destroy();
-        for (const row of fleetRows.values())
-            row.component.destroy();
-        bodyRows.clear();
+        }
+        bodyRows.length = 0;
         fleetRows.clear();
+        stationed.clear();
     }
     const sync = (next) => {
         if (!next.visible) {

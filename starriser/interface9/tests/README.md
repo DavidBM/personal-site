@@ -54,6 +54,16 @@ per-scenario JSON results. `GALAXY_TEST_RUN` and `GALAXY_TEST_SESSION` report th
 build, HTTP port, CDP port, profile, and artifact paths. Temporary Chromium
 profiles are owned by the test process and cleaned after Chromium exits.
 
+Continuous ship-follow checks are documented in
+[scene-follow-transit](scene-follow-transit/README.md) and
+[scene-follow-selection](scene-follow-selection/README.md). The
+[lifecycle boundary fixture](scene-follow-lifecycle/README.md) covers late hops,
+missing observations and an optional ten-minute simulated clock. Selected route volume
+checks are in [scene-route-corridor](scene-route-corridor/README.md). The opt-in
+[scene-follow-soak](scene-follow-soak/README.md) exercises repeated system changes
+for 11 minutes and includes fixed-view A/B benchmark commands. It is excluded
+from `all` alongside the long-running performance scenarios.
+
 The final atlas-lifetime build passed 183 focused Node tests, including 19
 loader lifetime cases, plus invariants and the architecture gate (355 modules,
 zero violations). The lifetime suite fails 15 cases against the prior loader.
@@ -64,6 +74,21 @@ but both the final and immutable baseline builds produce 1,229 versus 3,037.
 The threshold remains unchanged. Raw results are in
 `/tmp/galaxy-final-headed-all.log` and
 `/tmp/galaxy-final-regression-artifacts/run-M6KsNW/`.
+
+## Fleet battles
+
+```sh
+./build.sh --wasm --out-dir /tmp/galaxy-battles-build
+node scripts/run-module-tests.mjs features --dist-dir /tmp/galaxy-battles-build
+node scripts/run-module-tests.mjs ship-runtime --dist-dir /tmp/galaxy-battles-build
+./tests/run.sh scene-battles --skip-build --dist-dir /tmp/galaxy-battles-build --background
+./tests/run.sh app-battles --skip-build --dist-dir /tmp/galaxy-battles-build --background
+```
+
+`scene-battles` checks 2,048 ships across choreography phases, continuous poses
+and identity, containment after entry, and return to normal movement.
+`app-battles` clicks the real Fight/End menus and checks capture, authority locks
+and ship follow through worker messages. These are functional checks, not FPS claims.
 
 ## Prerequisites
 
@@ -166,6 +191,7 @@ Run explicitly:
 | **scene-warp-spacing** | Several fleets share a jump corridor; real GPU repulsion-bubble separation through mid-warp, endpoint and kernel compaction. `--query 'ships=2500&fleets=4'` exercises the full 10,000-ship capacity. |
 | **scene-hull-depth** | Production hull shader on physically separated thin armor; reversed floating depth must match the visible nearer-only reference regardless of triangle order, including sun-local offsets. Forward-depth control reproduces the old surface error. |
 | **scene-follow-camera** | Delayed GPU observations, stable fleet tracking, hull-relative ship chase and near-plane-safe close zoom on small/large hulls |
+| **[scene-fleet-camera](scene-fleet-camera/README.md)** | Fleet focus during warp and local travel, irregular frame cadence, delayed readbacks, 30 Hz and every-frame simulation |
 | **scene-follow-stalls** | Delayed observations and 8–450ms frame gaps with concurrent fleet admission; camera remains attached to the GPU-owned warp through mapping rebuilds |
 | **scene-population-continuity** | Every-frame survivor identity, pose and drawn hull continuity during 10K admission, removal, compaction and slot reuse; frozen and moving variants |
 | **scene-departure-continuity** | Source-side warp departure, surviving ships, badge/follow retirement and direct solar-frame reuse |

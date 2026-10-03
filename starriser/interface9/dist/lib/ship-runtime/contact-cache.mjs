@@ -8,7 +8,7 @@ const BATTLE_QUERY_PREPARATION=/* wgsl */`  let query=applyJourney(s,u.clock.x,u
   let queryRadius=repelRadius(shipType(query),bodyRadius)+${CONTACT_PADDING}*sceneAdapt(bodyRadius);
   typedGeometry[count+index]=FilterGeometry(query.p.xyz,queryRadius,query.v.xyz,(u32(enabled)*QUERY_PRESSURE)|(u32(memory)*QUERY_MEMORY));
 `;
-export const contactCacheWgsl=(queryPreparation=BATTLE_QUERY_PREPARATION)=>/* wgsl */`
+export const contactCacheWgsl=(queryPreparation=BATTLE_QUERY_PREPARATION,{typed=true,capitalWork=false}={})=>/* wgsl */`
 struct ContactGeometry {p:vec3<f32>,radius:f32,v:vec3<f32>,fleet:u32}
 // First half: contact radius, unpadded. Second half: query radius includes its
 // exact contactPush scene padding. Flags retain their independent bit meaning.
@@ -22,7 +22,7 @@ fn contactOffset(index:u32)->u32{return u32(u.clock.z)*2u+index*8u;}
 fn contactMetadata(index:u32)->u32{return u32(u.clock.z)*10u+index*8u;}
 fn recordContact(s:Ship,index:u32,record:u32) {
   let at=contactOffset(record);let tags=contactMetadata(record);
-  let geometry=ContactGeometry(s.p.xyz,repelRadius(shipType(s),journeyBodyRadius(s)),s.v.xyz,s.identity.y);typedGeometry[record]=FilterGeometry(geometry.p,geometry.radius,geometry.v,0u);
+  let geometry=ContactGeometry(s.p.xyz,repelRadius(shipType(s),journeyBodyRadius(s)),s.v.xyz,s.identity.y);${typed?"typedGeometry[record]=FilterGeometry(geometry.p,geometry.radius,geometry.v,0u);":""}
   let p=bitcast<vec3<u32>>(s.p.xyz);let v=bitcast<vec3<u32>>(s.v.xyz);let c=bitcast<vec3<u32>>(contactCell(s.p.xyz));
   links[at]=p.x;links[at+1u]=p.y;links[at+2u]=p.z;links[at+3u]=bitcast<u32>(geometry.radius);
   links[at+4u]=v.x;links[at+5u]=v.y;links[at+6u]=v.z;links[at+7u]=s.identity.y;
@@ -49,6 +49,7 @@ ${queryPreparation}
   if(!contributes(s)){return;}
   let end=links[contactRange(contactBucket(contactCell(s.p.xyz)))+1u];let record=end-1u-links[index];
   links[u32(u.clock.z)+record]=index;recordContact(s,index,record);
+  ${capitalWork?'if(classIndex(shipType(s))>=4u){let work=atomicAdd(&director.pilotDispatch[4],1u);director.pilotWork[work]=index;}':''}
 }
 `;
 

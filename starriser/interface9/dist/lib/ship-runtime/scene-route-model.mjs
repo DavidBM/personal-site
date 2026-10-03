@@ -83,6 +83,7 @@ export function prepareSceneRoute(value) {
   if(frameBody<0)invalid('Scene route requires its stationary sun reference');
   const start=vector(value.start,3,'route start').map(linear),destination=vector(value.destination,3,'route destination').map(linear);
   return {key:value.key,at:value.at,durationSeconds:value.durationSeconds,frameBody,start,destination,
+    alternatives:(value.alternatives??[]).slice(0,3).map(p=>vector(p,3,'arrival port').map(linear)),
     capability:capability(value.capability),cache:cacheOptions(value.cache),program:routeProgram(value.program),definition:{epochMs:value.at*1000,origin:[0,0,0],bodies}};
 }
 
@@ -131,8 +132,13 @@ export function solveSceneRoute(request,rules) {
   try {
     if(request.program)return solveProgram(model,request);
     const retained=retainedRoute(model,request);if(retained)return retained;
-    const columns=model.plan_route(request.frameBody,request.at*1000,request.durationSeconds,
-      Float64Array.from(request.start),Float64Array.from(request.destination),Float64Array.from(request.capability));
+    let columns;
+    // First acceptable port wins. One prepared ephemeris, at most four solves.
+    for(const destination of [request.destination,...(request.alternatives??[])]) {
+      columns=model.plan_route(request.frameBody,request.at*1000,request.durationSeconds,
+        Float64Array.from(request.start),Float64Array.from(destination),Float64Array.from(request.capability));
+      if(columns[2]>1)break;
+    }
     const points=[];
     for(let i=0;i<columns[2];i++)points.push(Array.from(columns.subarray(12+i*4,15+i*4),v=>v/SCENE_LAB_SCALE));
     const prepared=request.cache&&points.length>1?prepareCache(model,request,points):{};

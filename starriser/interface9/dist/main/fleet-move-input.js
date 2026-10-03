@@ -1,6 +1,8 @@
 import { renderPointerRay } from './render-picking.js';
 /** UI availability only. The fleet authority validates every submitted order again. */
 export function canMoveSceneFleet(snapshot, state) {
+    if (state?.state === 'awaiting' && state.battle)
+        return false;
     const node = snapshot?.sceneNode;
     return snapshot?.systemId != null && node != null && state != null && state.state !== 'jumping'
         && state.node.clusterId === node.clusterId && state.node.solarSystemId === node.solarSystemId;

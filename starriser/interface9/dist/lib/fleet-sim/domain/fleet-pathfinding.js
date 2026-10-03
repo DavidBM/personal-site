@@ -96,6 +96,11 @@ function traceSolarPath(parent, startId, endId) {
     }
     return path.reverse();
 }
+/** Fleet-sized, event-only preview. getNextNode changes cursors and the edge queue,
+ * never the shared intra-path array or world, so this does not consume a hop. */
+export function previewNextNode(world, fleet) {
+    return getNextNode(world, { ...fleet, pendingEdges: fleet.pendingEdges.slice() });
+}
 export function getNextNode(world, fleet) {
     const current = fleet.currentNode;
     if (!hasFleetNode(world, current) || !hasFleetNode(world, fleet.destination))

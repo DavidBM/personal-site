@@ -9,6 +9,70 @@ export function fleetCardText(fleet) {
     return { title: `${fleet.id} · ${fleetRelationship(fleet.relationship).toUpperCase()}`, action: `${action}${destination}`, micro: fleet.micro ?? 'Visual state unavailable',
         state: `${fleet.state}${countdown}`, ships: composition ? `${counts} · ${composition}` : counts };
 }
+/** Card-owned borrowed text cache. Snapshot inputs may be fresh OR mutated in
+ * place. Copy the few displayed scalars, never retain the input as the baseline. */
+export function createFleetCardTextCache() {
+    const previous = {};
+    const values = { title: '', action: '', micro: '', state: '', ships: '' };
+    const names = [], counts = [];
+    let first = true, composition = '';
+    function title(fleet) {
+        if (first || fleet.id !== previous.id || fleet.relationship !== previous.relationship) {
+            values.title = `${fleet.id} · ${fleetRelationship(fleet.relationship).toUpperCase()}`;
+            previous.id = fleet.id;
+            previous.relationship = fleet.relationship;
+        }
+    }
+    function action(fleet) {
+        const action = fleet.action ?? strategicAction(fleet.state);
+        if (first || action !== previous.action || fleet.planetName !== previous.planetName) {
+            values.action = action + (fleet.planetName ? ` → ${fleet.planetName}` : '');
+            previous.action = action;
+            previous.planetName = fleet.planetName;
+        }
+    }
+    function state(fleet) {
+        if (first || fleet.state !== previous.state || fleet.remainingSec !== previous.remainingSec) {
+            values.state = fleet.state + (fleet.remainingSec == null ? '' : ` · ${fleet.remainingSec}s`);
+            previous.state = fleet.state;
+            previous.remainingSec = fleet.remainingSec;
+        }
+    }
+    function compositionChanged(types) {
+        const length = types?.length ?? 0;
+        let changed = length !== names.length;
+        for (let i = 0; i < length; i++) {
+            const row = types[i];
+            if (names[i] !== row.name || counts[i] !== row.count)
+                changed = true;
+            names[i] = row.name;
+            counts[i] = row.count;
+        }
+        names.length = length;
+        counts.length = length;
+        return changed;
+    }
+    function ships(fleet) {
+        const changed = compositionChanged(fleet.types);
+        if (changed)
+            composition = names.map((name, i) => `${name} ${counts[i]}`).join(' · ');
+        if (first || changed || fleet.shipCount !== previous.shipCount || fleet.visualCount !== previous.visualCount) {
+            const total = fleet.visualCount == null ? `${fleet.shipCount} ships` : `${fleet.visualCount} drawn / ${fleet.shipCount} ships`;
+            values.ships = composition ? `${total} · ${composition}` : total;
+            previous.shipCount = fleet.shipCount;
+            previous.visualCount = fleet.visualCount;
+        }
+    }
+    return { update(fleet) {
+            title(fleet);
+            action(fleet);
+            state(fleet);
+            ships(fleet);
+            values.micro = fleet.micro ?? 'Visual state unavailable';
+            first = false;
+            return values;
+        } };
+}
 export function createFleetCard(element) {
     const fields = ['title', 'action', 'micro', 'state', 'ships'];
     const texts = fields.map(key => {
@@ -17,12 +81,19 @@ export function createFleetCard(element) {
         element.append(row);
         return bindText(row, { height: '12px', lineHeight: '12px' });
     });
+    const cache = createFleetCardTextCache();
+    let tooltipId, tooltipAction = '', tooltipMicro = '', tooltipShips = '';
     return { element, update(fleet) {
-            const values = fleetCardText(fleet);
-            fields.forEach((key, index) => setText(texts[index], values[key]));
-            const title = `Select ${fleet.id}. ${values.action}. ${values.micro}. ${values.ships}. Type counts are admitted visual ships.`;
-            if (element.title !== title)
-                element.title = title;
+            const values = cache.update(fleet);
+            for (let i = 0; i < fields.length; i++)
+                setText(texts[i], values[fields[i]]);
+            if (tooltipId !== fleet.id || tooltipAction !== values.action || tooltipMicro !== values.micro || tooltipShips !== values.ships) {
+                element.title = `Select ${fleet.id}. ${values.action}. ${values.micro}. ${values.ships}. Type counts are admitted visual ships.`;
+                tooltipId = fleet.id;
+                tooltipAction = values.action;
+                tooltipMicro = values.micro;
+                tooltipShips = values.ships;
+            }
         } };
 }
 export const FLEET_CARD_CSS = `

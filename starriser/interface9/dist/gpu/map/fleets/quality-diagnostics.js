@@ -1,6 +1,7 @@
 // @ts-ignore Native shared ABI module.
 import { SHIP_WGSL } from '../../../lib/ship-runtime/ship-layout.mjs';
 // @ts-ignore Native scene capacity contract.
+import { PILOT_ADVICE_BYTES } from '../../../lib/ship-runtime/pilot-advice-layout.mjs';
 import { MAX_SHIP_CAPACITY } from '../../../lib/ship-runtime/ship-capacity.mjs';
 /** Separate, opt-in reduction. No diagnostic work is embedded in physics. */
 export const QUALITY_SUMMARY_WGSL = /* wgsl */ `
@@ -25,7 +26,7 @@ fn inspect(i:u32){
   let p=vec3<f32>(bitcast<f32>(sims[i*88u]),bitcast<f32>(sims[i*88u+1u]),bitcast<f32>(sims[i*88u+2u]));
   let clip=u.vp*vec4<f32>(p-u.origin.xyz,1.0);
   if(clip.w>0.0&&all(abs(clip.xy)<=vec2<f32>(clip.w))&&clip.z>=0.0&&clip.z<=clip.w){bump(4u+tier);}
-  let a=u.info.y+i*20u;let serial=control[a];let tick=control[a+2u];let period=control[a+3u];
+  let a=u.info.y+i*${PILOT_ADVICE_BYTES / 4}u;let serial=control[a];let tick=control[a+2u];let period=control[a+3u];
   let old=previous[i];
   if(old.x==s.identity.w){
     if(old.y!=tier){bump(7u);}
@@ -43,7 +44,7 @@ fn inspect(i:u32){
   if(mode< -3.0||!guideActive){bump(17u);return;}
   bump(10u);
   if(serial!=s.identity.w||control[a+1u]!=bitcast<u32>(s.flight.x)){bump(18u);return;}
-  if(period==30u){bump(11u);}else if(period==3u){bump(12u);}else if(period==1u){bump(13u);}else{bump(18u);}
+  if(period==8u){bump(11u);}else if(period==2u){bump(12u);}else if(period==1u){bump(13u);}else{bump(18u);}
 }
 @compute @workgroup_size(128)
 fn summary(@builtin(global_invocation_id) gid:vec3<u32>,@builtin(local_invocation_index) lane:u32){

@@ -1,3 +1,4 @@
+import {automaticRouteKey, automaticRouteIntent, automaticRouteDeadline, arrivalPorts} from './automatic-route.mjs';
 import { createSceneRoutePlanner } from '../../../lib/ship-runtime/scene-route-planner.mjs';
 import { packSceneRoute } from '../../../lib/ship-runtime/scene-route.mjs';
 import { packSceneRouteSamples, unpackRoutePoints, writeRouteCorrespondences } from '../../../lib/ship-runtime/route-cache.mjs';
@@ -6,11 +7,12 @@ import { packClassTuning } from '../../../lib/ship-runtime/class-tuning.mjs';
 import { SCENE_LAB, SCENE_TRAVEL_ADAPT } from '../../../lib/ship-runtime/flight-layout.mjs';
 import { fleetComposition } from '../../../lib/ship-runtime/fleet-mix.mjs';
 import { CLASSES, CLASS_BY_TYPE } from '../../../lib/ship-runtime/classes.mjs';
-import { sceneRouteStart } from '../../../lib/ship-runtime/scene-route-start.mjs';
+import { sceneRouteIngress, sceneRouteStart } from '../../../lib/ship-runtime/scene-route-start.mjs';
 
 const WINDOW_SECONDS = 30;
 const REFRESH_MARGIN = 8;
 const EMPTY = packSceneRoute([]);
+const PENDING_AUTO=packSceneRoute([]);PENDING_AUTO[3]=-1;
 
 /** Fleet-bounded planning. GPU poses stay authoritative; no ship enumeration/readback. */
 export function routeCapability(fleet, frame = null) {
@@ -20,13 +22,13 @@ export function routeCapability(fleet, frame = null) {
   const minimum = column => Math.min(...kinds.map(kind => tuning[kind * 8 + column]));
   const maximum = column => Math.max(...kinds.map(kind => tuning[kind * 8 + column]));
   const width = Math.max(.12, maximum(4) * 2, (frame?.radius ?? 0) * 2);
-  // The cloud is deformable: route its center with modest clearance, then let
-  // per-ship body avoidance squeeze/reform it. A full-cloud sphere would make
-  // ordinary near-planet orders impossible and still not prove swept safety.
-  const margin = Math.max(.12, Math.min(width, 1.5)) + .08;
+  // The visual formation reserves its lateral envelope once in the planner.
+  // Legacy pilots retain their narrower corridor and independent body avoidance.
+  // Orbit capture uses a separate radial transition outside this corridor.
+  const margin = Math.max(.12, frame?.visualFormation ? width * .5 : Math.min(width, 1.5)) + .08;
   // The normalized mesh bounding radius is 0.004 lab per visual size unit.
   const hull = Math.max(.004, maximum(5) * .004);
-  return { width, speed: minimum(0) * SCENE_TRAVEL_ADAPT,
+  return { type: [0,12,22,27,30,31][Math.max(...kinds)], width, speed: minimum(0) * SCENE_TRAVEL_ADAPT,
     bodyHull: Math.max(...kinds.map(kind => Math.hypot(...CLASSES[kind].extent))),
     values: [minimum(0) * SCENE_TRAVEL_ADAPT, minimum(1) * SCENE_TRAVEL_ADAPT,
       minimum(2) * SCENE_TRAVEL_ADAPT, Math.max(.001, minimum(3)), hull, margin]
@@ -45,8 +47,17 @@ function entryObstacles(bodies) {
   return bodies.map(body => ({ ...body, radius: body.radius + .003 / SCENE_LAB
     + Math.min(2, Math.abs(body.rate ?? 0) * WINDOW_SECONDS) * (body.orbitRadius ?? 0) }));
 }
+/** Shared interception envelope: planning and capture must agree on how close
+ * a complete formation can approach a centroid inside a protected body. */
+export function routeInterception(position,target,obstacles,capability) {
+  const padding=capability.values[4]+capability.values[5];
+  const destination=sceneRouteStart(target,position,entryObstacles(obstacles),padding);
+  if(!destination)return null;
+  const standoff=Math.hypot(...destination.map((v,i)=>v-target[i]));
+  return {destination,reach:standoff+capability.width/SCENE_LAB+.003};
+}
 function sameOwner(previous, fleet, move) {
-  return previous?.orderId === (move.orderId ?? move.revision) && previous.slot === fleet.slot && previous.memberCount === fleet.shipCount && previous.generation === (fleet.generation ?? 0);
+  return previous?.orderId === (move.orderId ?? move.revision) && previous.slot === fleet.slot && (move.automatic || previous.memberCount === fleet.shipCount) && previous.generation === (fleet.generation ?? 0);
 }
 
 function applyIntent(row, move) {
@@ -61,8 +72,9 @@ function routeRow(fleet, move, frame, token) {
     generation: fleet.generation ?? 0, revision: move.revision, orderId: move.orderId ?? move.revision,
     waypoints: move.waypoints?.map(p => [p.x, p.y, p.z]) ?? null, closed: Boolean(move.closed),
     destination: [move.destination.x, move.destination.y, move.destination.z],
+    automatic: move.automatic ?? null, deadline: null,
     color: fleet.marker ?? [.45, .78, 1], capability: routeCapability(fleet, frame), bias: null, token,
-    points: [], status: 'pending', validUntil: 0, retryAt: 0, pending: false };
+    firstDue:null,points: [], status: 'pending', validUntil: 0, retryAt: 0, pending: false };
 }
 
 function routeIntent(row) {
@@ -105,7 +117,36 @@ function acceptProgramMetadata(row,program,intent) {
   if(row.rejectedRevision===row.revision)row.status=`Following previous path: ${row.error}`;
 }
 
-export function createSceneFleetRoutes({ center, install, changed = () => {}, createPlanner = createSceneRoutePlanner, formationFrame = null }) {
+function routeDestination(row,intent,bodies,obstacles,position,now){
+  if(row.automatic&&row.deadline==null)row.deadline=automaticRouteDeadline(row.fleet,now);
+  const ports=row.automatic==='arrival'?arrivalPorts(row.fleet,bodies,obstacles,row.capability,position,row.deadline-now):null;
+  const destination=ports?.[0]??intent.destination.map((v,i)=>v+row.bias[i]);
+  if(ports?.length)row.destination=destination;
+  return {destination,alternatives:ports?.slice(1)};
+}
+function routeEndpoints(row,intent,bodies,pose,now){
+  const obstacles=routeObstacles(bodies,row.capability.bodyHull),position=[pose.x,pose.y,pose.z];
+  const target=routeDestination(row,intent,bodies,obstacles,position,now);
+  let destination=target.destination;
+  const shells=entryObstacles(obstacles),padding=row.capability.values[4]+row.capability.values[5];
+  // A fleet's centroid can be inside its planet. Approach the near edge of
+  // that shell; battle capture still tests the actual observed centers.
+  if(row.fleet.state?.battle?.stage==='pursuit')destination=routeInterception(position,destination,obstacles,row.capability)?.destination;
+  if(!destination)throw Error('no-interception-entry');
+  const start=sceneRouteIngress(position,destination,shells,padding);
+  if(!start)throw Error('no-entry');
+  return {bodies:obstacles,start,destination,alternatives:target.alternatives};
+}
+function plannedWarpExit(row){
+  const plan=row.fleet.plan;
+  return row.automatic&&(plan?.phase==='inbound'||plan?.phase==='retained-warp')?{...plan.exit,n:1}:null;
+}
+function retainedCache(row,intent,revision){
+  return {width:row.capability.width,token:row.token,revision,bias:row.bias,
+    retained:row.cacheIntentRevision===intent.revision?row.points.map(p=>p.map((v,i)=>v+row.bias[i])):[]};
+}
+
+export function createSceneFleetRoutes({ center, install, changed = () => {}, createPlanner = createSceneRoutePlanner, formationFrame = null, requireFormationFrame = false, priority = () => false }) {
   const rows = new Map();
   let planner = null, closed = false, currentSystem = null, latestTime = 0, nextToken = 1, nextRevision = 1;
   function remove(id, row) {
@@ -125,7 +166,10 @@ export function createSceneFleetRoutes({ center, install, changed = () => {}, cr
     for (const [id, row] of rows) if (!live.has(id)) remove(id, row);
   }
   function syncFleet(fleet) {
-      const move = fleet.state?.state === 'awaiting' && fleet.state.localMove;
+      const key=automaticRouteKey(fleet);
+      const previousRow=rows.get(fleet.id);
+      const move = fleet.state?.state === 'awaiting' && fleet.state.localMove
+        || (key && (previousRow?.orderId===key ? previousRow.intent : automaticRouteIntent(fleet,key)));
       if (!move || fleet.shipCount <= 0) return null;
       const previous = rows.get(fleet.id);
       if (sameOwner(previous, fleet, move)) {
@@ -135,25 +179,29 @@ export function createSceneFleetRoutes({ center, install, changed = () => {}, cr
       }
       if (previous) remove(fleet.id, previous);
       const frame = formationFrame?.(fleet);
-      rows.set(fleet.id, routeRow(fleet, move, frame, formationFrame ? nextToken++ : 0));
-      install(fleet.slot, EMPTY); changed();
+      const row=routeRow(fleet, move, frame, move.automatic?0:formationFrame ? nextToken++ : 0);
+      row.intent=move;
+      rows.set(fleet.id, row);
+      install(fleet.slot, row.automatic?PENDING_AUTO:EMPTY); changed();
       return fleet.id;
   }
-  function accept(row, result, intent = null) {
+  function accept(row, result, intent) {
     if (closed || rows.get(row.id) !== row) return;
     row.pending = false;
-    if (result.points.length < 1 || result.validUntil <= latestTime) { fail(row, result.status); return; }
+    if ((result.cache?.[0] ?? result.points?.length ?? 0) < 1 || result.validUntil <= latestTime) { fail(row, result.status); return; }
     // Infeasible means the conservative timetable does not fit. Spatial safety
-    // still covers the complete validity window. Motion has no arrival deadline.
+    // still covers the validity window; automatic deadlines are separate.
     row.validUntil = result.validUntil;
-    row.retryAt = result.validUntil - REFRESH_MARGIN; row.status = 'ready';
+    row.retryAt = result.validUntil - REFRESH_MARGIN - (row.slot % 8) * .35; row.status = 'ready';
     const cache = acceptedCache(row,result,nextRevision++);
     row.points = unpackRoutePoints(cache, SCENE_LAB);
+    row.corridorRadius = cache[1] / (2 * SCENE_LAB);
     // An unchanged, revalidated curve keeps its progress coordinate. The pose,
     // captured formation frame and departure history already persist on GPU.
     if(preservesProgress(result)&&row.cacheRevision)cache[7]=row.cacheRevision;
     installCorrespondences(row,result,cache);
     row.cacheRevision=cache[7];
+    row.cacheIntentRevision=intent.revision;
     acceptProgramMetadata(row,result.program,intent);
     install(row.slot, cache);
     changed();
@@ -165,39 +213,33 @@ export function createSceneFleetRoutes({ center, install, changed = () => {}, cr
       row.rejectedRevision=row.revision;row.error=String(reason);
       row.status=`Edit rejected; previous path retained: ${reason}`;
     }
-    if (row.validUntil <= latestTime) { row.points = []; install(row.slot, EMPTY); }
+    if (row.validUntil <= latestTime) { row.points = []; install(row.slot, row.automatic?PENDING_AUTO:EMPTY); }
     changed();
   }
   function captureFrame(row) {
     const frame = formationFrame?.(row.fleet);
-    if (formationFrame && !frame) return false;
+    if (formationFrame && !frame && (requireFormationFrame || !row.automatic)) return false;
     if (!row.bias) {
-      row.bias = frame?.bias ?? [0, 0, 0];
+      row.bias = row.automatic ? [0, 0, 0] : frame?.bias ?? [0, 0, 0];
       row.capability = routeCapability(row.fleet, frame);
     }
     return true;
   }
   function request(row, bodies, now) {
-    const pose = center(row.id);
+    const pose=plannedWarpExit(row)??center(row.id);
     if (!pose || pose.n <= 0) return;
     if (!captureFrame(row)) return;
     row.pending = true;
     try {
-      const obstacles = routeObstacles(bodies, row.capability.bodyHull);
       const intent = routeIntent(row);
-      const destination = intent.destination.map((value, axis) => value + row.bias[axis]);
-      const start = sceneRouteStart([pose.x, pose.y, pose.z], destination, entryObstacles(obstacles), row.capability.values[4] + row.capability.values[5]);
-      if (!start) { fail(row, 'no-entry'); return; }
+      const endpoints=routeEndpoints(row,intent,bodies,pose,now);
       if (planner?.status?.closed) { planner.destroy(); planner = null; }
       planner ??= createPlanner();
       const revision = row.revision;
       const current = () => rows.get(row.id) === row && row.revision === revision;
       const program = planningProgram(row,intent);
-      void planner.plan({ key: row.id, bodies: obstacles, at: now, start,
-        destination, capability: row.capability.values, durationSeconds: WINDOW_SECONDS,
-        program,
-        cache: {width:row.capability.width,token:row.token,revision:nextRevision++,bias:row.bias,
-          retained:row.points.map(p=>p.map((v,i)=>v+row.bias[i]))} })
+      void planner.plan({key:row.id,...endpoints,at:now,capability:row.capability.values,durationSeconds:WINDOW_SECONDS,
+        program,cache:retainedCache(row,intent,nextRevision++)})
         .then(result => { if (current()) accept(row, result, intent); }, error => { if (current()) fail(row, error.message); });
     } catch (error) { fail(row, error.message); }
   }
@@ -208,18 +250,37 @@ export function createSceneFleetRoutes({ center, install, changed = () => {}, cr
     request(row,bodies,now);
     return row.pending;
   }
+  const skipped=[null,null];
   function advance(bodies, now) {
     if (closed || rows.size === 0) return;
     latestTime = now;
-    let submitted=0;
     for (const row of rows.values()) {
       if (row.points.length && now >= row.validUntil) {
         row.points = [];
         row.status = row.status==='ready' ? 'Route expired · awaiting safe refresh' : `${row.status} · safe route expired`;
-        install(row.slot, EMPTY); changed();
+        install(row.slot, row.automatic?PENDING_AUTO:EMPTY); changed();
       }
-      if (submitted<2 && requestDue(row,bodies,now))submitted++;
     }
+    skipped.fill(null);
+    for(let submitted=0;submitted<2;submitted++){
+      const row=nextDue(now,skipped);if(!row)break;skipped[submitted]=row;
+      if(requestDue(row,bodies,now))row.firstDue=null;
+    }
+  }
+    // Choose at most two fleet jobs. Deadline urgency plus age keeps renewal
+    // bursts from starving an older job; this scan is bounded by scene fleets.
+  function nextDue(now, skipped) {
+    let chosen=null,best=Infinity;
+    for(const row of rows.values()){
+      if(row.pending||now<row.retryAt||skipped.includes(row))continue;
+      // Establish the original deadline before admission: a new burst must be
+      // ordered by urgency too, not just renewals that already had a solve.
+      if(row.automatic && row.deadline==null)row.deadline=automaticRouteDeadline(row.fleet,now);
+      row.firstDue??=now;
+      const score=(row.deadline??now+60)-Math.min(120,now-row.firstDue)*2-(priority(row.id)?30:0);
+      if(score<best){best=score;chosen=row;}
+    }
+    return chosen;
   }
   function invalidate() {
     for (const [id, row] of rows) remove(id, row);

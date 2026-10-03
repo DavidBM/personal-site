@@ -4,13 +4,13 @@ export function createGalaxyEncoding(topology, lines, points, coordinates, surve
     function encodeLines(pass, frame) {
         const { galaxy, projection } = coordinates;
         survey.encodeBackground(pass, frame);
-        topologyEncoded = frame.galaxyFade >= 1;
+        topologyEncoded = frame.strategicVisible && frame.galaxyFade >= 1;
         if (topologyEncoded)
             lines.encode(pass, galaxy.view, projection, galaxy.origin);
     }
     function encodePoints(pass, frame) {
         const { galaxy, cameraRight, cameraUp } = coordinates;
-        if (frame.galaxyFade < GALAXY_FADE_SKIP)
+        if (!frame.strategicVisible || frame.galaxyFade < GALAXY_FADE_SKIP)
             return;
         points.encode(pass, galaxy.viewProj, topology.pointWorldScale, topology.store.currentCount, cameraRight, cameraUp, galaxy.origin, frame.galaxyFade);
         survey.encode(pass);

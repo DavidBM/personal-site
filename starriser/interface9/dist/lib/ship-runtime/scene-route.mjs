@@ -6,6 +6,14 @@ export const sceneRouteBytes = fleets => fleets * SCENE_ROUTE_WORDS * 4;
 export const SCENE_ROUTE_DECL = `struct SceneRoute { head:vec4<f32>, info:vec4<f32>, points:array<vec4<f32>,128>, speeds:array<vec2<f32>,128>, bounds:array<vec4<f32>,32>, edits:vec4<f32>, correspondence:array<vec4<f32>,32> }`;
 
 export const SCENE_ROUTE_WGSL = /* wgsl */ `
+fn pilotUsesRoute(s:Ship)->bool {
+  if(s.flight.w==-3.0||s.flight.w==-2.0){return true;}
+  if(s.flight.w!=-1.0||s.aux.z>0.0||s.memory.z==-2.0){return false;}
+  let head=director.sceneRoutes[s.identity.y].head;
+  if(head.x<2.0){return head.w==-1.0;}
+  let end=director.sceneRoutes[s.identity.y].points[u32(head.x)-1u].xyz;
+  return length(end-s.p.xyz)>max(.1,min(head.y*.25,1.0));
+}
 fn sceneTravelIndex(s:Ship)->u32 {
   return arrayLength(&director.warpOffsets)/2u+director.forms[s.identity.y].head.z+sceneOrdinal(s.identity.x);
 }
@@ -123,9 +131,9 @@ fn sceneRouteProgress(s:Ship,p:vec3<f32>,speed:f32)->f32 {
       if(d<best){best=d;progress=arc;}
     }
   }
-  return progress;
+  return max(previous,progress);
 }
-struct SceneRouteSample { point:vec4<f32>, bend:f32 }
+struct SceneRouteSample { point:vec4<f32>, bend:f32, tangent:vec3<f32> }
 fn sceneRouteSampleAt(fleet:u32,unwrappedArc:f32)->SceneRouteSample {
   let arc=sceneRouteWrappedArc(fleet,unwrappedArc);
   let count=u32(director.sceneRoutes[fleet].head.x);
@@ -140,33 +148,55 @@ fn sceneRouteSampleAt(fleet:u32,unwrappedArc:f32)->SceneRouteSample {
   let profileA=director.sceneRoutes[fleet].speeds[lo];let speedA=profileA.x;
   let profileB=director.sceneRoutes[fleet].speeds[hi];let speedB=profileB.x;
   // Interpolate squared speeds: v² changes linearly with braking distance.
-  return SceneRouteSample(vec4<f32>(mix(a.xyz,b.xyz,t),sqrt(mix(speedA*speedA,speedB*speedB,t))),select(profileA.y,profileB.y,profileA.y<arc)+unwrappedArc-arc);
+  return SceneRouteSample(vec4<f32>(mix(a.xyz,b.xyz,t),sqrt(mix(speedA*speedA,speedB*speedB,t))),select(profileA.y,profileB.y,profileA.y<arc)+unwrappedArc-arc,unit(b.xyz-a.xyz));
 }
 fn sceneRouteAt(fleet:u32,arc:f32)->vec4<f32>{return sceneRouteSampleAt(fleet,arc).point;}
-struct SceneGuidance { velocity:vec3<f32>, arc:f32, reach:f32 }
+struct SceneGuidance { velocity:vec3<f32>, arc:f32, reach:f32, merge:f32 }
 fn sceneRouteGuidance(s:Ship,limits:vec4<f32>)->SceneGuidance {
   let fleet=s.identity.y;let head=director.sceneRoutes[fleet].head;
-  if(head.x<2.0){return SceneGuidance(vec3<f32>(0.0),0.0,0.0);}
+  if(head.x<2.0){return SceneGuidance(vec3<f32>(0.0),0.0,0.0,0.0);}
   let offset=sceneRouteOffset(s,director.forms[fleet],head.y);
-  let p=s.p.xyz-offset;let arc=sceneRouteProgress(s,p,limits.x);
+  let p=s.p.xyz-offset;let speed=length(s.v.xyz);
+  let arc=sceneRouteProgress(s,p,max(speed,limits.x));
   let sample=sceneRouteSampleAt(fleet,arc);let here=sample.point;
-  // Retain the gentle straight-run rejoin for slow capitals, even from rest.
-  // Cached next-bend arc bounds that radius-sized probe before obstacle corners.
-  let speed=min(limits.x,here.w);
-  let turnReach=speed/max(dynamics(shipType(s)).w*${TURN_ACCEL_SHARE},.00001);
-  let accelerationReach=speed*speed/max(limits.y*${TURN_ACCEL_SHARE},.00001);
-  let reach=max(head.y*.2,max(turnReach,accelerationReach));
-  let bounded=max(.04,sample.bend-arc+min(head.y,1.5)*.4);
-  let probe=sceneRouteAt(fleet,arc+min(reach,bounded));
+  let error=here.xyz-p;let lateral=error-sample.tangent*dot(error,sample.tangent);
+  let sideways=s.v.xyz-sample.tangent*dot(s.v.xyz,sample.tangent);
+  // Stateful ingress has separate enter/leave thresholds. The reference owns
+  // memory.w here (orbit capture owns it only in mode -1).
+  let band=max(.02,head.y*.2);let alignment=dot(rotate(s.q,vec3<f32>(0.0,0.0,1.0)),sample.tangent);
+  let outside=length(lateral)>band*2.0||alignment<.6;
+  let captured=length(lateral)<band&&length(sideways)<max(.01,speed*.15)&&alignment>.85;
+  let merge=select(select(0.0,1.0,s.memory.w>0.0),1.0,outside)*(1.0-f32(captured));
+  // Actual velocity chooses the intercept horizon. Using maximum class speed
+  // here sent a stopped capital's first probe to the end of a long segment.
+  let acceleration=max(.0001,limits.y*${TURN_ACCEL_SHARE});
+  let turn=max(.0001,limits.w);
+  let response=max(1.0,max(speed/acceleration,1.0/turn)*mix(.45,.65,merge));
+  let lead=max(band,speed*response+sqrt(length(lateral)*acceleration)*response*.5);
+  let bounded=max(band,sample.bend-arc+min(head.y,1.5)*.2);
+  let reach=min(lead,bounded);
+  let probe=sceneRouteAt(fleet,arc+reach);
+  let tangent=select(sample.tangent,unit(probe.xyz-here.xyz),length(probe.xyz-here.xyz)>.00001);
+  let info=director.sceneRoutes[fleet].info;let continues=info.y<0.0;
   let goal=director.sceneRoutes[fleet].points[u32(head.x)-1u].xyz;
-  let info=director.sceneRoutes[fleet].info;
-  // Ordered paths can pass their final position on an earlier leg. Arrival
-  // braking must wait for authored progress, not just spatial proximity.
-  let remaining=max(length(goal-p),select(0.0,info.x-arc,info.y==0.0));let arrival=max(.02,repelScale(shipType(s))*.3);
-  let continues=info.y<0.0;
+  let remaining=max(length(goal-p),select(0.0,info.x-arc,info.y==0.0));
+  let arrival=max(.02,repelScale(shipType(s))*.3);
   let stopping=brakingSpeedAt(s,limits,max(0.0,remaining-arrival),0.0);
-  let closing=min(min(limits.x,here.w),select(stopping,limits.x,continues));
-  return SceneGuidance(unit(probe.xyz-p)*closing,arc,length(probe.xyz-p));
+  // The cache contains nominal curvature/braking limits. Scale those with the
+  // resolved motor authority, while recomputing terminal braking from live v.
+  let gain=max(1.0,min(sqrt(limits.y/max(info.z,.0001)),limits.x/max(head.z,.0001)));
+  let cruise=min(min(limits.x,here.w*gain),select(stopping,limits.x,continues));
+  // A damped lateral intercept approaches the moving corridor without chasing
+  // a nearest point behind the ship. Momentum toward the line starts relaxing
+  // the turn before crossing it. Limit the merge angle to a forward approach.
+  let correction=capped(lateral/response-sideways*.8,max(.004,cruise*.65));
+  var velocity=capped(tangent*cruise+correction,cruise);
+  // A finite route ends at its last point; do not continue the terminal tangent
+  // after overshooting. Patrols and earlier visits to that point never stop.
+  if(!continues&&info.x-arc<=band){velocity=unit(goal-p)*cruise;}
+  // Reserve distance to shed excess speed before an infeasible merge/bend.
+  // transportMotion owns the single curvature/acceleration constraint below it.
+  return SceneGuidance(velocity,arc,max(.02,min(max(speed*response,band),max(reach,length(lateral)))),merge);
 }
 fn sceneRouteVelocity(s:Ship,limits:vec4<f32>)->vec3<f32>{return sceneRouteGuidance(s,limits).velocity;}
 `;

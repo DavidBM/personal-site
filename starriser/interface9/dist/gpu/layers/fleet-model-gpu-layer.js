@@ -15,11 +15,16 @@ export class FleetModelGpuLayer {
         this.name = "fleet-model-ships";
         this.pipeline = null;
         this.bindGroup = null;
-        this.visibleBindGroup = null;
         this.batchBindGroups = [];
         this.visibleBatchBindGroups = [];
         this.meshRanges = [];
         this.visibility = null;
+        this.shared = null;
+        this.sharedOwner = null;
+        this.sharedPeers = [];
+        this.sharedRanges = [];
+        this.sharedCapacity = 0;
+        this.partitions = [];
         this.visibilityReadyForDraw = false;
         this.lastVisibilityWasReference = false;
         this.meshOriginRadius = 0;
@@ -86,7 +91,6 @@ export class FleetModelGpuLayer {
         this.visibility?.dispose();
         this.visibility = null;
         this.visibilityReadyForDraw = false;
-        this.visibleBindGroup = null;
         this.visibleBatchBindGroups = [];
         if (this.indexSourceOwned)
             this.ensureShipIndexCapacity(capacity);
@@ -468,8 +472,8 @@ export class FleetModelGpuLayer {
         return !!(this.pipeline && this.uniformBuffer && this.shipSimBuffer && this.fleetGpuBuffer && this.shipIndexBuffer && this.baseColorView && this.normalView && this.specularView && this.sampler);
     }
     rebuildBindGroup() {
+        this.shared = null;
         this.bindGroup = null;
-        this.visibleBindGroup = null;
         this.batchBindGroups = [];
         this.visibleBatchBindGroups = [];
         if (!this.hasBindingResources())
@@ -481,7 +485,6 @@ export class FleetModelGpuLayer {
                 this.visibleBatchBindGroups.push(this.createDrawBindGroup(this.visibility.outputBuffer, batch));
         }
         this.bindGroup = this.batchBindGroups[0];
-        this.visibleBindGroup = this.visibleBatchBindGroups[0] ?? null;
     }
     createDrawBindGroup(indices, batch = 0) {
         return this.bootstrap.device.createBindGroup({
@@ -498,6 +501,7 @@ export class FleetModelGpuLayer {
      * No CPU ship list. Reference frames skip compact so goldens stay CPU-selected.
      */
     prepareVisibility(encoder, viewProj, origin, reference = false) {
+        this.shared = null;
         this.visibilityReadyForDraw = false;
         this.lastVisibilityWasReference = reference;
         if (reference || !this.canPrepareVisibility()) {
@@ -522,6 +526,68 @@ export class FleetModelGpuLayer {
         this.visibility.encode(encoder, viewProj, origin, this.modelScale, this.getMeshOriginRadius(), count, this.indexCount, this.lodMask);
         this.visibilityReadyForDraw = true;
     }
+    /** One owner partitions the common scene index source into all active LOD bins. */
+    prepareSharedVisibility(encoder, viewProj, origin, peers, reference = false) {
+        const layers = [this, ...peers];
+        if (reference || !layers.every(layer => this.sharesCandidates(layer)))
+            return false;
+        const changed = this.sharedCapacity !== this.maxInstances || layers.length !== this.sharedPeers.length ||
+            layers.some((layer, i) => layer !== this.sharedPeers[i] || layer.meshRanges !== this.sharedRanges[i]);
+        if (changed || !this.sharedOwner)
+            this.createSharedVisibility(layers);
+        const gpu = this.sharedOwner;
+        gpu.setInputs(this.shipSimBuffer, this.fleetGpuBuffer, this.shipIndexBuffer);
+        let first = 0;
+        layers.forEach((layer, i) => {
+            const count = Math.max(1, layer.meshRanges.length);
+            layer.bindSharedVisibility(gpu, first, count);
+            const part = this.partitions[i];
+            part.lodMask = layer.lodMask;
+            part.modelScale = layer.modelScale;
+            part.meshRadius = layer.meshOriginRadius;
+            first += count;
+        });
+        gpu.encode(encoder, viewProj, origin, 1, 1, this.lastShipIndices.length, 0, 0, this.partitions);
+        return true;
+    }
+    sharesCandidates(layer) {
+        return layer.canPrepareVisibility() && layer.shipSimBuffer === this.shipSimBuffer &&
+            layer.fleetGpuBuffer === this.fleetGpuBuffer && layer.maxInstances === this.maxInstances &&
+            layer.lastShipIndices.length === this.lastShipIndices.length &&
+            (layer.shipIndexBuffer === this.shipIndexBuffer || (this.kernelIdentityCount >= 0 && layer.kernelIdentityCount === this.kernelIdentityCount));
+    }
+    createSharedVisibility(layers) {
+        const ranges = layers.flatMap(layer => layer.meshRanges.length ? layer.meshRanges : [{ firstIndex: 0, indexCount: layer.indexCount }]);
+        const next = new ModelVisibilityGpu(this.bootstrap, this.maxInstances, ranges, true);
+        this.sharedOwner?.dispose();
+        this.sharedOwner = next;
+        this.sharedCapacity = this.maxInstances;
+        this.sharedPeers = layers;
+        this.sharedRanges = layers.map(layer => layer.meshRanges);
+        this.partitions.length = 0;
+        for (const layer of layers)
+            this.partitions.push({ ranges: layer.meshRanges, indexCount: layer.indexCount,
+                lodMask: layer.lodMask, modelScale: layer.modelScale, meshRadius: layer.meshOriginRadius });
+    }
+    bindSharedVisibility(gpu, first, count) {
+        if (this.shared?.gpu !== gpu || this.shared.first !== first || this.visibleBatchBindGroups.length !== count) {
+            this.visibility?.dispose();
+            this.visibility = null;
+            this.shared = { gpu, first, count };
+            this.visibleBatchBindGroups = Array.from({ length: count }, (_, batch) => this.createDrawBindGroup(gpu.outputBuffer, batch));
+        }
+        this.visibilityReadyForDraw = true;
+        this.lastVisibilityWasReference = false;
+    }
+    visibleGpu() { return this.shared?.gpu ?? this.visibility; }
+    visibleArgsOffset() { return this.visibleGpu().indirectOffset + (this.shared?.first ?? 0) * 32; }
+    hasDrawCandidates() { return this.canDraw() && this.lastShipIndices.length > 0; }
+    compositeDrawArguments() {
+        if (!this.visibilityReadyForDraw || this.lastShipIndices.length === 0)
+            return null;
+        const gpu = this.visibleGpu();
+        return { buffer: gpu.outputBuffer, offset: gpu.compositeOffset };
+    }
     canPrepareVisibility() {
         return this.active && this.ready && !!this.shipSimBuffer && !!this.fleetGpuBuffer && !!this.shipIndexBuffer;
     }
@@ -533,7 +599,6 @@ export class FleetModelGpuLayer {
             const groups = Array.from({ length: Math.max(1, this.meshRanges.length) }, (_, batch) => this.createDrawBindGroup(visibility.outputBuffer, batch));
             this.visibility = visibility;
             this.visibleBatchBindGroups = groups;
-            this.visibleBindGroup = groups[0];
         }
         catch (error) {
             visibility.dispose();
@@ -543,14 +608,14 @@ export class FleetModelGpuLayer {
     async readbackVisibleCount() {
         if (!this.visibilityReadyForDraw || this.lastVisibilityWasReference)
             return 0;
-        return this.visibility?.readbackCount() ?? 0;
+        return this.shared ? this.shared.gpu.readbackCount(this.shared.first, this.shared.count) : (this.visibility?.readbackCount() ?? 0);
     }
     async readbackVisibility() {
         if (this.disposed || this.bootstrap.isLost)
             throw new Error("Model visibility is unavailable");
         if (this.lastVisibilityWasReference)
             throw new Error("Reference frame did not compute model visibility");
-        return this.visibility ? this.visibility.readback() : { candidateCount: 0, visibleCount: 0, indices: new Uint32Array(0) };
+        return this.shared ? this.shared.gpu.readback(this.shared.first, this.shared.count) : this.visibility ? this.visibility.readback() : { candidateCount: 0, visibleCount: 0, indices: new Uint32Array(0) };
     }
     /**
      * Draw models for previously set ship indices (or 0..shipCount-1 if none set).
@@ -584,7 +649,7 @@ export class FleetModelGpuLayer {
             bindSceneCamera(this.bootstrap.device, pass, this.pipeline);
             pass.setBindGroup(0, groups[batch]);
             if (indirect)
-                pass.drawIndexedIndirect(this.visibility.outputBuffer, this.visibility.indirectOffset + batch * 32);
+                pass.drawIndexedIndirect(this.visibleGpu().outputBuffer, this.visibleArgsOffset() + batch * 32);
             else {
                 const range = this.meshRanges[batch];
                 pass.drawIndexed(range?.indexCount ?? this.indexCount, count, range?.firstIndex ?? 0, 0, firstInstance);
@@ -654,7 +719,7 @@ export class FleetModelGpuLayer {
         for (let batch = batches - 1; batch >= 0; batch--) {
             if (batch > 0)
                 this.uniformData.copyWithin(batch * 64, 0, FLEET_MODEL_UNIFORM_SIZE / 4);
-            words[batch * 64 + 31] = indirect && batches > 1 ? this.visibility.indirectOffset / 4 + batch * 8 + 5 : 0;
+            words[batch * 64 + 31] = indirect && (this.shared || batches > 1) ? this.visibleArgsOffset() / 4 + batch * 8 + 5 : 0;
             words[batch * 64 + 32] = batch;
         }
         const bytes = batches === 1 ? FLEET_MODEL_UNIFORM_SIZE : batches * 256;
@@ -702,9 +767,11 @@ export class FleetModelGpuLayer {
             return;
         this.disposed = true;
         this.meshLoadGeneration++;
+        this.sharedOwner?.dispose();
+        this.sharedOwner = null;
+        this.shared = null;
         this.visibility?.dispose();
         this.visibility = null;
-        this.visibleBindGroup = null;
         this.destroyMeshGpu();
         if (this.indexSourceOwned && this.shipIndexHandle) {
             this.bootstrap.gpu.destroyBuffer(this.shipIndexHandle);

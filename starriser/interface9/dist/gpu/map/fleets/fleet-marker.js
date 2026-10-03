@@ -4,7 +4,16 @@ import { fleetComposition, visualParts } from '../../../lib/ship-runtime/fleet-m
 import { CLASSES, CLASS_BY_TYPE } from '../../../lib/ship-runtime/classes.mjs';
 export const FLEET_MARKER = { stem: 24, cellWidth: 25, cellHeight: 8, padding: 3, glyphScale: 1 };
 /** Same contiguous type ranges as seedDirectedShips; evaluate on membership changes. */
-export function sceneFleetTypes(id, count, explicitType) {
+export function sceneFleetTypes(id, count, explicitType, seedPlan) {
+    if (seedPlan) {
+        let ordinal = 0;
+        return seedPlan.types.flatMap((type, index) => {
+            const n = seedPlan.parts[index], kind = CLASS_BY_TYPE[type];
+            const row = { type, kind, name: CLASSES[kind].name, count: n, ordinal };
+            ordinal += n;
+            return n > 0 ? [row] : [];
+        });
+    }
     if (explicitType != null) {
         const kind = CLASS_BY_TYPE[explicitType & 31];
         return count > 0 ? [{ type: explicitType, kind, name: CLASSES[kind].name, count, ordinal: 0 }] : [];

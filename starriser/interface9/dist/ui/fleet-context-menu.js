@@ -41,9 +41,12 @@ export function createFleetContextMenu(parent, actions) {
     const types = document.createElement('div');
     menu.append(types);
     const typeButtons = new Map();
+    const rotation = button('Camera rotation', '', () => actions.setFollowRotation?.(!actions.followRotation?.()));
     const stop = button('Stop following', '■', actions.stop);
-    const attack = button('Attack this fleet', '→', () => { if (current)
+    const attack = button('Fight', '→', () => { if (current)
         actions.attack(current.id); });
+    const endBattle = button('End battle', '■', () => { if (current)
+        actions.endBattle?.(current.id); });
     function syncTypes(fleet) {
         const live = new Set();
         let cursor = types.firstChild;
@@ -69,12 +72,15 @@ export function createFleetContextMenu(parent, actions) {
     }
     function populate(fleet) {
         current = fleet;
+        endBattle.element.hidden = !fleet.battle;
         setText(titleText, `FLEET · ${fleet.types.reduce((n, row) => n + row.count, 0)} ships in view`);
         if (title.title !== fleet.id)
             title.title = fleet.id;
         move.element.hidden = !fleet.move;
         stop.element.hidden = !fleet.following;
         attack.element.hidden = !fleet.attack;
+        rotation.element.hidden = !fleet.following;
+        setText(rotation.meta, actions.followRotation?.() === false ? 'Fixed' : 'Hull');
         syncTypes(fleet);
     }
     async function openAt(x, y, load, onEmpty) {

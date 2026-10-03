@@ -19,7 +19,7 @@ fn mul(a:vec4<f32>,b:vec4<f32>)->vec4<f32>{return vec4<f32>(a.w*b.xyz+b.w*a.xyz+
   let s=ships[u.owner.x];if(s.trailOwner!=u.owner.y || s.mode==0u || (s.targetKind & 4096u)==0u){return;}
   let actualQ=normalize(vec4<f32>(s.qx,s.qy,s.qz,s.qw));
   // Inverse rotation of the change from the CPU-observed hull to the displayed hull.
-  let inverseDelta=normalize(mul(u.attitude,vec4<f32>(-actualQ.xyz,actualQ.w)));
+  let inverseDelta=select(normalize(mul(u.attitude,vec4<f32>(-actualQ.xyz,actualQ.w))),vec4<f32>(0,0,0,1),u.owner.w==1u);
   let d=mat3x3<f32>(rotate(inverseDelta,vec3<f32>(1,0,0)),rotate(inverseDelta,vec3<f32>(0,1,0)),rotate(inverseDelta,vec3<f32>(0,0,1)));
   let r=mat3x3<f32>(u.view[0].xyz,u.view[1].xyz,u.view[2].xyz);
   let delta=(vec3<f32>(s.orbitPhase,s.orbitOmega,s.omegaMax)-u.targetHigh.xyz)/560.0
@@ -66,6 +66,7 @@ export class SceneCameraGpu {
         return new SceneCameraGpu(device, pipeline, detailPipeline);
     }
     constructor(device, pipeline, detailPipeline) {
+        this.followRotation = true;
         this.data = new Float32Array(72);
         this.detailGroup = null;
         this.detailControls = null;
@@ -90,6 +91,7 @@ export class SceneCameraGpu {
         }
         const f = this.data, w = this.words, o = this.observed;
         w[66] = 0;
+        w[67] = this.followRotation ? 0 : 1;
         if (o && follow?.handle.id === o.id && mat4Invert(this.inverse, projection)) {
             f.set(projection, 0);
             f.set(this.inverse, 16);

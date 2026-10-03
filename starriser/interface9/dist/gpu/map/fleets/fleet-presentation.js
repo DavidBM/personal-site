@@ -304,9 +304,6 @@ export class FleetPresentation {
             this.storage.shipSimView.setFloat32(simAt + ShipSimFields.sinceSample, 0, true);
         }
     }
-    hideShipTail(visual, live) {
-        this.zeroShipDraw(visual.instanceStart + Math.max(0, live), visual.instanceCapacity - Math.max(0, live));
-    }
     zeroShipDraw(start, count) {
         const inst = this.storage.instanceData;
         for (let i = 0; i < count; i++) {

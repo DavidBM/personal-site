@@ -12,14 +12,22 @@ export function subscribeFleetEvents(transport, handlers) {
     const offSpawn = subscribeFeatureTopic(transport, FleetTopics.fleetSpawned, handlers.onFleetSpawned);
     const offBatch = subscribeFeatureTopic(transport, FleetTopics.fleetsSpawnedBatch, handlers.onFleetsSpawnedBatch);
     const offState = subscribeFeatureTopic(transport, FleetTopics.fleetState, handlers.onFleetState);
+    const offStates = subscribeFeatureTopic(transport, FleetTopics.fleetsStateBatch, payload => {
+        if (handlers.onFleetsStateBatch)
+            handlers.onFleetsStateBatch(payload);
+        else
+            for (const fleet of payload.fleets)
+                handlers.onFleetState(fleet);
+    });
     const offRemove = subscribeFeatureTopic(transport, FleetTopics.fleetRemoved, handlers.onFleetRemoved);
-    return () => { offSpawn(); offBatch(); offState(); offRemove(); };
+    return () => { offSpawn(); offBatch(); offState(); offStates(); offRemove(); };
 }
 export function createFleetPublishers(transport) {
     return {
         onFleetSpawned: (payload) => publishFeatureTopic(transport, FleetTopics.fleetSpawned, payload),
         onFleetsSpawnedBatch: (payload) => publishFeatureTopic(transport, FleetTopics.fleetsSpawnedBatch, payload),
         onFleetState: (payload) => publishFeatureTopic(transport, FleetTopics.fleetState, payload),
+        onFleetsStateBatch: (payload) => publishFeatureTopic(transport, FleetTopics.fleetsStateBatch, payload),
         onFleetRemoved: (payload) => publishFeatureTopic(transport, FleetTopics.fleetRemoved, payload),
     };
 }

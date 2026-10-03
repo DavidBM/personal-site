@@ -7,6 +7,7 @@ export const FleetTopicNames = {
     fleetSpawned: "fleet_spawned",
     fleetsSpawnedBatch: "fleets_spawned_batch",
     fleetState: "fleet_state",
+    fleetsStateBatch: "fleets_state_batch",
     fleetRemoved: "fleet_removed",
     simPause: "sim_pause",
 };
@@ -18,6 +19,7 @@ export const FleetTopics = {
     fleetSpawned: defineTopic(FleetTopicNames.fleetSpawned),
     fleetsSpawnedBatch: defineTopic(FleetTopicNames.fleetsSpawnedBatch),
     fleetState: defineTopic(FleetTopicNames.fleetState),
+    fleetsStateBatch: defineTopic(FleetTopicNames.fleetsStateBatch),
     fleetRemoved: defineTopic(FleetTopicNames.fleetRemoved),
     simPause: defineTopic(FleetTopicNames.simPause),
 };

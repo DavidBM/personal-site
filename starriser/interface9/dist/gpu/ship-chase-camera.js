@@ -1,6 +1,33 @@
 import { chaseCameraFromShip, SCENE_NEAR } from './camera-zoom.js';
 export const FOLLOW_ZOOM_MIN = 0.2;
 export const FOLLOW_ZOOM_MAX = 12;
+function multiply(a, b) {
+    return { qx: a.qw * b.qx + a.qx * b.qw + a.qy * b.qz - a.qz * b.qy,
+        qy: a.qw * b.qy - a.qx * b.qz + a.qy * b.qw + a.qz * b.qx,
+        qz: a.qw * b.qz + a.qx * b.qy - a.qy * b.qx + a.qz * b.qw,
+        qw: a.qw * b.qw - a.qx * b.qx - a.qy * b.qy - a.qz * b.qz };
+}
+/** A mode switch changes the basis owner, never the visible camera pose. */
+export class FollowOrientation {
+    constructor() {
+        this.rotating = true;
+        this.offset = { qx: 0, qy: 0, qz: 0, qw: 1 };
+        this.fixed = { qx: 0, qy: 0, qz: 0, qw: 1 };
+    }
+    at(hull) { return this.rotating ? multiply(hull, this.offset) : this.fixed; }
+    set(rotating, hull) {
+        if (rotating === this.rotating)
+            return;
+        if (hull) {
+            const current = this.at(hull);
+            if (rotating)
+                this.offset = multiply({ qx: -hull.qx, qy: -hull.qy, qz: -hull.qz, qw: hull.qw }, current);
+            else
+                this.fixed = current;
+        }
+        this.rotating = rotating;
+    }
+}
 export function rotateShipVector(q, x, y, z) {
     const tx = 2 * (q.qy * z - q.qz * y), ty = 2 * (q.qz * x - q.qx * z), tz = 2 * (q.qx * y - q.qy * x);
     return { x: x + q.qw * tx + q.qy * tz - q.qz * ty,

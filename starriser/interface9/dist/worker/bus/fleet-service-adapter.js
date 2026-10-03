@@ -3,9 +3,9 @@
 import { FleetTopicNames } from '../../features/fleets/contracts.js';
 import { FleetServices } from '../protocol/services.js';
 export const FleetEventServices = { spawned: FleetServices.spawned, batch: FleetServices.batch,
-    state: FleetServices.state, removed: FleetServices.removed };
-const topics = [FleetTopicNames.fleetSpawned, FleetTopicNames.fleetsSpawnedBatch, FleetTopicNames.fleetState, FleetTopicNames.fleetRemoved];
-const aliases = ['spawned', 'batch', 'state', 'removed'];
+    state: FleetServices.state, stateBatch: FleetServices.stateBatch, removed: FleetServices.removed };
+const topics = [FleetTopicNames.fleetSpawned, FleetTopicNames.fleetsSpawnedBatch, FleetTopicNames.fleetState, FleetTopicNames.fleetsStateBatch, FleetTopicNames.fleetRemoved];
+const aliases = ['spawned', 'batch', 'state', 'stateBatch', 'removed'];
 export function fleetServiceTopicConsumer(handles) {
     const subscriptions = new Map();
     const routes = new Map(topics.map((topic, index) => [topic, handles[aliases[index]]]));

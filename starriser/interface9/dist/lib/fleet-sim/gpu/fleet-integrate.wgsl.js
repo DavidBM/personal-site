@@ -1739,6 +1739,20 @@ fn expandedShipTrailSample(ship:ShipSim,idx:u32,ringBase:u32,baseY:f32,worldOff:
   }
   return expandedTrailSample(sample,baseY,worldOff,pathEnd,stableScene);
 }
+// Inline and legacy bounds use the same expanded endpoints as the draw. The
+// time-clipped tail lies on these edges, so including old knots is conservative.
+fn shipTrailVisible(ship:ShipSim,ringBase:u32,write:u32,nLive:u32,baseY:f32,worldOff:vec3<f32>,pathEnd:vec3<f32>)->bool{
+  if(!trailVisibilityModeEnabled()){return true;}
+  if(nLive<2u){return false;}
+  var low=vec3<f32>(3.402823466e+38);var high=-low;
+  for(var d=0u;d<nLive;d++){
+    let idx=(write-1u-d)&(TRAIL_RING_SIZE-1u);
+    let point=expandedShipTrailSample(ship,idx,ringBase,baseY,worldOff,pathEnd,true);
+    if(!trailFinitePoint(point)){return true;}
+    low=min(low,point);high=max(high,point);
+  }
+  return trailBoundsVisible(low,high);
+}
 // Clip a tail sample against a moving time boundary on its existing edge.
 // Used only by paired production knots; legacy ribbons retain their contract.
 fn clippedShipTrailSample(ship:ShipSim,idx:u32,ringBase:u32,baseY:f32,worldOff:vec3<f32>,pathEnd:vec3<f32>,stableScene:bool,cutoff:f32)->vec3<f32>{
@@ -1773,7 +1787,8 @@ fn expandTrailLines(
   let headBirth=trailSample4(ship,ringBase,(write-1u)&mask,useKnots).z;
   // Live head + frozen samples bracketing a constant window. As the head grows,
   // the oldest segment shrinks, without index-based fade/texture jumps.
-  let span=max(f32(TRAIL_SEGS-1u)*TRAIL_MAX_INTERVAL_MS,0.001);
+  let normalSpan=max(f32(TRAIL_SEGS-1u)*TRAIL_MAX_INTERVAL_MS,0.001);
+  let span=select(normalSpan,clamp(ship.knotAnchors[1].w,normalSpan*.4,normalSpan),timedTail&&ship.knotAnchors[1].w>0.0);
   let cutoff=select(-1e30,headBirth-span,timedTail);
   let _sim = simIdx;
   let segsF = max(f32(TRAIL_SEGS), 1.0);
@@ -1792,6 +1807,7 @@ fn expandTrailLines(
   let pathEnd = vec3<f32>(pathEndX, pathEndY, pathEndZ);
   // Simulation and sample append have already completed. Only the visual
   // emitter ribbon is rejected; hull visibility never controls this decision.
+  if (useKnots && !shipTrailVisible(ship,ringBase,write,nLive,baseY,worldOff,pathEnd)) { return; }
   if (!useKnots && !trailRibbonVisible(ringBase, write, nLive, baseY, worldOff, pathEnd, stableScene)) { return; }
   let thin=timedTail && (ship.targetKind & 8192u)!=0u;
   var segmentCount=min(TRAIL_SEGS,max(nLive,1u)-1u);
@@ -1809,6 +1825,7 @@ fn expandTrailLines(
   let first=atomicAdd(&trailDrawMeta[${META.SEGMENT_COUNT}u],segmentCount);
   if(first>=capacity){return;}
   segmentCount=min(segmentCount,capacity-first);
+  if(!thin){atomicAdd(&trailDrawMeta[${META.GLOW_COUNT}u],segmentCount);}
   atomicAdd(&trailDrawMeta[${META.EXPAND_COUNT}u],1u);
   let lineBase=first*TRAIL_SEGMENT_FLOATS;
 
@@ -1823,8 +1840,9 @@ fn expandTrailLines(
     let p1=expandedShipTrailSample(ship,(write-1u)&mask,ringBase,baseY,worldOff,pathEnd,true);
     trailLines[lineBase]=p0.x;trailLines[lineBase+1u]=p0.y;trailLines[lineBase+2u]=p0.z;
     trailLines[lineBase+3u]=colorR;trailLines[lineBase+4u]=colorG;trailLines[lineBase+5u]=colorB;
-    // Negative start alpha tags a 1px solid segment, decoded before alpha use.
-    trailLines[lineBase+6u]=-1.0;
+    // Negative alpha tags the solid segment and carries its pixel width.
+    // Ordinary tiny trails stay 1px; actual turbo effort grows up to 2.5px.
+    trailLines[lineBase+6u]=-(1.0+1.5*clamp(ship.knotAnchors[0].w,0.0,1.0));
     trailLines[lineBase+7u]=p1.x;trailLines[lineBase+8u]=p1.y;trailLines[lineBase+9u]=p1.z;
     trailLines[lineBase+10u]=colorR;trailLines[lineBase+11u]=colorG;trailLines[lineBase+12u]=colorB;
     trailLines[lineBase+13u]=aMul;
@@ -1921,8 +1939,10 @@ fn expandShipTrails(
     maxSlots = u.shipCount;
   }
   let zeroOff = vec3<f32>(0.0, 0.0, 0.0);
-  let stableScene = ship.fleetIndex < arrayLength(&fleets) &&
-    (fleets[ship.fleetIndex].flags & FLEET_FLAG_SYSTEM_SCENE) != 0u;
+  // The physical pose owner survives logical departure and empty-space transit.
+  // Directed ships keep their paired knots even after SYSTEM_SCENE is cleared.
+  let stableScene = (ship.targetKind & 4096u) != 0u || (ship.fleetIndex < arrayLength(&fleets) &&
+    (fleets[ship.fleetIndex].flags & FLEET_FLAG_SYSTEM_SCENE) != 0u);
   if (u.expandTrails != 2u) {
     expandTrailLines(
       simIdx, ringBase, write, colorR, colorG, colorB, baseY,
@@ -1937,8 +1957,7 @@ fn expandShipTrails(
     q = quatNormalize4(q);
   }
   var emitScale = 1.0;
-  let fi = ship.fleetIndex;
-  if (fi < arrayLength(&fleets) && (fleets[fi].flags & FLEET_FLAG_SYSTEM_SCENE) != 0u) {
+  if (stableScene) {
     emitScale = SCENE_TRAIL_WIDTH_MUL;
   }
   let o0 = quatRotateVec3(q, MODEL_TRAIL_E0_LOCAL * emitScale);
@@ -2343,6 +2362,11 @@ fn cs_trail_indirect(@builtin(global_invocation_id) gid3: vec3<u32>) {
   trailIndirect[2] = 0u;
   trailIndirect[3] = 0u; // baseVertex as u32 bitcast of i32 0
   trailIndirect[4] = 0u;
+  // Fullscreen glow work is absent for empty/offscreen/tiny-only ribbons.
+  trailIndirect[8] = 3u;
+  trailIndirect[9] = select(0u,1u,atomicLoad(&trailDrawMeta[${META.GLOW_COUNT}u])>0u);
+  trailIndirect[10] = 0u;
+  trailIndirect[11] = 0u;
 }
 
 /**

@@ -72,8 +72,8 @@ function wireRuntime(view, options) {
     });
     const context = { state, focus, dragStarts: new Map(), maxSolarSystemId: 0 };
     const remote = createRuntimeProjection(state, options.onError, () => {
-        state.camera.setFollowShip(null);
-        state.view.setFollowShipIndex(null);
+        state.camera.setFollowShip(null, 'projection-retired');
+        state.view.setFollowShipIndex(null, 'projection-retired');
         state.camera.setSystemOrbitFree();
         state.selectedFleetId = null;
     });
@@ -94,8 +94,7 @@ function wireRuntime(view, options) {
     view.setBeforeFrame((dtMs) => {
         fleets.drain(FLEET_PACK_BUDGET_MS, FLEET_PACK_MAX_PER_FRAME);
         if (state.director.isPlaying()) {
-            if (!state.director.tick(performance.now()))
-                camera.releaseDirectorPose();
+            state.director.tick(performance.now());
         }
         else
             camera.update(dtMs);

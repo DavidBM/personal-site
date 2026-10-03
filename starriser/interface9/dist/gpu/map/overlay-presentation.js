@@ -185,6 +185,7 @@ export class MapOverlayPresentation {
         lines.push({ pack: packRingLine2(0, 0, ring.radius, 48, color), x: ring.x, z: ring.z });
         this.lastPackedGalaxyRings = true;
     }
+    hasContent() { return this.geometry.segmentCount > 0 || this.geometry.vertexCount > 0; }
     encode(pass, width, height, coordinates) {
         const { origin, view, viewProj } = coordinates.galaxy;
         if (this.geometry.packRelative(origin)) {

@@ -12,13 +12,15 @@
  * |------|------|----------|
  * | 0–4  | 0    | DrawIndexedIndirectArgs (trails) |
  * | 5–7  | 20   | DispatchIndirectArgs for `cs_ships` (`x, 1, 1`) |
- * | 8–63 | 32   | pad to `minStorageBufferOffsetAlignment` (256) |
+ * | 8–11 | 32   | DrawIndirectArgs for glow composite (3, hasGlow, 0, 0) |
+ * | 12–63 | 48  | pad to `minStorageBufferOffsetAlignment` (256) |
  * | 64   | 256  | atomic expand count (binding-6 view [0]) |
  * | 65   | 260  | max line slots (binding-6 view [1]) |
  * | 66   | 264  | compactCount (binding-6 view [2]) |
  * | 67   | 268  | compactCapacity (binding-6 view [3]) |
  * | 68   | 272  | atomic live segment count (binding-6 view [4]) |
- * | 69+  | 276  | worklist[simIdx] (binding-6 view [5+]) |
+ * | 69   | 276  | atomic broad-glow segment count (binding-6 view [5]) |
+ * | 70+  | 280  | worklist[simIdx] (binding-6 view [6+]) |
  *
  * Binding 6 (cs_ships / compact / trail_indirect meta) starts at byte 256 so
  * `dispatchWorkgroupsIndirect(table, 20)` does not alias storage in the same
@@ -41,8 +43,11 @@ export const TRAIL_META_WORD = {
     COMPACT_COUNT: 2,
     COMPACT_CAPACITY: 3,
     SEGMENT_COUNT: 4,
-    WORKLIST: 5,
+    GLOW_COUNT: 5,
+    WORKLIST: 6,
 };
+export const TRAIL_GLOW_INDIRECT_BYTE = 32;
+export const TRAIL_DRAW_ARGUMENT_BYTES = 48;
 /** Byte offset of DispatchIndirectArgs (words 5–7). */
 export const TRAIL_INDIRECT_DISPATCH_BYTE = TRAIL_INDIRECT_WORD.DISPATCH_X * 4;
 /**
@@ -50,9 +55,9 @@ export const TRAIL_INDIRECT_DISPATCH_BYTE = TRAIL_INDIRECT_WORD.DISPATCH_X * 4;
  * Absolute table word of expand count = 64.
  */
 export const TRAIL_INDIRECT_META_BYTE = 256;
-/** Binding-6 view: worklist starts at this byte (256 + 20). */
+/** Binding-6 view: worklist starts at this byte (256 + 24). */
 export const TRAIL_INDIRECT_WORKLIST_BYTE = TRAIL_INDIRECT_META_BYTE + TRAIL_META_WORD.WORKLIST * 4;
-/** Header through segment count (5 u32s at the 256 view). */
+/** Header through glow count (6 u32s at the 256 view). */
 export const TRAIL_INDIRECT_HEADER_BYTES = TRAIL_INDIRECT_META_BYTE + TRAIL_META_WORD.WORKLIST * 4;
 /** Table byte length for a worklist of `worklistCap` simIdx slots. */
 export function trailIndirectTableBytes(worklistCap) {

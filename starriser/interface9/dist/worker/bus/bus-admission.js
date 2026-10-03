@@ -1,5 +1,11 @@
 import { isRecord, serializeBusMessage } from './bus-types.js';
 const CONTROL = '__bus_admission';
+// Reliable deliveries have no deadline. Avoid entering browser timer machinery
+// (and emitting a trace event) when cleanup has no timer to cancel.
+function cancelTimer(timer) {
+    if (timer !== undefined)
+        clearTimeout(timer);
+}
 function clock() { return performance.timeOrigin + performance.now(); }
 function expired(message) { return message.x !== undefined && clock() >= message.x; }
 function post(target, message) { target.postMessage(message); }
@@ -23,7 +29,7 @@ export function createBusAdmission(reserve, measure, report) {
         if (!item)
             return;
         state.incoming.delete(id);
-        clearTimeout(item.timer);
+        cancelTimer(item.timer);
         item.abort.abort();
         item.reservation?.release();
     }
@@ -73,7 +79,7 @@ export function createBusAdmission(reserve, measure, report) {
                     cancel(target, state, id);
             }, Math.max(0, message.x - clock()));
             state.outgoing.set(id, { message, size, grant: resolve, fail: reject, sent: false,
-                cleanup() { clearTimeout(timer); signal?.removeEventListener('abort', abort); } });
+                cleanup() { cancelTimer(timer); signal?.removeEventListener('abort', abort); } });
             signal?.addEventListener('abort', abort, { once: true });
             try {
                 packet(target, { op: 'reserve', id, ...size, expiresAt: message.x });
@@ -195,7 +201,7 @@ export function createBusAdmission(reserve, measure, report) {
         const keepRequest = message.t === 'publish' && message.e === 1;
         if (!keepRequest) {
             state.incoming.delete(message.q);
-            clearTimeout(item.timer);
+            cancelTimer(item.timer);
         }
         if (rejectPayload(target, state, message, credit, item.type))
             return;

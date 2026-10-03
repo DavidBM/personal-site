@@ -1,3 +1,6 @@
+import { createBattleRuntime } from "../../features/battles/runtime.js";
+import { BattleTopics } from "../../features/battles/contracts.js";
+import { publishFeatureTopic } from "../protocol/feature-topics.js";
 import { subscribeGalaxyMirror } from "../bus/subscribe-galaxy-mirror.js";
 import { whenPubSubReady } from "../bus/when-pubsub-ready.js";
 import { subscribeFeatureTopic } from "../../worker/protocol/feature-topics.js";
@@ -28,6 +31,10 @@ export function busConstructor(bus) {
             }
         },
     });
+    const battles = createBattleRuntime({ now: () => simNowMs(Date.now(), sim), fleets: runtime.battlePort,
+        changed: event => publishFeatureTopic(bus, BattleTopics.changed, event),
+        rejected: reason => publishFeatureTopic(bus, BattleTopics.rejected, { reason }) });
+    const battleOff = [];
     whenPubSubReady(bus, () => {
         if (destroyed)
             return;
@@ -36,13 +43,14 @@ export function busConstructor(bus) {
         }
         unsubscribeMirror = subscribeGalaxyMirror(bus, {
             onOps: runtime.applyOps,
-            onClearGalaxy: runtime.clear,
+            onClearGalaxy: () => { battles.clear(); runtime.clear(); },
         }, 'fleets');
         unsubscribeCommands = subscribeFleetCommands(bus, runtime);
         unsubscribePause = subscribeFeatureTopic(bus, FleetTopics.simPause, (payload) => {
             sim = readSimPause(payload, sim.frozenSimMs);
         });
-        tickHandle = setInterval(runtime.tick, TICK_MS);
+        battleOff.push(subscribeFeatureTopic(bus, BattleTopics.fight, battles.fight), subscribeFeatureTopic(bus, BattleTopics.observe, battles.observe), subscribeFeatureTopic(bus, BattleTopics.end, battles.end));
+        tickHandle = setInterval(() => { runtime.tick(); battles.tick(); }, TICK_MS);
     });
     bus.send("worker_ready", { role: "fleets" });
     return {
@@ -56,6 +64,9 @@ export function busConstructor(bus) {
             if (tickHandle != null)
                 clearInterval(tickHandle);
             tickHandle = null;
+            for (const off of battleOff)
+                off();
+            battles.clear();
             runtime.dispose();
         },
     };

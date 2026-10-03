@@ -107,7 +107,6 @@ export function buildSceneBodyPoses(store, timeSec) {
 }
 export function createSystemFocusController(opts) {
     const view = opts.view;
-    let hyst = { focusIndex: null, holdStartMs: 0 };
     let locked = null;
     let lastHiId = null;
     const catalogIdAt = (store, index) => store.catalogIds[index] || store.defs?.[index]?.id || "";
@@ -131,7 +130,7 @@ export function createSystemFocusController(opts) {
     const applyHi = (index) => {
         if (index == null || index < 0) {
             if (lastHiId != null) {
-                view.catalogResidency.releaseHi();
+                view.catalogResidency.cancelHiRequest();
                 lastHiId = null;
             }
             return;
@@ -146,7 +145,7 @@ export function createSystemFocusController(opts) {
             return;
         }
         if (lastHiId != null && lastHiId !== id) {
-            view.catalogResidency.releaseHi();
+            view.catalogResidency.cancelHiRequest();
         }
         view.catalogResidency.promoteHi(id);
         lastHiId = id;
@@ -163,7 +162,6 @@ export function createSystemFocusController(opts) {
         if (systemId != null) {
             locked = { systemId, catalogId };
         }
-        hyst = { focusIndex: index, holdStartMs: 0 };
         view.setFocusedBodyIndex(index);
         applyHi(index);
         // F1 still owns the live camera; the controller retains this orbit target
@@ -187,13 +185,13 @@ export function createSystemFocusController(opts) {
     };
     const clearFocus = () => {
         locked = null;
-        hyst = { focusIndex: null, holdStartMs: 0 };
         view.setFocusedBodyIndex(null);
         applyHi(null);
         // Releasing selection leaves the resident system as a freely pannable map.
         const cam = opts.camera;
         if (view.getSystemSceneIds().size > 0 &&
             cam &&
+            !cam.isFollowing?.() &&
             typeof cam.setSystemOrbitFree === "function") {
             cam.setSystemOrbitFree();
         }
@@ -212,7 +210,6 @@ export function createSystemFocusController(opts) {
                 clearFocus();
                 return;
             }
-            hyst = { focusIndex: slot, holdStartMs: 0 };
             view.setFocusedBodyIndex(slot);
             applyHi(slot);
             // Camera is the orbit controller — tick never writes look-at.
@@ -247,7 +244,6 @@ export function createSystemFocusController(opts) {
                 return false;
             if (store.isSun[hit]) {
                 locked = null;
-                hyst = { focusIndex: null, holdStartMs: 0 };
                 view.setFocusedBodyIndex(null);
                 applyHi(null);
                 opts.camera?.setSystemOrbitSun?.();

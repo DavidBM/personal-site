@@ -42,6 +42,18 @@ fn pilotDetourPoint(position:vec3<f32>,center:vec3<f32>,radius:f32,plane:vec3<f3
   let cosine=min(.955,clamp(radius/max(distance,radius),0.0,1.0));
   return center+radius*(radial*cosine+tangent*sqrt(max(0.0,1.0-cosine*cosine)));
 }
+fn pilotDetourDistance(position:vec3<f32>,goal:vec3<f32>,sphere:vec4<f32>,plane:vec3<f32>)->f32{
+  if(!pilotDetourBlocks(position,goal,sphere,1.0)){return length(goal-position);}
+  let a=position-sphere.xyz;let b=goal-sphere.xyz;let radius=sphere.w;
+  let da=max(length(a),radius);let db=max(length(b),radius);
+  // Directed tangent + arc + tangent. Honor the retained passing side, even
+  // when a moving goal makes the other side shorter. No iterative path solve.
+  var angle=atan2(dot(plane,cross(a,b)),dot(a,b));
+  if(angle<0.0){angle+=2.0*PI;}
+  let arc=max(0.0,angle-acos(clamp(radius/da,0.0,1.0))-acos(clamp(radius/db,0.0,1.0)));
+  let distance=sqrt(max(0.0,da*da-radius*radius))+radius*arc+sqrt(max(0.0,db*db-radius*radius));
+  return max(length(goal-position),distance);
+}
 fn pilotDetourRadius(s:Ship,sphere:vec4<f32>,index:u32)->f32{
   let shell=pilotBodyShell(s,sphere);let spread=director.forms[s.identity.y].origin.w;
   // A bounded corridor allowance, not the entire admission sphere. Individual
@@ -135,12 +147,5 @@ fn pilotDetour(s:Ship,intent:vec4<f32>,limits:vec4<f32>,now:f32)->Ship{
   result.aim=vec4<f32>(unit(delta)*mix(speed,length(intent.xyz),approach),length(delta));
   result.tactic=vec4<f32>(future,f32(chosen+1u));result.fx=vec4<f32>(plane,radius);
   return result;
-}
-fn pilotMemberDetour(s:Ship,goal:vec3<f32>)->vec3<f32>{
-  let reference=director.fleetGuides[s.identity.y].ship;
-  if(reference.tactic.w<=0.0){return goal;}
-  let center=reference.tactic.xyz;let radius=reference.fx.w;
-  if(radius<=0.0||!pilotDetourBlocks(s.p.xyz,goal,vec4<f32>(center,radius),1.0)){return goal;}
-  return pilotDetourPoint(s.p.xyz,center,radius,reference.fx.xyz);
 }
 `;

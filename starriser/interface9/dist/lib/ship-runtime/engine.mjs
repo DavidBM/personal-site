@@ -1,8 +1,10 @@
+import {battleStorageBytes,BATTLE_ORDER_WORDS} from './visual-battle.mjs';
 import {preparePipelines,selectShaderEntries,withGpuPreparationDiagnostics} from './pipeline-preparation.mjs';
 import {prepareAdvancePipeline} from './advance-pipeline.mjs';
 import {SHIP_WORDS} from './ship-layout.mjs';
 import {createCompileReporter} from './compile-status.mjs';
-import {pilotAdviceBytes} from './pilot-advice-layout.mjs';
+import {pilotAdviceBytes,PILOT_ADVICE_BYTES} from './pilot-advice-layout.mjs';
+import {PILOT_WORK_BUDGET} from './bounded-pilot.mjs';
 import {MAX_SHIP_CAPACITY} from './ship-capacity.mjs';
 import {createRetirementGpu} from './retirement-gpu.mjs';
 import {createRegroupingGpu,regroupingRows} from './regrouping-gpu.mjs';
@@ -136,6 +138,10 @@ export async function createEngine(canvas, options={}) {
   try {
     report({phase:'preparing',label:'Building ship director'});
     const director=createDirector(settings.count,{reserveFraction:settings.reserveFraction,fleetCount:settings.fleetCount,initialFleets:settings.initialFleets,identityStart:settings.identityStart,occupancy:settings.occupancy});
+    const pilotCapacity=options.pilotCapacity??MAX_SHIP_CAPACITY;
+    if(!Number.isInteger(pilotCapacity)||pilotCapacity<settings.count||pilotCapacity>MAX_SHIP_CAPACITY)throw Error("Invalid pilot capacity");
+    director.capacity.pilotCapacity=pilotCapacity;
+    director.capacity.visualFormation=Boolean(options.visualFormation&&settings.occupancy);
     const solarStart=performance.now();
     solar=await createSolarRuntime({period:settings.period,...settings.solar,onProgress:label=>report({phase:'preparing',label})});
     report({phase:'preparing',label:'Solar model and WASM',durationMs:performance.now()-solarStart});
@@ -167,10 +173,13 @@ async function initializeEngine(canvas,options,director,solar,lifetime,report) {
   device.addEventListener('uncapturederror',onGpuError);
   const make=(size,usage)=>device.createBuffer({size,usage});
   const storage=GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_SRC|GPUBufferUsage.COPY_DST;
-  const shipStorage=createShipStorage(device,count);
+  // Occupancy selects the shared storage ABI. Visual formations retain that ABI
+  // for lifetime/maintenance, but do not compile or dispatch the legacy pilot.
+  const pilotEnabled=Boolean(director.capacity.occupancy);
+  const visualFormation=Boolean(director.capacity.visualFormation);
+  const shipStorage=createShipStorage(device,count,pilotEnabled);
   let {history,links}=shipStorage.current.buffers;
   const agents=[shipStorage.current.buffers.a,shipStorage.current.buffers.b];
-  const pilotEnabled=Boolean(director.capacity.occupancy);
   const uniform=make(pilotEnabled?160:64,GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST);
   const view=make(96,GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST);
   const modules=await checkedModules(device,cellSize,director.capacity,pressure.layout,solar.capacity,report,Boolean(canvas));
@@ -179,7 +188,7 @@ async function initializeEngine(canvas,options,director,solar,lifetime,report) {
   const clock=createRuntimeClock();
   const slotLayout=createSlotLayout(director,count);
   const orderBuffer=make(director.groups.byteLength+slotLayoutWords(director)*4,storage),density=make(pressure.bytes,storage);
-  let spatial=spatialStorage(count);
+  let spatial=spatialStorage(count,pilotEnabled);
   const routes=createLocalRoutes(director,solar),control=createControl(director,pressure,solar,routes,clock),eventFrame=createEventFrame(director,control,routes,clock);
   const nearbySelector=createNearbySelector(director,options.nearby);
   const nearbySchedule=createNearbySchedule(director,nearbySelector,{maxAge:1/(options.simHz??120)});
@@ -187,15 +196,20 @@ async function initializeEngine(canvas,options,director,solar,lifetime,report) {
   const formationOffset=formationByteOffset(control.data.byteLength,eventFrame.layout.bytes);
   const formationBytes=formationTailBytes(director.capacity.fleetCount);
   const formationZeros=new Uint8Array(formationBytes);
-  let formPage=0;
+  let formPage=0,physicalTick=0;
   const warpOffsetCapacity=Math.max(1, options.warpOffsetCapacity|0);
   const sceneRouteBase=formationOffset+formationBytes;
   const sceneRouteZeros=new Uint8Array(sceneRouteBytes(director.capacity.fleetCount));
   const adviceBase=sceneRouteBase+sceneRouteZeros.byteLength;
-  const adviceBytes=pilotAdviceBytes(pilotEnabled);
-  const warpOffsetBase=adviceBase+adviceBytes;
+  const adviceBytes=pilotAdviceBytes(pilotEnabled,director.capacity.pilotCapacity,director.capacity.fleetCount,solar.capacity);
+  let ownerReset=new Uint8Array(0);
+  const battleBase=adviceBase+adviceBytes;
+  const battleBytes=visualFormation?battleStorageBytes(director.capacity.fleetCount):0;
+  const warpOffsetBase=battleBase+battleBytes;
   const travelOffsetBase=warpOffsetBase+warpOffsetCapacity*16;
   const controlBuffer=make(travelOffsetBase+warpOffsetCapacity*16,storage);
+  if(battleBytes)device.queue.writeBuffer(controlBuffer,battleBase,new Uint8Array(battleBytes));
+  const pilotIndirect=pilotEnabled&&!visualFormation?make(16,GPUBufferUsage.INDIRECT|GPUBufferUsage.COPY_DST):null;
   const classTuning=make(192,GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST);
   device.queue.writeBuffer(classTuning,0,packClassTuning(defaultClassTuning()));
   const layout=device.createBindGroupLayout({entries:[
@@ -205,9 +219,10 @@ async function initializeEngine(canvas,options,director,solar,lifetime,report) {
     {binding:9,visibility:GPUShaderStage.COMPUTE,buffer:{type:'uniform'}}]});
   const pipelineLayout=device.createPipelineLayout({bindGroupLayouts:[layout]});
   const timings=[];let compiled=0;
-  const spatialEntries=['clearDensity','buildDensity','buildHullDensity','scheduleAgents','buildContactCache','buildContactMasks','buildPursuerQueries'];
-  const entries=['advance','clearFormation',...(pilotEnabled?['predictPilots']:[]),'recover',...spatialEntries];
-  const families=[['advance'],['clearFormation',...(pilotEnabled?['predictPilots']:[])],['recover'],spatialEntries];
+  const spatialEntries=['clearDensity','buildDensity','buildHullDensity','scheduleAgents','buildContactCache',...(!pilotEnabled?['buildContactMasks','buildPursuerQueries']:[])];
+  const legacyEntries=['advance','clearFormation',...(pilotEnabled?['advanceTransit','preparePilotBodies','schedulePilots','predictPilots']:[]),'recover',...spatialEntries];
+  const entries=visualFormation?['advance','prepareVisualFleets','advanceTransit','preparePilotBodies','recover']:legacyEntries;
+  const families=visualFormation?entries.map(entry=>[entry]):[['advance'],['clearFormation'],...(pilotEnabled?['advanceTransit','preparePilotBodies','schedulePilots','predictPilots'].map(entry=>[entry]):[]),['recover'],spatialEntries];
   const compiledModules=new Map();let splitSource=null;
   function moduleFor(entryPoint,split=false){
     const roots=split?[entryPoint]:families.find(group=>group.includes(entryPoint));const key=(split?'split:':'')+roots.join(',');
@@ -232,10 +247,10 @@ async function initializeEngine(canvas,options,director,solar,lifetime,report) {
   }}));
   jobs.push(
     {label:'Progress sampler',run:()=>createProgressSampler(device,director)},
-    {label:'Population spawn',run:()=>createPopulationSpawner(device,director.capacity.groups)},
-    {label:'Retirement',run:()=>createRetirementGpu(device)},
-    {label:'Regrouping',run:()=>createRegroupingGpu(device)},
-    {label:'Clock rebasing',run:()=>createClockRebaser(device,agents,history,links,shipStorage.current.bindings)},
+    {label:'Population spawn',run:()=>createPopulationSpawner(device,director.capacity.groups,pilotEnabled)},
+    {label:'Retirement',run:()=>createRetirementGpu(device,pilotEnabled)},
+    {label:'Regrouping',run:()=>createRegroupingGpu(device,pilotEnabled)},
+    {label:'Clock rebasing',run:()=>createClockRebaser(device,agents,history,links,shipStorage.current.bindings,pilotEnabled)},
     {label:'Packing',run:()=>createPacking(device,{agents,history,links,orders:orderBuffer,layout:slotLayout,count,director,eventFrame,bindings:shipStorage.current.bindings})});
   report({phase:'compiling',label:'Ship kernels',completed:0,total:jobs.length});
   const prepared=await withGpuPreparationDiagnostics(device,()=>preparePipelines(jobs,3,timing=>{
@@ -279,6 +294,7 @@ async function initializeEngine(canvas,options,director,solar,lifetime,report) {
   }
   let drawGroups=makeDrawGroups(shipStorage.current);
   function prepareStorageBindings(next) {
+    if(pilotEnabled&&next.count>director.capacity.pilotCapacity)throw Error("Ship count exceeds pilot capacity");
     const simulationGroups=makeGroups(next,'history'),geometryGroups=makeGroups(next,'geometry'),renderGroups=makeDrawGroups(next);
     const clockBindings=rebaser.prepareBindings(next.bindings),packingBindings=packing.prepareBindings(next.bindings,next.count);
     return ()=>{
@@ -291,10 +307,11 @@ async function initializeEngine(canvas,options,director,solar,lifetime,report) {
   // Copy both poses, history and event/correction pages wholly on the GPU.
   function growSceneCapacity(nextCount) {
     if(closed||nextCount<=count)return false;
+    if(nextCount>director.capacity.pilotCapacity)throw Error("Scene growth exceeds pilot capacity");
     if(!director.capacity.occupancy)throw Error('Scene capacity requires a sparse director');
     return shipStorage.grow(nextCount,nextCount,next=>{
       const bindings=prepareStorageBindings(next);
-      return ()=>{slotLayout.growCapacity(next.count);count=next.count;spatial=spatialStorage(count);bindings();};
+      return ()=>{slotLayout.growCapacity(next.count);count=next.count;spatial=spatialStorage(count,pilotEnabled);bindings();};
     });
   }
   function reinforce(requests,expected={}) {
@@ -305,7 +322,7 @@ async function initializeEngine(canvas,options,director,solar,lifetime,report) {
     const extension=slotLayout.prepareExtension(population),capacity=Math.min(MAX_SHIP_CAPACITY,Math.max(population.count,shipStorage.status.capacity*2));
     const changed=shipStorage.grow(population.count,capacity,next=>{
       const bindings=prepareStorageBindings(next);
-      return ()=>{director.adopt(prepared.director,false);extension();count=next.count;spatial=spatialStorage(count);hullCount=capitalCount();bindings();};
+      return ()=>{director.adopt(prepared.director,false);extension();count=next.count;spatial=spatialStorage(count,pilotEnabled);hullCount=capitalCount();bindings();};
     },(encoder,next)=>spawner.encode(encoder,next,prepared.batches,clock.local(now),emit,planetsEnabled?[0,1,2].map(i=>solar.bodyAt(i,now)):null));
     if(!changed)return {status:'busy'};
     uploadDirector();device.queue.writeBuffer(orderBuffer,director.groups.byteLength,slotLayout.data);refreshDensity();
@@ -355,20 +372,25 @@ async function initializeEngine(canvas,options,director,solar,lifetime,report) {
     const population=plan.director.population,layout=slotLayout.prepareRetirement(population,plan.keep);
     const changed=shipStorage.compact(population.count,Math.max(1,population.count),next=>{
       const bindings=prepareStorageBindings(next);
-      return ()=>{director.adopt(plan.director,false);layout();count=next.count;spatial=spatialStorage(count);hullCount=capitalCount();bindings();};
+      return ()=>{director.adopt(plan.director,false);layout();count=next.count;spatial=spatialStorage(count,pilotEnabled);hullCount=capitalCount();bindings();};
     },(encoder,next)=>retirement.encode(encoder,resources,next,plan,eventFrame.active));
     if(!changed)return {status:'busy'};
     uploadDirector();device.queue.writeBuffer(orderBuffer,director.groups.byteLength,slotLayout.data);refreshDensity();
     return {status:'applied',count,retired:plan.ids.length,revision:director.population.revision};
   }
   function refreshDensity() {
+    if(visualFormation)return;
     input[0]=clock.local(now);input[2]=count;device.queue.writeBuffer(uniform,0,input);
     const encoder=device.createCommandEncoder();
     const clearPass=encoder.beginComputePass();clearPass.setPipeline(clear);clearPass.setBindGroup(0,groups[current]);dispatchGroups(clearPass,Math.ceil(Math.max(1,pressure.activeCount)*GRID_CELLS/128));clearPass.end();
-    const pass=encoder.beginComputePass();pass.setPipeline(populate);pass.setBindGroup(0,groups[current]);dispatchGroups(pass,Math.ceil(count/128));pass.end();hullPass(encoder,null);
+    const pass=encoder.beginComputePass();pass.setPipeline(populate);pass.setBindGroup(0,groups[current]);dispatchGroups(pass,Math.ceil(count/128));pass.end();
+    // clearDensity reset the shared worklist. Rebuild its capital list before
+    // using indirect dispatch after relocation, retirement or population growth.
+    if(pilotEnabled)orderPass(encoder,null);
+    hullPass(encoder,null);
     device.queue.submit([encoder.finish()]);
   }
-  const input=new Float32Array(pilotEnabled?40:16), camera=new Float32Array(24), initialWarpEnd=warpEnd;
+  const input=new Float32Array(pilotEnabled?40:16),tickWords=new Uint32Array(input.buffer), camera=new Float32Array(24), initialWarpEnd=warpEnd;
   let tacticalMemoryEnabled=1;
   let densityMix=1,mergeTarget=1,densityEnabled=1,planetsEnabled=1,targetLinks=1,selectedFleet=0,followShip=null,densityVisible=false;
   let planning=null,closed=false,lifetimeToken={},batchDepth=0,ordersDirty=false,admissionTime=null;
@@ -385,6 +407,7 @@ async function initializeEngine(canvas,options,director,solar,lifetime,report) {
     control.sync();control.syncPressure();control.syncSolar();device.queue.writeBuffer(controlBuffer,0,control.data);
     formPage=0;device.queue.writeBuffer(controlBuffer,formationOffset,formationZeros);
     device.queue.writeBuffer(controlBuffer,sceneRouteBase,sceneRouteZeros);
+    if(battleBytes)device.queue.writeBuffer(controlBuffer,battleBase,new Uint8Array(battleBytes));
     if(adviceBytes)device.queue.writeBuffer(controlBuffer,adviceBase,new Uint8Array(adviceBytes));
     for(const b of agents) device.queue.writeBuffer(b,0,seed);
     const dead=new Float32Array(count*3*RING*4);for(let i=3;i<dead.length;i+=4) dead[i]=-1;
@@ -436,7 +459,7 @@ async function initializeEngine(canvas,options,director,solar,lifetime,report) {
     nearbyOptions.positions=null;nearbySchedule.invalidate();
   }
   function prepareNearby(positions=nearbyOptions.positions) {
-    if(closed)return;
+    if(closed||visualFormation)return;
     const time=keplerCatalog?keplerTime:now;
     nearbyOptions.positions=positions;
     nearbyOptions.hullPad=keplerCatalog?0.05:NEARBY_HULL_PAD;
@@ -445,7 +468,7 @@ async function initializeEngine(canvas,options,director,solar,lifetime,report) {
   }
   function updateFrame(time) {
     const center=sequence?solar.encounterAt(time):[0,0,0];
-    solar.advance(time);refreshNearby(time);control.syncNearby();control.syncSolar();
+    solar.advance(time);if(!visualFormation)refreshNearby(time);control.syncNearby();control.syncSolar();
     pressure.tick(time,period,center);control.syncPressure();
     control.frame(...center,time);
     // Nearby, pressure and solar are contiguous; publish one coherent tick tail.
@@ -460,60 +483,80 @@ async function initializeEngine(canvas,options,director,solar,lifetime,report) {
   }
   function passWrites(querySet,index,sample,stage,edge){return querySet?{timestampWrites:{querySet,[edge]:index}}:sample?.(stage);}
   function profileSample(externalQueries){return externalQueries?null:profiler.begin();}
-  function computeStage(encoder,shared,pipeline,group,workgroups,descriptor) {
-    const pass=shared??encoder.beginComputePass(descriptor);
+  function computeStage(encoder,pipeline,group,workgroups,descriptor) {
+    const pass=encoder.beginComputePass(descriptor);
     pass.setPipeline(pipeline);pass.setBindGroup(0,group);dispatchGroups(pass,workgroups);
-    if(!shared)pass.end();
+    pass.end();
   }
-  function hullPass(encoder,sample,shared=null) {
+  function hullPass(encoder,sample) {
     if(hullCount<=0)return;
-    computeStage(encoder,shared,hullDensity,groups[current],hullCount,sample?.(2));
+    if(pilotEnabled){
+      encoder.copyBufferToBuffer(controlBuffer,adviceBase+director.capacity.pilotCapacity*PILOT_ADVICE_BYTES+16,pilotIndirect,0,12);
+      const pass=encoder.beginComputePass(sample?.(2));pass.setPipeline(hullDensity);pass.setBindGroup(0,groups[current]);
+      pass.dispatchWorkgroupsIndirect(pilotIndirect,0);pass.end();
+    }else computeStage(encoder,hullDensity,groups[current],hullCount,sample?.(2));
   }
-  function orderPass(encoder,sample,shared) {
-    computeStage(encoder,shared,schedule,groups[current],Math.ceil(Math.max(HASH_BUCKETS,count)/128),sample?.(3));
-    computeStage(encoder,shared,cache,contactGroups[current],Math.ceil(count/128),sample?.(4));
-    computeStage(encoder,shared,separate,contactGroups[current],queryWorkgroups(count),sample?.(5));
-    computeStage(encoder,shared,pursuerQueries,contactGroups[current],queryWorkgroups(count),sample?.(6));
+  function orderPass(encoder,sample) {
+    computeStage(encoder,schedule,groups[current],Math.ceil(Math.max(HASH_BUCKETS,count)/128),sample?.(3));
+    computeStage(encoder,cache,contactGroups[current],Math.ceil(count/128),sample?.(4));
+    if(!pilotEnabled)computeStage(encoder,separate,contactGroups[current],queryWorkgroups(count),sample?.(5));
+    if(!pilotEnabled)computeStage(encoder,pursuerQueries,contactGroups[current],queryWorkgroups(count),sample?.(6));
   }
-  function clearAndPopulate(encoder,shared,recovering,querySet,queryIndex,sample) {
+  function clearAndPopulate(encoder,recovering,querySet,queryIndex,sample) {
     const clearWrites=passWrites(querySet,queryIndex,sample,0,'beginningOfPassWriteIndex');
     if(recovering) {
-      computeStage(encoder,shared,recovery,groups[current],Math.ceil(count/128),profileEdge(clearWrites,'beginningOfPassWriteIndex'));
+      computeStage(encoder,recovery,groups[current],Math.ceil(count/128),profileEdge(clearWrites,'beginningOfPassWriteIndex'));
       current=1-current;
     }
-    computeStage(encoder,shared,clear,groups[current],Math.ceil(Math.max(1,pressure.activeCount)*GRID_CELLS/128),
+    computeStage(encoder,clear,groups[current],Math.ceil(Math.max(1,pressure.activeCount)*GRID_CELLS/128),
       recovering?profileEdge(clearWrites,'endOfPassWriteIndex'):clearWrites);
-    computeStage(encoder,shared,populate,groups[current],Math.ceil(count/128),sample?.(1));
+    computeStage(encoder,populate,groups[current],Math.ceil(count/128),sample?.(1));
   }
-  function pilotAndMotion(encoder,shared,querySet,queryIndex,sample) {
-    hullPass(encoder,sample,shared);
-    if(pilotEnabled)computeStage(encoder,shared,formationClear,groups[current],director.capacity.fleetCount,sample?.(7));
-    orderPass(encoder,sample,shared);
-    if(!pilotEnabled)computeStage(encoder,shared,formationClear,groups[current],director.capacity.fleetCount,sample?.(7));
-    if(predict)computeStage(encoder,shared,predict,groups[current],Math.ceil(count/128),sample?.(8));
+  function pilotPass(encoder,sample) {
+    if(predict){
+      computeStage(encoder,pipelines.schedulePilots,groups[current],Math.ceil(Math.min(count,PILOT_WORK_BUDGET)/128));
+      encoder.copyBufferToBuffer(controlBuffer,adviceBase+director.capacity.pilotCapacity*PILOT_ADVICE_BYTES,pilotIndirect,0,12);
+      const pass=encoder.beginComputePass(sample?.(8));pass.setPipeline(predict);pass.setBindGroup(0,groups[current]);
+      pass.dispatchWorkgroupsIndirect(pilotIndirect,0);pass.end();
+    }
+  }
+  function pilotAndMotion(encoder,querySet,queryIndex,sample) {
+    if(!pilotEnabled)hullPass(encoder,sample);
+    if(pilotEnabled)computeStage(encoder,formationClear,groups[current],director.capacity.fleetCount,sample?.(7));
+    orderPass(encoder,sample);
+    if(pilotEnabled)hullPass(encoder,sample);
+    if(!pilotEnabled)computeStage(encoder,formationClear,groups[current],director.capacity.fleetCount,sample?.(7));
+    pilotPass(encoder,sample);
     const movementWrites=passWrites(querySet,queryIndex+1,sample,9,'endOfPassWriteIndex');
-    if(eventPrepare)computeStage(encoder,shared,eventPrepare,groups[current],Math.ceil(count/128),profileEdge(movementWrites,'beginningOfPassWriteIndex'));
-    computeStage(encoder,shared,compute,groups[current],Math.ceil(count/128),eventPrepare?profileEdge(movementWrites,'endOfPassWriteIndex'):movementWrites);
+    if(eventPrepare)computeStage(encoder,eventPrepare,groups[current],Math.ceil(count/128),profileEdge(movementWrites,'beginningOfPassWriteIndex'));
+    computeStage(encoder,compute,groups[current],Math.ceil(count/128),eventPrepare?profileEdge(movementWrites,'endOfPassWriteIndex'):movementWrites);
   }
   function encodeCompute(encoder,recovering,querySet,queryIndex,sample) {
-    // Separate passes preserve diagnostic timestamps; grouping is a measured option.
-    const split=sample||querySet||options.separateComputePasses!==false;
-    const shared=split?null:encoder.beginComputePass({label:'directed-simulation'});
-    clearAndPopulate(encoder,shared,recovering,querySet,queryIndex,sample);
-    pilotAndMotion(encoder,shared,querySet,queryIndex,sample);
-    shared?.end();
+    if(pilotEnabled)computeStage(encoder,pipelines.preparePilotBodies,groups[current],Math.ceil(solar.capacity/64));
+    if(visualFormation){
+      if(recovering){computeStage(encoder,recovery,groups[current],Math.ceil(count/128));current=1-current;}
+      computeStage(encoder,pipelines.prepareVisualFleets,groups[current],Math.ceil(director.capacity.fleetCount/64),passWrites(querySet,queryIndex,sample,7,'beginningOfPassWriteIndex'));
+      if(eventPrepare)computeStage(encoder,eventPrepare,groups[current],Math.ceil(count/128));
+      computeStage(encoder,compute,groups[current],Math.ceil(count/128),passWrites(querySet,queryIndex+1,sample,9,'endOfPassWriteIndex'));
+      return;
+    }
+    clearAndPopulate(encoder,recovering,querySet,queryIndex,sample);
+    pilotAndMotion(encoder,querySet,queryIndex,sample);
   }
-  function encodeTick(encoder,time,dt,{emitting=emit,querySet=null,queryIndex=0,temporal=false,recovering=false}={}) {
+
+  function encodeTick(encoder,time,dt,{emitting=emit,querySet=null,queryIndex=0,temporal=false,recovering=false,transit=null}={}) {
     prepareStep(time,dt,temporal);motionRevision++;
-    const sample=profileSample(querySet);
+    const sample=transit?null:profileSample(querySet);
     const previousTime=now;now=time;emit=emitting;lastDt=dt;updateFrame(time);
     densityMix+=(mergeTarget-densityMix)*(1-Math.exp(-dt*4));
     const [low,high,redistribute]=clock.phases(time);
     input.set([clock.local(time),dt,count,low,period,redistribute,Number(emitting),tacticalMemoryEnabled,densityMix,densityEnabled,planetsEnabled,high,
       Math.max(0,clock.trailTick(previousTime)+1),clock.trailTick(time),formPage,0]);
-    formPage^=1;
-    device.queue.writeBuffer(uniform,0,input);
-    encodeCompute(encoder,recovering,querySet,queryIndex,sample);
+    formPage^=1;tickWords[15]=++physicalTick;
+    const selected=input[39];if(transit)input[39]=transit.slot;
+    device.queue.writeBuffer(uniform,0,input);input[39]=selected;
+    if(transit)computeStage(encoder,pipelines.advanceTransit,groups[current],Math.ceil(transit.count/128));
+    else encodeCompute(encoder,recovering,querySet,queryIndex,sample);
     encodeFollowCopy(encoder);
   }
   function encodeFollowCopy(encoder) {
@@ -595,7 +638,17 @@ async function initializeEngine(canvas,options,director,solar,lifetime,report) {
     }
   }
   reset();
-  const runtime={preparationTimings:timings,packing,slotLayout,shipStorage,resizeStorage,growSceneCapacity,reinforce,reclaim,regroup,inspection:{uniform,view,adviceBase,adviceBytes,drawing:modules[1],control:controlBuffer,baseControlBytes:control.data.byteLength,travelOffset:sceneRouteBase-director.capacity.fleetCount*64,fleetCount:director.capacity.fleetCount,orders:orderBuffer,get module(){return inspectionModule??=device.createShaderModule({label:'ship-diagnostics',code:modules[0]});},agents,get links(){return links;}},eventFrame,
+  function clearCapturedMotion(start,travelBytes) {
+    // Reuse one zero staging area for new owners. Relocations never call this.
+    const bytes=adviceBytes?travelBytes/16*PILOT_ADVICE_BYTES:travelBytes;
+    if(ownerReset.byteLength<bytes)ownerReset=new Uint8Array(bytes);
+    device.queue.writeBuffer(controlBuffer,travelOffsetBase+start*16,ownerReset,0,travelBytes);
+    if(adviceBytes)device.queue.writeBuffer(controlBuffer,adviceBase+start*PILOT_ADVICE_BYTES,ownerReset,0,bytes);
+  }
+  const runtime={visualFormation,
+    uploadBattle(slot,data){if(!visualFormation||slot<0||slot>=director.capacity.fleetCount)return;
+      if(data.byteLength!==BATTLE_ORDER_WORDS*4)throw Error('Invalid battle record');
+      device.queue.writeBuffer(controlBuffer,battleBase+slot*BATTLE_ORDER_WORDS*4,data);},preparationTimings:timings,packing,slotLayout,shipStorage,resizeStorage,growSceneCapacity,reinforce,reclaim,regroup,inspection:{uniform,view,adviceBase,adviceBytes,drawing:modules[1],control:controlBuffer,baseControlBytes:control.data.byteLength,travelOffset:sceneRouteBase-director.capacity.fleetCount*64,fleetCount:director.capacity.fleetCount,orders:orderBuffer,get module(){return inspectionModule??=device.createShaderModule({label:'ship-diagnostics',code:modules[0]});},agents,get links(){return links;}},eventFrame,
     prepareEventFrame(start,end){prepareFrame(end,end-start);eventFrame.begin(start,end);},
     finishEventFrame(){eventFrame.finish();uploadEventFrame();},
     withEventTime(time,work){const previous=admissionTime;admissionTime=time;try{return work();}finally{admissionTime=previous;}},clock,clockGpu:rebaser,rebaseClock:()=>rebaseTime(now),solar,pressure,routes,progress,device,adapter,timestamps,get count(){return count;},errors,get history(){return history;},reset,step,render,read,pixels,profiler,director,density,batchCommands,
@@ -661,17 +714,45 @@ async function initializeEngine(canvas,options,director,solar,lifetime,report) {
       if(!Number.isInteger(slot)||slot<0||slot>=director.capacity.fleetCount||data.length!==SCENE_ROUTE_WORDS)throw new Error('Invalid scene route slot or record');
       device.queue.writeBuffer(controlBuffer,sceneRouteBase+slot*SCENE_ROUTE_WORDS*4,data);
     },
+    translateFleetCommands(slot,delta){
+      const seen=new Set();
+      for(let group=0;group<director.intents.length;group++){
+        const owner=director.occupied?.[group]?.slot ?? Math.floor(group/32);
+        if(owner!==slot)continue;
+        for(const journey of director.intents[group].journeys){
+          if(!journey||seen.has(journey))continue;seen.add(journey);
+          journey.exit=journey.exit.map((v,i)=>v+delta[i]);
+        }
+        const data=control.captureGroup(group);
+        device.queue.writeBuffer(controlBuffer,(director.capacity.groupBase+group*96)*4,data);
+      }
+      // This fleet is in warp: discard local guide/capture coordinates. Its
+      // physical poses/trails are translated by the reframe kernel; after warp
+      // the reference is acquired from the unchanged physical population.
+      const guideBase=sceneRouteBase-director.capacity.fleetCount*(SHIP_WORDS*4+96);
+      device.queue.writeBuffer(controlBuffer,guideBase+slot*(SHIP_WORDS*4+32)+SHIP_WORDS*4+16,formationZeros.buffer,0,16);
+      if(pilotEnabled){
+        const cacheBase=adviceBase+director.capacity.pilotCapacity*PILOT_ADVICE_BYTES+32+Math.ceil(director.capacity.pilotCapacity/4)*16;
+        device.queue.writeBuffer(controlBuffer,cacheBase+slot*64,formationZeros.buffer,0,64);
+      }
+      runtime.invalidateNearby();
+    },
     copyTravelOffsets(encoder,from,to,count,scratch){
       const bytes=count*16;
       encoder.copyBufferToBuffer(controlBuffer,travelOffsetBase+from*16,scratch,0,bytes);
       encoder.copyBufferToBuffer(scratch,0,controlBuffer,travelOffsetBase+to*16,bytes);
     },
+    copyPilotAdvice(encoder,from,to,count,scratch){
+      if(!adviceBytes)return;
+      const bytes=count*PILOT_ADVICE_BYTES;
+      encoder.copyBufferToBuffer(controlBuffer,adviceBase+from*PILOT_ADVICE_BYTES,scratch,0,bytes);
+      encoder.copyBufferToBuffer(scratch,0,controlBuffer,adviceBase+to*PILOT_ADVICE_BYTES,bytes);
+    },
     uploadWarpOffsets(start,data,clearCapture=true){
       if(closed||!data||data.byteLength===0)return;
       if(!Number.isInteger(start)||start<0||start*16+data.byteLength>warpOffsetCapacity*16)throw new Error('Warp offset range exceeds reserved capacity');
       device.queue.writeBuffer(controlBuffer,warpOffsetBase+start*16,data);
-      // A new logical occupant must not inherit a previous order capture.
-      if(clearCapture)device.queue.writeBuffer(controlBuffer,travelOffsetBase+start*16,new Uint8Array(data.byteLength));
+      if(clearCapture)clearCapturedMotion(start,data.byteLength);
     },
     localTime(time){return clock.local(time);},
     classTuningBuffer(){return classTuning;},
@@ -701,7 +782,7 @@ async function initializeEngine(canvas,options,director,solar,lifetime,report) {
         stageKeplerBodies(bodies??[],time??now);
       }},
     followPoseBuffer:()=>followCpu[1-followMap],
-    destroy(){if(closed)return;closed=true;device.removeEventListener('uncapturederror',onGpuError);lifetimeToken={};followShip=null;planning?.reset();progress.destroy();packing.destroy();spawner.destroy();retirement.destroy();regrouping.destroy();rebaser.destroy();solar.destroy();profiler.destroy();shipStorage.destroy();for(const b of [uniform,view,orderBuffer,density,controlBuffer,classTuning,...followCpu])b.destroy();depth?.destroy();if(lifetime.ownsDevice)device.destroy();}};
+    destroy(){if(closed)return;closed=true;device.removeEventListener('uncapturederror',onGpuError);lifetimeToken={};followShip=null;planning?.reset();pilotIndirect?.destroy();progress.destroy();packing.destroy();spawner.destroy();retirement.destroy();regrouping.destroy();rebaser.destroy();solar.destroy();profiler.destroy();shipStorage.destroy();for(const b of [uniform,view,orderBuffer,density,controlBuffer,classTuning,...followCpu])b.destroy();depth?.destroy();if(lifetime.ownsDevice)device.destroy();}};
   function rebaseTime(time) {
     if(closed)return false;
     const shift=clock.shiftFor(time);if(!shift)return false;
