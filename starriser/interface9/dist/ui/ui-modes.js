@@ -5,6 +5,7 @@ import { buildEditorStatsPanel } from "./editor-stats-panel.js";
 import { buildPlayUIPanels } from "./play-ui.js";
 import { buildSystemPlanetPanel, } from "./system-planet-panel.js";
 import { installDockLayout, screenAnchor, widgetAnchor } from "./dock-layout.js";
+import { buildBattleTuningPanel } from '../features/battles/tuning-panel.js';
 import { buildShipTuningPanel } from "./ship-tuning-panel.js";
 import { mountSimPauseButton } from "./sim-pause-button.js";
 export function resolveUIMode(defaultMode = "editor") {
@@ -83,7 +84,9 @@ export function buildEditorUI(ctx, actions) {
         placement: "editor",
     });
     const tuning = buildShipTuningPanel(ctx, actions);
+    const battleTuning = buildBattleTuningPanel(ctx, actions);
     installDockLayout(ctx.root.root, [
+        { id: 'battle-tuning-panel', title: 'Battle', initiallyHidden: true, element: battleTuning.panel.element, anchor: screenAnchor('right', 'top', 56, 12, 310, 530) },
         {
             id: "controls-panel",
             title: "Galaxy",
@@ -147,6 +150,8 @@ export function buildPlayUI(ctx, actions, online = false) {
         },
     ];
     if (!online) {
+        const battleTuning = buildBattleTuningPanel(ctx, actions);
+        dockWindows.push({ id: 'battle-tuning-panel', title: 'Battle', initiallyHidden: true, element: battleTuning.panel.element, anchor: screenAnchor('right', 'top', 56, 12, 310, 530) });
         const tuning = buildShipTuningPanel(ctx, actions);
         dockWindows.push({
             id: "ship-tuning-panel",

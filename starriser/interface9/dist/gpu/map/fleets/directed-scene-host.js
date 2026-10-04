@@ -42,7 +42,7 @@ import { SceneObservations } from "./scene-observations.js";
 import { SceneObservationContinuity } from './scene-observation-continuity.js';
 import { COMPACT_SYSTEM_SPAN, sceneFleetLifetimeKey } from "./directed-map.mjs";
 import { WarpLayout } from "./warp-layout.mjs";
-import { reserveOrbitBirth } from './orbit-admission.mjs';
+import { reserveOrbitBirth, reserveAuthoredBirth } from './orbit-admission.mjs';
 import { planetOrbitAdapt } from "../../../lib/ship-runtime/flight-layout.mjs";
 import { createSceneFleetRoutes, routeCapability, routeObstacles, routeInterception } from './scene-fleet-routes.mjs';
 import { SceneFleetTelemetry } from './scene-fleet-telemetry.js';
@@ -287,7 +287,7 @@ export function createDirectedSceneHost(injected = null, options = {}) {
                 points: [[center.x, center.y, center.z], [exit.x, exit.y, exit.z]], destination: [exit.x, exit.y, exit.z] }] : [];
     }
     function routeGuides() {
-        const out = [...localRoutes.rows.values()].filter(row => showsGuide(row.id)).map(row => ({ ...row, waypoints: row.acceptedIntent?.waypoints ?? row.waypoints }));
+        const out = [...localRoutes.rows.values()].filter(row => showsGuide(row.id) && row.fleet.state?.battle?.stage !== 'engaged').map(row => ({ ...row, waypoints: row.acceptedIntent?.waypoints ?? row.waypoints }));
         for (const fleet of fleets) {
             if (showsGuide(fleet.id) && fleet.state?.battle)
                 out.push(...battleSphereRoutes(fleet));
@@ -311,7 +311,7 @@ export function createDirectedSceneHost(injected = null, options = {}) {
         const battle = fleet.state?.battle;
         if (battle)
             return { action: battle.stage === 'pursuit' ? 'Intercept fleet' : 'Battle',
-                micro: battle.stage === 'pursuit' ? `Following target · ${localRoutes.rows.get(id)?.status ?? 'preparing route'}` : `${battle.phase} · 8 squads · ${battle.opponent}` };
+                micro: battle.stage === 'pursuit' ? `Following target · ${localRoutes.rows.get(id)?.status ?? 'preparing route'}` : `${battle.tactics[battle.side].manoeuvre} · up to 16 squads/class · ${battle.opponent}` };
         const route = localRoutes.rows.get(id);
         if (route && !route.automatic)
             return routeActivity(route, telemetry?.freshTravel(fleet.slot ?? 0));
@@ -801,6 +801,10 @@ export function createDirectedSceneHost(injected = null, options = {}) {
     function orbitBirthFor(fleet, layout) {
         if (fleet.plan?.phase !== 'orbit')
             return undefined;
+        if (fleet.state?.position) {
+            layout.orbitBirth ?? (layout.orbitBirth = reserveAuthoredBirth(layout, fleet, keplerBodies, keplerTime));
+            return layout.orbitBirth.origin;
+        }
         // Freeze the physical birth cloud and body snapshot across admission chunks.
         // It is a placement reservation, never a live collision/position authority.
         if (!layout.orbitBirth)
@@ -2095,7 +2099,8 @@ export function createDirectedSceneHost(injected = null, options = {}) {
             if (!approach)
                 return null;
             const radius = Math.max(BATTLE_RADIUS, approach.reach);
-            const center = battleArena(defender, radius + padding, obstacles);
+            const contact = { x: (ca.x + approach.destination[0]) * .5, y: (ca.y + approach.destination[1]) * .5, z: (ca.z + approach.destination[2]) * .5 };
+            const center = battleArena(contact, Math.min(padding, .002), obstacles);
             return { node, attacker, defender, defenderVelocity: { x: cb.vx, y: cb.vy, z: cb.vz }, center, radius };
         },
         fleetRoute(id) { const row = localRoutes.rows.get(id); return row ? { status: row.status, points: row.points, validUntil: row.validUntil } : null; },

@@ -1,3 +1,4 @@
+import {battleRouteCapability,battleRouteProgram,battleCycleFits} from './battle-lanes.mjs';
 import {automaticRouteKey, automaticRouteIntent, automaticRouteDeadline, arrivalPorts} from './automatic-route.mjs';
 import { createSceneRoutePlanner } from '../../../lib/ship-runtime/scene-route-planner.mjs';
 import { packSceneRoute } from '../../../lib/ship-runtime/scene-route.mjs';
@@ -17,7 +18,7 @@ const PENDING_AUTO=packSceneRoute([]);PENDING_AUTO[3]=-1;
 /** Fleet-bounded planning. GPU poses stay authoritative; no ship enumeration/readback. */
 export function routeCapability(fleet, frame = null) {
   const tuning = packClassTuning();
-  const kinds = fleet.type == null ? fleetComposition(fleet.id).classes.map(row => row.kind)
+  const kinds = fleet.type == null ? fleetComposition(fleet.id,fleet.classCounts).classes.map(row => row.kind)
     : [CLASS_BY_TYPE[fleet.type & 31] ?? 0];
   const minimum = column => Math.min(...kinds.map(kind => tuning[kind * 8 + column]));
   const maximum = column => Math.max(...kinds.map(kind => tuning[kind * 8 + column]));
@@ -132,10 +133,16 @@ function routeEndpoints(row,intent,bodies,pose,now){
   // A fleet's centroid can be inside its planet. Approach the near edge of
   // that shell; battle capture still tests the actual observed centers.
   if(row.fleet.state?.battle?.stage==='pursuit')destination=routeInterception(position,destination,obstacles,row.capability)?.destination;
+  if(isBirthHold(row.fleet.state,intent))
+    destination=sceneRouteStart(destination,position,shells,padding);
   if(!destination)throw Error('no-interception-entry');
   const start=sceneRouteIngress(position,destination,shells,padding);
   if(!start)throw Error('no-entry');
   return {bodies:obstacles,start,destination,alternatives:target.alternatives};
+}
+function isBirthHold(state,intent){
+  // Birth clearance must not send an authored fleet back into a solid body.
+  return state?.position&&intent.revision===1&&!state.battle;
 }
 function plannedWarpExit(row){
   const plan=row.fleet.plan;
@@ -144,6 +151,9 @@ function plannedWarpExit(row){
 function retainedCache(row,intent,revision){
   return {width:row.capability.width,token:row.token,revision,bias:row.bias,
     retained:row.cacheIntentRevision===intent.revision?row.points.map(p=>p.map((v,i)=>v+row.bias[i])):[]};
+}
+function usableResult(result,now){
+  return (result.cache?.[0] ?? result.points?.length ?? 0)>0&&result.validUntil>now;
 }
 
 export function createSceneFleetRoutes({ center, install, changed = () => {}, createPlanner = createSceneRoutePlanner, formationFrame = null, requireFormationFrame = false, priority = () => false }) {
@@ -188,13 +198,17 @@ export function createSceneFleetRoutes({ center, install, changed = () => {}, cr
   function accept(row, result, intent) {
     if (closed || rows.get(row.id) !== row) return;
     row.pending = false;
-    if ((result.cache?.[0] ?? result.points?.length ?? 0) < 1 || result.validUntil <= latestTime) { fail(row, result.status); return; }
+    if (!usableResult(result,latestTime)) { fail(row, result.status); return; }
+    const cache = acceptedCache(row,result,nextRevision++);
+    const points = unpackRoutePoints(cache, SCENE_LAB);
+    if(!battleCycleFits(row.fleet.state?.battle,result.program,points,cache[1]/SCENE_LAB)){
+      fail(row,'Battle path exceeds encounter bounds');return;
+    }
     // Infeasible means the conservative timetable does not fit. Spatial safety
     // still covers the validity window; automatic deadlines are separate.
     row.validUntil = result.validUntil;
     row.retryAt = result.validUntil - REFRESH_MARGIN - (row.slot % 8) * .35; row.status = 'ready';
-    const cache = acceptedCache(row,result,nextRevision++);
-    row.points = unpackRoutePoints(cache, SCENE_LAB);
+    row.points = points;
     row.corridorRadius = cache[1] / (2 * SCENE_LAB);
     // An unchanged, revalidated curve keeps its progress coordinate. The pose,
     // captured formation frame and departure history already persist on GPU.
@@ -220,8 +234,8 @@ export function createSceneFleetRoutes({ center, install, changed = () => {}, cr
     const frame = formationFrame?.(row.fleet);
     if (formationFrame && !frame && (requireFormationFrame || !row.automatic)) return false;
     if (!row.bias) {
-      row.bias = row.automatic ? [0, 0, 0] : frame?.bias ?? [0, 0, 0];
-      row.capability = routeCapability(row.fleet, frame);
+      row.bias = row.automatic || !frame ? [0, 0, 0] : frame.bias;
+      row.capability = battleRouteCapability(routeCapability(row.fleet, frame),row.fleet.state?.battle);
     }
     return true;
   }
@@ -237,10 +251,13 @@ export function createSceneFleetRoutes({ center, install, changed = () => {}, cr
       planner ??= createPlanner();
       const revision = row.revision;
       const current = () => rows.get(row.id) === row && row.revision === revision;
-      const program = planningProgram(row,intent);
+      const battleProgram = battleRouteProgram(row,entryObstacles(endpoints.bodies));
+      const program = battleProgram ?? planningProgram(row,intent);
+      if(battleProgram)endpoints.destination=battleProgram.waypoints[0];
       void planner.plan({key:row.id,...endpoints,at:now,capability:row.capability.values,durationSeconds:WINDOW_SECONDS,
         program,cache:retainedCache(row,intent,nextRevision++)})
-        .then(result => { if (current()) accept(row, result, intent); }, error => { if (current()) fail(row, error.message); });
+        .then(result => { if (current()) accept(row, result, intent); })
+        .catch(error => { if (current()) fail(row, error.message); });
     } catch (error) { fail(row, error.message); }
   }
   function requestDue(row,bodies,now) {

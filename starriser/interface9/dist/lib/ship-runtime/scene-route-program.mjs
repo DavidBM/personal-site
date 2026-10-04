@@ -84,11 +84,32 @@ function patrol(model,request,prefix) {
   const closing=leg(model,request,waypoints.at(-1),waypoints[0]);
   const knots=cycleJoinAt([...open,...closing.slice(1)],open.length-1);
   const cycle=curve(model,request,knots,MAX_ROUTE_PROGRAM_POINTS-prefix.length-8);
-  const entry=appendCurve(model,request,prefix,[prefix.at(-1),knots[0]],MAX_ROUTE_PROGRAM_POINTS-cycle.points.length+1);
+  const entry=prefix.length<2?curve(model,request,[prefix[0],knots[0]]):appendCurve(model,request,prefix,[prefix.at(-1),knots[0]],MAX_ROUTE_PROGRAM_POINTS-cycle.points.length+1);
   return {...entry,points:[...entry.points.slice(0,-1),...cycle.points],cycleStart:entry.points.length-1};
 }
+/** Generated loops have no authored first waypoint. Join their nearest edge
+ * tangentially, keeping the approach and repeating cycle in the same cache. */
+function generatedLoop(model,request){
+  const points=request.program.waypoints;
+  const closed=joinLegs(model,request,[...points,points[0]]);
+  let best=0,nearest=Infinity;
+  for(let i=0;i+1<closed.length;i++){
+    const midpoint=closed[i].map((v,k)=>(v+closed[i+1][k])*.5),d=distance(midpoint,request.start);
+    if(dot(subtract(midpoint,request.start),subtract(closed[i+1],closed[i]))<0)continue;
+    if(d<nearest){nearest=d;best=i;}
+  }
+  const knots=cycleJoinAt(closed,best),cycle=curve(model,request,knots);
+  const before=closed[best].map((v,k)=>(v+knots[0][k])*.5);
+  const ingress=joinLegs(model,request,[request.start,before]);
+  const entry=curve(model,request,[...ingress,knots[0]],MAX_ROUTE_PROGRAM_POINTS-cycle.points.length+1);
+  return {points:[...entry.points.slice(0,-1),...cycle.points],cycleStart:entry.points.length-1,correspondence:null};
+}
 function newProgram(model,request) {
-  const prefix=curve(model,request,joinLegs(model,request,[request.start,...request.program.waypoints])).points;
+  if(request.program.closed&&request.program.replan)return generatedLoop(model,request);
+  // A new patrol needs an ingress to its first waypoint, not an entire extra
+  // lap copied into the prefix. Keep the shared cache for the repeating loop.
+  const entry=request.program.closed?request.program.waypoints.slice(0,1):request.program.waypoints;
+  const prefix=curve(model,request,joinLegs(model,request,[request.start,...entry])).points;
   if(request.program.closed)return {...patrol(model,request,prefix),correspondence:null};
   return {points:prefix,cycleStart:-1};
 }
@@ -104,7 +125,7 @@ function retainedProgram(model,request) {
   const old=request.program.retained;
   if(!old)return null;
   if(programIsClear(model,request,old.points))return {...old,retained:true};
-  if(request.program.waypoints.length>1)throw Error('Ordered path is blocked by a moving body; replace the route');
+  if(request.program.waypoints.length>1&&!request.program.replan)throw Error('Ordered path is blocked by a moving body; replace the route');
   return null;
 }
 export function solveRouteProgram(model,request) {

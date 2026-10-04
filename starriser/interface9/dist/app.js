@@ -1,3 +1,4 @@
+import { createFleetCreationMenu } from './features/fleets/create-panel.js';
 import { createBattleClient } from "./features/battles/client.js";
 import { createGpuErrorNotice } from './ui/gpu-error-notice.js';
 import { showDockPanel } from './ui/mobile-layout.js';
@@ -73,6 +74,7 @@ export class App {
         this.nextPlanetPanelAt = 0;
         this.lastSceneFleetIdsKey = "";
         this.scenePointerFeedback = null;
+        this.fleetCreationMenu = null;
         this.fleetContextMenu = null;
         this.fleetMoveStatus = null;
         this.armedFleetMove = null;
@@ -170,6 +172,14 @@ export class App {
         this.scenePointerFeedback = createScenePointerFeedback(document.body);
         this.fleetDebugLegend = createFleetDebugLegend(document.body);
         this.fleetMoveStatus = createFleetMoveStatus(document.body, () => this.cancelFleetMove());
+        this.fleetCreationMenu = createFleetCreationMenu(document.body, request => {
+            const snapshot = this.renderClient?.snapshot();
+            if (this.authority === 'online' || !snapshot?.sceneNode || snapshot.selectedFleetId)
+                return;
+            if (snapshot.sceneNode.clusterId !== request.at?.clusterId || snapshot.sceneNode.solarSystemId !== request.at?.solarSystemId)
+                return;
+            publishFeatureTopic(this.mainBus, FleetTopics.generateFleet, request);
+        });
         this.fleetContextMenu = createFleetContextMenu(document.body, {
             select: id => this.selectSceneFleet(id),
             follow: (id, shipType) => {
@@ -814,6 +824,9 @@ export class App {
             return;
         publishTopic(this.mainBus, Topics.simPause, state, 0);
     }
+    setBattleTuning(patches) {
+        this.renderClient?.send({ type: 'battleTuning', patches });
+    }
     setShipTuning(patch) {
         this.renderClient?.send({ type: "shipTuning", ...patch });
     }
@@ -1027,12 +1040,25 @@ export class App {
         this.fleetMoveStatus?.notice(fleetMoveNotice(move));
         this.syncFleetMoveStatus();
     }
+    showFleetCreationMenu(client, x, y, rect) {
+        const snapshot = client.snapshot();
+        if (this.authority === 'online' || !snapshot?.sceneNode || snapshot.selectedFleetId) {
+            this.fleetCreationMenu?.hide();
+            return false;
+        }
+        const position = sceneMoveDestination(snapshot, x - rect.left, y - rect.top);
+        if (position)
+            this.fleetCreationMenu?.open(x, y, { at: { ...snapshot.sceneNode }, position });
+        return true;
+    }
     showFleetContextMenu(x, y) {
         const client = this.renderClient;
         const systemId = client?.snapshot()?.systemId;
         if (!client || systemId == null)
             return;
         const rect = client.canvas.getBoundingClientRect();
+        if (this.showFleetCreationMenu(client, x, y, rect))
+            return;
         const generation = ++this.sceneSelectionGeneration;
         const move = this.captureFleetMove(x, y, this.armedFleetMove?.id ?? client.snapshot()?.selectedFleetId);
         let empty = false;
@@ -1484,6 +1510,8 @@ export class App {
         cancelGamePerfWork();
         this.pointerEventRouter?.dispose();
         this.scenePointerFeedback?.dispose();
+        this.fleetCreationMenu?.dispose();
+        this.fleetCreationMenu = null;
         this.fleetContextMenu?.dispose();
         this.fleetContextMenu = null;
         this.fleetMoveStatus?.dispose();

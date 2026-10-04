@@ -1298,6 +1298,7 @@ export class WebGpuMapView {
         row.groupId = slot;
         row.instanceStart = grown.instanceStart;
         row.shipCount = want;
+        row.classCounts = grown.counts.classes;
         row.marker = tint;
         row.paused = (flags & FLEET_FLAG_SIM_PAUSED) !== 0;
         row.bodyIndex = park.bodyIndex;

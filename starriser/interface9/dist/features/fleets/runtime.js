@@ -2,6 +2,7 @@ import { applyFleetOps, clearFleetWorld, createFleetWorld, removeInvalidFleets, 
 import { tickFleets } from "../../lib/fleet-sim/domain/fleet-simulation.js";
 import { trySpawnFleet, trySpawnParkedAt } from "../../lib/fleet-sim/domain/fleet-spawner.js";
 import { createBulkFleetSpawner } from "./bulk-spawn.js";
+import { createAuthoredFleet } from "./create-fleet.js";
 import { acceptLocalMove } from "./local-move.js";
 import { createFleetStateBatch } from "./state-batch.js";
 /** One authority for fleet state. Renderers receive events, never mutable world maps. */
@@ -30,6 +31,12 @@ export function createFleetRuntime(ports) {
     const generate = (payload) => {
         if (disposed)
             return;
+        if (payload?.classes != null) {
+            const fleet = createAuthoredFleet(world, payload);
+            if (fleet)
+                events.onFleetSpawned({ id: fleet.id, counts: fleet.counts, state: fleet.state, relationship: fleet.relationship });
+            return;
+        }
         const at = payload?.at;
         const hasNode = at && Number.isFinite(at.clusterId) && Number.isFinite(at.solarSystemId);
         const fleet = hasNode
@@ -53,10 +60,8 @@ export function createFleetRuntime(ports) {
                 return;
             if (!held.has(id))
                 held.set(id, { state: f.state, at: ports.now() });
-            const distance = order.radius * (order.side === 0 ? -.5 : .5);
             const localMove = { revision: order.stage === 'pursuit' ? order.revision : 1,
-                orderId: -order.id * 2 - Number(order.stage === 'engaged'), destination: order.stage === 'pursuit' ? order.center :
-                    { x: order.center.x + order.axis.x * distance, y: order.center.y, z: order.center.z + order.axis.z * distance } };
+                orderId: -order.id * 2 - Number(order.stage === 'engaged'), destination: { ...order.center } };
             f.state = { state: 'awaiting', node: f.currentNode, battle: order, localMove };
             publishState(f);
         },

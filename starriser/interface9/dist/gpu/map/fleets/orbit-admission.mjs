@@ -51,3 +51,19 @@ export function reserveOrbitBirth(layout, fleet, targetBody, bodies, reservation
   reservations.set(layout.key, { center, radius });
   return { center, origin: center.map((value, axis) => value - layout.center[axis]), time };
 }
+
+/** Authored fleets start near the clicked point, with the entire birth volume
+ * outside solid bodies. Reservation happens once, never as a live pose correction. */
+export function reserveAuthoredBirth(layout,fleet,bodies,time){
+  const p=fleet.state.position,center=[p.x,p.y,p.z].map(compactToLab);
+  const plan=classSeedPlan(fleet,layout.offsets.length/4);
+  const hull=Math.max(...plan.types.map(type=>Math.hypot(...classOf(type).extent)));
+  const exclusions=bodies.map(body=>bodyExclusion(body,hull));
+  for(let pass=0;pass<3;pass++)for(const body of exclusions){
+    const delta=center.map((v,i)=>v-body.center[i]),d=Math.hypot(...delta),r=body.radius+layout.radius+CLEARANCE_SLACK;
+    if(d>=r)continue;
+    if(d<1e-12)center[0]=body.center[0]+r;
+    else for(let i=0;i<3;i++)center[i]=body.center[i]+delta[i]*r/d;
+  }
+  return {center,origin:center.map((v,i)=>v-layout.center[i]),time};
+}

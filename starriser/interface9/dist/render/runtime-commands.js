@@ -1,3 +1,6 @@
+/** Explicit feature commands; no reflection or arbitrary method RPC. */
+// @ts-expect-error Native GPU presentation module.
+import { scheduleBattleTuning } from '../lib/ship-runtime/battle-tuning.mjs';
 import { replayGalaxyOps } from "../galaxy/galaxy-op-replayer.js";
 import { createCameraDirectorHost } from "../render/camera-director-host.js";
 // @ts-expect-error declarations live in class-tuning.mjs.d.ts
@@ -327,6 +330,9 @@ function applyFocus(ctx, command) {
             return true;
         case "simPause":
             state.view.setSimPause(command);
+            return true;
+        case 'battleTuning':
+            scheduleBattleTuning(command.patches);
             return true;
         case "shipTuning":
             scheduleShipTuning(command);

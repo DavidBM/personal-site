@@ -1,3 +1,4 @@
+import {battleTuningState,BATTLE_TUNING_WORDS} from './battle-tuning.mjs';
 import {battleStorageBytes,BATTLE_ORDER_WORDS} from './visual-battle.mjs';
 import {preparePipelines,selectShaderEntries,withGpuPreparationDiagnostics} from './pipeline-preparation.mjs';
 import {prepareAdvancePipeline} from './advance-pipeline.mjs';
@@ -205,6 +206,13 @@ async function initializeEngine(canvas,options,director,solar,lifetime,report) {
   let ownerReset=new Uint8Array(0);
   const battleBase=adviceBase+adviceBytes;
   const battleBytes=visualFormation?battleStorageBytes(director.capacity.fleetCount):0;
+  const battleTuningBase=battleBase+battleBytes-6*BATTLE_TUNING_WORDS*4;
+  let battleTuningVersion=-1;
+  function syncBattleTuning(){
+    if(!visualFormation)return;
+    const state=battleTuningState();if(state.version===battleTuningVersion)return;
+    battleTuningVersion=state.version;device.queue.writeBuffer(controlBuffer,battleTuningBase,state.data);
+  }
   const warpOffsetBase=battleBase+battleBytes;
   const travelOffsetBase=warpOffsetBase+warpOffsetCapacity*16;
   const controlBuffer=make(travelOffsetBase+warpOffsetCapacity*16,storage);
@@ -407,7 +415,7 @@ async function initializeEngine(canvas,options,director,solar,lifetime,report) {
     control.sync();control.syncPressure();control.syncSolar();device.queue.writeBuffer(controlBuffer,0,control.data);
     formPage=0;device.queue.writeBuffer(controlBuffer,formationOffset,formationZeros);
     device.queue.writeBuffer(controlBuffer,sceneRouteBase,sceneRouteZeros);
-    if(battleBytes)device.queue.writeBuffer(controlBuffer,battleBase,new Uint8Array(battleBytes));
+    if(battleBytes){device.queue.writeBuffer(controlBuffer,battleBase,new Uint8Array(battleBytes));battleTuningVersion=-1;}
     if(adviceBytes)device.queue.writeBuffer(controlBuffer,adviceBase,new Uint8Array(adviceBytes));
     for(const b of agents) device.queue.writeBuffer(b,0,seed);
     const dead=new Float32Array(count*3*RING*4);for(let i=3;i<dead.length;i+=4) dead[i]=-1;
@@ -467,6 +475,7 @@ async function initializeEngine(canvas,options,director,solar,lifetime,report) {
     nearbySchedule.prepare(time,catalogBodies(time),nearbyOptions);
   }
   function updateFrame(time) {
+    syncBattleTuning();
     const center=sequence?solar.encounterAt(time):[0,0,0];
     solar.advance(time);if(!visualFormation)refreshNearby(time);control.syncNearby();control.syncSolar();
     pressure.tick(time,period,center);control.syncPressure();

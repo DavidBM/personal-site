@@ -268,6 +268,7 @@ function applyRect(element, rect) {
     element.style.boxSizing = "border-box";
 }
 const DOCK_ICON = {
+    "battle-tuning-panel": `<path d="M5 4l15 15M4 19L19 4M4 4l1 5 4-4M15 19l4-4 1 5M5 15l4 4M15 5l4 4"/>`,
     "controls-panel": `<circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/><circle cx="6.2" cy="8" r="1" fill="currentColor" stroke="none"/><circle cx="17.5" cy="7.2" r="1.1" fill="currentColor" stroke="none"/><circle cx="16.2" cy="16.4" r="1" fill="currentColor" stroke="none"/><path d="M8 15.5c1.2-3.2 3-5 6.2-5.6"/>`,
     "stats-panel": `<path d="M5 19V11M12 19V5M19 19v-6"/>`,
     "system-planet-panel": `<circle cx="12" cy="12" r="4.2"/><ellipse cx="12" cy="12" rx="9" ry="3.2" transform="rotate(-24 12 12)"/>`,
@@ -408,7 +409,7 @@ export function installDockLayout(host, windows, pause, resetCamera) {
     const live = windows.map((row) => {
         const prior = saved?.windows?.[row.id];
         const anchor = prior && isAnchor(prior.anchor) ? prior.anchor : row.anchor;
-        return { ...row, anchor, hidden: prior?.hidden === true };
+        return { ...row, anchor, hidden: prior?.hidden ?? row.initiallyHidden ?? false };
     });
     let sidebarOpen = saved?.sidebarOpen === true;
     let mobileOpen = null;

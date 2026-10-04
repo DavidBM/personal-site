@@ -69,7 +69,11 @@ export function apportion(total, weights) {
   return parts;
 }
 
-export function fleetComposition(id) {
+export function fleetComposition(id, authored) {
+  if (authored?.length === 6) {
+    const classes = authored.flatMap((count,kind)=>count>0?[{type:JEWEL_CLASS_TYPES[kind],kind,weight:count}]:[]);
+    return {classes, logical:authored.reduce((a,b)=>a+b,0),logicalParts:classes.map(row=>row.weight)};
+  }
   const roll = mixer(mixHash(id));
   const k = 1 + (roll() % 6);
   const picked = combination(6, k, roll() % choose(6, k));

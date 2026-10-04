@@ -11,6 +11,7 @@ export const FleetTopicNames = {
     fleetRemoved: "fleet_removed",
     simPause: "sim_pause",
 };
+export const MAX_AUTHORED_SHIPS = 4096;
 /** Commands are requests; lifecycle events report the worker's accepted state. */
 export const FleetTopics = {
     generateFleet: defineTopic(FleetTopicNames.generateFleet),

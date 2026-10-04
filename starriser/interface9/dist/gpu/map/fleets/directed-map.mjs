@@ -572,7 +572,7 @@ export function classSeedPlan(fleet, n) {
   if (fleet.type != null) {
     return { types: [fleet.type & 31], parts: [n], groups: [groupId] };
   }
-  const mix = fleetComposition(fleet.id ?? fleet.slot ?? 0);
+  const mix = fleetComposition(fleet.id ?? fleet.slot ?? 0, fleet.classCounts);
   return {
     types: mix.classes.map((entry) => entry.type),
     parts: visualParts(mix, n),

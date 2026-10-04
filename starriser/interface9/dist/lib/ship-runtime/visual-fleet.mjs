@@ -68,8 +68,9 @@ fn prepareVisualFleets(@builtin(global_invocation_id) gid:vec3<u32>){
   if(member.identity.z==0u){member=visualMember(fleet,0u);}
   if(member.identity.z==0u){director.fleetGuides[fleet].status.z=0.0;director.fleetTravel[fleet].center.w=0.0;return;}
   let prior=director.fleetGuides[fleet];
-  let entryDone=prior.ship.memory.z==-1.0&&prior.ship.memory.w>0.5&&prior.status.x==director.sceneRoutes[fleet].head.w&&prior.ship.flight.x==member.flight.x;
-  if(visualBattleConfigured(member)&&(visualInBattle(member)||entryDone)){
+  let route=director.sceneRoutes[fleet];
+  let entryDone=route.head.x>=2.0&&route.info.y<0.0&&prior.ship.memory.z==-1.0&&prior.ship.memory.x>=-route.info.y-1.0&&prior.status.x==route.head.w&&prior.ship.flight.x==member.flight.x;
+  if(visualBattleConfigured(member)&&route.head.x>=2.0&&route.info.y<0.0&&(visualInBattle(member)||entryDone)){
     director.fleetGuides[fleet]=prepareBattleFleet(member,prior,u.clock.y);return;
   }
   var g=prior.ship;

@@ -83,12 +83,24 @@ node scripts/run-module-tests.mjs features --dist-dir /tmp/galaxy-battles-build
 node scripts/run-module-tests.mjs ship-runtime --dist-dir /tmp/galaxy-battles-build
 ./tests/run.sh scene-battles --skip-build --dist-dir /tmp/galaxy-battles-build --background
 ./tests/run.sh app-battles --skip-build --dist-dir /tmp/galaxy-battles-build --background
+./tests/run.sh app-battles --query authored=1 --skip-build --dist-dir /tmp/galaxy-battles-build --background
 ```
 
-`scene-battles` checks 2,048 ships across choreography phases, continuous poses
-and identity, containment after entry, and return to normal movement.
+`scene-battles` checks 2,048 ships from all six classes across choreography phases,
+live noise/count edits, continuous poses and identity, containment, moving
+capitals, and return to normal movement.
 `app-battles` clicks the real Fight/End menus and checks capture, authority locks
-and ship follow through worker messages. These are functional checks, not FPS claims.
+and ship follow through worker messages. Its `authored=1` variant creates both
+fleets through the right-click form, verifies exact composition/relationships,
+and exercises coalesced live tuning and Reset. These are functional checks,
+not FPS claims.
+
+`node tests/scene-battles/benchmark.mjs BASE_BUILD CURRENT_BUILD` runs fixed-50K
+ordinary and eight-battle full-frame workloads in ABBA order at 2560×1440 with
+high-hull MSAA, half glow, stars and every-frame simulation. It verifies actual
+battle membership outside the timing window. Results default to
+`/tmp/galaxy-battle-benchmark.json`; override with `GALAXY_BENCH_OUTPUT`.
+`GALAXY_BENCH_ORDER='[1]'` is useful for one current-build diagnostic run.
 
 ## Prerequisites
 

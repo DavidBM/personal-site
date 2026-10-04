@@ -24,6 +24,7 @@ export function copySceneFleetRow(source, out = {}) {
     out.fromZ = source.fromZ;
     out.toX = source.toX;
     out.toZ = source.toZ;
+    out.classCounts = source.classCounts;
     out.state = source.state;
     out.plan = source.plan;
     out.ownerSystemId = source.ownerSystemId;

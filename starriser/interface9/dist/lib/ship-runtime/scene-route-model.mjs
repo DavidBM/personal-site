@@ -59,7 +59,7 @@ function routeProgram(value) {
   if(!Array.isArray(value.waypoints)||value.waypoints.length<1||value.waypoints.length>MAX_ROUTE_WAYPOINTS)invalid('Invalid waypoint capacity');
   if(value.closed&&value.waypoints.length<3)invalid('A patrol needs at least three waypoints');
   const waypoints=value.waypoints.map(p=>vector(p,3,'authored waypoint').map(linear));
-  return {waypoints,closed:Boolean(value.closed),retained:retainedProgram(value.retained),extension:extensionProgram(value.extension,waypoints.length)};
+  return {waypoints,closed:Boolean(value.closed),replan:value.replan===true,retained:retainedProgram(value.retained),extension:extensionProgram(value.extension,waypoints.length)};
 }
 function retainedProgram(value) {
   if(!value)return null;

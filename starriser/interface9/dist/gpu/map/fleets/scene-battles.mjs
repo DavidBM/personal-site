@@ -2,14 +2,16 @@ import {BATTLE_ORDER_WORDS} from '../../../lib/ship-runtime/visual-battle.mjs';
 import {SCENE_LAB} from '../../../lib/ship-runtime/flight-layout.mjs';
 
 const PHASE={pincer:0,pass:1,pursue:2,evade:3,orbit:4,regroup:5};
-/** Event/lifetime changes only. One 96-byte write; no per-ship CPU work. */
+/** Event/lifetime/admission changes only. One 192-byte write; no CPU ship work. */
 export function createSceneBattles(capacity,ports){
   const previous=new Array(capacity),targets=new Array(capacity);
   const lives=new Uint32Array(capacity),sizes=new Uint32Array(capacity),own=new Uint32Array(capacity);
+  const ownSizes=new Uint32Array(capacity);
   const data=new ArrayBuffer(BATTLE_ORDER_WORDS*4),f=new Float32Array(data),w=new Uint32Array(data);
-  function unchanged(slot,b,opponent,serial){
+  function unchanged(slot,b,opponent,serial,count){
+    if(previous[slot]!==b||own[slot]!==serial||ownSizes[slot]!==count)return false;
     const life=opponent?.serialBase??0,size=opponent?.shipCount??0;
-    return previous[slot]===b&&targets[slot]===opponent&&lives[slot]===life&&sizes[slot]===size&&own[slot]===serial;
+    return targets[slot]===opponent&&lives[slot]===life&&sizes[slot]===size;
   }
   function writeOpponent(opponent,tactic){
     w[4]=0xffffffff;if(!opponent)return;
@@ -23,6 +25,7 @@ export function createSceneBattles(capacity,ports){
   }
   function writeOrder(fleet,b,opponent){
     const tactic=b.tactics[b.side];
+    for(const row of ports.types(fleet.id))w.set([row.ordinal,row.count,row.lastOrdinal==null?row.count:1,0],24+row.kind*4);
     w.set([fleet.serialBase,b.id,b.revision,PHASE[tactic.manoeuvre]],0);writeOpponent(opponent,tactic);
     w[22]=Number(b.stage==='engaged');
     f.set([b.center.x*SCENE_LAB,b.center.y*SCENE_LAB,b.center.z*SCENE_LAB,b.radius*SCENE_LAB],8);
@@ -37,12 +40,14 @@ export function createSceneBattles(capacity,ports){
     const slot=fleet.slot??0,b=fleet.state?.battle;
     if(!b&&!previous[slot])return;
     const opponent=b?.stage==='engaged'?ports.fleet(b.opponent):null;
-    if(unchanged(slot,b,opponent,fleet.serialBase))return;
+    const count=fleet.shipCount??0;
+    if(unchanged(slot,b,opponent,fleet.serialBase,count))return;
+    ownSizes[slot]=count;
     remember(slot,b,opponent,fleet.serialBase);w.fill(0);
     if(b)writeOrder(fleet,b,opponent);
     ports.upload(slot,data);
   }
-  return {sync,reset(){previous.fill(undefined);targets.fill(undefined);lives.fill(0);sizes.fill(0);own.fill(0);},
+  return {sync,reset(){previous.fill(undefined);targets.fill(undefined);lives.fill(0);sizes.fill(0);own.fill(0);ownSizes.fill(0);},
     remove(slot){previous[slot]=undefined;targets[slot]=undefined;w.fill(0);ports.upload(slot,data);}};
 }
 
