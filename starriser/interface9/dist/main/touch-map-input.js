@@ -2,13 +2,13 @@
 export function touchPairDelta(a, b, nextA, nextB) {
     const distance = Math.max(8, Math.hypot(b.x - a.x, b.y - a.y));
     const nextDistance = Math.max(8, Math.hypot(nextB.x - nextA.x, nextB.y - nextA.y));
-    const angle = Math.atan2(nextB.y - nextA.y, nextB.x - nextA.x) - Math.atan2(b.y - a.y, b.x - a.x);
-    return { zoom: distance / nextDistance, yaw: Math.atan2(Math.sin(angle), Math.cos(angle)),
-        pitch: ((nextA.y + nextB.y) - (a.y + b.y)) * 0.0025 };
+    return { zoom: distance / nextDistance };
 }
 export function installTouchMapInput(canvas, actions) {
     const points = new Map();
-    let start = null, moved = false, multi = false, startedAt = 0;
+    let start = null, moved = false, multi = false, consumed = false;
+    let hold;
+    const cancelHold = () => { clearTimeout(hold); hold = undefined; };
     const point = (e) => ({ x: e.clientX, y: e.clientY });
     const down = (e) => {
         if (e.pointerType !== 'touch')
@@ -19,12 +19,15 @@ export function installTouchMapInput(canvas, actions) {
             start = point(e);
             moved = false;
             multi = false;
-            startedAt = performance.now();
+            consumed = false;
             actions.begin();
+            hold = setTimeout(() => { hold = undefined; consumed = true; actions.longPress(start.x, start.y); }, 500);
         }
         points.set(e.pointerId, point(e));
-        if (points.size > 1)
+        if (points.size > 1) {
             multi = true;
+            cancelHold();
+        }
     };
     const move = (e) => {
         if (!points.has(e.pointerId))
@@ -33,7 +36,7 @@ export function installTouchMapInput(canvas, actions) {
         const entries = [...points.entries()], old = points.get(e.pointerId);
         const next = point(e);
         points.set(e.pointerId, next);
-        if (points.size > 2)
+        if (points.size > 2 || consumed)
             return;
         const rect = canvas.getBoundingClientRect();
         if (points.size === 2) {
@@ -44,24 +47,38 @@ export function installTouchMapInput(canvas, actions) {
             moved = true;
             return;
         }
+        // A lifted pinch finger must not turn the remainder into an orbit drag.
+        if (multi)
+            return;
         if (!moved && start && Math.hypot(next.x - start.x, next.y - start.y) < 6)
             return;
         moved = true;
+        cancelHold();
         actions.gesture({ type: 'touchGesture', x: next.x - rect.left, y: next.y - rect.top,
-            dx: next.x - old.x, dy: next.y - old.y, zoom: 1, yaw: 0, pitch: 0 });
+            dx: next.x - old.x, dy: next.y - old.y, zoom: 1 });
     };
     const up = (e) => {
         if (!points.delete(e.pointerId))
             return;
         e.preventDefault();
-        if (e.type === 'pointerup' && !points.size && !moved && !multi && performance.now() - startedAt < 500)
+        cancelHold();
+        if (e.type === 'pointerup' && !points.size && !moved && !multi && !consumed)
             actions.tap(e.clientX, e.clientY);
         if (e.type !== 'pointerup')
             moved = true;
         if (canvas.hasPointerCapture(e.pointerId))
             canvas.releasePointerCapture(e.pointerId);
     };
-    const cancel = () => { points.clear(); start = null; moved = true; };
+    const cancel = () => {
+        cancelHold();
+        const ids = [...points.keys()];
+        points.clear();
+        start = null;
+        moved = true;
+        for (const id of ids)
+            if (canvas.hasPointerCapture(id))
+                canvas.releasePointerCapture(id);
+    };
     canvas.addEventListener('pointerdown', down);
     canvas.addEventListener('pointermove', move);
     canvas.addEventListener('pointerup', up);

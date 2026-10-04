@@ -1,7 +1,6 @@
 import { createFleetCreationMenu } from './features/fleets/create-panel.js';
 import { createBattleClient } from "./features/battles/client.js";
 import { createGpuErrorNotice } from './ui/gpu-error-notice.js';
-import { showDockPanel } from './ui/mobile-layout.js';
 import { readStarField, writeStarField } from './main/graphics-settings.js';
 import { QualityDiagnosticsPanel } from './ui/quality-diagnostics.js';
 import { simulationRate } from './contracts/simulation-rate.js';
@@ -883,45 +882,35 @@ export class App {
         this.selectSceneBody(body.index);
         return true;
     }
-    async handleTouchTap(x, y) {
+    handleTouchTap(x, y) {
         const client = this.renderClient, snapshot = client?.snapshot();
         if (!client || !snapshot)
             return;
-        if (snapshot.systemId == null) {
-            const pick = this.contextMenuController?.pick(x, y);
-            if (pick && this.lastUIState.selectedId === pick.cluster.id) {
-                this.contextMenuController?.show(pick.cluster.id, x, y);
-                return;
-            }
-            const camera = this.cameraController;
-            const ground = camera?.getGroundPointFromScreenPosition(x, y);
-            if (camera && ground)
-                this.publishPointerEvent({
-                    type: 'tap', eventSource: 'touch', screen_position: { x, y },
-                    galaxy_position: { x: ground.x, z: ground.z }, key_state: this.controlsManager.getCurrentKeyState(),
-                    ray: camera.getPointerRayFromScreenPosition(x, y),
-                });
+        // Also covers a followed ship between systems, when systemId is null.
+        if (snapshot.following || snapshot.focusIndex != null || snapshot.selectedFleetId != null) {
+            this.clearSceneSelection();
             return;
         }
-        const generation = ++this.sceneSelectionGeneration;
-        const rect = client.canvas.getBoundingClientRect();
-        try {
-            const target = await client.query({ type: 'pickSceneTarget', x: x - rect.left, y: y - rect.top });
-            if (this.disposed || generation !== this.sceneSelectionGeneration || client.snapshot()?.systemId !== snapshot.systemId)
-                return;
-            if (target?.kind === 'fleet' && snapshot.selectedFleetId === target.id)
-                this.showFleetContextMenu(x, y);
-            else if (target?.kind === 'body' && snapshot.focusIndex === target.index)
-                showDockPanel('system-planet-panel');
-            else if (!target && this.armedFleetMove) {
-                const move = this.captureFleetMove(x, y, this.armedFleetMove.id);
-                if (move)
-                    this.issueFleetMove(move);
-            }
-            else
-                this.applyScenePick(target);
+        if (snapshot.systemId == null) {
+            this.handleGalaxyTouchTap(x, y);
+            return;
         }
-        catch { /* A superseded scene pick has no selection side effects. */ }
+        this.queueScenePick(x, y, true);
+    }
+    handleGalaxyTouchTap(x, y) {
+        const pick = this.contextMenuController?.pick(x, y);
+        if (pick && this.lastUIState.selectedId === pick.cluster.id) {
+            this.contextMenuController?.show(pick.cluster.id, x, y);
+            return;
+        }
+        const camera = this.cameraController;
+        const ground = camera?.getGroundPointFromScreenPosition(x, y);
+        if (camera && ground)
+            this.publishPointerEvent({
+                type: 'tap', eventSource: 'touch', screen_position: { x, y },
+                galaxy_position: { x: ground.x, z: ground.z }, key_state: this.controlsManager.getCurrentKeyState(),
+                ray: camera.getPointerRayFromScreenPosition(x, y),
+            });
     }
     tryPickSceneTarget(x, y) {
         const client = this.renderClient;

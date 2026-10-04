@@ -144,15 +144,35 @@ export class WebGpuCameraController {
         }
     }
     applyTouchGesture(input) {
+        if (this.followActive) {
+            const look = applyFollowDragLook(this.lookYaw, this.lookPitch, input.dx, input.dy);
+            this.lookYaw = look.lookYaw;
+            this.lookPitch = look.lookPitch;
+            this.lookYawHeld = 0;
+            this.lookPitchHeld = 0;
+            this.followZoomTarget = Math.max(FOLLOW_ZOOM_MIN, Math.min(FOLLOW_ZOOM_MAX, this.followZoomTarget * input.zoom));
+            return;
+        }
+        if (this.isSystemOrbitControl()) {
+            this.touchSystemOrbit(input);
+            return;
+        }
         const pose = touchCameraPose(this.view.getCameraState(), input);
-        this.releaseFollow('touch-navigation');
-        this.followActive = false;
-        this.followGetPose = null;
         this.followTransition = null;
         this.disarmOrbit();
         this.touchFree = true;
-        this.view.setCameraLookAt(pose.eyeX, pose.eyeY, pose.eyeZ, pose.targetX, pose.targetZ, pose.targetY);
+        this.view.setCameraLookAt(pose.eyeX, pose.eyeY, pose.eyeZ, pose.targetX, pose.targetZ, pose.targetY, pose.upX, pose.upY, pose.upZ);
         this.adoptViewCamera();
+    }
+    touchSystemOrbit(input) {
+        this.takeOverOrbitEase();
+        if (input.zoom !== 1) {
+            const { minR, maxR } = this.orbitMinMax();
+            // Touch zoom never exits to a map angle. A tap explicitly releases focus.
+            this.orbit = systemOrbitApplyWheel(this.orbit, Math.log(input.zoom), minR, maxR).pose;
+            this.orbitRadiusCur = this.orbit.radius;
+        }
+        this.applyOrbitDrag(input.dx, input.dy);
     }
     resetOrientation() {
         const st = this.view.getCameraState();

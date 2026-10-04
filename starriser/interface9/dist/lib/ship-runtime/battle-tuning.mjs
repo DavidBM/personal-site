@@ -1,7 +1,7 @@
 /** Compact presentation profiles; no combat rules or shader specialization. */
 export const BATTLE_TUNING_WORDS=20;
 export const BATTLE_TUNING_FIELDS=Object.freeze(['speed','cycleTicks','spread','response','shipNoise','shipPeriod','shipVertical','shipEnabled','squadNoise','squadPeriod','squadVertical','squadEnabled','squads','height','cohesion','breakaway','passWidth']);
-export const BATTLE_TUNING_LIMITS=Object.freeze([[.05,3],[60,7200],[0,1],[.2,8],[0,1],[10,3600],[0,2],[0,1],[0,1],[30,7200],[0,2],[0,1],[1,16],[.1,2],[0,1],[.1,1],[.1,1]]);
+export const BATTLE_TUNING_LIMITS=Object.freeze([[.05,3],[60,7200],[0,10],[.2,8],[0,1],[10,3600],[0,2],[0,1],[0,1],[30,7200],[0,2],[0,1],[1,16],[.1,2],[0,1],[.1,1],[.1,1]]);
 export function defaultBattleTuning(){
  return [1.25,1,.75,.45,.22,.10].map((speed,index)=>({speed,cycleTicks:1200,
   spread:[.7,.65,.45,.5,.35,.25][index],response:[3.5,3,2.3,1.8,1.2,.9][index],

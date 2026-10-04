@@ -369,10 +369,6 @@ function applyNavigation(ctx, command) {
             if (command.input.type === 'touchGesture') {
                 if (state.director.isPlaying())
                     resetDirector(state);
-                if (ctx.focus.getFocusIndex() != null)
-                    ctx.focus.clearFocus();
-                if (state.camera.isFollowing())
-                    stopFollowingShip(state, 'touch-navigation');
             }
             if (command.input.type === "doubleClick")
                 ctx.focus.clearFocus();

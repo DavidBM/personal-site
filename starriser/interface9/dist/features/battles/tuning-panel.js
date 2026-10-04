@@ -3,7 +3,7 @@ import { ensureMicroStyles } from '../../ui/micro.js';
 // @ts-expect-error Native presentation module.
 import { defaultBattleTuning, battleTuningProfiles, scheduleBattleTuning, BATTLE_TUNING_FIELDS, BATTLE_TUNING_LIMITS } from '../../lib/ship-runtime/battle-tuning.mjs';
 const names = ['Interceptor', 'Fighter', 'Bomber', 'Frigate', 'Battleship', 'Colossus'];
-const labels = ['Speed', 'Cycle · ticks', 'Stream spread', 'Tracking response', 'Ship noise strength', 'Ship noise · ticks', 'Ship vertical ratio', 'Ship noise enabled', 'Squad noise strength', 'Squad noise · ticks', 'Squad vertical ratio', 'Squad noise enabled', 'Squads per class', 'Stream height ratio', 'Cohesion', 'Breakaway width', 'Attack pass width'];
+const labels = ['Speed', 'Cycle · ticks', 'Ship spread', 'Tracking response', 'Ship noise strength', 'Ship noise · ticks', 'Ship vertical ratio', 'Ship noise enabled', 'Squad noise strength', 'Squad noise · ticks', 'Squad vertical ratio', 'Squad noise enabled', 'Squads per class', 'Ship spread height', 'Cohesion', 'Breakaway width', 'Attack pass width'];
 export function buildBattleTuningPanel(ctx, actions) {
     ensureMicroStyles();
     const panel = ctx.panel({ id: 'battle-tuning-panel', title: 'Battle', width: 290, className: 'micro' });
@@ -18,7 +18,7 @@ export function buildBattleTuningPanel(ctx, actions) {
     panel.content.append(select);
     const hint = document.createElement('p');
     hint.style.cssText = 'margin:6px 0;color:#9fb4c9;font:inherit;line-height:1.4';
-    hint.textContent = 'Selected class only. At strength 1, ship / squad noise spans ±10% / ±16% of battle radius per axis. Periods use simulation ticks.';
+    hint.textContent = 'Selected class only. Ship spread gives each ship its own stable offset inside the squad, even with noise off. Spread height adds vertical room. Noise adds movement; at strength 1, ship / squad noise spans ±10% / ±16% of battle radius per axis. Periods use simulation ticks.';
     panel.content.append(hint);
     const inputs = [], texts = [];
     let selected = 0, frame = 0;

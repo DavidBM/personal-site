@@ -38,13 +38,14 @@ export function hullChaseCamera(pose, zoom = 1, lookYaw = 0, lookPitch = 0) {
     const r = Math.max(SCENE_NEAR * 3, pose.hullRadius ?? SCENE_NEAR * 3);
     const q = pose.attitude;
     const local = chaseCameraFromShip(0, 0, 0, 0, {
-        back: r * 6 * zoom, height: r * 2 * zoom, lookAhead: r * 1.5, lookY: r * 0.25, lookYaw, lookPitch,
+        back: r * 6 * zoom, height: r * 2 * zoom, lookAhead: r * 1.5 * zoom, lookY: r * 0.25 * zoom, lookYaw, lookPitch,
     });
     // At roof-camera distance, drag pitch can swing the boom inside the hull.
     // Keep a full near-plane margin outside its rendered origin-radius sphere.
     const clearance = Math.max(1, (r + 2 * SCENE_NEAR) / Math.hypot(local.eyeX, local.eyeY, local.eyeZ));
     const eye = rotateShipVector(q, local.eyeX * clearance, local.eyeY * clearance, local.eyeZ * clearance);
-    const target = rotateShipVector(q, local.targetX, local.targetY, local.targetZ);
+    // Scale both endpoints together: zoom and hull clearance must not steer the view.
+    const target = rotateShipVector(q, local.targetX * clearance, local.targetY * clearance, local.targetZ * clearance);
     const up = rotateShipVector(q, 0, 1, 0);
     return { eyeX: pose.posX + eye.x, eyeY: pose.posY + eye.y, eyeZ: pose.posZ + eye.z,
         targetX: pose.posX + target.x, targetY: pose.posY + target.y, targetZ: pose.posZ + target.z,

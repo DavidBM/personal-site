@@ -242,7 +242,7 @@ export function createPointerEventRouter({ canvas, cameraController, controlsMan
         bodyPickConsumed = false;
         // Do not lock on mousedown — first click of a dblclick would boom,
         // then onDoubleClick dives 350/2500 and locked tick slams back.
-        // Lock on mouseup detail===1 (single click). Touch stays immediate.
+        // Lock on mouseup detail===1 (single click). Touch has its own recognizer.
         // Edit handles are highest-priority and bypass camera/selection routing.
         if (routeEdit("handleDown", event)) {
             event.preventDefault();
@@ -331,7 +331,7 @@ export function createPointerEventRouter({ canvas, cameraController, controlsMan
         controlsManager.clearPointerDownTimestamp();
     });
     cleanup.push(installTouchMapInput(canvas, {
-        begin: () => getContextMenuController()?.hide(),
+        begin: () => { getContextMenuController()?.hide(); onTouchNavigate?.(); },
         gesture: input => { onTouchNavigate?.(); cameraController.onTouchGesture?.(input); },
         tap: (x, y) => {
             if (onTouchTap) {
@@ -341,6 +341,12 @@ export function createPointerEventRouter({ canvas, cameraController, controlsMan
             if (scenePicker?.(x, y))
                 return;
             publishScreenEvent('tap', x, y, { eventSource: 'touch' });
+        },
+        longPress: (x, y) => {
+            // Use the same primary selection / armed-move path as a mouse left click.
+            if (scenePicker?.(x, y))
+                return;
+            publishScreenEvent('tap', x, y, { eventSource: 'selection' });
         },
     }));
     addCanvasListener("dblclick", () => {
