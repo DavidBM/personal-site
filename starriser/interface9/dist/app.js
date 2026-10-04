@@ -823,6 +823,9 @@ export class App {
             return;
         publishTopic(this.mainBus, Topics.simPause, state, 0);
     }
+    setBattleFx(patches, enabled) {
+        this.renderClient?.send({ type: 'battleFx', patches, enabled });
+    }
     setBattleTuning(patches) {
         this.renderClient?.send({ type: 'battleTuning', patches });
     }

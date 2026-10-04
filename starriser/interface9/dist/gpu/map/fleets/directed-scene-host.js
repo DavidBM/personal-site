@@ -1,5 +1,4 @@
-// @ts-nocheck
-import { createSceneBattles, battleSphereRoutes } from './scene-battles.mjs';
+import { createSceneBattles, battleSphereRoutes, battleTacticLabel } from './scene-battles.mjs';
 import { battleArena } from '../../../features/battles/arena.js';
 import { BATTLE_RADIUS } from '../../../features/battles/contracts.js';
 import { createSceneDepartures } from './scene-departure.mjs';
@@ -264,6 +263,7 @@ export function createDirectedSceneHost(injected = null, options = {}) {
         fleet: id => fleetIndex.get(id), types: id => typeRows.get(id) ?? [],
         upload: (slot, data) => runtime?.uploadBattle?.(slot, data),
     });
+    const fxFrame = { active: 0, orders: battleVisuals.orders, version: 0, ranges: null, generation: 0, sims: null, time: 0, selected: 0xffffffff };
     const nearbyPositions = createSceneNearbyPositions(fleetCount);
     function debugRepresentatives() {
         if (!debugFleet || !selectedId)
@@ -311,7 +311,7 @@ export function createDirectedSceneHost(injected = null, options = {}) {
         const battle = fleet.state?.battle;
         if (battle)
             return { action: battle.stage === 'pursuit' ? 'Intercept fleet' : 'Battle',
-                micro: battle.stage === 'pursuit' ? `Following target · ${localRoutes.rows.get(id)?.status ?? 'preparing route'}` : `${battle.tactics[battle.side].manoeuvre} · up to 16 squads/class · ${battle.opponent}` };
+                micro: battle.stage === 'pursuit' ? `Following target · ${localRoutes.rows.get(id)?.status ?? 'preparing route'}` : `${battleTacticLabel(battle)} · up to 16 squads/class · ${battle.opponent}` };
         const route = localRoutes.rows.get(id);
         if (route && !route.automatic)
             return routeActivity(route, telemetry?.freshTravel(fleet.slot ?? 0));
@@ -2116,6 +2116,18 @@ export function createDirectedSceneHost(injected = null, options = {}) {
             return capState;
         },
         drawStats: () => ships.drawStats(),
+        battleFxInputs() {
+            if (!runtime || !shipSimBuffer)
+                return null;
+            fxFrame.active = battleVisuals.activeCount;
+            fxFrame.version = battleVisuals.version;
+            fxFrame.ranges = slotRanges;
+            fxFrame.generation = mapGen;
+            fxFrame.sims = shipSimBuffer;
+            fxFrame.time = warpPresentationTime;
+            fxFrame.selected = ships.resolve(followedShip)?.kernelIndex ?? 0xffffffff;
+            return fxFrame;
+        },
         combatSlots: () => combatSlotsOf(runtime),
         destroy: destroyHost,
     };

@@ -213,6 +213,7 @@ export class WebGpuMapView {
             bootstrap, surface: canvas, coordinates: this.coordinates, attachments: this.attachments,
             galaxy: this.galaxyEncoding, solar: this.solarPresentation,
             fleets: createFleetFrameEncoding(this.fleetsLayer, this.modelLayer, this.coordinates, canvas, {
+                battleFxInputs: () => this.directed?.battleFxInputs() ?? null,
                 encodeFollowCamera: (...args) => this.directed?.encodeFollowCamera(...args),
                 setPresentationCamera: (...args) => this.directed?.setPresentationCamera?.(...args),
                 encodeTick: (encoder, timeSec, dtSec, sceneOpen, nowMs) => {

@@ -1,7 +1,11 @@
+import { mountBattleFx } from './fx-controls.js';
 import { bindText, setText } from '../../ui/dom-bindings.js';
 import { ensureMicroStyles } from '../../ui/micro.js';
 // @ts-expect-error Native presentation module.
 import { defaultBattleTuning, battleTuningProfiles, scheduleBattleTuning, BATTLE_TUNING_FIELDS, BATTLE_TUNING_LIMITS } from '../../lib/ship-runtime/battle-tuning.mjs';
+import { mountBattleStrategies } from './strategy-controls.js';
+// @ts-expect-error Native presentation module.
+import { BATTLE_STRATEGIES } from '../../lib/ship-runtime/battle-strategies.mjs';
 const names = ['Interceptor', 'Fighter', 'Bomber', 'Frigate', 'Battleship', 'Colossus'];
 const labels = ['Speed', 'Cycle · ticks', 'Ship spread', 'Tracking response', 'Ship noise strength', 'Ship noise · ticks', 'Ship vertical ratio', 'Ship noise enabled', 'Squad noise strength', 'Squad noise · ticks', 'Squad vertical ratio', 'Squad noise enabled', 'Squads per class', 'Ship spread height', 'Cohesion', 'Breakaway width', 'Attack pass width'];
 export function buildBattleTuningPanel(ctx, actions) {
@@ -19,7 +23,6 @@ export function buildBattleTuningPanel(ctx, actions) {
     const hint = document.createElement('p');
     hint.style.cssText = 'margin:6px 0;color:#9fb4c9;font:inherit;line-height:1.4';
     hint.textContent = 'Selected class only. Ship spread gives each ship its own stable offset inside the squad, even with noise off. Spread height adds vertical room. Noise adds movement; at strength 1, ship / squad noise spans ±10% / ±16% of battle radius per axis. Periods use simulation ticks.';
-    panel.content.append(hint);
     const inputs = [], texts = [];
     let selected = 0, frame = 0;
     const queued = new Map();
@@ -27,6 +30,8 @@ export function buildBattleTuningPanel(ctx, actions) {
     function queue(patch) { queued.set(patch.index, { ...queued.get(patch.index), ...patch }); if (!frame)
         frame = requestAnimationFrame(flush); }
     function paint() {
+        weaponControls.paint();
+        strategyControls.paint(rows[selected]);
         BATTLE_TUNING_FIELDS.forEach((key, i) => {
             const v = rows[selected][key];
             inputs[i].value = String(v);
@@ -34,6 +39,17 @@ export function buildBattleTuningPanel(ctx, actions) {
             setText(texts[i], String(v));
         });
     }
+    const strategyControls = mountBattleStrategies(panel.content, patch => {
+        Object.assign(rows[selected], patch);
+        queue({ index: selected, ...patch });
+        strategyControls.paint(rows[selected]);
+    });
+    const help = document.createElement('details');
+    help.style.cssText = 'flex-shrink:0;margin:6px 0';
+    const helpTitle = document.createElement('summary');
+    helpTitle.textContent = 'Movement and noise · help';
+    help.append(helpTitle, hint);
+    panel.content.append(help);
     BATTLE_TUNING_FIELDS.forEach((key, i) => {
         const label = document.createElement('label');
         label.style.cssText = 'display:grid;grid-template-columns:138px minmax(0,1fr) 42px;gap:4px;align-items:center;min-height:28px;flex-shrink:0';
@@ -51,10 +67,12 @@ export function buildBattleTuningPanel(ctx, actions) {
         inputs.push(input);
         label.append(input, value);
         panel.content.append(label);
-        input.oninput = () => { const v = toggle ? Number(input.checked) : Number(input.value); rows[selected][key] = v; setText(texts[i], String(v)); queue({ index: selected, [key]: v }); };
+        input.oninput = () => { const v = toggle ? Number(input.checked) : Number(input.value); rows[selected][key] = v; setText(texts[i], String(v)); queue({ index: selected, [key]: v }); if (key === 'squads')
+            strategyControls.paint(rows[selected]); };
     });
+    const weaponControls = mountBattleFx(panel.content, actions, () => selected);
     select.onchange = () => { selected = Number(select.value); paint(); };
-    function reset(index) { rows[index] = { ...defaults[index] }; queue({ index, ...rows[index] }); }
+    function reset(index) { weaponControls.reset(index); rows[index] = { ...defaults[index], strategies: [...defaults[index].strategies] }; queue({ index, ...rows[index] }); }
     const buttons = document.createElement('div');
     buttons.className = 'micro-actions';
     panel.content.append(buttons);
@@ -69,14 +87,14 @@ export function buildBattleTuningPanel(ctx, actions) {
             reset(selected); paint(); };
         buttons.append(b);
     }
-    const disposeCopy = mountSettingsCopy(panel.content, rows);
+    const disposeCopy = mountSettingsCopy(panel.content, rows, weaponControls.rows);
     const destroy = panel.destroy;
-    panel.destroy = () => { disposeCopy(); if (frame)
+    panel.destroy = () => { weaponControls.dispose(); disposeCopy(); if (frame)
         cancelAnimationFrame(frame); queued.clear(); destroy(); };
     paint();
     return { panel };
 }
-function mountSettingsCopy(parent, rows) {
+function mountSettingsCopy(parent, rows, weapons) {
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'micro-btn';
@@ -95,8 +113,8 @@ function mountSettingsCopy(parent, rows) {
     let disposed = false;
     button.onclick = async () => {
         // Read panel rows on click, including edits queued for the next render frame.
-        const value = JSON.stringify({ kind: 'galaxy-battle-tuning', version: 1,
-            classes: Object.fromEntries(names.map((name, i) => [name, rows[i]])) }, null, 2);
+        const value = JSON.stringify({ kind: 'galaxy-battle-tuning', version: 5, strategyNames: BATTLE_STRATEGIES,
+            classes: Object.fromEntries(names.map((name, i) => [name, { ...rows[i], weapons: weapons[i] }])) }, null, 2);
         button.disabled = true;
         fallback.hidden = true;
         setText(text, 'Copying…');

@@ -32,6 +32,11 @@ return vec4<f32>(array<vec2<f32>,3>(vec2(-1.0,-1.0),vec2(3.0,-1.0),vec2(-1.0,3.0
 `;
 export class HalfGlow {
     constructor(bootstrap) {
+        this.merge = null;
+        this.mergeArgs = null;
+        this.mergeGroup = null;
+        this.mergeTrail = null;
+        this.mergeFx = null;
         this.texture = null;
         this.width = 0;
         this.height = 0;
@@ -52,13 +57,41 @@ export class HalfGlow {
         this.view = this.texture.createView();
         this.group = this.bootstrap.device.createBindGroup({ layout: this.pipeline.getBindGroupLayout(0), entries: [{ binding: 0, resource: depth }, { binding: 1, resource: this.view }] });
     }
-    composite(encoder, target, indirect) {
+    composite(encoder, target, indirect, fx = null) {
+        let buffer = indirect ?? fx, offset = indirect ? TRAIL_GLOW_INDIRECT_BYTE : 32;
+        if (indirect && fx) {
+            buffer = this.combine(encoder, indirect, fx);
+            offset = 0;
+        }
         const pass = encoder.beginRenderPass({ label: 'glow-upsample', colorAttachments: [{ view: target, loadOp: 'load', storeOp: 'store' }] });
         pass.setPipeline(this.pipeline);
         pass.setBindGroup(0, this.group);
-        pass.drawIndirect(indirect, TRAIL_GLOW_INDIRECT_BYTE);
+        pass.drawIndirect(buffer, offset);
         pass.end();
     }
-    dispose() { this.texture?.destroy(); this.texture = null; this.depth = null; this.width = 0; this.height = 0; }
+    combine(encoder, trail, fx) {
+        const d = this.bootstrap.device;
+        if (!this.merge) {
+            const module = d.createShaderModule({ label: 'shared-glow-activity', code: `
+        @group(0) @binding(0) var<storage,read> a:array<u32>;
+        @group(0) @binding(1) var<storage,read> b:array<u32>;
+        @group(0) @binding(2) var<storage,read_write> out:array<u32>;
+        @compute @workgroup_size(1) fn main(){out[0]=3u;out[1]=select(0u,1u,a[${TRAIL_GLOW_INDIRECT_BYTE / 4 + 1}u]>0u||b[9]>0u);out[2]=0u;out[3]=0u;}` });
+            this.merge = d.createComputePipeline({ label: 'shared-glow-activity', layout: 'auto', compute: { module, entryPoint: 'main' } });
+            this.mergeArgs = d.createBuffer({ label: 'shared-glow-indirect', size: 16, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT });
+        }
+        if (this.mergeTrail !== trail || this.mergeFx !== fx) {
+            this.mergeTrail = trail;
+            this.mergeFx = fx;
+            this.mergeGroup = d.createBindGroup({ layout: this.merge.getBindGroupLayout(0), entries: [trail, fx, this.mergeArgs].map((buffer, binding) => ({ binding, resource: { buffer } })) });
+        }
+        const pass = encoder.beginComputePass({ label: 'shared-glow-activity' });
+        pass.setPipeline(this.merge);
+        pass.setBindGroup(0, this.mergeGroup);
+        pass.dispatchWorkgroups(1);
+        pass.end();
+        return this.mergeArgs;
+    }
+    dispose() { this.mergeArgs?.destroy(); this.mergeArgs = null; this.merge = null; this.mergeGroup = null; this.mergeTrail = null; this.mergeFx = null; this.texture?.destroy(); this.texture = null; this.depth = null; this.width = 0; this.height = 0; }
 }
 //# sourceMappingURL=half-glow.js.map

@@ -2,9 +2,15 @@ import {BATTLE_ORDER_WORDS} from '../../../lib/ship-runtime/visual-battle.mjs';
 import {SCENE_LAB} from '../../../lib/ship-runtime/flight-layout.mjs';
 
 const PHASE={pincer:0,pass:1,pursue:2,evade:3,orbit:4,regroup:5};
+export function battleTacticLabel(battle){
+  const tactic=battle.tactics[battle.side];
+  return tactic.coordination==='combined'?'Squad strategies':tactic.manoeuvre;
+}
 /** Event/lifetime/admission changes only. One 192-byte write; no CPU ship work. */
 export function createSceneBattles(capacity,ports){
   const previous=new Array(capacity),targets=new Array(capacity);
+  const orders=new Uint32Array(capacity*BATTLE_ORDER_WORDS);let version=0,activeCount=0;
+  function upload(slot){activeCount-=Number(orders[slot*BATTLE_ORDER_WORDS+22]===1);activeCount+=Number(w[22]===1);orders.set(w,slot*BATTLE_ORDER_WORDS);version++;ports.upload(slot,data);}
   const lives=new Uint32Array(capacity),sizes=new Uint32Array(capacity),own=new Uint32Array(capacity);
   const ownSizes=new Uint32Array(capacity);
   const data=new ArrayBuffer(BATTLE_ORDER_WORDS*4),f=new Float32Array(data),w=new Uint32Array(data);
@@ -28,6 +34,7 @@ export function createSceneBattles(capacity,ports){
     for(const row of ports.types(fleet.id))w.set([row.ordinal,row.count,row.lastOrdinal==null?row.count:1,0],24+row.kind*4);
     w.set([fleet.serialBase,b.id,b.revision,PHASE[tactic.manoeuvre]],0);writeOpponent(opponent,tactic);
     w[22]=Number(b.stage==='engaged');
+    w[23]=Number(tactic.coordination==='combined');
     f.set([b.center.x*SCENE_LAB,b.center.y*SCENE_LAB,b.center.z*SCENE_LAB,b.radius*SCENE_LAB],8);
     f.set([b.axis.x,b.axis.y,b.axis.z,b.side===0?1:-1],12);
     f.set([Math.max(0,(fleet.nowMs-b.phaseAt)/1000),b.phaseDuration/1000,(b.pursuitSpeed??0)*SCENE_LAB,0],16);
@@ -45,10 +52,10 @@ export function createSceneBattles(capacity,ports){
     ownSizes[slot]=count;
     remember(slot,b,opponent,fleet.serialBase);w.fill(0);
     if(b)writeOrder(fleet,b,opponent);
-    ports.upload(slot,data);
+    upload(slot);
   }
-  return {sync,reset(){previous.fill(undefined);targets.fill(undefined);lives.fill(0);sizes.fill(0);own.fill(0);ownSizes.fill(0);},
-    remove(slot){previous[slot]=undefined;targets[slot]=undefined;w.fill(0);ports.upload(slot,data);}};
+  return {sync,orders,get version(){return version;},get activeCount(){return activeCount;},reset(){activeCount=0;orders.fill(0);version++;previous.fill(undefined);targets.fill(undefined);lives.fill(0);sizes.fill(0);own.fill(0);ownSizes.fill(0);},
+    remove(slot){previous[slot]=undefined;targets[slot]=undefined;w.fill(0);upload(slot);}};
 }
 
 const sphereCache=new WeakMap();

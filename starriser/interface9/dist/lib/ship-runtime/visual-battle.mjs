@@ -1,15 +1,16 @@
-import {BATTLE_TUNING_WORDS} from './battle-tuning.mjs';
+import {BATTLE_TUNING_BYTES} from './battle-tuning.mjs';
+import {BATTLE_COORDINATION_WGSL} from './battle-coordination.mjs';
 /** Fixed capacity, independent of population. No legacy pilot/contact imports. */
 export const BATTLE_ORDER_WORDS=48;
 export const BATTLE_SQUADS=96;
 export const BATTLE_GUIDE_BYTES=48;
-export const battleStorageBytes=n=>n*(BATTLE_ORDER_WORDS*4+BATTLE_SQUADS*BATTLE_GUIDE_BYTES)+6*BATTLE_TUNING_WORDS*4;
+export const battleStorageBytes=n=>n*(BATTLE_ORDER_WORDS*4+BATTLE_SQUADS*BATTLE_GUIDE_BYTES)+BATTLE_TUNING_BYTES;
 export const BATTLE_DECL=/* wgsl */`
 struct VisualBattle { own:vec4<u32>, opponent:vec4<u32>, center:vec4<f32>, axis:vec4<f32>, clock:vec4<f32>, reserve:vec4<u32>, classes:array<vec4<u32>,6> }
 struct BattleSquad { offset:vec4<f32>, velocity:vec4<f32>, clock:vec3<f32>, lifetime:u32 }
 struct BattleProfile { motion:vec4<f32>, shipNoise:vec4<f32>, squadNoise:vec4<f32>, shape:vec4<f32>, attack:vec4<f32> }
 `;
-export const battleFields=n=>`,battleOrders:array<VisualBattle,${n}>,battleSquads:array<BattleSquad,${n*BATTLE_SQUADS}>,battleProfiles:array<BattleProfile,6>`;
+export const battleFields=n=>`,battleOrders:array<VisualBattle,${n}>,battleSquads:array<BattleSquad,${n*BATTLE_SQUADS}>,battleProfiles:array<BattleProfile,6>,battleStrategies:array<vec4<u32>,24>`;
 
 export const VISUAL_BATTLE_WGSL=/* wgsl */`
 fn visualBattleConfigured(s:Ship)->bool {
@@ -57,13 +58,18 @@ fn battleSquadCount(profile:BattleProfile,count:u32)->u32{return max(1u,min(coun
 // One representative from the previous physical tick per squad. Reading old[]
 // avoids cross-workgroup races between in-place guide updates. It also removes
 // the old per-ship opponent lookup; no nearest search or new pass is needed.
-fn battleSquadOpponent(b:VisualBattle,kind:u32,k:u32)->Ship {
+fn battleSquadOpponent(b:VisualBattle,kind:u32,k:u32,strategy:u32)->Ship {
   var opponent:Ship;
-  if(kind>=4u||b.opponent.x>=FORM_FLEETS||b.opponent.w==0u){return opponent;}
+  if(!battleUsesEnemy(strategy)||b.opponent.x>=FORM_FLEETS||b.opponent.w==0u){return opponent;}
   let other=director.battleOrders[b.opponent.x];
   if(other.own.y!=b.own.y||other.own.x!=b.opponent.y){return opponent;}
-  let bomber=kind==2u&&b.reserve.y>0u;
-  let start=select(b.opponent.z,b.reserve.x,bomber);let count=select(b.opponent.w,b.reserve.y,bomber);
+  let bomber=strategy==BATTLE_STRIKE&&b.reserve.y>0u;
+  var start=select(b.opponent.z,b.reserve.x,bomber);var count=select(b.opponent.w,b.reserve.y,bomber);
+  // Interceptors screen against bomber squads when present. Fighters still
+  // engage their authority-assigned light targets, including bomber escorts.
+  if(b.reserve.w==1u&&kind==0u&&other.classes[2].y>0u){start=other.classes[2].x;count=max(1u,other.classes[2].z);}
+  let chosen=u32(director.battleProfiles[kind].attack.z);
+  if(chosen>0u&&other.classes[chosen-1u].y>0u){start=other.classes[chosen-1u].x;count=max(1u,other.classes[chosen-1u].z);}
   var squads=1u;
   for(var targetKind=0u;targetKind<6u;targetKind++){
     let range=other.classes[targetKind];
@@ -77,6 +83,7 @@ fn battleSquadOpponent(b:VisualBattle,kind:u32,k:u32)->Ship {
   return opponent;
 }
 struct BattleGoal { p:vec3<f32>, v:vec3<f32> }
+${BATTLE_COORDINATION_WGSL}
 // Safe local choreography is a clipped convex part of the encounter sphere,
 // not the four-corner ingress loop. Tangent half-spaces keep targets on the
 // encounter side of nearby bodies. Cached body poses; this runs per squad only.
@@ -96,43 +103,50 @@ fn battleConstrain(goal:BattleGoal,b:VisualBattle,margin:f32)->BattleGoal {
   if(lengthP>r*.63){let normal=out.p/max(lengthP,.000001);out.v-=normal*max(0.0,dot(out.v,normal));}
   return out;
 }
-fn battleGuideTarget(b:VisualBattle,p:BattleProfile,clock:vec3<f32>,seed:u32,kind:u32,k:u32,previous:BattleSquad,enemy:Ship,dt:f32)->BattleGoal {
+fn battleGuideTarget(b:VisualBattle,p:BattleProfile,clock:vec3<f32>,seed:u32,kind:u32,k:u32,previous:BattleSquad,enemy:Ship,support:BattleSupport,strategy:u32,dt:f32)->BattleGoal {
   let r=b.center.w;let rate=p.motion.x*(.85+f32(battleHash(seed)&255u)/850.0)/max(60.0,p.motion.y);
   let angle=clock.x*6.2831853;let omega=6.2831853*rate/max(dt,.00001);
   // Different fixed orbital planes for each squad, including real depth. The
   // curve is relative to its moving opponent, never a shared world-space lap.
   let forward=unit(b.axis.xyz);let side=visualSide(forward,battleRandom(seed+71u));let up=cross(forward,side);
-  let cs=cos(angle);let sn=sin(angle);let sn2=sin(angle*2.0);let cs2=cos(angle*2.0);
+  let cs=cos(angle);let sn=sin(angle);let sn2=2.0*sn*cs;let cs2=cs*cs-sn*sn;
   let wave=(forward*cs+side*sn+up*(sn2*.55*p.shape.y));
   let waveV=(-forward*sn+side*cs+up*(cs2*1.1*p.shape.y))*omega;
   var center=vec3<f32>(0.0);var drift=vec3<f32>(0.0);
   if(enemy.identity.z>0u){center=visualDelta(enemy,visualPoint(b.center.xyz,vec3<f32>(0.0)));drift=capped(enemy.v.xyz,r*omega*2.0);}
   var goal=BattleGoal(center+wave*(r*.22),drift+waveV*(r*.22));
   let wing=select(-1.0,1.0,(k&1u)==0u);
-  switch b.own.w {
-    case 0u: { // Pincer: split wings continually close, cross, and pull out.
+  if(strategy==BATTLE_CRUISE){
+    goal=BattleGoal(forward*(b.axis.w*r*.22)+wave*r*.18,waveV*r*.18);
+  }else if(strategy==BATTLE_STRIKE){
+    goal=battleStrikeGoal(b,p,support,BattleGoal(center,drift),BattleGoal(wave,waveV),side,up,cs,sn,omega,enemy.identity.z>0u);
+  }else if(battleUsesAnchor(strategy)&&support.anchor.lifetime>0u){
+    goal=battleEscortGoal(b,kind,support,BattleGoal(center,drift),BattleGoal(wave,waveV));
+  }else {
+    // Missing friendly classes still animate; no uninitialized anchor is used.
+    let mode=select(strategy,battlePhaseStrategy(b.own.w),battleUsesAnchor(strategy));
+    switch mode {
+    case BATTLE_PINCER: { // Pincer: split wings continually close, cross, and pull out.
       let scale=r*(.16+.24*p.shape.w);
       goal=BattleGoal(center+forward*(cs*scale)+side*(wing*abs(sn)*r*.28*p.attack.x)+up*(sn2*r*.16*p.shape.y),
         drift+(-forward*(sn*scale)+side*(wing*sign(sn)*cs*r*.28*p.attack.x)+up*(cs2*r*.32*p.shape.y))*omega);
     }
-    case 1u: { // Pass / bomber run: fly through, then curl around the target.
+    case BATTLE_PASS: { // Pass / bomber run: fly through, then curl around the target.
       let scale=r*(.15+.25*p.shape.w);
       goal=BattleGoal(center+forward*(cs*scale)+side*(sn*r*.18*p.attack.x)+up*(sn2*r*.16*p.shape.y),
         drift+(-forward*(sn*scale)+side*(cs*r*.18*p.attack.x)+up*(cs2*r*.32*p.shape.y))*omega);
     }
-    case 2u: { // Pursuit actually follows the assigned moving squad.
+    case BATTLE_PURSUIT: { // Pursuit actually follows the assigned moving squad.
       let heading=unit(select(forward,enemy.v.xyz,dot(enemy.v.xyz,enemy.v.xyz)>.000001));
       goal=BattleGoal(center-heading*r*.08+wave*r*.09,drift+waveV*r*.09);
     }
-    case 3u: { // Evasion depends on pursuer position, with a changing escape plane.
+    case BATTLE_EVADE: { // Evasion depends on pursuer position, with a changing escape plane.
       let away=unit(previous.offset.xyz-center+side*r*.04);
       goal=BattleGoal(center+away*r*(.18+.22*p.shape.w)+wave*r*.24,drift+waveV*r*.24);
     }
-    case 5u: {goal=BattleGoal(forward*(b.axis.w*r*.25)+wave*r*.2,waveV*r*.2);}
+    case BATTLE_REGROUP: {goal=BattleGoal(forward*(b.axis.w*r*.25)+wave*r*.2,waveV*r*.2);}
     default: {}
-  }
-  // Capital ships are slow moving anchors; lighter squads manoeuvre around them.
-  if(kind>=4u){goal=BattleGoal(forward*(b.axis.w*r*.22)+wave*r*.18,waveV*r*.18);}
+  }}
   let noise=battleNoise(seed,clock.yz,1.0/max(30.0,p.squadNoise.y),p.squadNoise.z,dt);
   let amplitude=r*.16*p.squadNoise.x*p.squadNoise.w;
   goal.p+=noise.p*amplitude;goal.v+=noise.v*amplitude;
@@ -142,7 +156,10 @@ fn prepareBattleFleet(member:Ship,prior:FleetGuide,dt:f32)->FleetGuide {
   let fleet=member.identity.y;let b=director.battleOrders[fleet];var g=prior.ship;
   let fresh=prior.status.z==0.0||g.memory.z!=-4.0||g.fx.x!=f32(b.own.y)||g.identity.w-sceneOrdinal(g.identity.x)!=b.own.x;
   g.memory.z=-4.0;g.fx.x=f32(b.own.y);g.identity=member.identity;g.flight=member.flight;
-  for(var kind=0u;kind<6u;kind++){
+  // One invocation owns this fleet. Heavy guides are ready before any lighter
+  // squad follows them, with no cross-workgroup guide read or extra snapshot.
+  for(var order=0u;order<6u;order++){
+    let kind=5u-order;
     let range=b.classes[kind];if(range.y==0u){continue;}
     let p=director.battleProfiles[kind];let count=battleSquadCount(p,range.y);
     for(var k=0u;k<16u;k++){
@@ -153,7 +170,7 @@ fn prepareBattleFleet(member:Ship,prior:FleetGuide,dt:f32)->FleetGuide {
         var representative=visualMember(fleet,range.x+min(k,max(1u,range.z)-1u));
         if(representative.identity.z==0u){representative=member;}
         previous.offset=vec4<f32>(visualDelta(representative,visualPoint(b.center.xyz,vec3<f32>(0.0))),0.0);
-        previous.velocity=representative.v;
+        previous.velocity=vec4<f32>(representative.v.xyz,0.0);
         let info=director.sceneRoutes[fleet].info;let start=max(0.0,-info.y-1.0);
         let phase=fract(max(0.0,prior.ship.memory.x-start)/max(.001,info.x-start));
         let base=director.battleSquads[fleet*96u+kind*16u];
@@ -163,13 +180,16 @@ fn prepareBattleFleet(member:Ship,prior:FleetGuide,dt:f32)->FleetGuide {
       var clock=previous.clock;
       clock.x=fract(clock.x+p.motion.x*(.85+f32(battleHash(seed)&255u)/850.0)/max(60.0,p.motion.y));
       clock=vec3<f32>(clock.x,battleNoiseClock(clock.yz,1.0/max(30.0,p.squadNoise.y)));
-      let desired=battleGuideTarget(b,p,clock,seed,kind,k,previous,battleSquadOpponent(b,kind,k),dt);
+      let strategy=battleStrategy(b,kind,k);
+      let enemy=battleSquadOpponent(b,kind,k,strategy);
+      let support=battleSupport(b,fleet,kind,k,clock.x,previous,enemy,strategy);
+      let desired=battleGuideTarget(b,p,clock,seed,kind,k,previous,enemy,support,strategy,dt);
       let e=previous.offset.xyz-desired.p+desired.v*dt;
       let relative=previous.velocity.xyz-desired.v;let w=1.8;let h=relative+w*e;let decay=exp(-w*dt);
       let speed=b.center.w*6.2831853*p.motion.x/max(60.0,p.motion.y)/max(dt,.00001)*2.0;
       let next=desired.p+(e+h*dt)*decay;
       director.battleSquads[index]=BattleSquad(vec4<f32>(previous.offset.xyz+capped(next-previous.offset.xyz,speed*dt),b.center.w*.25),
-        vec4<f32>(capped(desired.v+(relative-w*h*dt)*decay,speed),0.0),clock,b.own.x);
+        vec4<f32>(capped(desired.v+(relative-w*h*dt)*decay,speed),f32(support.action)),clock,b.own.x);
     }
   }
   return FleetGuide(g,prior.limits,vec4<f32>(f32(b.own.z),1.0,1.0,0.0));

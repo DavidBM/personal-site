@@ -94,7 +94,7 @@ export function createFleetFrameEncoding(ships, models, coordinates, surface, di
         directed?.encodeFleetAltitude?.(pass, coordinates.system.viewProj, viewW, viewH);
         directed?.encodeRepulsion?.(pass, coordinates.system.viewProj, coordinates.system.view);
     }
-    return { prepare, integrate, prepareVisibility, encodeStrategicTrails, encodeShips, encodeModels, encodeHighModels, encodeHullTrails, encodeDebug,
+    return { battleFxInputs: () => directed?.battleFxInputs?.() ?? null, prepare, integrate, prepareVisibility, encodeStrategicTrails, encodeShips, encodeModels, encodeHighModels, encodeHullTrails, encodeDebug,
         highHullDrawArguments: () => models.compositeDrawArguments(),
         hasHighHullCandidates: () => models.hasDrawCandidates(),
         glowDrawArguments: () => ships.glowDrawArguments() };

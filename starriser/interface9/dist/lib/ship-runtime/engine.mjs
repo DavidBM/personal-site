@@ -1,4 +1,4 @@
-import {battleTuningState,BATTLE_TUNING_WORDS} from './battle-tuning.mjs';
+import {battleTuningState,BATTLE_TUNING_BYTES} from './battle-tuning.mjs';
 import {battleStorageBytes,BATTLE_ORDER_WORDS} from './visual-battle.mjs';
 import {preparePipelines,selectShaderEntries,withGpuPreparationDiagnostics} from './pipeline-preparation.mjs';
 import {prepareAdvancePipeline} from './advance-pipeline.mjs';
@@ -206,7 +206,7 @@ async function initializeEngine(canvas,options,director,solar,lifetime,report) {
   let ownerReset=new Uint8Array(0);
   const battleBase=adviceBase+adviceBytes;
   const battleBytes=visualFormation?battleStorageBytes(director.capacity.fleetCount):0;
-  const battleTuningBase=battleBase+battleBytes-6*BATTLE_TUNING_WORDS*4;
+  const battleTuningBase=battleBase+battleBytes-BATTLE_TUNING_BYTES;
   let battleTuningVersion=-1;
   function syncBattleTuning(){
     if(!visualFormation)return;

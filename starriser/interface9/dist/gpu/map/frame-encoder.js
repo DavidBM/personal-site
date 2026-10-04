@@ -1,3 +1,4 @@
+import { BattleFxRenderer } from './battle-fx/renderer.js';
 import { HalfGlow } from './half-glow.js';
 import { SelectiveMsaa } from './selective-msaa.js';
 import { HullMsaa } from './hull-msaa.js';
@@ -11,6 +12,7 @@ export function createMapFrameEncoder(ports) {
     const selective = MAP_SELECTIVE_MSAA ? new SelectiveMsaa(bootstrap) : null;
     const glow = MAP_HALF_GLOW ? new HalfGlow(bootstrap) : null;
     const hullMsaa = MAP_HULL_MSAA ? new HullMsaa(bootstrap) : null;
+    let fx = null;
     let lastResolveHadDepth = false;
     let depthResolved = false;
     let lastSceneMs = -Infinity;
@@ -61,9 +63,9 @@ export function createMapFrameEncoder(ports) {
     }
     function encodeResolve(encoder, frame, target, preserveDepth) {
         const glowDraw = glowDrawFor(frame);
-        const splitGlow = glowDraw !== null;
+        const splitGlow = glowDraw !== null || !!(glow && fx?.activeFrame);
         depthResolved = false;
-        const pass = beginScenePass(encoder, frame, target, preserveDepth || splitGlow, splitGlow);
+        const pass = beginScenePass(encoder, frame, target, preserveDepth || splitGlow || !!fx?.activeFrame, splitGlow);
         if (lastResolveHadDepth)
             solar.encodeDepth(pass);
         if (frame.sceneOpen) {
@@ -72,14 +74,20 @@ export function createMapFrameEncoder(ports) {
         }
         fleets.encodeModels(pass, frame, !splitGlow);
         fleets.encodeDebug?.(pass, frame);
-        if (lastResolveHadDepth && !selective && !splitGlow)
+        if (lastResolveHadDepth && !selective && !splitGlow && !fx?.activeFrame)
             solar.encodeAtmosphere(pass);
         pass.end();
-        if (glowDraw) {
+        fx?.encode(encoder, attachments.msaaW, attachments.msaaH);
+        if (splitGlow) {
             encodeGlow(encoder, frame, target, glowDraw);
             if (!selective)
                 encodeAtmosphere(encoder, target, attachments.msaaDepthView);
         }
+        else if (fx?.activeFrame) {
+            encodeFxCores(encoder, target);
+            encodeAtmosphere(encoder, target, attachments.msaaDepthView);
+        }
+        encodeFxLens(encoder, target);
     }
     function encodeGlow(encoder, frame, target, indirect) {
         if (selective) {
@@ -94,13 +102,15 @@ export function createMapFrameEncoder(ports) {
             depthStencilAttachment: { view: attachments.msaaDepthView, depthReadOnly: true } });
         // At 1x the attachment itself is sampled read-only; no color/depth bridges.
         fleets.encodeHullTrails(core, frame, 1, opaque);
+        fx?.draw(core, opaque, 0);
         core.end();
         glow.ensure(attachments.msaaW, attachments.msaaH, opaque);
         const broad = encoder.beginRenderPass({ label: 'trail-glow-half-resolution', colorAttachments: [{ view: glow.view, loadOp: 'clear', storeOp: 'store', clearValue: [0, 0, 0, 0] }] });
         broad.setViewport(0, 0, attachments.msaaW / 2, attachments.msaaH / 2, 0, 1);
         fleets.encodeHullTrails(broad, frame, 2, opaque);
+        fx?.draw(broad, opaque, 1);
         broad.end();
-        glow.composite(encoder, target, indirect);
+        glow.composite(encoder, target, indirect, fx?.activeFrame ? fx.args : null);
     }
     function encodeHullScene(encoder, frame, target) {
         encodeColor(encoder, frame, target);
@@ -117,16 +127,33 @@ export function createMapFrameEncoder(ports) {
             high.end();
             hullMsaa.composite(encoder, target, attachments.msaaDepthView, indirect);
         }
+        fx?.encode(encoder, attachments.msaaW, attachments.msaaH);
         const glowDraw = glowDrawFor(frame);
-        if (glowDraw)
+        const splitGlow = !!glow && (!!glowDraw || !!fx?.activeFrame);
+        if (splitGlow)
             encodeGlow(encoder, frame, target, glowDraw);
         const effects = encoder.beginRenderPass({ label: 'scene-effects-1x', colorAttachments: [{ view: target, loadOp: 'load', storeOp: 'store' }],
             depthStencilAttachment: { view: attachments.msaaDepthView, depthReadOnly: true } });
-        if (!glowDraw)
+        if (!splitGlow) {
             fleets.encodeHullTrails(effects, frame);
+            fx?.draw(effects, attachments.msaaDepthView, 0);
+        }
         fleets.encodeDebug?.(effects, frame);
         solar.encodeAtmosphere(effects);
         effects.end();
+        encodeFxLens(encoder, target);
+    }
+    function encodeFxCores(encoder, target) {
+        const pass = encoder.beginRenderPass({ label: 'battle-fx-cores', colorAttachments: [{ view: target, loadOp: 'load', storeOp: 'store' }], depthStencilAttachment: { view: attachments.msaaDepthView, depthReadOnly: true } });
+        fx.draw(pass, attachments.msaaDepthView, 0);
+        pass.end();
+    }
+    function encodeFxLens(encoder, target) {
+        if (!fx?.activeFrame)
+            return;
+        const pass = encoder.beginRenderPass({ label: 'battle-fx-lens', colorAttachments: [{ view: target, loadOp: 'load', storeOp: 'store' }] });
+        fx.draw(pass, attachments.msaaDepthView, 2);
+        pass.end();
     }
     function encodeAtmosphere(encoder, target, depth) {
         const pass = encoder.beginRenderPass({ label: 'selective-atmosphere-1x', colorAttachments: [{ view: target, loadOp: 'load', storeOp: 'store' }],
@@ -196,7 +223,7 @@ export function createMapFrameEncoder(ports) {
         overlays.end();
     }
     function releaseIdleGlow(frame) {
-        if (frame.sceneOpen && frame.hullsOn && fleets.glowDrawArguments())
+        if (frame.sceneOpen && ((frame.hullsOn && fleets.glowDrawArguments()) || fx?.activeFrame))
             lastGlowMs = frame.nowMs;
         else if (frame.nowMs - lastGlowMs >= 1000)
             glow?.dispose();
@@ -233,6 +260,10 @@ export function createMapFrameEncoder(ports) {
         // Preparation owns bandC; choose attachments from this frame, including
         // transition frames that still draw Kepler bodies outside an open scene.
         const scene = needsScenePasses(frame);
+        const fxInputs = fleets.battleFxInputs?.() ?? null;
+        if (fxInputs?.active && !fx)
+            fx = new BattleFxRenderer(bootstrap.device, bootstrap.format);
+        fx?.prepare(frame, fxInputs, 1 / frame.tanHalfFov);
         releaseIdleTargets(frame, scene);
         const target = frameDebugTime('surface and attachments', () => resolveTarget(scene));
         const warped = warp.prepare(frame, attachments.msaaW, attachments.msaaH, attachments.msaaDepthView);
@@ -258,6 +289,6 @@ export function createMapFrameEncoder(ports) {
             encodeResolve(encoder, frame, target, preserveDepth);
         }
     }
-    return { encode, dispose: () => { warp.dispose(); selective?.dispose(); hullMsaa?.dispose(); glow?.dispose(); }, lastResolveHadDepth: () => lastResolveHadDepth };
+    return { encode, fxDiagnostics: () => fx?.diagnostics() ?? null, dispose: () => { fx?.dispose(); warp.dispose(); selective?.dispose(); hullMsaa?.dispose(); glow?.dispose(); }, lastResolveHadDepth: () => lastResolveHadDepth };
 }
 //# sourceMappingURL=frame-encoder.js.map

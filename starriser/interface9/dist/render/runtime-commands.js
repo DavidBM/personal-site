@@ -1,3 +1,4 @@
+import { scheduleFxTuning, setFxEnabled } from '../features/battles/fx-tuning.js';
 /** Explicit feature commands; no reflection or arbitrary method RPC. */
 // @ts-expect-error Native GPU presentation module.
 import { scheduleBattleTuning } from '../lib/ship-runtime/battle-tuning.mjs';
@@ -330,6 +331,11 @@ function applyFocus(ctx, command) {
             return true;
         case "simPause":
             state.view.setSimPause(command);
+            return true;
+        case 'battleFx':
+            scheduleFxTuning(command.patches);
+            if (command.enabled !== undefined)
+                setFxEnabled(command.enabled);
             return true;
         case 'battleTuning':
             scheduleBattleTuning(command.patches);
