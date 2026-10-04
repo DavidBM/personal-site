@@ -3,12 +3,12 @@ export const BATTLE_TUNING_WORDS=20;
 export const BATTLE_TUNING_FIELDS=Object.freeze(['speed','cycleTicks','spread','response','shipNoise','shipPeriod','shipVertical','shipEnabled','squadNoise','squadPeriod','squadVertical','squadEnabled','squads','height','cohesion','breakaway','passWidth']);
 export const BATTLE_TUNING_LIMITS=Object.freeze([[.05,3],[60,7200],[0,10],[.2,8],[0,1],[10,3600],[0,2],[0,1],[0,1],[30,7200],[0,2],[0,1],[1,16],[.1,2],[0,1],[.1,1],[.1,1]]);
 export function defaultBattleTuning(){
- return [1.25,1,.75,.45,.22,.10].map((speed,index)=>({speed,cycleTicks:1200,
-  spread:[.7,.65,.45,.5,.35,.25][index],response:[3.5,3,2.3,1.8,1.2,.9][index],
-  shipNoise:index<3?.18:0,shipPeriod:100,shipVertical:.7,shipEnabled:1,
-  squadNoise:[.3,.25,.15,.18,.12,.08][index],squadPeriod:300,squadVertical:1,squadEnabled:1,squads:16,
-  height:[.85,.7,.4,.5,.3,.2][index],cohesion:[.2,.3,.65,.55,.7,.8][index],
-  breakaway:[.85,.65,1,.55,.35,.2][index],passWidth:[.65,.5,.35,.7,.8,.75][index]}));
+ return [1.25,1,.75,.15,.22,.10].map((speed,index)=>({speed,cycleTicks:1200,
+  spread:[6.65,2.3,8.55,3.75,10,10][index],response:[3.5,3,1,1.55,1.2,.2][index],
+  shipNoise:[1,.5,.18,0,0,0][index],shipPeriod:index===5?10:100,shipVertical:index===0?2:.7,shipEnabled:index<4?1:0,
+  squadNoise:[.8,1,.1,.5,.4,0][index],squadPeriod:300,squadVertical:1,squadEnabled:1,squads:16,
+  height:[.85,.7,.4,.5,.3,.2][index],cohesion:[.2,0,.65,.55,.7,.8][index],
+  breakaway:[.85,.65,1,.55,.35,.2][index],passWidth:[.65,1,.35,.7,.8,.75][index]}));
 }
 const rows=defaultBattleTuning();
 const packed=new Float32Array(BATTLE_TUNING_WORDS*6);

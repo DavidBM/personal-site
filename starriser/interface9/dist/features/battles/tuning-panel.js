@@ -69,10 +69,56 @@ export function buildBattleTuningPanel(ctx, actions) {
             reset(selected); paint(); };
         buttons.append(b);
     }
+    const disposeCopy = mountSettingsCopy(panel.content, rows);
     const destroy = panel.destroy;
-    panel.destroy = () => { if (frame)
+    panel.destroy = () => { disposeCopy(); if (frame)
         cancelAnimationFrame(frame); queued.clear(); destroy(); };
     paint();
     return { panel };
+}
+function mountSettingsCopy(parent, rows) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'micro-btn';
+    button.textContent = 'Copy all settings';
+    button.style.cssText = 'margin-top:6px;flex-shrink:0';
+    const status = document.createElement('div');
+    status.setAttribute('role', 'status');
+    const text = bindText(status, { width: '100%', height: '32px', wrap: true });
+    const fallback = document.createElement('textarea');
+    fallback.readOnly = true;
+    fallback.hidden = true;
+    fallback.rows = 6;
+    fallback.setAttribute('aria-label', 'All battle settings');
+    fallback.style.cssText = 'box-sizing:border-box;width:100%;min-height:96px;flex-shrink:0;font:inherit';
+    parent.append(button, status, fallback);
+    let disposed = false;
+    button.onclick = async () => {
+        // Read panel rows on click, including edits queued for the next render frame.
+        const value = JSON.stringify({ kind: 'galaxy-battle-tuning', version: 1,
+            classes: Object.fromEntries(names.map((name, i) => [name, rows[i]])) }, null, 2);
+        button.disabled = true;
+        fallback.hidden = true;
+        setText(text, 'Copying…');
+        try {
+            await navigator.clipboard.writeText(value);
+            if (!disposed)
+                setText(text, 'Copied settings for all 6 classes.');
+        }
+        catch {
+            if (disposed)
+                return;
+            fallback.value = value;
+            fallback.hidden = false;
+            fallback.focus();
+            fallback.select();
+            setText(text, 'Copy blocked. Select and copy the text below.');
+        }
+        finally {
+            if (!disposed)
+                button.disabled = false;
+        }
+    };
+    return () => { disposed = true; button.onclick = null; };
 }
 //# sourceMappingURL=tuning-panel.js.map
