@@ -28,7 +28,7 @@ function catalog(keys,cohorts,ids,nextId,revision,contiguous=false) {
     return indices.get(id)??-1;
   }
   function append(fleet,type,batch) {
-    const count=keys.length+batch.count;if(count>MAX_SHIP_CAPACITY)throw Error('Visible population exceeds 50000 representatives');
+    const count=keys.length+batch.count;if(count>MAX_SHIP_CAPACITY)throw Error('Visible population exceeds 200000 representatives');
     const born=identityRange(nextId,batch.count);
     const nextKeys=new Uint32Array(count),nextCohorts=new Uint8Array(count),nextIds=new Uint32Array(count);
     nextKeys.set(keys);nextCohorts.set(cohorts);nextIds.set(ids);nextIds.set(born,ids.length);

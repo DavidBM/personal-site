@@ -15,7 +15,7 @@ export function shipStorageSizes(count,bounded=false) {
     heads:(spatial.headWords+1)*4,links:(spatial.linkWords+count*EVENT_POSE_WORDS+correctionWords(count)+count*ADVANCE_SCRATCH_WORDS)*4};
 }
 function validateCapacity(capacity,count) {
-  if(!Number.isInteger(capacity)||capacity<Math.max(1,count)||capacity>MAX_SHIP_CAPACITY)throw new Error('Ship storage capacity must cover the population, up to 50000');
+  if(!Number.isInteger(capacity)||capacity<Math.max(1,count)||capacity>MAX_SHIP_CAPACITY)throw new Error('Ship storage capacity must cover the population, up to 200000');
 }
 function destroyBundle(bundle){for(const buffer of Object.values(bundle.buffers))buffer.destroy();}
 function makeBundle(device,capacity,sizes,count,bounded) {
@@ -56,7 +56,7 @@ export function createShipStorage(device,count,bounded=false) {
   }
   function grow(nextCount,capacity,prepareBindings,initialize) {
     if(closed)return false;
-    if(!Number.isInteger(nextCount)||nextCount<=count||nextCount>MAX_SHIP_CAPACITY)throw Error('Population growth must append representatives, up to 50000');
+    if(!Number.isInteger(nextCount)||nextCount<=count||nextCount>MAX_SHIP_CAPACITY)throw Error('Population growth must append representatives, up to 200000');
     return replace(nextCount,capacity,prepareBindings,initialize);
   }
   function compact(nextCount,capacity,prepare,initialize) {

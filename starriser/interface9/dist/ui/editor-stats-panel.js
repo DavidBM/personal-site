@@ -25,7 +25,7 @@ function createStatLine(ctx, parent, id, label) {
     if (!(value.element instanceof HTMLSpanElement)) {
         throw new Error(`Expected span element for ${id} value`);
     }
-    value.element.style.cssText += "overflow:hidden;white-space:nowrap;text-align:right;font-size:11px;font-variant-numeric:tabular-nums";
+    value.element.style.cssText += "overflow:clip;white-space:nowrap;text-align:right;font-size:11px;font-variant-numeric:tabular-nums";
     return value.element;
 }
 function createSection(ctx, parent, id, title) {
@@ -105,8 +105,8 @@ export function buildEditorStatsPanel(ctx) {
         muted: true,
     }).element;
     const simTexts = new Map([simFleets, simShips, simRed, simBlue, simGreen, simJumping, simCooldown, simAwaiting]
-        .map(element => [element, bindText(element, { height: '18px', lineHeight: '18px' })]));
-    const setSimText = (element, n) => setText(simTexts.get(element), String(n));
+        .map(element => [element, ctx.root.updates.number(bindText(element, { height: '18px', lineHeight: '18px' }))]));
+    const setSimText = (element, n) => simTexts.get(element).queue(n);
     // Throttle O(n) sim totals at mass scale so list rAF does not walk 50k maps
     // every batch during bulk add (fleet count still updates every paint).
     let totShips = 0;
@@ -203,6 +203,13 @@ export function buildEditorStatsPanel(ctx) {
             cursor = row.element.nextSibling;
         }
     }
+    const destroy = statsPanel.destroy;
+    statsPanel.destroy = () => {
+        for (const binding of simTexts.values())
+            binding.dispose();
+        cards.clear();
+        destroy();
+    };
     // Initial zeros for simulation section
     render(new Map());
     return {

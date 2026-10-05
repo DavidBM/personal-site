@@ -68,7 +68,7 @@ function observeSceneFleet(state, id, visual) {
         ...state.view.sceneFleetActivity?.(visual.id),
         state: visual.state.state,
         remainingSec: sceneFleetRemainingSec(visual.state, wallMs),
-        planetName: sceneParkPlanetName(hashFleetId(visual.id), state.view.solarBodies),
+        planetName: sceneParkPlanetName(hashFleetId(visual.id), state.view.solarBodies, visual.state),
     };
 }
 export function sceneFleetPage(state, remote, offset, limit) {
@@ -152,7 +152,8 @@ export function renderSnapshotHeader(state, remoteTotal) {
     };
 }
 function graphicsStatus(view) {
-    return { highFx: view.isHighFxEnabled?.() ?? false, highFxSupported: view.supportsHighFx?.() ?? false };
+    return { highFx: view.isHighFxEnabled?.() ?? false, highFxSupported: view.supportsHighFx?.() ?? false,
+        superFx: view.isSuperFxEnabled?.() ?? false, superFxSupported: view.supportsSuperFx?.() ?? false };
 }
 export function sceneDiagnostics(state) {
     const { view } = state;

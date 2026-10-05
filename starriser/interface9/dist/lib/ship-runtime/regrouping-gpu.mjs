@@ -60,12 +60,12 @@ fn preserveBoundary(before:Ship,after:Ship,i:u32,row:vec4<u32>) {
 }
 `;
 
-export async function createRegroupingGpu(device,bounded=false) {
+export async function createRegroupingGpu(device,bounded=false,capacity=MAX_SHIP_CAPACITY) {
   const module=device.createShaderModule({code:spatialShaderSource(code,bounded)}),info=await module.getCompilationInfo();
   if(info.messages.some(m=>m.type==='error'))throw Error(info.messages.map(m=>m.message).join('\n'));
   const pipelines=await Promise.all(['inspect','regroup'].map(entryPoint=>device.createComputePipelineAsync({layout:'auto',compute:{module,entryPoint}})));
-  const rows=device.createBuffer({size:MAX_SHIP_CAPACITY*16,usage:GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_DST});
-  const observation=device.createBuffer({size:MAX_SHIP_CAPACITY*16,usage:GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_SRC});
+  const rows=device.createBuffer({size:capacity*16,usage:GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_DST});
+  const observation=device.createBuffer({size:capacity*16,usage:GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_SRC});
   const config=device.createBuffer({size:32,usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST});
   function dispatch(encoder,pipeline,count,entries) {
     const bind=device.createBindGroup({layout:pipeline.getBindGroupLayout(0),entries:entries.map(([binding,buffer])=>({binding,resource:{buffer}}))});

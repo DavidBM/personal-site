@@ -1,6 +1,6 @@
 import {SHIP_BYTES, writePositionLow} from '../../../lib/ship-runtime/ship-layout.mjs';
 import { ORBIT_SPACING_MULTIPLIER, SHIP_SPEED_MULTIPLIER, BASE_SYSTEM_SPAN, WARP_LANE_BASE_SPAN, WARP_LANE_LENGTH_MULTIPLIER, sceneWarpLaneLength } from '../../../lib/ship-runtime/scene-scale.mjs';
-import {DEFAULT_SHIP_CAPACITY} from '../../../lib/ship-runtime/ship-capacity.mjs';
+import {DEFAULT_SHIP_CAPACITY,MAX_SHIP_CAPACITY} from '../../../lib/ship-runtime/ship-capacity.mjs';
 import {OPEN_ORBIT_SECONDS} from '../../../lib/ship-runtime/arrival-deadline.mjs';
 export {WARP_PLANET_ARRIVAL_SECONDS} from '../../../lib/ship-runtime/arrival-deadline.mjs';
 import {
@@ -22,10 +22,11 @@ export const FLEET_MODEL_LOD_HIGH = 1 << 10;
 export const DIRECTED_PRESENT_WORKGROUP = 64;
 export const MAX_SCENE_FLEETS = 128;
 /**
- * Max simulated ships in one SCENE fleet. Occupancy director live bits stay
- * 256 ordinals (GPU `director.live`); extra kernel rows share those bits.
+ * One fleet may fill the scene budget; logical counts never size these rows.
+ * Legacy occupancy live bits retain 256 ordinals. Production visual formation
+ * reads admitted ranges and tagged scene identities, not that legacy bitset.
  */
-export const MAX_GROUP_VISUAL = 4096;
+export const MAX_GROUP_VISUAL = MAX_SHIP_CAPACITY;
 /** CPU join/leave seed and zero work per timed chunk. */
 export const SCENE_SHIP_CHUNK = 500;
 /** Take another ship chunk in the same frame while under this many ms. */
@@ -62,7 +63,7 @@ export function occupancyForScene(fleetCount = MAX_SCENE_FLEETS, visual = 0) {
 }
 
 function visualWant(fleet) {
-  return Math.max(0, Math.min(MAX_GROUP_VISUAL, fleet.shipCount | 0));
+  return Math.max(0, Math.floor(Math.min(MAX_GROUP_VISUAL, fleet.shipCount)));
 }
 
 function fillUniform(wants, cap) {
@@ -193,6 +194,11 @@ export function allocateSceneVisuals(fleets, options = {}) {
   const joinerWants = joiners.map((i) => wants[i]);
   const given = splitWants(joinerWants, leftover);
   for (let k = 0; k < joiners.length; k++) counts[joiners[k]] = given[k] | 0;
+  const free = Math.max(0, cap - counts.reduce((sum, n) => sum + n, 0));
+  // Membership changed: reclaim released capacity without renumbering survivors.
+  // The host admits appended rows under its usual chunk/time budget.
+  const extra = splitWants(wants.map((want, i) => Math.max(0, want - counts[i])), free);
+  for (let i = 0; i < counts.length; i++) counts[i] += extra[i];
   return occupancyFromCounts(fleets, counts, requested, cap, key);
 }
 

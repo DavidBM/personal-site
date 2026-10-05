@@ -7,14 +7,20 @@ export function automaticRouteKey(fleet) {
   const state=fleet.state, phase=fleet.plan?.phase;
   if (!state) return null;
   switch(state.state) {
+    case 'awaiting':
+      return state.orbit ? `orbit:${state.orbit.revision}:${state.orbit.startTime}` : null;
     case 'jumping':
       return isInboundPhase(phase,fleet.systemId,state.endNode?.solarSystemId)
         ? `in:${state.startTime+state.durationMs}` : null;
     case 'cooldown':
-      if (phase==='stage') return `out:${state.startTime}`;
-      return isArrivalPhase(phase,fleet.systemId,state.node?.solarSystemId) ? `in:${state.startTime}` : null;
+      return cooldownRouteKey(fleet,phase);
     default: return null;
   }
+}
+function cooldownRouteKey(fleet,phase) {
+  const state=fleet.state;
+  if (phase==='stage') return `out:${state.startTime}`;
+  return isArrivalPhase(phase,fleet.systemId,state.node?.solarSystemId) ? `in:${state.startTime}` : null;
 }
 function isArrivalPhase(phase,systemId,destination) {
   return phase==='orbit' || isInboundPhase(phase,systemId,destination);
@@ -31,16 +37,18 @@ export function automaticRouteIntent(fleet,key) {
 export function automaticRouteDeadline(fleet,now) {
   if (!Number.isFinite(fleet.nowMs)) return null;
   const state=fleet.state;
-  const epoch=state.state==='jumping' || fleet.plan.phase==='stage'
-    ? state.startTime+state.durationMs : state.startTime;
+  const epoch=state.orbit?.startTime ?? (state.state==='jumping' || fleet.plan.phase==='stage'
+    ? state.startTime+state.durationMs : state.startTime);
   return now+(epoch-fleet.nowMs)/1000+(fleet.plan.phase==='stage'?0:WARP_PLANET_ARRIVAL_SECONDS);
 }
 
 /** Component/lab hosts may not supply a domain clock. Without that mapping,
  * preserve untimed orbit instead of uploading a NaN journey that never starts. */
 export function automaticArrivalAt(fleet,now) {
-  if (fleet.state?.state!=='cooldown' || !Number.isFinite(fleet.nowMs)) return undefined;
-  const at=now+(fleet.state.startTime-fleet.nowMs)/1000;
+  const state=fleet.state;
+  const start=state?.state==='awaiting'?state.orbit?.startTime:state?.state==='cooldown'?state.startTime:undefined;
+  if (!Number.isFinite(start) || !Number.isFinite(fleet.nowMs)) return undefined;
+  const at=now+(start-fleet.nowMs)/1000;
   return Number.isFinite(at)?at:undefined;
 }
 

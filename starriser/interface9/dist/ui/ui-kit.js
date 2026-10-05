@@ -1,135 +1,6 @@
+import { ensureUIStyles } from './ui-styles.js';
 import { bindText, setText } from './dom-bindings.js';
-const UI_STYLE_ID = "ui-kit-styles";
-function ensureUIStyles() {
-    if (document.getElementById(UI_STYLE_ID))
-        return;
-    const style = document.createElement("style");
-    style.id = UI_STYLE_ID;
-    style.textContent = `
-.ui-root {
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  z-index: 1000;
-  color: #e6f1ff;
-  font-family: "Fira Mono", "Menlo", "Monaco", "Consolas", monospace;
-}
-.ui-root [hidden] { display:none !important; }
-.ui-layer {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-}
-.ui-panel {
-  contain: layout style; min-width:0; box-sizing:border-box;
-  background: rgba(0, 0, 0, 0.72);
-  border: 1px solid rgba(100, 140, 180, 0.25);
-  border-radius: 6px;
-  padding: 12px;
-  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.4);
-  pointer-events: auto;
-}
-.ui-panel-title {
-  margin: 0 0 8px 0;
-  font-size: 13px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: #c9d8ee;
-}
-.ui-panel-content {
-  min-width:0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.ui-grid {
-  display: grid;
-  gap: 6px 10px;
-  grid-template-columns: repeat(var(--ui-columns, 1), minmax(0, 1fr));
-}
-.ui-row {
-  min-width:0;
-  display: grid;
-  gap: 8px;
-  align-items: center;
-  grid-template-columns: var(--ui-row-columns, minmax(0, 1fr) auto);
-}
-.ui-row > * {min-width:0;}
-.ui-label {
-  font-size: 12px;
-  color: #9eb2c9;
-}
-.ui-input,
-.ui-select {
-  background: #0d1826;
-  border: 1px solid rgba(120, 160, 200, 0.4);
-  color: #dce8f6;
-  padding: 4px 6px;
-  border-radius: 4px;
-  font-size: 12px;
-}
-.ui-button {
-  background: #1a3d66;
-  color: #ffffff;
-  border: none;
-  padding: 6px 10px;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 12px;
-}
-.ui-button:hover {
-  background: #2a5d96;
-}
-.ui-checkbox {
-  accent-color: #2a5d96;
-}
-.ui-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  font-size: 12px;
-  border-radius: 4px;
-  background: rgba(26, 61, 102, 0.7);
-  color: #ffffff;
-}
-.ui-sidebar {
-  position: absolute;
-  left: 16px;
-  top: 50%;
-  transform: translateY(-50%);
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  pointer-events: auto;
-}
-.ui-sidebar button {
-  width: 36px;
-  height: 36px;
-  border-radius: 8px;
-  background: rgba(20, 30, 45, 0.8);
-  border: 1px solid rgba(120, 160, 200, 0.4);
-  color: #dce8f6;
-  cursor: pointer;
-}
-.ui-floating {
-  position: absolute;
-  pointer-events: auto;
-}
-.ui-draggable {
-  cursor: move;
-}
-.ui-image {
-  max-width: 100%;
-  border-radius: 4px;
-}
-.ui-muted {
-  color: #7f97b6;
-}
-`;
-    document.head.appendChild(style);
-}
+import { createDomUpdates } from './dom-updates.js';
 function clampColumns(columns) {
     if (!columns)
         return 1;
@@ -204,6 +75,7 @@ export function createUIRoot(options) {
         root.appendChild(overlayLayer);
     const components = new Set();
     return {
+        updates: createDomUpdates(options?.updates),
         root,
         panelLayer,
         overlayLayer,

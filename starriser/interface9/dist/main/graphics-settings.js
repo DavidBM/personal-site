@@ -2,11 +2,47 @@ import { readGpuBudget } from './gpu-budget-settings.js';
 import { simulationRate, DEFAULT_SIMULATION_RATE } from '../contracts/simulation-rate.js';
 import { bindText, setText } from '../ui/dom-bindings.js';
 const HIGH_FX_KEY = 'galaxy.highFx';
+export function readSuperFx() {
+    if (readGpuBudget() === 'compact')
+        return false;
+    try {
+        return globalThis.localStorage?.getItem('galaxy.superFx') === 'true';
+    }
+    catch {
+        return false;
+    }
+}
+export function writeSuperFx(on) {
+    try {
+        globalThis.localStorage?.setItem('galaxy.superFx', String(on));
+    }
+    catch { /* Storage unavailable. */ }
+    if (on)
+        writeHighFx(true);
+}
+let superFx = null;
+function bindSuperFx() {
+    const box = document.getElementById('super-fx');
+    superFx = box ? { box, title: box.parentElement?.title ?? '' } : null;
+}
+export function paintSuperFx(supported) {
+    if (!superFx?.box.isConnected)
+        bindSuperFx();
+    if (!superFx)
+        return;
+    const { box, title } = superFx;
+    // Supported snapshots must preserve the user's pending reload preference.
+    if (box.disabled !== !supported)
+        box.disabled = !supported;
+    if (!supported && box.checked)
+        box.checked = false;
+    paintTitle(box.parentElement, supported ? title : 'This GPU cannot bind the storage needed for 200K visible ships.');
+}
 export function readHighFx() {
     if (readGpuBudget() === 'compact')
         return false;
     try {
-        return globalThis.localStorage?.getItem(HIGH_FX_KEY) === 'true';
+        return globalThis.localStorage?.getItem(HIGH_FX_KEY) === 'true' || readSuperFx();
     }
     catch {
         return false;

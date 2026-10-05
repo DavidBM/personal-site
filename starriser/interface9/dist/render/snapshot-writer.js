@@ -45,7 +45,7 @@ export function createSnapshotWriter() {
                 const liveTypes = state.view.sceneShipTypes(visual.id);
                 const types = liveTypes.length ? liveTypes : emptyTypes;
                 const shipCount = visual.counts.red + visual.counts.blue + visual.counts.green;
-                const planetName = sceneParkPlanetName(hashFleetId(visual.id), state.view.solarBodies);
+                const planetName = sceneParkPlanetName(hashFleetId(visual.id), state.view.solarBodies, visual.state);
                 const old = catalog[row];
                 if (!old || old.id !== id || old.types !== types || old.shipCount !== shipCount ||
                     old.state !== visual.state.state || old.action !== activity?.action ||

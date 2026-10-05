@@ -9,7 +9,7 @@ export const LOCAL_FLEET_SLOTS = 128;
 export const MAX_OCCUPIED_GROUPS = 512;
 export const MAX_VISUAL_SHIPS = MAX_SHIP_CAPACITY;
 /** Occupancy group visual cap (SCENE kernel may pack more rows per fleet). */
-export const MAX_GROUP_VISUAL = 4096;
+export const MAX_GROUP_VISUAL = MAX_SHIP_CAPACITY;
 /** GPU `director.live` words per group stay 8 (256 ordinals). */
 const LIVE_ORDINALS = 256;
 export const MAX_BATTLES = 32;
@@ -108,7 +108,7 @@ function parseOccupancy(entries) {
     visual += g.visual;
     occupied.push(g);
   }
-  if (visual > MAX_VISUAL_SHIPS) throw new Error("Visual ships exceed 50000");
+  if (visual > MAX_VISUAL_SHIPS) throw new Error(`Visual ships exceed ${MAX_VISUAL_SHIPS}`);
   return occupied;
 }
 

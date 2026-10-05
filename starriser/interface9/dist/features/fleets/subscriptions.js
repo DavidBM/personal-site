@@ -5,7 +5,8 @@ export function subscribeFleetCommands(transport, runtime) {
     const offGenerate = subscribeFeatureTopic(transport, FleetTopics.generateFleet, runtime.generate);
     const offBulk = subscribeFeatureTopic(transport, FleetTopics.generateFleetsBulk, runtime.generateBulk);
     const offMove = subscribeFeatureTopic(transport, FleetTopics.moveLocal, runtime.moveLocal);
-    return () => { offGenerate(); offBulk(); offMove(); };
+    const offOrbit = subscribeFeatureTopic(transport, FleetTopics.orbitPlanet, runtime.orbitPlanet);
+    return () => { offGenerate(); offBulk(); offMove(); offOrbit(); };
 }
 /** Main UI, worker renderer, and headless fixtures consume the same events. */
 export function subscribeFleetEvents(transport, handlers) {

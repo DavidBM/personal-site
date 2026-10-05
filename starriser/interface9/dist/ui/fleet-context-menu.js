@@ -1,6 +1,6 @@
 import { menuBottomInset } from './mobile-layout.js';
 import { bindText, setText } from './dom-bindings.js';
-/** Small fleet-only menu. Async picks cannot reopen a dismissed or superseded menu. */
+/** Fleet actions and planet orders. Async picks cannot reopen a dismissed or superseded menu. */
 export function createFleetContextMenu(parent, actions) {
     const menu = document.createElement('div');
     menu.id = 'fleet-context-menu';
@@ -15,7 +15,8 @@ export function createFleetContextMenu(parent, actions) {
     parent.append(menu);
     let generation = 0, closed = false;
     function hide() { generation++; menu.hidden = true; }
-    function button(label, detail, action, host = menu) {
+    const fleetActions = document.createElement('div');
+    function button(label, detail, action, host = fleetActions) {
         const b = document.createElement('button');
         b.type = 'button';
         b.role = 'menuitem';
@@ -32,6 +33,10 @@ export function createFleetContextMenu(parent, actions) {
     const title = document.createElement('div'), titleText = bindText(title, { height: '28px' });
     title.style.cssText += ';padding:3px 6px 5px;color:#83a4ba;font-size:10px';
     menu.append(title);
+    let planet = null;
+    const orbit = button('Orbit planet', '→', () => { if (planet)
+        actions.orbit?.(planet.order); }, menu);
+    menu.append(fleetActions);
     const select = button('Select fleet', '↖', () => { if (current)
         actions.select(current.id); });
     const move = button('Move fleet…', 'RMB', () => { if (current)
@@ -39,7 +44,7 @@ export function createFleetContextMenu(parent, actions) {
     button('Follow a ship', '→', () => { if (current)
         actions.follow(current.id); });
     const types = document.createElement('div');
-    menu.append(types);
+    fleetActions.append(types);
     const typeButtons = new Map();
     const rotation = button('Camera rotation', '', () => actions.setFollowRotation?.(!actions.followRotation?.()));
     const stop = button('Stop following', '■', actions.stop);
@@ -83,30 +88,46 @@ export function createFleetContextMenu(parent, actions) {
         setText(rotation.meta, actions.followRotation?.() === false ? 'Fixed' : 'Hull');
         syncTypes(fleet);
     }
+    function populateTarget(target) {
+        planet = 'kind' in target ? target : null;
+        fleetActions.hidden = planet != null;
+        orbit.element.hidden = planet == null;
+        if (planet) {
+            current = null;
+            setText(titleText, planet.name);
+            title.title = planet.order.catalogId;
+            return orbit.element;
+        }
+        const fleet = target;
+        if (!fleet.types.length)
+            return null;
+        populate(fleet);
+        return select.element;
+    }
     async function openAt(x, y, load, onEmpty) {
         hide();
         const token = generation;
-        let fleet;
+        let target;
         try {
-            fleet = await load();
+            target = await load();
         }
         catch {
             return;
         }
         if (closed || token !== generation)
             return;
-        if (!fleet) {
+        if (!target) {
             onEmpty?.();
             return;
         }
-        if (!fleet.types.length)
+        const focus = populateTarget(target);
+        if (!focus)
             return;
-        populate(fleet);
         menu.hidden = false;
         const rect = menu.getBoundingClientRect();
         menu.style.left = `${Math.max(4, Math.min(x, window.innerWidth - rect.width - 4))}px`;
         menu.style.top = `${Math.max(4, Math.min(y, window.innerHeight - rect.height - menuBottomInset()))}px`;
-        select.element.focus({ preventScroll: true });
+        focus.focus({ preventScroll: true });
     }
     const outside = (event) => { if (!menu.contains(event.target))
         hide(); };

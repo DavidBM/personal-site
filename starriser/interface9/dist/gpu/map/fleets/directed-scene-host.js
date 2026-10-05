@@ -413,9 +413,15 @@ export function createDirectedSceneHost(injected = null, options = {}) {
             return `retained:${plan.journeyKey}`;
         // The ordinary steady phase is immutable and needs no formatted key.
         if (plan?.phase === "orbit")
-            return "orbit:0:0:0";
+            return orbitPhaseKey(fleet);
         if (plan?.phase === "hide")
             return "hide:0:0:0";
+        return travelPhaseKey(plan, fleet);
+    }
+    function orbitPhaseKey(fleet) {
+        return fleet.state?.orbit ? `orbit:${fleet.state.orbit.revision}:${planetOf(fleet)}` : 'orbit:0:0:0';
+    }
+    function travelPhaseKey(plan, fleet) {
         const ex = plan?.exit;
         const planet = plan?.planet ? planetOf(fleet) : 0;
         return `${plan?.phase}:${planet}:${ex ? ex.x.toFixed(2) : 0}:${ex ? ex.z.toFixed(2) : 0}`;
@@ -434,7 +440,7 @@ export function createDirectedSceneHost(injected = null, options = {}) {
     function driveOrbit(fleet, slot, now) {
         const planet = planetOf(fleet);
         const arrivalWindow = arrivalWindows.get(slot);
-        const at = arrivalWindow?.planet === planet ? arrivalWindow.at : automaticArrivalAt(fleet, now);
+        const at = !fleet.state?.orbit && arrivalWindow?.planet === planet ? arrivalWindow.at : automaticArrivalAt(fleet, now);
         queueCommands([
             orbitCommand(at ?? now, slot, planet, journeyRev - 1, at != null ? WARP_PLANET_ARRIVAL_SECONDS : undefined),
             pressurePlanetCommand(slot, planet, pressureHalf(fleet), journeyRev),
@@ -908,7 +914,7 @@ export function createDirectedSceneHost(injected = null, options = {}) {
     function ensureScratch(bytes) {
         if (!runtime)
             return null;
-        const size = Math.max(bytes, MAX_GROUP_VISUAL * SHIP_HISTORY_BYTES);
+        const size = Math.max(bytes, SCENE_SHIP_CHUNK * SHIP_HISTORY_BYTES);
         if (compactScratch && compactScratch.size >= size)
             return compactScratch;
         compactScratch?.destroy();
@@ -918,7 +924,7 @@ export function createDirectedSceneHost(injected = null, options = {}) {
         });
         return compactScratch;
     }
-    function copyKernelRange(encoder, oldStart, newStart, n, _overlap) {
+    function copyKernelRange(encoder, oldStart, newStart, n) {
         if (!runtime || n <= 0 || oldStart === newStart)
             return;
         const copy = (buf, stride) => {
@@ -963,7 +969,7 @@ export function createDirectedSceneHost(injected = null, options = {}) {
         frameDebugCount('ship slots compacted', move.cap);
         if (sceneWork.some((j) => j.type === "join" && j.slot === move.slot))
             return;
-        copyKernelRange(encoder, move.oldStart, move.newStart, move.cap, move.overlap);
+        copyKernelRange(encoder, move.oldStart, move.newStart, move.cap);
         slotRanges.set(move.slot, { start: move.newStart, cap: move.cap });
         compactPending = move;
     }

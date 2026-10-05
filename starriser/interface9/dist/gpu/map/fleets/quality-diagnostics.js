@@ -2,10 +2,12 @@
 import { SHIP_WGSL } from '../../../lib/ship-runtime/ship-layout.mjs';
 // @ts-ignore Native scene capacity contract.
 import { PILOT_ADVICE_BYTES } from '../../../lib/ship-runtime/pilot-advice-layout.mjs';
+import { SCENE_IDENTITY_WGSL } from '../../../lib/ship-runtime/scene-identity.mjs';
 import { MAX_SHIP_CAPACITY } from '../../../lib/ship-runtime/ship-capacity.mjs';
 /** Separate, opt-in reduction. No diagnostic work is embedded in physics. */
 export const QUALITY_SUMMARY_WGSL = /* wgsl */ `
 ${SHIP_WGSL}
+${SCENE_IDENTITY_WGSL}
 struct U { vp:mat4x4<f32>, origin:vec4<f32>, info:vec4<u32> }
 @group(0) @binding(0) var<uniform> u:U;
 @group(0) @binding(1) var<storage,read> ships:array<Ship>;
@@ -35,7 +37,7 @@ fn inspect(i:u32){
   }
   previous[i]=vec4<u32>(s.identity.w,tier,period,tick);
   let mode=s.flight.w;
-  let order=orders[(s.identity.x>>18u)*2u];
+  let order=orders[identityGroup(s.identity.x)*2u];
   let guide=u.info.z+s.identity.y*64u;
   let guideActive=s.identity.y<u.info.w&&bitcast<f32>(control[guide+62u])>0.0&&bitcast<f32>(control[guide+31u])==mode;
   if(mode>=2.0){bump(14u);return;}

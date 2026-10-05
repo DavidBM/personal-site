@@ -28,7 +28,7 @@ export async function createRenderRuntime(options) {
     setAssetBase(options.assetBase);
     let runtime;
     const view = await WebGpuMapView.createForSurface(options.canvas, {
-        ...options.viewport, skipShipModel: options.skipShipModel,
+        ...options.viewport, skipShipModel: options.skipShipModel, superFx: options.superFx,
         onPreparation: options.onPreparation,
         onGpuError: options.onGpuError,
         onDeviceLost: (info) => { runtime?.dispose(); options.onError(`WebGPU device lost: ${info.reason}: ${info.message}`); },

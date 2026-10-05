@@ -4,6 +4,7 @@ export const FleetTopicNames = {
     generateFleet: "generate_fleet",
     generateFleetsBulk: "generate_fleets_bulk",
     moveLocal: "fleet_move_local",
+    orbitPlanet: "fleet_orbit_planet",
     fleetSpawned: "fleet_spawned",
     fleetsSpawnedBatch: "fleets_spawned_batch",
     fleetState: "fleet_state",
@@ -11,12 +12,12 @@ export const FleetTopicNames = {
     fleetRemoved: "fleet_removed",
     simPause: "sim_pause",
 };
-export const MAX_AUTHORED_SHIPS = 4096;
 /** Commands are requests; lifecycle events report the worker's accepted state. */
 export const FleetTopics = {
     generateFleet: defineTopic(FleetTopicNames.generateFleet),
     generateFleetsBulk: defineTopic(FleetTopicNames.generateFleetsBulk),
     moveLocal: defineTopic(FleetTopicNames.moveLocal),
+    orbitPlanet: defineTopic(FleetTopicNames.orbitPlanet),
     fleetSpawned: defineTopic(FleetTopicNames.fleetSpawned),
     fleetsSpawnedBatch: defineTopic(FleetTopicNames.fleetsSpawnedBatch),
     fleetState: defineTopic(FleetTopicNames.fleetState),

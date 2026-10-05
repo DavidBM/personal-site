@@ -1,6 +1,5 @@
 import { bindText, setText } from '../../ui/dom-bindings.js';
 import { menuBottomInset } from '../../ui/mobile-layout.js';
-import { MAX_AUTHORED_SHIPS } from './contracts.js';
 /** Retained local-authoring form. Six counts cross the worker boundary once. */
 export function createFleetCreationMenu(parent, submit) {
     const menu = document.createElement('div');
@@ -22,10 +21,9 @@ export function createFleetCreationMenu(parent, submit) {
         input.type = 'number';
         input.className = 'ui-input';
         input.min = '0';
-        input.max = String(MAX_AUTHORED_SHIPS);
         input.step = '1';
         input.value = i === 1 ? '1000' : '0';
-        input.style.cssText = 'width:80px;box-sizing:border-box;font:inherit';
+        input.style.cssText = 'width:110px;box-sizing:border-box;font:inherit';
         input.name = name;
         label.append(input);
         form.append(label);
@@ -62,9 +60,9 @@ export function createFleetCreationMenu(parent, submit) {
     const counts = () => inputs.map(i => Number(i.value));
     function validate() {
         const values = counts(), total = values.reduce((a, b) => a + b, 0);
-        const valid = inputs.every(i => i.value !== '' && i.validity.valid) && Number.isInteger(total) && total > 0 && total <= MAX_AUTHORED_SHIPS;
+        const valid = inputs.every(i => i.value !== '' && i.validity.valid) && values.every(n => Number.isSafeInteger(n) && n >= 0) && Number.isSafeInteger(total) && total > 0;
         create.disabled = !valid;
-        setText(text, valid ? `${total.toLocaleString()} / ${MAX_AUTHORED_SHIPS.toLocaleString()} ships · scene budget applies` : `Choose 1–${MAX_AUTHORED_SHIPS.toLocaleString()} ships in total`);
+        setText(text, valid ? `${total.toLocaleString()} ships · visible ships share the scene budget` : `Enter whole, nonnegative counts with a positive safe-integer total`);
         return valid;
     }
     function place(x, y) { const r = menu.getBoundingClientRect(); menu.style.left = `${Math.max(4, Math.min(x, innerWidth - r.width - 4))}px`; menu.style.top = `${Math.max(4, Math.min(y, innerHeight - r.height - menuBottomInset()))}px`; }

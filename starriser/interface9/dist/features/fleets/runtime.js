@@ -4,6 +4,7 @@ import { trySpawnFleet, trySpawnParkedAt } from "../../lib/fleet-sim/domain/flee
 import { createBulkFleetSpawner } from "./bulk-spawn.js";
 import { createAuthoredFleet } from "./create-fleet.js";
 import { acceptLocalMove } from "./local-move.js";
+import { acceptPlanetOrbit } from './orbit-planet.js';
 import { createFleetStateBatch } from "./state-batch.js";
 /** One authority for fleet state. Renderers receive events, never mutable world maps. */
 export function createFleetRuntime(ports) {
@@ -93,6 +94,13 @@ export function createFleetRuntime(ports) {
             if (disposed)
                 return;
             const fleet = acceptLocalMove(world, payload);
+            if (fleet)
+                publishState(fleet);
+        },
+        orbitPlanet: (payload) => {
+            if (disposed)
+                return;
+            const fleet = acceptPlanetOrbit(world, payload, ports.now());
             if (fleet)
                 publishState(fleet);
         },

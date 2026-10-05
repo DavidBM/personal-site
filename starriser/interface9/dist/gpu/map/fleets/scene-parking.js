@@ -383,7 +383,7 @@ export class FleetSceneParking {
         if (o + FLEET_GPU_STRIDE > this.storage.fleetGpuBytes.byteLength)
             return null;
         const hash = this.storage.fleetGpuView.getUint32(o + FleetGpuFields.fleetIdHash, true);
-        const idx = pickSceneParkBodyIndex(hash, store);
+        const idx = pickSceneParkBodyIndex(hash, store, visual.state);
         const local = compactBodySunLocal(store, idx, timeSec, this.parkWorldScratch);
         if (!local)
             return null;
@@ -537,7 +537,7 @@ export class FleetSceneParking {
         if (o + FLEET_GPU_STRIDE > this.storage.fleetGpuBytes.byteLength)
             return fallback;
         const hash = this.storage.fleetGpuView.getUint32(o + FleetGpuFields.fleetIdHash, true);
-        const bodyIndex = pickSceneParkBodyIndex(hash, this.solarBodies);
+        const bodyIndex = pickSceneParkBodyIndex(hash, this.solarBodies, visual.state);
         const bodyRadius = this.solarBodies.radius[bodyIndex] ?? 0;
         if (!(bodyRadius > 0))
             return fallback;

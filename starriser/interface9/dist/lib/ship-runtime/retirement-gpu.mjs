@@ -82,10 +82,10 @@ async function pipeline(device,code,entryPoint,bounded) {
 }
 function bind(device,pipeline,entries){return device.createBindGroup({layout:pipeline.getBindGroupLayout(0),entries:entries.map(([binding,resource])=>({binding,resource}))});}
 function run(encoder,pipeline,group,count){const pass=encoder.beginComputePass();pass.setPipeline(pipeline);pass.setBindGroup(0,group);pass.dispatchWorkgroups(Math.ceil(count/128));pass.end();}
-export async function createRetirementGpu(device,bounded=false) {
+export async function createRetirementGpu(device,bounded=false,capacity=MAX_SHIP_CAPACITY) {
   const pipelines=await Promise.all([pipeline(device,probe,'inspect',bounded),pipeline(device,poses,'gather',bounded),pipeline(device,journal,'gather',bounded)]);
   const make=(size,usage)=>device.createBuffer({size,usage});
-  const result=make(MAX_SHIP_CAPACITY*16,GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_SRC),rows=make(MAX_SHIP_CAPACITY*16,GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_DST),remap=make(MAX_SHIP_CAPACITY*4,GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_DST),uniform=make(16,GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST);
+  const result=make(capacity*16,GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_SRC),rows=make(capacity*16,GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_DST),remap=make(capacity*4,GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_DST),uniform=make(16,GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST);
   return {async inspect(resources,earliest,read) {
     const config=new ArrayBuffer(16);new Uint32Array(config)[0]=resources.count;new Float32Array(config)[1]=earliest;device.queue.writeBuffer(uniform,0,config);
     const r=resources.bindings,group=bind(device,pipelines[0],[[0,r.a],[1,r.b],[2,r.links],[3,{buffer:result}],[4,{buffer:uniform}]]);
@@ -98,5 +98,5 @@ export async function createRetirementGpu(device,bounded=false) {
     run(encoder,pipelines[1],bind(device,pipelines[1],[[0,a.a],[1,a.b],[2,b.a],[3,b.b],[4,a.history],[5,b.history],...shared]),next.count);
     run(encoder,pipelines[2],bind(device,pipelines[2],[[0,a.links],[1,b.links],...shared]),next.count);
     return next.count*(SHIP_BYTES*2+SHIP_HISTORY_BYTES+4+Number(events)*EVENT_POSE_WORDS*4)+plan.records*CORRECTION_WORDS*4;
-  },destroy(){for(const buffer of [result,rows,remap,uniform])buffer.destroy();},scratchBytes:MAX_SHIP_CAPACITY*36+16};
+  },destroy(){for(const buffer of [result,rows,remap,uniform])buffer.destroy();},scratchBytes:capacity*36+16};
 }

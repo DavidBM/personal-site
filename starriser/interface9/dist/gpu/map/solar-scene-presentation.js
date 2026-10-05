@@ -43,7 +43,8 @@ export function createSolarScenePresentation(layer, store, residency, coordinate
         if (flags.discs)
             layer.encodeAtmosphere(pass);
     }
-    return { prepare, encodeColor, encodeDepth, encodeAtmosphere, flags, getHash: () => hash };
+    return { prepare, encodeColor, encodeDepth, encodeAtmosphere, flags, getHash: () => hash,
+        sunRadius: () => flags.sun && store.isSun[0] === 1 ? store.radius[0] : 0 };
 }
 function isFocusedPlanet(store, index) {
     return index != null && index >= 0 && store.currentCount > 0 && store.isSun[index] !== 1;

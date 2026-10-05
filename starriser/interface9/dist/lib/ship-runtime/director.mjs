@@ -79,7 +79,7 @@ export function createDirector(count,options={}) {
 }
 function createDenseDirector(count,options) {
   const capacity=fleetCapacity(options.fleetCount??2),{fleetCount}=capacity;
-  if(!Number.isInteger(count)||count%fleetCount||count<fleetCount*32||count>MAX_SHIP_CAPACITY)throw new Error('Population must fit 32 types per fleet and divide equally among fleets, up to 50000');
+  if(!Number.isInteger(count)||count%fleetCount||count<fleetCount*32||count>MAX_SHIP_CAPACITY)throw new Error('Population must fit 32 types per fleet and divide equally among fleets, up to 200000');
   const sizes=cohortSizes(count/fleetCount),groups=new Uint32Array(capacity.groups*8);
   const groupEpochs=new Float64Array(capacity.groups);
   const navigationEpochs=new Float64Array(capacity.groups*2);

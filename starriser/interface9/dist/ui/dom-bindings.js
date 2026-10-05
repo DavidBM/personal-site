@@ -25,7 +25,8 @@ function boundText(leaf, bounds) {
         display: 'inline-block', boxSizing: 'border-box', verticalAlign: 'middle',
         width: bounds.width ?? '100%', height: bounds.height ?? '1.4em', minWidth: '0',
         lineHeight: bounds.lineHeight ?? '1.4', contain: 'strict',
-        overflow: bounds.wrap ? 'auto' : 'hidden', whiteSpace: bounds.wrap ? 'normal' : 'nowrap',
+        // A single-line label clips; it does not need its own scroll container.
+        overflow: bounds.wrap ? 'auto' : 'clip', whiteSpace: bounds.wrap ? 'normal' : 'nowrap',
         overflowWrap: bounds.wrap ? 'anywhere' : 'normal', textOverflow: 'ellipsis',
     });
     if (bounds.wrap)

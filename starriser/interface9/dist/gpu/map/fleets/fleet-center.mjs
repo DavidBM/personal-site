@@ -1,4 +1,6 @@
-// Arithmetic fleet center, including average height. One GPU workgroup per fleet.
+// Exact center up to 1024 ships; stable stratified sample above that. One
+// bounded workgroup per fleet, independent of population. Counts here describe
+// sampled visibility; scene totals still come from actual admitted ranges.
 // The logical population has no poses; this reads the drawn kernel rows.
 
 export const FLEET_CENTER_WGSL = /* wgsl */ `
@@ -24,12 +26,15 @@ fn fleetCenter(@builtin(workgroup_id) gid: vec3<u32>, @builtin(local_invocation_
   var sum = vec3<f32>(0.0);
   var n = 0u;
   var anchor = 0xffffffffu;
-  for (var i = lane; i < span.count; i += 32u) {
+  let samples = min(span.count, 1024u);
+  for (var sample = lane; sample < samples; sample += 32u) {
+    // Include both endpoints: class runs are ordered, including rare capitals.
+    let i = sample * (span.count - 1u) / max(1u, samples - 1u);
     let s = ships[span.start + i];
     if (s.state.z == 0u) { continue; }
     sum += s.p.xyz;
     let kind = min(bitcast<u32>(s.rest[0].x) & 255u, 5u);
-    anchor = min(anchor, ((5u - kind) << 16u) | i);
+    anchor = min(anchor, ((5u - kind) << 18u) | i);
     n++;
   }
   redP[lane] = sum;
@@ -42,10 +47,10 @@ fn fleetCenter(@builtin(workgroup_id) gid: vec3<u32>, @builtin(local_invocation_
   }
   if (lane == 0u && span.slot < 128u) {
     let count = redN[0];
-    marks[span.slot].pos = vec4<f32>(redP[0] / f32(max(count, 1u)) * u.poseScale, f32(count));
+    marks[span.slot].pos = vec4<f32>(redP[0] / f32(max(count, 1u)) * u.poseScale, round(f32(count) * f32(span.count) / f32(max(1u, samples))));
     marks[span.slot].color = span.color;
     marks[span.slot].anchor = vec3<f32>(0.0);
-    if (count > 0u) { marks[span.slot].anchor = ships[span.start + (redAnchor[0] & 65535u)].p.xyz * u.poseScale; }
+    if (count > 0u) { marks[span.slot].anchor = ships[span.start + (redAnchor[0] & 262143u)].p.xyz * u.poseScale; }
   }
 }
 `;

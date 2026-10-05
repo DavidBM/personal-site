@@ -2,8 +2,9 @@
 
 A browser space-strategy prototype with a WebGPU map, worker-based client, Rust
 authority and local SQLite persistence. You can explore the offline sandbox or
-run a local multiplayer universe. Economy, combat and public signup are future
-features; the playable multiplayer slice is fleet movement and system transfers.
+run a local multiplayer universe. Offline battles provide squad choreography and
+cosmetic weapons; authoritative online combat, economy and public signup remain
+future work. The multiplayer slice is fleet movement and system transfers.
 
 ## Install once
 
@@ -48,9 +49,10 @@ fleet, stable per-ship curve offsets and continuous damped individual motion.
 Automatic arrivals, departures and authored moves share obstacle-aware routes.
 Planetary rings, heavy-ship escorts, visible speed-boost cues and persistent
 trails retain individual identity. Following a ship keeps its fleet alive across
-system changes and warp. Normal
-admission is 10K ships, optional High FX raises it to 50K, and Low memory uses
-2K. These are visual representatives, not galaxy-wide logical ship counts.
+system changes and warp. Normal admission is 10K ships, High FX raises it to
+50K, and Super FX reserves up to 200K after reload on supported GPUs. Low memory
+uses 2K. Created fleets can contain millions of logical ships; only their admitted
+representatives consume ship poses and trails. See [quality and memory limits](docs/render-quality.md).
 
 Start with [how fleets move](docs/fleet-motion.md), [journeys and follow](docs/fleet-navigation.md)
 and the [graphics stack](docs/graphics-stack.md). The
@@ -69,6 +71,11 @@ integration. The normal frontend build includes the required shared WASM.
 The [research archive](docs/research/ship-motion/archive.md) preserves earlier
 studies and evidence; the [agent timeline](agent-to-agent/README.md) provides
 dated implementation handoffs.
+
+The offline editor supports [battle strategies and weapon tuning](docs/fleet-battles.md),
+right-click **Create fleet**, and **Orbit** orders on a planet for a selected fleet.
+The [retained DOM UI](docs/ui-runtime.md) coalesces readouts through explicit,
+bounded commits while preserving native controls and text selection.
 
 Use the [documentation index](docs/README.md) to find current contracts, module
 owners, labs and evidence without treating historical plans as current behavior.

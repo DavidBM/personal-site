@@ -112,7 +112,18 @@ function furthestPlanet(store) {
     }
     return best;
 }
-export function pickSceneParkBodyIndex(fleetIdHash, store) {
+function orderedOrbitBodyIndex(store, state) {
+    if (state?.state !== 'awaiting' || !state.orbit || state.node.solarSystemId !== store.systemId)
+        return null;
+    const { bodyIndex: index, catalogId } = state.orbit;
+    if (index <= 0 || index >= store.currentCount || store.isSun[index])
+        return null;
+    return store.catalogIds?.[index] === catalogId ? index : null;
+}
+export function pickSceneParkBodyIndex(fleetIdHash, store, state) {
+    const ordered = orderedOrbitBodyIndex(store, state);
+    if (ordered != null)
+        return ordered;
     const n = store.currentCount | 0;
     if (n <= 0)
         return 0;
@@ -122,8 +133,8 @@ export function pickSceneParkBodyIndex(fleetIdHash, store) {
     return picks[(fleetIdHash >>> 0) % picks.length];
 }
 /** Display name of the parked Kepler body; omit the sun and unknown slots. */
-export function sceneParkPlanetName(fleetIdHash, store) {
-    const bodyIndex = pickSceneParkBodyIndex(fleetIdHash, store);
+export function sceneParkPlanetName(fleetIdHash, store, state) {
+    const bodyIndex = pickSceneParkBodyIndex(fleetIdHash, store, state);
     if ((store.isSun[bodyIndex] ?? 0) !== 0)
         return null;
     const name = store.defs?.[bodyIndex]?.name;

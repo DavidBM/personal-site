@@ -64,6 +64,12 @@ checks are in [scene-route-corridor](scene-route-corridor/README.md). The opt-in
 for 11 minutes and includes fixed-view A/B benchmark commands. It is excluded
 from `all` alongside the long-running performance scenarios.
 
+The opt-in [Super FX capacity check](scene-super-fx/README.md) admits 200K ships
+from a logical fleet of five million and verifies GPU identity and following.
+It needs more than 1 GiB of physical storage and is excluded from `all`.
+[Sun lens flare](sun-lens/README.md) checks first-load pixels and depth occlusion
+without activating ships or battle effects.
+
 The final atlas-lifetime build passed 183 focused Node tests, including 19
 loader lifetime cases, plus invariants and the architecture gate (355 modules,
 zero violations). The lifetime suite fails 15 cases against the prior loader.
@@ -74,6 +80,19 @@ but both the final and immutable baseline builds produce 1,229 versus 3,037.
 The threshold remains unchanged. Raw results are in
 `/tmp/galaxy-final-headed-all.log` and
 `/tmp/galaxy-final-regression-artifacts/run-M6KsNW/`.
+
+## Fleet orders
+
+For explicit planet orders, `app-fleet-move` exercises the real right-click menu,
+worker acceptance, selected-fleet lifetime and destination panel name alongside
+ordinary move/patrol controls. `scene-planet-orbit` uses controlled time and
+test-only GPU readback to check route-to-ring capture at a large galaxy anchor,
+pose continuity, stable ship identities and leaving orbit on another move.
+
+```sh
+./tests/run.sh app-fleet-move --skip-build --dist-dir /tmp/galaxy-task-build --background
+./tests/run.sh scene-planet-orbit --skip-build --dist-dir /tmp/galaxy-task-build --background
+```
 
 ## Fleet battles
 

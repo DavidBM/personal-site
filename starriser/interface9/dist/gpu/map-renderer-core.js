@@ -13,9 +13,10 @@ import { createMapFrameState } from "./map/frame-state.js";
 import { createMapFrameEncoder } from "./map/frame-encoder.js";
 import { createFleetFrameEncoding } from "./map/fleets/frame-encoding.js";
 import { createDirectedSceneHost, MAX_SCENE_FLEETS, SCENE_KERNEL_COUNT, MAX_GROUP_VISUAL } from "./map/fleets/directed-scene-host.js";
-import { sceneShipCapacity } from '../lib/ship-runtime/ship-capacity.mjs';
+import { sceneShipCapacity, MAX_SHIP_CAPACITY } from '../lib/ship-runtime/ship-capacity.mjs';
 import { shipStorageSizes } from '../lib/ship-runtime/ship-storage.mjs';
 import { warpViewSample } from './warp-motion.js';
+const SUPER_FX_BIND_BYTES = Math.max(...Object.values(shipStorageSizes(MAX_SHIP_CAPACITY, true)));
 const HIGH_FX_BIND_BYTES = Math.max(...Object.values(shipStorageSizes(sceneShipCapacity(true))));
 import { projectFleetMarker } from './map/fleets/fleet-marker.js';
 import { SCENE_SHIP_HANDLE_BASE } from "./map/fleets/scene-ship-access.js";
@@ -355,8 +356,12 @@ export class WebGpuMapView {
             view = withGpuResourceDiagnostics(bootstrap.device, "Map startup resources", () => new WebGpuMapView(canvas, bootstrap, options.fovyDeg ?? 60, options.skipShipModel === true, options.clock));
             view.surfaceCleanup = options.onDispose ?? null;
             view.onRenderError = options.onRenderError;
-            view.directed = createDirectedSceneHost(null, { instanceBase: MAX_FLEET_SLOTS, reverseDepth: MAP_REVERSE_DEPTH, capacity: renderBudget().ships, maxCapacity: renderBudget().maxShips, fleetCount: renderBudget().fleets, onPreparation: options.onPreparation, visualFormation: options.visualFormation });
+            view.frameState.superFx = options.superFx === true && view.supportsSuperFx();
+            view.frameState.highFx = view.frameState.superFx;
+            view.directed = createDirectedSceneHost(null, { instanceBase: MAX_FLEET_SLOTS, reverseDepth: MAP_REVERSE_DEPTH, capacity: view.isSuperFxEnabled() ? MAX_SHIP_CAPACITY : renderBudget().ships, maxCapacity: view.sceneCapacityLimit(), fleetCount: renderBudget().fleets, onPreparation: options.onPreparation, visualFormation: options.visualFormation });
             const directed = view.directed;
+            if (view.isSuperFxEnabled())
+                view.setHighFx(true);
             // Compile once per renderer/device while domain data and assets arrive.
             // Do not hold the galaxy map's first frame behind ship preparation.
             void directed.ensure(bootstrap.device, bootstrap.format).catch(error => {
@@ -368,6 +373,7 @@ export class WebGpuMapView {
             view.fleetPresentation.sceneCenterProvider = (id) => directed.fleetCenter(id);
             view.fleetsLayer.setShipWorkgroupsSource(() => view.directed?.lastShipWorkgroups() ?? 0);
             view.resize(options.width, options.height, options.dpr);
+            await view.frameEncoder.warm();
             return view;
         }
         catch (error) {
@@ -1202,8 +1208,8 @@ export class WebGpuMapView {
             this.fleetPresentation.ensureSceneVisualCount(id, null);
         }
     }
-    sceneFleetPark(hash) {
-        const bodyIndex = pickSceneParkBodyIndex(hash, this.solarBodies);
+    sceneFleetPark(hash, state) {
+        const bodyIndex = pickSceneParkBodyIndex(hash, this.solarBodies, state);
         const cached = this.sceneBodyParks[bodyIndex];
         if (cached)
             return cached;
@@ -1276,7 +1282,7 @@ export class WebGpuMapView {
         if (!grown)
             return null;
         const hash = storage.fleetGpuView.getUint32(o + FleetGpuFields.fleetIdHash, true);
-        const park = this.sceneFleetPark(hash);
+        const park = this.sceneFleetPark(hash, grown.state);
         const systemId = this.solarBodies.systemId;
         const sunX = pin?.origin.x ?? this.solarBodies.systemX;
         const sunZ = pin?.origin.z ?? this.solarBodies.systemZ;
@@ -1325,7 +1331,7 @@ export class WebGpuMapView {
             return;
         const wanted = this.collectSceneFleets();
         const previous = this.lastOccupancy;
-        const cap = Math.min(renderBudget().maxShips, Math.max(this.followJourney?.count ?? 0, sceneShipCapacity(this.isHighFxEnabled())));
+        const cap = Math.min(this.sceneCapacityLimit(), Math.max(this.followJourney?.count ?? 0, sceneShipCapacity(this.isHighFxEnabled(), this.isSuperFxEnabled())));
         const allocated = refreshSceneVisualAllocation(wanted, previous, cap);
         this.lastOccupancy = allocated;
         frameDebugCount('scene fleets', allocated.fleets.length);
@@ -1421,6 +1427,11 @@ export class WebGpuMapView {
         this.directed?.setRepulsionVisible?.(on);
     }
     setSimulationRate(hz) { this.directed?.setSimulationRate(hz); }
+    isSuperFxEnabled() { return this.frameState.superFx; }
+    supportsSuperFx() {
+        return !compactRenderBudget() && SUPER_FX_BIND_BYTES <= Math.min(this.bootstrap.device.limits.maxStorageBufferBindingSize, this.bootstrap.device.limits.maxBufferSize);
+    }
+    sceneCapacityLimit() { return this.isSuperFxEnabled() ? MAX_SHIP_CAPACITY : renderBudget().maxShips; }
     isHighFxEnabled() { return this.frameState.highFx; }
     supportsHighFx() {
         return !compactRenderBudget() && HIGH_FX_BIND_BYTES <= Math.min(this.bootstrap.device.limits.maxStorageBufferBindingSize, this.bootstrap.device.limits.maxBufferSize);
@@ -1442,10 +1453,10 @@ export class WebGpuMapView {
     }
     setStarField(on) { this.survey.stars.enabled = on; }
     setHighFx(on) {
-        const capacity = Math.min(Math.max(this.followJourney?.count ?? 0, sceneShipCapacity(on === true)), renderBudget().maxShips);
+        const capacity = Math.min(Math.max(this.followJourney?.count ?? 0, sceneShipCapacity(on === true, this.isSuperFxEnabled())), this.sceneCapacityLimit());
         if (on && !this.supportsHighFx())
             return;
-        this.frameState.highFx = on === true;
+        this.frameState.highFx = on === true || this.isSuperFxEnabled();
         this.modelLayer.growCapacity(capacity);
         this.modelLowLayer.growCapacity(capacity);
         this.modelTinyLayer.growCapacity(capacity);

@@ -91,6 +91,7 @@ export function buildShipTuningPanel(ctx, actions) {
             cell.append(dragMark(), value);
             if (row) {
                 setters[column.field] = mountDragValue(cell, {
+                    updates: ctx.root.updates,
                     value: row[column.field],
                     min: column.min,
                     max: column.max,
@@ -102,6 +103,16 @@ export function buildShipTuningPanel(ctx, actions) {
         }
     });
     panel.content.appendChild(sheet);
+    const destroy = panel.destroy;
+    panel.destroy = () => {
+        if (frame)
+            cancelAnimationFrame(frame);
+        queued.clear();
+        for (const row of cells)
+            for (const column of COLUMNS)
+                row[column.field]?.dispose();
+        destroy();
+    };
     return { panel };
 }
 //# sourceMappingURL=ship-tuning-panel.js.map

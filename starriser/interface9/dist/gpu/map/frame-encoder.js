@@ -6,9 +6,11 @@ import { MAP_MSAA_SAMPLES, MAP_SELECTIVE_MSAA, MAP_HALF_GLOW, MAP_HULL_MSAA } fr
 import { resetSceneCamera } from '../scene-camera.js';
 import { frameDebugTime } from '../frame-debug.js';
 import { WarpEffect } from './warp-effect.js';
+import { SunLens } from './sun-lens.js';
 export function createMapFrameEncoder(ports) {
     const { bootstrap, surface, attachments, galaxy, fleets, solar, schematics, overlay } = ports;
     const warp = new WarpEffect(bootstrap, ports.coordinates);
+    const sunLens = MAP_MSAA_SAMPLES === 1 ? new SunLens(bootstrap, ports.coordinates) : null;
     const selective = MAP_SELECTIVE_MSAA ? new SelectiveMsaa(bootstrap) : null;
     const glow = MAP_HALF_GLOW ? new HalfGlow(bootstrap) : null;
     const hullMsaa = MAP_HULL_MSAA ? new HullMsaa(bootstrap) : null;
@@ -65,7 +67,7 @@ export function createMapFrameEncoder(ports) {
         const glowDraw = glowDrawFor(frame);
         const splitGlow = glowDraw !== null || !!(glow && fx?.activeFrame);
         depthResolved = false;
-        const pass = beginScenePass(encoder, frame, target, preserveDepth || splitGlow || !!fx?.activeFrame, splitGlow);
+        const pass = beginScenePass(encoder, frame, target, preserveDepth || splitGlow || !!fx?.activeFrame || !!sunLens, splitGlow);
         if (lastResolveHadDepth)
             solar.encodeDepth(pass);
         if (frame.sceneOpen) {
@@ -274,6 +276,9 @@ export function createMapFrameEncoder(ports) {
                 encodeScene(encoder, frame, warped ?? target, warped !== null);
             if (warped)
                 warp.encode(encoder, target);
+            const radius = solar.sunRadius?.() ?? 0;
+            if (frame.sceneOpen && radius > 0 && attachments.msaaDepthView)
+                sunLens?.encode(encoder, target, attachments.msaaDepthView, frame, attachments.msaaW, attachments.msaaH, radius);
         });
         frameDebugTime('population compaction encoding', () => ports.encodeDirectedMaintenance?.(encoder));
         submit(encoder, profiler);
@@ -289,6 +294,6 @@ export function createMapFrameEncoder(ports) {
             encodeResolve(encoder, frame, target, preserveDepth);
         }
     }
-    return { encode, fxDiagnostics: () => fx?.diagnostics() ?? null, dispose: () => { fx?.dispose(); warp.dispose(); selective?.dispose(); hullMsaa?.dispose(); glow?.dispose(); }, lastResolveHadDepth: () => lastResolveHadDepth };
+    return { encode, warm: () => sunLens?.warm() ?? Promise.resolve(), fxDiagnostics: () => fx?.diagnostics() ?? null, dispose: () => { sunLens?.dispose(); fx?.dispose(); warp.dispose(); selective?.dispose(); hullMsaa?.dispose(); glow?.dispose(); }, lastResolveHadDepth: () => lastResolveHadDepth };
 }
 //# sourceMappingURL=frame-encoder.js.map

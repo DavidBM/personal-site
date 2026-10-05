@@ -1,5 +1,6 @@
+import { SCENE_ORDINAL_CAPACITY } from '../../../lib/ship-runtime/scene-identity.mjs';
 export const SCENE_SHIP_HANDLE_BASE = 0x10000000;
-const ORDINAL_CAPACITY = 8192;
+const ORDINAL_CAPACITY = SCENE_ORDINAL_CAPACITY;
 let nextSerial = SCENE_SHIP_HANDLE_BASE;
 export class SceneShipAccess {
     constructor() {

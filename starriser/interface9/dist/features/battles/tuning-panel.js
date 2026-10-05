@@ -11,7 +11,6 @@ const labels = ['Speed', 'Cycle · ticks', 'Ship spread', 'Tracking response', '
 export function buildBattleTuningPanel(ctx, actions) {
     ensureMicroStyles();
     const panel = ctx.panel({ id: 'battle-tuning-panel', title: 'Battle', width: 290, className: 'micro' });
-    panel.element.style.background = '#050c17f7';
     panel.content.style.fontSize = '11px';
     const rows = battleTuningProfiles(), defaults = defaultBattleTuning();
     const select = document.createElement('select');
@@ -23,7 +22,7 @@ export function buildBattleTuningPanel(ctx, actions) {
     const hint = document.createElement('p');
     hint.style.cssText = 'margin:6px 0;color:#9fb4c9;font:inherit;line-height:1.4';
     hint.textContent = 'Selected class only. Ship spread gives each ship its own stable offset inside the squad, even with noise off. Spread height adds vertical room. Noise adds movement; at strength 1, ship / squad noise spans ±10% / ±16% of battle radius per axis. Periods use simulation ticks.';
-    const inputs = [], texts = [];
+    const inputs = [], values = [];
     let selected = 0, frame = 0;
     const queued = new Map();
     function flush() { frame = 0; const patches = [...queued.values()]; queued.clear(); scheduleBattleTuning(patches); actions.setBattleTuning?.(patches); }
@@ -36,7 +35,7 @@ export function buildBattleTuningPanel(ctx, actions) {
             const v = rows[selected][key];
             inputs[i].value = String(v);
             inputs[i].checked = v > 0;
-            setText(texts[i], String(v));
+            values[i].queue(v);
         });
     }
     const strategyControls = mountBattleStrategies(panel.content, patch => {
@@ -60,17 +59,17 @@ export function buildBattleTuningPanel(ctx, actions) {
         input.min = String(BATTLE_TUNING_LIMITS[i][0]);
         input.max = String(BATTLE_TUNING_LIMITS[i][1]);
         input.step = key === 'squads' || key.endsWith('Ticks') || key.endsWith('Period') ? '1' : '.05';
-        input.style.cssText = `width:${toggle ? '14px' : '100%'};min-width:0;margin:0;accent-color:#86cfff`;
+        input.style.cssText = `width:${toggle ? '14px' : '100%'};min-width:0;margin:0;accent-color:var(--ui-accent)`;
         input.name = key;
         const value = document.createElement('span');
-        texts.push(bindText(value, { width: '42px', height: '20px' }));
+        values.push(ctx.root.updates.number(bindText(value, { width: '42px', height: '20px' }), { decimals: 3, format: String }));
         inputs.push(input);
         label.append(input, value);
         panel.content.append(label);
-        input.oninput = () => { const v = toggle ? Number(input.checked) : Number(input.value); rows[selected][key] = v; setText(texts[i], String(v)); queue({ index: selected, [key]: v }); if (key === 'squads')
+        input.oninput = () => { const v = toggle ? Number(input.checked) : Number(input.value); rows[selected][key] = v; values[i].queue(v); queue({ index: selected, [key]: v }); if (key === 'squads')
             strategyControls.paint(rows[selected]); };
     });
-    const weaponControls = mountBattleFx(panel.content, actions, () => selected);
+    const weaponControls = mountBattleFx(panel.content, actions, () => selected, ctx.root.updates);
     select.onchange = () => { selected = Number(select.value); paint(); };
     function reset(index) { weaponControls.reset(index); rows[index] = { ...defaults[index], strategies: [...defaults[index].strategies] }; queue({ index, ...rows[index] }); }
     const buttons = document.createElement('div');
@@ -89,7 +88,8 @@ export function buildBattleTuningPanel(ctx, actions) {
     }
     const disposeCopy = mountSettingsCopy(panel.content, rows, weaponControls.rows);
     const destroy = panel.destroy;
-    panel.destroy = () => { weaponControls.dispose(); disposeCopy(); if (frame)
+    panel.destroy = () => { for (const binding of values)
+        binding.dispose(); weaponControls.dispose(); disposeCopy(); if (frame)
         cancelAnimationFrame(frame); queued.clear(); destroy(); };
     paint();
     return { panel };

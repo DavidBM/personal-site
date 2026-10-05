@@ -2,7 +2,7 @@ import { DEFAULT_SHIP_CAPACITY } from '../../lib/ship-runtime/ship-capacity.mjs'
 /** One mutable frame record, reused by the fixed map pass sequence. */
 export function createMapFrameState() {
     return {
-        highFx: false, warp: null, sceneShipCapacity: DEFAULT_SHIP_CAPACITY,
+        highFx: false, superFx: false, warp: null, sceneShipCapacity: DEFAULT_SHIP_CAPACITY,
         referenceModelVisibility: false, referenceTrailVisibility: false,
         sceneOpen: false, anyScene: false, following: false, strategicVisible: true, keplerEncode: false,
         distance: 1, tanHalfFov: 1, cssWidth: 1, cssHeight: 1, fovyDeg: 45,

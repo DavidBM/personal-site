@@ -485,9 +485,9 @@ export function resolveLodHold(desired, live, holdUntilMs, nowMs, holdMs = LOD_H
  * Never invents a type that was 0. If budget≥1 and total≥1, sum ≥ 1.
  */
 export function scaleCountsToBudget(counts, budget) {
-    const red = Math.max(0, counts.red | 0);
-    const blue = Math.max(0, counts.blue | 0);
-    const green = Math.max(0, counts.green | 0);
+    const red = Math.max(0, Math.floor(counts.red));
+    const blue = Math.max(0, Math.floor(counts.blue));
+    const green = Math.max(0, Math.floor(counts.green));
     const total = red + blue + green;
     if (total === 0 || budget <= 0) {
         return { red: 0, blue: 0, green: 0 };

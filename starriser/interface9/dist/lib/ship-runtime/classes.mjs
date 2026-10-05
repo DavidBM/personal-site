@@ -1,4 +1,5 @@
 import { SHIP_SPEED_MULTIPLIER } from './scene-scale.mjs';
+import {SCENE_IDENTITY_WGSL} from './scene-identity.mjs';
 // Fixture units; these parameters generate both host metadata and WGSL constants.
 export const LARGE_SHIP_SCALE=5;
 /** Settled ring/escort spin, relative to its moving planet or anchor. */
@@ -45,8 +46,8 @@ const vec=values=>`vec4<f32>(${values.map(x=>Number.isInteger(x)?`${x}.0`:String
 const CLASS_INDEX=`fn classIndex(typeId:u32)->u32 {let kinds=array<u32,32>(${CLASS_BY_TYPE.map(x=>`${x}u`).join(',')});return kinds[typeId];}`;
 const CLASS_TAIL=`fn dimensions(typeId:u32)->vec4<f32> {let values=array<vec4<f32>,6>(${CLASSES.map(c=>vec([...c.extent,Math.hypot(...c.extent)])).join(',')});return values[classIndex(typeId)];}
 fn shipType(s:Ship)->u32 {return (s.identity.x>>8u)&31u;}
-fn sceneOrdinal(id:u32)->u32 {return (id&255u)|(((id>>13u)&31u)<<8u);}
-fn groupOf(s:Ship)->u32 {return s.identity.x>>18u;}`;
+${SCENE_IDENTITY_WGSL}
+fn groupOf(s:Ship)->u32 {return identityGroup(s.identity.x);}`;
 /** Const tables for shaders that are not on the live class-tuning buffer. */
 export const CLASS_WGSL=`
 ${CLASS_INDEX}

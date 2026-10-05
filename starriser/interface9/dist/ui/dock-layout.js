@@ -333,7 +333,7 @@ function ensureStyles() {
   background: transparent;
   border: 1px solid transparent;
   color: #8aa0b8;
-  border-radius: 6px;
+  border-radius: 3px;
   padding: 6px;
   cursor: pointer;
   text-align: left;
@@ -351,12 +351,12 @@ function ensureStyles() {
 }
 #galaxy-dock-debug button.dock-window-toggle[aria-pressed="true"] {
   color: #e8f3ff;
-  background: rgba(42, 93, 150, 0.5);
-  border-color: rgba(140, 180, 220, 0.45);
+  background: rgba(50, 100, 120, 0.3);
+  border-color: rgba(140, 190, 203, 0.45);
 }
 #galaxy-dock-debug button.dock-window-toggle:hover {
   color: #e8f3ff;
-  background: rgba(26, 61, 102, 0.45);
+  background: rgba(32, 61, 76, 0.6);
 }
 #galaxy-dock-debug button svg {
   width: 18px;

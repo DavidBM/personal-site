@@ -80,13 +80,13 @@ fn clearBirth(point:vec3<f32>,size:f32)->vec3<f32> {
   links[correctionDirectory(config.counts.y)+i]=record+1u;
 }
 `;
-export async function createPopulationSpawner(device,maximumBatches,bounded=false) {
+export async function createPopulationSpawner(device,maximumBatches,bounded=false,capacity=MAX_SHIP_CAPACITY) {
   const module=device.createShaderModule({code:spatialShaderSource(code,bounded)}),info=await module.getCompilationInfo();
   if(info.messages.some(m=>m.type==='error'))throw Error(info.messages.map(m=>m.message).join('\n'));
   const pipeline=await device.createComputePipelineAsync({layout:'auto',compute:{module,entryPoint:'spawn'}});
   const records=device.createBuffer({size:maximumBatches*64,usage:GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_DST});
   const uniform=device.createBuffer({size:80,usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST});
-  const ordinalBuffer=device.createBuffer({size:MAX_SHIP_CAPACITY*4,usage:GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_DST});
+  const ordinalBuffer=device.createBuffer({size:capacity*4,usage:GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_DST});
   return {encode(encoder,next,batches,time,emitting,planets) {
     const data=new ArrayBuffer(batches.length*64),words=new Uint32Array(data),floats=new Float32Array(data);
     for(const [i,batch] of batches.entries()) {

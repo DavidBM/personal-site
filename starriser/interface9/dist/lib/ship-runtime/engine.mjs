@@ -6,7 +6,7 @@ import {SHIP_WORDS} from './ship-layout.mjs';
 import {createCompileReporter} from './compile-status.mjs';
 import {pilotAdviceBytes,PILOT_ADVICE_BYTES} from './pilot-advice-layout.mjs';
 import {PILOT_WORK_BUDGET} from './bounded-pilot.mjs';
-import {MAX_SHIP_CAPACITY} from './ship-capacity.mjs';
+import {MAX_SHIP_CAPACITY,HIGH_SHIP_CAPACITY} from './ship-capacity.mjs';
 import {createRetirementGpu} from './retirement-gpu.mjs';
 import {createRegroupingGpu,regroupingRows} from './regrouping-gpu.mjs';
 import {preparePopulationRegrouping} from './population-regrouping.mjs';
@@ -139,7 +139,7 @@ export async function createEngine(canvas, options={}) {
   try {
     report({phase:'preparing',label:'Building ship director'});
     const director=createDirector(settings.count,{reserveFraction:settings.reserveFraction,fleetCount:settings.fleetCount,initialFleets:settings.initialFleets,identityStart:settings.identityStart,occupancy:settings.occupancy});
-    const pilotCapacity=options.pilotCapacity??MAX_SHIP_CAPACITY;
+    const pilotCapacity=options.pilotCapacity??Math.max(settings.count,HIGH_SHIP_CAPACITY);
     if(!Number.isInteger(pilotCapacity)||pilotCapacity<settings.count||pilotCapacity>MAX_SHIP_CAPACITY)throw Error("Invalid pilot capacity");
     director.capacity.pilotCapacity=pilotCapacity;
     director.capacity.visualFormation=Boolean(options.visualFormation&&settings.occupancy);
@@ -255,9 +255,9 @@ async function initializeEngine(canvas,options,director,solar,lifetime,report) {
   }}));
   jobs.push(
     {label:'Progress sampler',run:()=>createProgressSampler(device,director)},
-    {label:'Population spawn',run:()=>createPopulationSpawner(device,director.capacity.groups,pilotEnabled)},
-    {label:'Retirement',run:()=>createRetirementGpu(device,pilotEnabled)},
-    {label:'Regrouping',run:()=>createRegroupingGpu(device,pilotEnabled)},
+    {label:'Population spawn',run:()=>createPopulationSpawner(device,director.capacity.groups,pilotEnabled,director.capacity.pilotCapacity)},
+    {label:'Retirement',run:()=>createRetirementGpu(device,pilotEnabled,director.capacity.pilotCapacity)},
+    {label:'Regrouping',run:()=>createRegroupingGpu(device,pilotEnabled,director.capacity.pilotCapacity)},
     {label:'Clock rebasing',run:()=>createClockRebaser(device,agents,history,links,shipStorage.current.bindings,pilotEnabled)},
     {label:'Packing',run:()=>createPacking(device,{agents,history,links,orders:orderBuffer,layout:slotLayout,count,director,eventFrame,bindings:shipStorage.current.bindings})});
   report({phase:'compiling',label:'Ship kernels',completed:0,total:jobs.length});
@@ -302,7 +302,7 @@ async function initializeEngine(canvas,options,director,solar,lifetime,report) {
   }
   let drawGroups=makeDrawGroups(shipStorage.current);
   function prepareStorageBindings(next) {
-    if(pilotEnabled&&next.count>director.capacity.pilotCapacity)throw Error("Ship count exceeds pilot capacity");
+    if(next.count>director.capacity.pilotCapacity)throw Error("Ship count exceeds runtime capacity");
     const simulationGroups=makeGroups(next,'history'),geometryGroups=makeGroups(next,'geometry'),renderGroups=makeDrawGroups(next);
     const clockBindings=rebaser.prepareBindings(next.bindings),packingBindings=packing.prepareBindings(next.bindings,next.count);
     return ()=>{
@@ -327,7 +327,8 @@ async function initializeEngine(canvas,options,director,solar,lifetime,report) {
     if((expected.lifetime!==undefined&&expected.lifetime!==lifetimeToken)||(expected.populationRevision!==undefined&&expected.populationRevision!==director.population.revision))return {status:'superseded'};
     if(shipStorage.status.pending)return {status:'busy'};
     const prepared=preparePopulationAdmission(director,requests),population=prepared.director.population;
-    const extension=slotLayout.prepareExtension(population),capacity=Math.min(MAX_SHIP_CAPACITY,Math.max(population.count,shipStorage.status.capacity*2));
+    if(population.count>director.capacity.pilotCapacity)throw Error("Ship count exceeds runtime capacity");
+    const extension=slotLayout.prepareExtension(population),capacity=Math.min(director.capacity.pilotCapacity,Math.max(population.count,shipStorage.status.capacity*2));
     const changed=shipStorage.grow(population.count,capacity,next=>{
       const bindings=prepareStorageBindings(next);
       return ()=>{director.adopt(prepared.director,false);extension();count=next.count;spatial=spatialStorage(count,pilotEnabled);hullCount=capitalCount();bindings();};

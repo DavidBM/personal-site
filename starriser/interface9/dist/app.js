@@ -1,4 +1,5 @@
 import { createFleetCreationMenu } from './features/fleets/create-panel.js';
+import { planetOrbitMenu, matchesPlanetOrbit } from './main/fleet-orbit-input.js';
 import { createBattleClient } from "./features/battles/client.js";
 import { createGpuErrorNotice } from './ui/gpu-error-notice.js';
 import { readStarField, writeStarField } from './main/graphics-settings.js';
@@ -24,7 +25,7 @@ import { createEditHandlePointerController, } from "./main/edit-handle-pointer.j
 import { createRenderViewHooks } from "./main/render-view-hooks.js";
 import { RenderClient } from "./main/render-client.js";
 import { bindPageLifetime } from './main/page-lifetime.js';
-import { readRenderScale, writeRenderScale, readHalfGlow, writeHalfGlow, readSelectiveMsaa, writeSelectiveMsaa, readSimulationRate, writeSimulationRate, readHighFx, readFleetPaths, writeFleetPaths, writeHighFx, paintHighFx } from "./main/graphics-settings.js";
+import { readSuperFx, writeSuperFx, paintSuperFx, readRenderScale, writeRenderScale, readHalfGlow, writeHalfGlow, readSelectiveMsaa, writeSelectiveMsaa, readSimulationRate, writeSimulationRate, readHighFx, readFleetPaths, writeFleetPaths, writeHighFx, paintHighFx } from "./main/graphics-settings.js";
 import { createRenderCameraInput } from "./main/render-camera-input.js";
 import { pickRenderBody } from "./main/render-picking.js";
 import { canMoveSceneFleet, sceneMoveDestination, matchesFleetMoveScene, fleetMoveRejection, fleetMoveNotice } from './main/fleet-move-input.js';
@@ -196,6 +197,7 @@ export class App {
                     void this.battles?.fight(selected, id);
             },
             move: id => this.armFleetMove(id),
+            orbit: order => this.issuePlanetOrbit(order),
             endBattle: id => {
                 const s = this.fleetStatus.byId.get(id)?.state;
                 if (s?.state === 'awaiting' && s.battle)
@@ -234,6 +236,11 @@ export class App {
     handleRenderState(snapshot) {
         if (this.disposed)
             return;
+        if (typeof snapshot.superFxSupported === 'boolean') {
+            paintSuperFx(snapshot.superFxSupported);
+            if (!snapshot.superFxSupported && readSuperFx())
+                writeSuperFx(false);
+        }
         if (typeof snapshot.highFxSupported === 'boolean') {
             paintHighFx(snapshot.highFx === true, snapshot.highFxSupported);
             if (!snapshot.highFxSupported && this.highFxEnabled) {
@@ -547,7 +554,7 @@ export class App {
                     return z;
             }
             return this.renderClient?.snapshot()?.camera.eyeY ?? null;
-        });
+        }, this.uiRoot.updates);
         const canvas = this.renderClient?.canvas;
         if (!canvas || !this.cameraController) {
             console.error("WebGPU canvas not available for events");
@@ -788,6 +795,8 @@ export class App {
         writeStarField(on);
         this.renderClient?.send({ type: 'starField', on });
     }
+    isSuperFxEnabled() { return readSuperFx(); }
+    setSuperFx(on) { writeSuperFx(on); }
     isHighFxEnabled() { return this.highFxEnabled; }
     setHighFx(on) {
         this.highFxEnabled = on;
@@ -1043,6 +1052,34 @@ export class App {
             this.fleetCreationMenu?.open(x, y, { at: { ...snapshot.sceneNode }, position });
         return true;
     }
+    issuePlanetOrbit(order) {
+        const snapshot = this.renderClient?.snapshot();
+        if (this.disposed || !matchesPlanetOrbit(snapshot, order) || !this.movableSceneFleet(order.id, snapshot))
+            return;
+        this.cancelFleetMove();
+        this.sceneSelectionGeneration++;
+        const { id, node, bodyIndex, catalogId } = order;
+        publishFeatureTopic(this.mainBus, FleetTopics.orbitPlanet, { id, node, bodyIndex, catalogId });
+        this.fleetMoveStatus?.notice('Orbit order requested');
+    }
+    async loadFleetMenu(client, id, current) {
+        const result = await client.query({ type: 'fleetShipTypes', id });
+        const snapshot = client.snapshot();
+        if (!snapshot || !current())
+            return null;
+        const state = this.fleetStatus.byId.get(id)?.state;
+        return { id, types: result.types, following: snapshot.following,
+            move: this.movableSceneFleet(id, snapshot),
+            battle: state?.state === 'awaiting' && Boolean(state.battle),
+            attack: snapshot.selectedFleetId != null && snapshot.selectedFleetId !== id
+                && this.movableSceneFleet(snapshot.selectedFleetId, snapshot) && this.movableSceneFleet(id, snapshot) };
+    }
+    loadPlanetMenu(target) {
+        const snapshot = this.renderClient?.snapshot();
+        if (!snapshot?.selectedFleetId || !this.movableSceneFleet(snapshot.selectedFleetId, snapshot))
+            return null;
+        return planetOrbitMenu(snapshot, target);
+    }
     showFleetContextMenu(x, y) {
         const client = this.renderClient;
         const systemId = client?.snapshot()?.systemId;
@@ -1061,18 +1098,9 @@ export class App {
             if (!current())
                 return null;
             empty = target == null;
-            if (target?.kind !== 'fleet')
-                return null;
-            const result = await client.query({ type: 'fleetShipTypes', id: target.id });
-            const snapshot = client.snapshot();
-            if (!snapshot || !current())
-                return null;
-            const state = this.fleetStatus.byId.get(target.id)?.state;
-            return { id: target.id, types: result.types, following: snapshot.following,
-                move: this.movableSceneFleet(target.id, snapshot),
-                battle: state?.state === 'awaiting' && Boolean(state.battle),
-                attack: this.authority !== 'online' && snapshot.selectedFleetId != null && snapshot.selectedFleetId !== target.id
-                    && this.movableSceneFleet(snapshot.selectedFleetId, snapshot) && this.movableSceneFleet(target.id, snapshot) };
+            if (target?.kind === 'body')
+                return this.loadPlanetMenu(target);
+            return target?.kind === 'fleet' ? this.loadFleetMenu(client, target.id, current) : null;
         }, () => { if (empty && move && current())
             this.issueFleetMove(move); });
     }
@@ -1532,6 +1560,7 @@ export class App {
         this.gpuErrorNotice?.dispose();
         this.gpuErrorNotice = null;
         this.uiRoot.clear();
+        this.uiRoot.updates.dispose();
     }
     updateStats(stats) {
         const resolvedStats = stats ?? this.galaxy.getStatistics();

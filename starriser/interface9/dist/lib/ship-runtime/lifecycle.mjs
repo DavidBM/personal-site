@@ -30,6 +30,7 @@ export function lifecycleWgsl(solar = false) {
     s.q=flightAttitude(s.q,direction);s.aux.x=0.0;`;
   return /* wgsl */`
 fn navigationCohort(s:Ship)->u32 {
+  if(sceneIdentity(s.identity.x)){return 0u;}
   return select(0u,(s.identity.x>>16u)&1u,groupIntent(groupOf(s)).journeys[1].mode.y>0.0);
 }
 fn journeyFor(s:Ship)->Journey {return groupIntent(groupOf(s)).journeys[navigationCohort(s)];}

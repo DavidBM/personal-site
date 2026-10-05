@@ -29,7 +29,7 @@ export function ensureMicroStyles() {
   line-height: 1.2;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #6d8499;
+  color: #8b9eae;
 }
 .micro-input {
   width: 100%;
@@ -99,7 +99,7 @@ export function ensureMicroStyles() {
   padding: 0;
   border: none;
   background: transparent;
-  color: #6d8499;
+  color: #8b9eae;
   cursor: pointer;
 }
 .micro-reset:hover { color: #e7f2ff; }
@@ -246,11 +246,16 @@ export function mountDragValue(host, options) {
     let value = quantize(options.value);
     const readout = host.querySelector(".micro-drag-value");
     const readoutText = readout ? bindText(readout, { height: '18px', lineHeight: '18px' }) : null;
+    const binding = readoutText && options.updates?.number(readoutText, { decimals: 3, format: formatScrub });
+    const lifetime = new AbortController();
+    const listenerOptions = { signal: lifetime.signal };
     let editing = false;
     const paint = () => {
         if (editing)
             return;
-        if (readoutText)
+        if (binding)
+            binding.queue(value);
+        else if (readoutText)
             setText(readoutText, formatScrub(value));
     };
     paint();
@@ -282,11 +287,14 @@ export function mountDragValue(host, options) {
         if (commit)
             commitTyped(typed.value);
         typed.remove();
+        binding?.setActive(true);
+        binding?.invalidate();
         paint();
     };
     const beginEdit = () => {
         if (!readout || editing)
             return;
+        binding?.setActive(false);
         editing = true;
         host.classList.add("micro-drag-editing");
         const input = document.createElement("input");
@@ -304,6 +312,8 @@ export function mountDragValue(host, options) {
         const quiet = (event) => event.stopPropagation();
         input.addEventListener("keydown", (event) => {
             quiet(event);
+            if (event.isComposing)
+                return;
             if (event.key === "Enter") {
                 event.preventDefault();
                 closeEdit(true);
@@ -335,7 +345,7 @@ export function mountDragValue(host, options) {
             return;
         event.preventDefault();
         event.stopPropagation();
-    });
+    }, listenerOptions);
     host.addEventListener("pointermove", (event) => {
         if (pointerId !== event.pointerId)
             return;
@@ -366,7 +376,7 @@ export function mountDragValue(host, options) {
         value = next;
         paint();
         options.onChange(value);
-    });
+    }, listenerOptions);
     const release = (event) => {
         if (pointerId !== event.pointerId)
             return;
@@ -376,20 +386,27 @@ export function mountDragValue(host, options) {
         if (!wasDrag && !editing)
             beginEdit();
     };
-    host.addEventListener("pointerup", release);
+    host.addEventListener("pointerup", release, listenerOptions);
     host.addEventListener("pointercancel", (event) => {
         if (pointerId !== event.pointerId)
             return;
         pointerId = null;
         dragged = false;
-    });
+    }, listenerOptions);
     return {
+        dispose() {
+            lifetime.abort();
+            binding?.dispose();
+            editing = false;
+            pointerId = null;
+            field?.remove();
+            field = null;
+            host.classList.remove("micro-drag-editing");
+        },
         set(next) {
             value = clamp(next, options.min, options.max);
-            if (editing && field)
-                field.value = formatScrub(value);
-            else
-                paint();
+            // External values never overwrite the native edit buffer. Enter commits the edit; Escape reveals the latest value.
+            paint();
         },
     };
 }

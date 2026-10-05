@@ -1,4 +1,5 @@
-import { bindText, setText } from './dom-bindings.js';
+import { createDomUpdates } from './dom-updates.js';
+import { bindText } from './dom-bindings.js';
 import { subscribeTopic, Topics } from "../worker/protocol/topics.js";
 function coordinate(value) {
     return typeof value === "number" ? value : 0;
@@ -8,15 +9,17 @@ function coordinate(value) {
  * Screen coordinates · Map coordinates · Zoom level.
  */
 export class CursorStatsWidget {
-    constructor(bus, lineId = "cursorStats", container, getZoom) {
+    constructor(bus, lineId = "cursorStats", container, getZoom, updates) {
         this.root = null;
         this.scrSpan = null;
         this.mapSpan = null;
         this.zoomSpan = null;
-        this.scrText = null;
-        this.mapText = null;
-        this.zoomText = null;
+        this.scrValue = null;
+        this.mapValue = null;
+        this.zoomValue = null;
         this.unsubscribePointer = null;
+        this.updates = updates ?? createDomUpdates();
+        this.ownsUpdates = !updates;
         this.bus = bus;
         this.lineId = lineId;
         this.container = container ?? null;
@@ -34,6 +37,11 @@ export class CursorStatsWidget {
         window.removeEventListener("wheel", this.onWheelBound);
         this.unsubscribePointer?.();
         this.unsubscribePointer = null;
+        this.scrValue?.dispose();
+        this.mapValue?.dispose();
+        this.zoomValue?.dispose();
+        if (this.ownsUpdates)
+            this.updates.dispose();
         this.root?.remove();
         this.getZoom = null;
     }
@@ -89,9 +97,9 @@ export class CursorStatsWidget {
         this.scrSpan = scr.span;
         this.mapSpan = map.span;
         this.zoomSpan = zoom.span;
-        this.scrText = bindText(scr.span, { width: '17ch' });
-        this.mapText = bindText(map.span, { width: '20ch' });
-        this.zoomText = bindText(zoom.span, { width: '12ch' });
+        this.scrValue = coordinateReadout(this.updates, bindText(scr.span, { width: '17ch' }));
+        this.mapValue = coordinateReadout(this.updates, bindText(map.span, { width: '20ch' }));
+        this.zoomValue = this.updates.number(bindText(zoom.span, { width: '12ch' }), { decimals: 1, format: formatZoom });
         this.root.appendChild(scr.line);
         this.root.appendChild(map.line);
         this.root.appendChild(zoom.line);
@@ -105,6 +113,9 @@ export class CursorStatsWidget {
     }
     setContainer(container) {
         this.container = container;
+        this.scrValue?.setActive(!!container);
+        this.mapValue?.setActive(!!container);
+        this.zoomValue?.setActive(!!container);
         if (!container) {
             if (this.root)
                 this.root.remove();
@@ -123,19 +134,9 @@ export class CursorStatsWidget {
             }
         }
     }
-    _formatZoom(z) {
-        if (!Number.isFinite(z))
-            return "—";
-        // Camera height spans 1e2…1e6; whole units stay readable.
-        if (Math.abs(z) >= 1000)
-            return Math.round(z).toLocaleString("en-US");
-        return z.toFixed(1);
-    }
     _updateZoom() {
-        if (!this.zoomText)
-            return;
-        const z = this.getZoom?.() ?? null;
-        setText(this.zoomText, z == null || !Number.isFinite(z) ? "—" : this._formatZoom(z));
+        const z = this.getZoom?.() ?? NaN;
+        this.zoomValue?.queue(Math.abs(z) >= 1000 ? Math.round(z) : z);
     }
     _onPointerEvent(payload) {
         const screen = payload?.screen_position;
@@ -145,13 +146,35 @@ export class CursorStatsWidget {
         const mx = coordinate(galaxy?.x);
         // Galaxy plane uses XZ; show as (x, y) with y ← z for the readout.
         const my = coordinate(galaxy?.z);
-        if (this.scrText) {
-            setText(this.scrText, `(${sx.toFixed(1)}, ${sy.toFixed(1)})`);
-        }
-        if (this.mapText) {
-            setText(this.mapText, `(${mx.toFixed(1)}, ${my.toFixed(1)})`);
-        }
+        this.scrValue?.queue(sx, sy);
+        this.mapValue?.queue(mx, my);
         this._updateZoom();
     }
+}
+function formatZoom(z) {
+    if (!Number.isFinite(z))
+        return '—';
+    return Math.abs(z) >= 1000 ? z.toLocaleString('en-US') : z.toFixed(1);
+}
+// Two coordinates share one text leaf: retain scalars, format once after pointer bursts.
+function coordinateReadout(updates, text) {
+    let x = 0, y = 0, sx = 0, sy = 0, shownX = 0, shownY = 0;
+    const job = updates.job(() => { sx = x; sy = y; }, () => {
+        if (sx === shownX && sy === shownY)
+            return;
+        text.data = `(${(sx / 10).toFixed(1)}, ${(sy / 10).toFixed(1)})`;
+        shownX = sx;
+        shownY = sy;
+        updates.metrics.formats++;
+        updates.metrics.writes++;
+    });
+    return { ...job, queue(nextX, nextY) {
+            const nx = Math.round(nextX * 10), ny = Math.round(nextY * 10);
+            if (nx === x && ny === y)
+                return;
+            x = nx;
+            y = ny;
+            job.invalidate();
+        } };
 }
 //# sourceMappingURL=cursor-stats-widget.js.map

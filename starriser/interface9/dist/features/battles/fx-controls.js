@@ -1,8 +1,8 @@
 import { FX_FIELDS, FX_LIMITS, defaultFxProfiles, fxProfiles, scheduleFxTuning, fxTuningState, setFxEnabled } from './fx-tuning.js';
 import { FX_GROUPS, FX_HELP } from './fx-control-fields.js';
-import { bindText, setText } from '../../ui/dom-bindings.js';
+import { bindText } from '../../ui/dom-bindings.js';
 /** Mount once. Input events alone patch text and send small coalesced profiles. */
-export function mountBattleFx(parent, actions, selected) {
+export function mountBattleFx(parent, actions, selected, updates) {
     const rows = fxProfiles();
     const section = document.createElement('details');
     section.style.cssText = 'flex-shrink:0;margin:8px 0';
@@ -27,7 +27,7 @@ export function mountBattleFx(parent, actions, selected) {
     function queue(patch) { queued.set(patch.index, { ...queued.get(patch.index), ...patch }); if (!frame)
         frame = requestAnimationFrame(flush); }
     toggle.onchange = () => { setFxEnabled(toggle.checked); actions.setBattleFx?.([], toggle.checked); };
-    const inputs = [], texts = [];
+    const inputs = [], values = [];
     for (const group of FX_GROUPS) {
         const body = document.createElement('details');
         body.style.cssText = 'margin:6px 0';
@@ -59,18 +59,20 @@ export function mountBattleFx(parent, actions, selected) {
             const value = document.createElement('span');
             value.title = help;
             const text = bindText(value, { width: '38px', height: '20px' });
-            texts[i] = text;
+            const binding = updates.number(text, { decimals: 3, format: String });
+            values[i] = binding;
             inputs[i] = input;
-            input.oninput = () => { const index = selected(), n = Number(input.value); rows[index][key] = n; setText(text, String(n)); queue({ index, [key]: n }); };
+            input.oninput = () => { const index = selected(), n = Number(input.value); rows[index][key] = n; binding.queue(n); queue({ index, [key]: n }); };
             row.append(input, value);
             body.append(row);
         });
         section.append(body);
     }
     parent.append(section);
-    function paint() { FX_FIELDS.forEach((key, i) => { const n = rows[selected()][key]; inputs[i].value = String(n); setText(texts[i], String(n)); }); }
+    function paint() { FX_FIELDS.forEach((key, i) => { const n = rows[selected()][key]; inputs[i].value = String(n); values[i].queue(n); }); }
     return { rows, paint, reset(index) { rows[index] = defaultFxProfiles()[index]; queue({ index, ...rows[index] }); },
-        dispose() { if (frame)
+        dispose() { for (const binding of values)
+            binding.dispose(); if (frame)
             cancelAnimationFrame(frame); queued.clear(); } };
 }
 //# sourceMappingURL=fx-controls.js.map
