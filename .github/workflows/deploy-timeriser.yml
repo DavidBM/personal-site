@@ -28,11 +28,11 @@ jobs:
           tags: tag:ci
           version: latest
 
-      - name: Sync starriser/ to ovh-claude:/var/www/timeriser/
+      - name: Sync starriser/ to ovh-claude:/srv/personal-site/starriser/
         run: |
           mkdir -p ~/.ssh
           rsync -avz --delete \
             --exclude '*.php' \
             -e "ssh -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=$HOME/.ssh/known_hosts" \
             starriser/ \
-            claude@ovh-claude:/var/www/timeriser/
+            claude@ovh-claude:/srv/personal-site/starriser/

@@ -48,8 +48,8 @@ fn rebaseCorrections(i:u32,count:u32) {
     record=eventPoses[at+1u];
   }
 }
-@compute @workgroup_size(128) fn rebase(@builtin(global_invocation_id) gid:vec3<u32>) {
-  let i=gid.x;if(i>=arrayLength(&history)){return;}
+@compute @workgroup_size(128) fn rebase(@builtin(global_invocation_id) gid:vec3<u32>,@builtin(num_workgroups) groups:vec3<u32>) {
+  let i=gid.x+gid.y*groups.x*128u;if(i>=arrayLength(&history)){return;}
   if(i<arrayLength(&a)) {
   ${fields('a')}
   ${fields('b')}
@@ -71,8 +71,11 @@ export async function createClockRebaser(device,agents,history,links,bindings=nu
   const timing=createTiming(device);
   return {prepareBindings(r){const next=makeBind(r);return ()=>{bind=next;samples=r.history.size/16;};},run(shift,events=false) {
     device.queue.writeBuffer(uniform,0,new Float32Array([shift,Number(events),0,0]));
-    const encoder=device.createCommandEncoder(),measure=timing.begin(),pass=encoder.beginComputePass(measure);
-    pass.setPipeline(pipeline);pass.setBindGroup(0,bind);pass.dispatchWorkgroups(Math.ceil(samples/128));pass.end();
+    const encoder=device.createCommandEncoder({label:'ship-clock-rebase'}),measure=timing.begin(),pass=encoder.beginComputePass(measure);
+    // Super FX history needs 75K groups. Pack rows within the device limit;
+    // the shader flattens them and guards the final partial workgroup.
+    const groups=Math.ceil(samples/128),rows=Math.ceil(groups/device.limits.maxComputeWorkgroupsPerDimension);
+    pass.setPipeline(pipeline);pass.setBindGroup(0,bind);pass.dispatchWorkgroups(Math.ceil(groups/rows),rows);pass.end();
     timing.resolve(encoder,measure);device.queue.submit([encoder.finish()]);timing.read(measure);
   },get latestMs(){return timing.latestMs;},readTiming:()=>timing.pending,reset:timing.reset,destroy(){timing.destroy();uniform.destroy();}};
 }

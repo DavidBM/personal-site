@@ -24,6 +24,7 @@ import { createSceneFleetIndex, SCENE_MEMBERSHIP_CHANGED, SCENE_OCCUPANCY_CHANGE
 import { rebaseWarpMotion } from '../../warp-motion.js';
 /** Map host for the directed split-position kernel. Injected device; no canvas. */
 import { SHIP_WGSL, SHIP_HISTORY_WORDS, SHIP_HISTORY_BYTES } from "../../../lib/ship-runtime/ship-layout.mjs";
+import { PILOT_ADVICE_BYTES } from '../../../lib/ship-runtime/pilot-advice-layout.mjs';
 import { createRuntime, STRIDE } from "../../../lib/ship-runtime/engine.mjs";
 import { MAP_MSAA_SAMPLES } from "../../map-msaa.js";
 import { depthPolicy } from "../../map-depth.js";
@@ -392,10 +393,10 @@ export function createDirectedSceneHost(injected = null, options = {}) {
         planInput.slot = fleet.slot;
         const proposed = sceneMotionPlan(planInput);
         const plan = departures.resolve(fleet, proposed, observations?.routeAnchor(fleet.slot ?? 0), (actual, approach) => {
-            // A late departure keeps its physical start and gets a positive visible
-            // warp interval. The original arrival is kept when time remains.
+            // A late departure retains only time remaining before accepted arrival.
+            // An expired interval releases the latch without manufacturing extra time.
             const fresh = sceneMotionPlan({ ...planInput, state: actual, toX: approach.toX, toZ: approach.toZ, nowMs: actual.startTime });
-            return { ...fresh, warpSec: Math.max(.1, Math.min(fresh.warpSec, (actual.startTime + actual.durationMs - fleet.nowMs) / 1000)) };
+            return { ...fresh, warpSec: Math.max(0, Math.min(fresh.warpSec, (actual.startTime + actual.durationMs - fleet.nowMs) / 1000)) };
         });
         fleet.plan = plan;
         if (plan.paused)
@@ -449,7 +450,7 @@ export function createDirectedSceneHost(injected = null, options = {}) {
     function driveStage(fleet, plan, slot, now) {
         const planet = planetOf(fleet);
         queueCommands([
-            stageCommand(now, slot, labExit(plan), journeyRev - 1, planet, now + ((fleet.state.startTime + fleet.state.durationMs) - fleet.nowMs) / 1000),
+            stageCommand(now, slot, labExit(plan), journeyRev - 1, planet, now + Math.max(0, (fleet.state.startTime + fleet.state.durationMs) - fleet.nowMs) / 1000),
             pressurePlanetCommand(slot, planet, pressureHalf(fleet), journeyRev),
         ]);
     }
@@ -919,6 +920,7 @@ export function createDirectedSceneHost(injected = null, options = {}) {
             return compactScratch;
         compactScratch?.destroy();
         compactScratch = runtime.device.createBuffer({
+            label: 'scene-range-recovery-scratch',
             size,
             usage: GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
         });
@@ -926,6 +928,11 @@ export function createDirectedSceneHost(injected = null, options = {}) {
     }
     function copyKernelRange(encoder, oldStart, newStart, n) {
         if (!runtime || n <= 0 || oldStart === newStart)
+            return;
+        // Reserve the entire move before recording its first copy. Growing scratch
+        // between tables would destroy a buffer still referenced by this encoder.
+        const scratch = ensureScratch(n * Math.max(STRIDE, SHIP_HISTORY_BYTES, SHIP_SIM_STRIDE, PILOT_ADVICE_BYTES, 16));
+        if (!scratch)
             return;
         const copy = (buf, stride) => {
             if (!buf)
@@ -937,9 +944,6 @@ export function createDirectedSceneHost(injected = null, options = {}) {
                 return;
             // Chrome invalidates copyBufferToBuffer when src === dst, even if ranges
             // are disjoint. Always hop through scratch.
-            const scratch = ensureScratch(bytes);
-            if (!scratch)
-                return;
             encoder.copyBufferToBuffer(buf, src, scratch, 0, bytes);
             encoder.copyBufferToBuffer(scratch, 0, buf, dst, bytes);
         };
@@ -949,11 +953,8 @@ export function createDirectedSceneHost(injected = null, options = {}) {
         copy(presentationControls, 16);
         if (shipSimBuffer && shipSimBuffer.size > SHIP_SIM_STRIDE)
             copy(shipSimBuffer, SHIP_SIM_STRIDE);
-        const travelScratch = ensureScratch(n * 80);
-        if (travelScratch) {
-            runtime.copyTravelOffsets(encoder, oldStart, newStart, n, travelScratch);
-            runtime.copyPilotAdvice?.(encoder, oldStart, newStart, n, travelScratch);
-        }
+        runtime.copyTravelOffsets(encoder, oldStart, newStart, n, scratch);
+        runtime.copyPilotAdvice?.(encoder, oldStart, newStart, n, scratch);
     }
     function recordCompact(encoder) {
         if (!runtime || compactPending || !recoveryDirty)
