@@ -7,7 +7,8 @@
  * a ribbon style and each glow a glow style. Every change regenerates the
  * image on the CPU (pure generators, as in Node) and uploads it to its layer of
  * a fixed-size GPU texture array that the trail preview samples, so the hull
- * view updates live. Settings persist in localStorage and join the exported JSON.
+ * view updates live. The styles start from the published fx/trail-textures.json;
+ * once edited they persist in localStorage, and they join the exported JSON.
  */
 import { encodePngRgba } from "../thruster-texture/encode-png.js";
 import { cloneParams, generateThrusterTexture, paramsForPreset, PRESET_NAMES } from "../thruster-texture/generator.js";
@@ -51,20 +52,24 @@ const KIND = {
     ribbon: { max: MAX_RIBBON_STYLES, prefix: "ribbon", label: "Trail", presets: PRESET_NAMES, imageName: ribbonImageName },
     glow: { max: MAX_GLOW_STYLES, prefix: "glow", label: "Glow", presets: GLOW_PRESET_NAMES, imageName: glowImageName },
 };
-function readStored() {
+/** Saved edits, else the published styles (`published`: a trailTextures config), else the built-in defaults. */
+function readStored(published) {
     let stored = {};
     try {
         stored = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}") ?? {};
     }
     catch { /* defaults */ }
-    const ribbonStyles = normalizeRibbonStyles(stored.ribbonStyles, stored.ribbon); // `ribbon`: saved before ribbon styles
-    const glowStyles = normalizeGlowStyles(stored.glowStyles);
+    const saved = ["ribbonStyles", "ribbon", "glowStyles"].some((key) => stored[key] !== undefined);
+    const source = (saved || !published ? {} : published);
+    const ribbonStyles = saved ? normalizeRibbonStyles(stored.ribbonStyles, stored.ribbon) // `ribbon`: saved before ribbon styles
+        : normalizeRibbonStyles(source.ribbons);
+    const glowStyles = normalizeGlowStyles(saved ? stored.glowStyles : source.glows);
     const wanted = (stored.selected ?? {});
     const pick = (list, id) => (list.some((s) => s.id === id) ? String(id) : list[0].id);
-    return {
-        ribbonStyles, glowStyles, tab: stored.tab === "glow" ? "glow" : "ribbon",
-        selected: { ribbon: pick(ribbonStyles, wanted.ribbon), glow: pick(glowStyles, wanted.glow ?? stored.glowStyle) },
-    };
+    return { saved, state: {
+            ribbonStyles, glowStyles, tab: stored.tab === "glow" ? "glow" : "ribbon",
+            selected: { ribbon: pick(ribbonStyles, wanted.ribbon), glow: pick(glowStyles, wanted.glow ?? stored.glowStyle) },
+        } };
 }
 function uniqueStyleId(styles, prefix) {
     let n = styles.length + 1;
@@ -72,8 +77,10 @@ function uniqueStyleId(styles, prefix) {
         n++;
     return `${prefix}-${n}`;
 }
-export function createTrailTextures(device, root) {
-    const state = readStored();
+export function createTrailTextures(device, root, published = null) {
+    const { state, saved } = readStored(published);
+    // Published styles are saved only once edited, so later publications still reach this browser.
+    let persist = saved || !published;
     const usage = GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST;
     const textures = {
         ribbon: device.createTexture({ label: "viewer-trail-ribbons", size: [RIBBON_W, RIBBON_H, MAX_RIBBON_STYLES], format: "rgba8unorm", usage }),
@@ -98,12 +105,14 @@ export function createTrailTextures(device, root) {
             });
         dirty.clear();
         ui?.paint();
-        try {
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-        }
-        catch { /* private mode */ }
+        if (persist)
+            try {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+            }
+            catch { /* private mode */ }
     }
     function changed(kind, id) {
+        persist = true;
         dirty.add(key(kind, id));
         if (!queued) {
             queued = true;

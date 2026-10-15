@@ -10,9 +10,11 @@
  * names the ribbon or glow style it uses (`style`, from `trail-textures.ts`).
  * Click the hull to add the chosen kind, click a marker to select it, drag the
  * gizmo to move it.
- * Everything persists in localStorage and joins the exported JSON.
+ * Each class starts from the published catalog (models/fleet-v2); edits that
+ * differ from it persist in localStorage, and everything joins the exported JSON.
  */
 import { createTrailRenderer } from "./trail-render.js";
+import { SHIP_MODEL_CATALOG_URL } from "../../lib/fleet-sim/visual/ship-model-catalog.js";
 const textureKindOf = (kind) => (kind === "emitter" ? "ribbon" : "glow");
 const STORAGE = { emitter: "galaxy.model-viewer.trails.v1", glow: "galaxy.model-viewer.glows.v1" };
 export const TRAIL_EXPORT_UNIT = "trail emitters and glows per class in catalog hull space (bounding radius 1, +Z forward, +Y up); "
@@ -32,6 +34,25 @@ const MARKER_COLOUR = {
     emitter: [1, 0.62, 0.15, 0.95], glow: [0.55, 0.95, 1, 0.95], selected: [1, 0.12, 0.1, 1],
 };
 const round = (v) => Math.round(v * 1e4) / 1e4;
+/** The catalog's engines and fx/trail-textures.json; null when unavailable (the viewer then starts empty). */
+export async function loadPublishedShipFx() {
+    const directory = SHIP_MODEL_CATALOG_URL.slice(0, SHIP_MODEL_CATALOG_URL.lastIndexOf("/") + 1);
+    const json = async (url) => {
+        const response = await fetch(url);
+        if (!response.ok)
+            throw new Error(`${url}: HTTP ${response.status}`);
+        return response.json();
+    };
+    try {
+        const [catalog, fx] = await Promise.all([json(SHIP_MODEL_CATALOG_URL), json(`${directory}fx/trail-textures.json`)]);
+        const ships = Array.isArray(catalog?.ships) ? catalog.ships : [];
+        return { trails: Object.fromEntries(ships.map((ship) => [ship.key, ship.trails ?? []])),
+            glows: Object.fromEntries(ships.map((ship) => [ship.key, ship.glows ?? []])), textures: fx?.trailTextures ?? null };
+    }
+    catch {
+        return null;
+    }
+}
 function readStore(key) {
     try {
         const value = JSON.parse(localStorage.getItem(key) ?? "{}");
@@ -41,8 +62,14 @@ function readStore(key) {
         return {};
     }
 }
-export function createTrailEditor(device, format, panel, exportJson, textures) {
-    const stores = { emitter: readStore(STORAGE.emitter), glow: readStore(STORAGE.glow) };
+export function createTrailEditor(device, format, panel, exportJson, textures, published) {
+    const publishedOf = { emitter: published?.trails ?? {}, glow: published?.glows ?? {} };
+    const copy = (store) => JSON.parse(JSON.stringify(store));
+    // A class's saved edits replace its published engines; other classes show the published ones.
+    const stores = {
+        emitter: { ...copy(publishedOf.emitter), ...readStore(STORAGE.emitter) },
+        glow: { ...copy(publishedOf.glow), ...readStore(STORAGE.glow) },
+    };
     for (const p of Object.values(stores.emitter).flat())
         delete p.particles; // retired field
     let classKey = null, scale = 1, lengthMesh = 2, lengthM = 20;
@@ -51,9 +78,11 @@ export function createTrailEditor(device, format, panel, exportJson, textures) {
     const nextSize = { ...DEFAULT_SIZE };
     const items = (kind) => { var _a; return (classKey ? ((_a = stores[kind])[classKey] ?? (_a[classKey] = [])) : []); };
     const save = () => {
+        const edited = (kind) => Object.fromEntries(Object.entries(stores[kind])
+            .filter(([key, list]) => JSON.stringify(list) !== JSON.stringify(publishedOf[kind][key] ?? [])));
         try {
             for (const kind of ["emitter", "glow"])
-                localStorage.setItem(STORAGE[kind], JSON.stringify(stores[kind]));
+                localStorage.setItem(STORAGE[kind], JSON.stringify(edited(kind)));
         }
         catch { /* private mode */ }
     };

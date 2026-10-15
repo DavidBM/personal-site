@@ -17,7 +17,7 @@ import { loadHullLodTuning } from "./hull-lod-tuning.js";
 import { LOD_LEVEL_NAMES, createLodTimeline, formatPx } from "./lod-timeline.js";
 import { createUvPanel } from "./uv-panel.js";
 import { PERSON_HEIGHT_M, createPersonMesh, defaultShipLengthM } from "./scale-figure.js";
-import { TRAIL_EXPORT_UNIT, createTrailEditor } from "./trail-editor.js";
+import { TRAIL_EXPORT_UNIT, createTrailEditor, loadPublishedShipFx } from "./trail-editor.js";
 import { createTrailTextures } from "./trail-textures.js";
 import { TRAIL_TEXTURE_UNIT } from "../thruster-texture/trail-config.js";
 import { buildViewerWorldPositions, rayMeshHit, } from "./ray-mesh.js";
@@ -492,6 +492,7 @@ async function main() {
         setStatus("WebGPU not available (use Chromium).", true);
         return;
     }
+    const publishedFx = loadPublishedShipFx();
     const boot = await createWebGpuBootstrap({
         canvas,
         label: "model-viewer",
@@ -767,7 +768,8 @@ async function main() {
             lookPersonButton.textContent = lookingAtPerson ? "Back to ship" : "Look at person";
     }
     // --- Trail emitters and glows: authored per class on the in-game hulls (catalog hull space) ---
-    const trailTextures = createTrailTextures(device, trailTexturePanel);
+    const published = await publishedFx;
+    const trailTextures = createTrailTextures(device, trailTexturePanel, published?.textures ?? null);
     /**
      * Everything the trail tools add to the LOD export, complete enough to rebuild
      * the game's trail data and images from the JSON alone: every class's emitters
@@ -780,7 +782,7 @@ async function main() {
             trailTextureUnit: TRAIL_TEXTURE_UNIT, trailTextures: trailTextures.exportConfig() };
     }
     const exportAll = () => (tuning ? tuning.exportJson(trailExport()) : JSON.stringify(trailExport(), null, 2));
-    const trails = createTrailEditor(device, format, trailPanel, exportAll, trailTextures);
+    const trails = createTrailEditor(device, format, trailPanel, exportAll, trailTextures, published);
     /** Editing is on for the runtime chain (catalog space, unit radius); other meshes keep the single attach ball. */
     function syncTrailTarget() {
         const ship = gpuMesh, key = ship && ship.entry.normalize === "unit" ? viewerShipClass(ship.entry.id)?.key ?? null : null;
