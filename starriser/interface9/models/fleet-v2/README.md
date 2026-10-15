@@ -56,9 +56,9 @@ All levels of a class share one origin and a conservative radius-1 bound, with
 centre and one uniform scale preserving the previous hull's length. If needed,
 a small common origin adjustment fits every variant inside the unit bound;
 proportions and class draw scales remain unchanged. Switching levels never
-independently recentres or rescales a hull. Interceptor trail/glow positions
-include the user's adjustment for its promoted hull. Fighter trail/glow pairs
-match the chosen symmetric hull; other engine positions retain their configuration.
+independently recentres or rescales a hull. Engine trails and glows for all six
+promoted hulls come from the user's model-viewer export of 2026-10-15 (the
+Colossus now has three engines).
 
 ## Engine trails and glows
 
