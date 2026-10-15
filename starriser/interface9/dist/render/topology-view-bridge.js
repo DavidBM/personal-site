@@ -10,13 +10,16 @@ function endpoint(sys) {
         z: sys.position.z,
     };
 }
-export function createWebGpuViewHooks(view, getGalaxy) {
+export function createWebGpuViewHooks(view, getGalaxy, renderConnections = () => true) {
     return {
-        onClusterAdded: () => { },
+        onClusterAdded: cluster => view.addCluster(cluster),
+        onClusterMetadataChanged: cluster => view.addCluster(cluster),
+        onSystemCatalogChanged: system => view.setSystemCatalog(system),
         onClusterRemoved: (cluster) => {
             for (const s of cluster.solarSystems) {
                 view.removeSolarSystem(cluster, s);
             }
+            view.removeCluster(cluster);
         },
         onSolarSystemAdded: (cluster, solarSystem) => {
             view.addSolarSystem(cluster, solarSystem);
@@ -25,26 +28,38 @@ export function createWebGpuViewHooks(view, getGalaxy) {
             view.removeSolarSystem(cluster, solarSystem);
         },
         onClusterConnectionAdded: (c1, c2, g1, g2) => {
+            if (!renderConnections())
+                return;
             const key = makeConnectionKey(c1, c2, g1, g2);
             view.addConnection(key, endpoint(g1), endpoint(g2), 0x4488ff);
         },
         onClusterConnectionRemoved: (c1, c2, g1, g2) => {
+            if (!renderConnections())
+                return;
             view.removeConnection(makeConnectionKey(c1, c2, g1, g2));
         },
         onSolarSystemConnectionAdded: (cluster, a, b) => {
+            if (!renderConnections())
+                return;
             const key = makeSolarConnectionKey(cluster.id, a.id, b.id);
             view.addConnection(key, endpoint(a), endpoint(b), 0x336655);
         },
         onSolarSystemConnectionRemoved: (cluster, a, b) => {
+            if (!renderConnections())
+                return;
             view.removeConnection(makeSolarConnectionKey(cluster.id, a.id, b.id));
         },
         onSolarSystemPositionsUpdated: (systems) => {
             view.updateSolarSystemPositions(systems);
         },
         onSolarSystemConnectionsUpdated: (cluster) => {
+            if (!renderConnections())
+                return;
             refreshSolarConnections(view, cluster);
         },
         onClusterConnectionsUpdated: (_clusterId) => {
+            if (!renderConnections())
+                return;
             // Refresh all inter-cluster edges from topology (drag moves gates).
             refreshClusterConnections(view, getGalaxy());
         },

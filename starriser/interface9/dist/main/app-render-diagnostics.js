@@ -3,6 +3,10 @@ export function installAppRenderDiagnostics(app) {
     const snapshot = () => app.renderClient?.snapshot();
     const send = (command) => app.renderClient?.send(command);
     globalThis.__galaxyApp = {
+        runtime: () => ({ id: app.runtime.id, authority: app.authority, workers: app.runtime.workers,
+            loaded: [...app.runtime.workers.startup.map(worker => worker.id), `${app.online?.scope}-network`]
+                .map(id => app.mainBus.getWorker(id)).filter(worker => !!worker)
+                .map(worker => ({ id: worker.workerId, module: worker.modulePath })) }),
         generateFleetsBulk: (n) => app.generateFleetsBulk(n),
         generateGalaxy: (params) => app.generateGalaxy(params),
         generateFleet: () => app.generateFleet(), clearGalaxy: () => app.clearGalaxy(),
@@ -44,7 +48,13 @@ export function installAppRenderDiagnostics(app) {
         pickRandomShipPose: () => app.renderClient?.query({ type: "pickShip" }) ?? Promise.resolve(null),
         observeYear1: () => observeYear1(app),
         renderSnapshot: () => app.renderClient?.query({ type: "snapshot" }),
+        pickClusterRibbon: (x, y) => app.renderClient?.query({ type: 'pickClusterRibbon', x, y }),
+        clusterSurveyPage: (clusterId, section, offset = 0, systemId) => app.renderClient?.query({ type: 'clusterSurveyPage', clusterId, systemId, section, offset, limit: 32 }),
+        mapLayerDiagnostics: () => app.renderClient?.query({ type: 'mapLayerDiagnostics' }),
+        travelDiagnostics: () => app.renderClient?.query({ type: 'travelDiagnostics' }),
         followDiagnostics: () => app.renderClient?.query({ type: 'followDiagnostics' }),
+        /** Resident and visible hulls per detail level (point, dart, low, mid, full) in the open scene. */
+        qualitySample: () => app.renderClient?.query({ type: 'qualitySample' }),
         readbackColor: () => app.renderClient?.query({ type: "colorReadback" }),
         dispose: () => app.dispose(),
     };

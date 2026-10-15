@@ -11,11 +11,30 @@ export function eventDeadline(maxQueueAgeMs) {
 export function eventQueueLifetime(signals, expiresAt) {
     if (expiresAt !== undefined && !Number.isFinite(expiresAt))
         throw new Error('Invalid service event expiry');
-    const deadline = new AbortController();
-    const timer = expiresAt === undefined ? undefined : setTimeout(() => {
-        deadline.abort(new ServiceError('EXPIRED', 'Disposable service event expired'));
-    }, Math.max(0, expiresAt - serviceQueueClock()));
-    return { signal: AbortSignal.any([...signals, deadline.signal]), close: () => clearTimeout(timer) };
+    const deadline = new AbortController(), signal = AbortSignal.any([...signals, deadline.signal]);
+    let timer, closed = false;
+    function close() {
+        closed = true;
+        if (timer !== undefined)
+            clearTimeout(timer);
+        signal.removeEventListener('abort', close);
+    }
+    function expire() {
+        if (closed || expiresAt === undefined)
+            return;
+        const remaining = expiresAt - serviceQueueClock();
+        // Timers can truncate a fractional delay or fire early. Only the absolute
+        // deadline may prove expiry to a caller whose event is still queued elsewhere.
+        if (remaining > 0)
+            timer = setTimeout(expire, Math.min(2147483647, Math.ceil(remaining)));
+        else
+            deadline.abort(new ServiceError('EXPIRED', 'Disposable service event expired'));
+    }
+    if (expiresAt !== undefined && !signal.aborted) {
+        signal.addEventListener('abort', close, { once: true });
+        expire();
+    }
+    return { signal, close };
 }
 /** Service slots last through handler completion; transport slots are separate. */
 export function createServiceAdmission() {

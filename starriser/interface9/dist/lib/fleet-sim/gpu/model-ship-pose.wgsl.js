@@ -1,4 +1,7 @@
 /** Shared model center reconstruction: visibility and mesh VS use identical arithmetic. */
+import { HULL_DETAIL_MASK } from '../visual/hull-lod.js';
+/** Present packs each ship's draw scale into targetKind bits 16-31 in these steps (max 655.35). */
+export const SCENE_SCALE_TAG_STEP = 0.01;
 export const MODEL_SHIP_TYPES_WGSL = /* wgsl */ `
 struct ShipSim {
   posX: f32,
@@ -61,15 +64,19 @@ struct ModelShipPose {
 };
 fn modelShipLodMatches(ship: ShipSim, mask: u32) -> bool {
   if (mask == 0u) { return true; }
-  let detail = ship.targetKind & 9728u;
+  // One detail bit per level (HULL_LEVEL_BITS in hull-lod.ts).
+  let detail = ship.targetKind & ${HULL_DETAIL_MASK}u;
   if (detail != 0u) { return (detail & mask) != 0u; }
   return ship.fleetIndex < arrayLength(&fleets) && (fleets[ship.fleetIndex].flags & mask) != 0u;
 }
+fn modelShipIsSelected(ship: ShipSim, index: u32, selectedIndex: u32, selectedOwner: u32) -> bool {
+  return index == selectedIndex && ship.trailOwner == selectedOwner;
+}
 fn sceneClassScale(ship: ShipSim) -> f32 {
-  // Present stores the draw scale in the high 16 bits of targetKind, in tenths.
+  // Present stores the draw scale in the high 16 bits of targetKind (SCENE_SCALE_TAG_STEP).
   let tag = ship.targetKind >> 16u;
   if (tag == 0u) { return 1.0; }
-  return f32(tag) * 0.1;
+  return f32(tag) * ${SCENE_SCALE_TAG_STEP};
 }
 fn modelShipPose(ship: ShipSim, origin: vec3<f32>, modelScale: f32) -> ModelShipPose {
   let fi = ship.fleetIndex;

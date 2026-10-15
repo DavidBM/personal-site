@@ -3,7 +3,7 @@ import { TURN_ACCEL_SHARE } from './forward-motion.mjs';
 import { SCENE_ROUTE_WORDS } from './route-cache.mjs';
 export { packSceneRoute, SCENE_ROUTE_POINTS, SCENE_ROUTE_WORDS } from './route-cache.mjs';
 export const sceneRouteBytes = fleets => fleets * SCENE_ROUTE_WORDS * 4;
-export const SCENE_ROUTE_DECL = `struct SceneRoute { head:vec4<f32>, info:vec4<f32>, points:array<vec4<f32>,128>, speeds:array<vec2<f32>,128>, bounds:array<vec4<f32>,32>, edits:vec4<f32>, correspondence:array<vec4<f32>,32> }`;
+export const SCENE_ROUTE_DECL = `struct SceneRoute { head:vec4<f32>, info:vec4<f32>, points:array<vec4<f32>,128>, speeds:array<vec2<f32>,128>, bounds:array<vec4<f32>,32>, edits:vec4<f32>, correspondence:array<vec4<f32>,32>, orbit:vec4<f32>, orbitU:vec4<f32>, orbitV:vec4<f32> }`;
 
 export const SCENE_ROUTE_WGSL = /* wgsl */ `
 fn pilotUsesRoute(s:Ship)->bool {

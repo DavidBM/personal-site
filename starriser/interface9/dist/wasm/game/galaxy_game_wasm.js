@@ -197,8 +197,25 @@ export class RuleSystem {
         return v1;
     }
     /**
+     * Shared authoritative gate geometry, kept inside the domain worker.
+     * @param {Float64Array} direction
+     * @returns {Float64Array}
+     */
+    jump_gate(direction) {
+        const ptr0 = passArrayF64ToWasm0(direction, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.rulesystem_jump_gate(this.__wbg_ptr, ptr0, len0);
+        if (ret[3]) {
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        var v2 = getArrayF64FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 8, 8);
+        return v2;
+    }
+    /**
      * Columns per fleet: identities = fleet/owner/order IDs (48 bytes; zero order
-     * means idle); positions = x,z,targetX,targetZ; times = departure,arrival.
+     * means idle); positions = x,z,targetX,targetZ (legacy) or
+     * x,y,z,targetX,targetY,targetZ; times = departure,arrival,transfer-ready.
      * Revisions are u64, exposed as BigUint64Array. Rows restore in any order.
      * @param {Uint8Array} system_id
      * @param {bigint} revision
@@ -235,6 +252,42 @@ export class RuleSystem {
         return ret[0] === 0 ? undefined : BigInt.asUintN(64, ret[1]);
     }
     /**
+     * @returns {Uint8Array}
+     */
+    orbit_bytes() {
+        const ret = wasm.rulesystem_orbit_bytes(this.__wbg_ptr);
+        var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        return v1;
+    }
+    /**
+     * @returns {Uint32Array}
+     */
+    orbit_offsets() {
+        const ret = wasm.rulesystem_orbit_offsets(this.__wbg_ptr);
+        var v1 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Uint32Array}
+     */
+    path_offsets() {
+        const ret = wasm.rulesystem_path_offsets(this.__wbg_ptr);
+        var v1 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float64Array}
+     */
+    path_points() {
+        const ret = wasm.rulesystem_path_points(this.__wbg_ptr);
+        var v1 = getArrayF64FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 8, 8);
+        return v1;
+    }
+    /**
      * Event row = kind (1 started, 2 arrived), departure (0 for arrival), arrival.
      * @returns {BigUint64Array}
      */
@@ -264,6 +317,24 @@ export class RuleSystem {
         return v1;
     }
     /**
+     * @returns {Uint8Array}
+     */
+    pending_orbit_bytes() {
+        const ret = wasm.rulesystem_pending_orbit_bytes(this.__wbg_ptr);
+        var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        return v1;
+    }
+    /**
+     * @returns {Uint32Array}
+     */
+    pending_orbit_offsets() {
+        const ret = wasm.rulesystem_pending_orbit_offsets(this.__wbg_ptr);
+        var v1 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
      * Event row = original order ID (16 bytes); times are in pending_events.
      * @returns {Uint8Array}
      */
@@ -271,6 +342,24 @@ export class RuleSystem {
         const ret = wasm.rulesystem_pending_order_ids(this.__wbg_ptr);
         var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        return v1;
+    }
+    /**
+     * @returns {Uint32Array}
+     */
+    pending_path_offsets() {
+        const ret = wasm.rulesystem_pending_path_offsets(this.__wbg_ptr);
+        var v1 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float64Array}
+     */
+    pending_path_points() {
+        const ret = wasm.rulesystem_pending_path_points(this.__wbg_ptr);
+        var v1 = getArrayF64FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 8, 8);
         return v1;
     }
     /**
@@ -321,12 +410,23 @@ export class RuleSystem {
         return v1;
     }
     /**
-     * Source x,z and destination x,z in each system's sun-local scene units.
+     * Source and destination in sun-local units: XZ pairs or XYZ triples.
      * @returns {Float64Array}
      */
     pending_transfer_positions() {
         const ret = wasm.rulesystem_pending_transfer_positions(this.__wbg_ptr);
         var v1 = getArrayF64FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 8, 8);
+        return v1;
+    }
+    /**
+     * Effective jump, cooldown, configuration/modifier revisions and ready time.
+     * Historical exports return an empty column, never reinterpret new policy.
+     * @returns {BigUint64Array}
+     */
+    pending_transfer_timing() {
+        const ret = wasm.rulesystem_pending_transfer_timing(this.__wbg_ptr);
+        var v1 = getArrayU64FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 8, 8);
         return v1;
     }
@@ -354,6 +454,53 @@ export class RuleSystem {
         var v1 = getArrayU64FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 8, 8);
         return v1;
+    }
+    /**
+     * Authoritative catalog and policy; the catalog itself is compiled into the
+     * same Rust core as the server. Version/epoch mismatches fail closed.
+     * @param {string} catalog_id
+     * @param {number} geometry_version
+     * @param {bigint} epoch_ms
+     * @param {number} speed
+     * @param {number} clearance
+     * @param {number} extent
+     * @param {number} sun_clearance
+     * @returns {number}
+     */
+    set_movement_context(catalog_id, geometry_version, epoch_ms, speed, clearance, extent, sun_clearance) {
+        const ptr0 = passStringToWasm0(catalog_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.rulesystem_set_movement_context(this.__wbg_ptr, ptr0, len0, geometry_version, epoch_ms, speed, clearance, extent, sun_clearance);
+        return ret >>> 0;
+    }
+    /**
+     * Via offsets count XYZ points, not scalar words. Rows follow the original
+     * constructor input order; output getters use identities() canonical order.
+     * All rows are validated before replacing state, so failure is atomic.
+     * @param {Uint32Array} offsets
+     * @param {Float64Array} points
+     * @returns {number}
+     */
+    set_movement_paths(offsets, points) {
+        const ptr0 = passArray32ToWasm0(offsets, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passArrayF64ToWasm0(points, wasm.__wbindgen_malloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ret = wasm.rulesystem_set_movement_paths(this.__wbg_ptr, ptr0, len0, ptr1, len1);
+        return ret >>> 0;
+    }
+    /**
+     * @param {Uint32Array} offsets
+     * @param {Uint8Array} bytes
+     * @returns {number}
+     */
+    set_orbits(offsets, bytes) {
+        const ptr0 = passArray32ToWasm0(offsets, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passArray8ToWasm0(bytes, wasm.__wbindgen_malloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ret = wasm.rulesystem_set_orbits(this.__wbg_ptr, ptr0, len0, ptr1, len1);
+        return ret >>> 0;
     }
     /**
      * @param {bigint} now_ms
@@ -388,6 +535,55 @@ export class RuleSystem {
         return ret >>> 0;
     }
     /**
+     * Source-scoped preview of the new accepted-policy contract. Timing values
+     * here are observations; the server never accepts them in a player command.
+     * @param {Uint8Array} actor_id
+     * @param {Uint8Array} fleet_id
+     * @param {Uint8Array} destination_id
+     * @param {number} target_x
+     * @param {number} target_y
+     * @param {number} target_z
+     * @param {bigint} now_ms
+     * @param {bigint} jump_ms
+     * @param {bigint} cooldown_ms
+     * @param {bigint} configuration_revision
+     * @param {bigint} modifier_revision
+     * @param {bigint | null} [expected_revision]
+     * @returns {number}
+     */
+    stage_export_with_policy(actor_id, fleet_id, destination_id, target_x, target_y, target_z, now_ms, jump_ms, cooldown_ms, configuration_revision, modifier_revision, expected_revision) {
+        const ptr0 = passArray8ToWasm0(actor_id, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passArray8ToWasm0(fleet_id, wasm.__wbindgen_malloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ptr2 = passArray8ToWasm0(destination_id, wasm.__wbindgen_malloc);
+        const len2 = WASM_VECTOR_LEN;
+        const ret = wasm.rulesystem_stage_export_with_policy(this.__wbg_ptr, ptr0, len0, ptr1, len1, ptr2, len2, target_x, target_y, target_z, now_ms, jump_ms, cooldown_ms, configuration_revision, modifier_revision, !isLikeNone(expected_revision), isLikeNone(expected_revision) ? BigInt(0) : expected_revision);
+        return ret >>> 0;
+    }
+    /**
+     * @param {Uint8Array} actor_id
+     * @param {Uint8Array} fleet_id
+     * @param {Uint8Array} destination_id
+     * @param {number} target_x
+     * @param {number} target_y
+     * @param {number} target_z
+     * @param {bigint} now_ms
+     * @param {bigint} arrival_ms
+     * @param {bigint | null} [expected_revision]
+     * @returns {number}
+     */
+    stage_export_xyz(actor_id, fleet_id, destination_id, target_x, target_y, target_z, now_ms, arrival_ms, expected_revision) {
+        const ptr0 = passArray8ToWasm0(actor_id, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passArray8ToWasm0(fleet_id, wasm.__wbindgen_malloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ptr2 = passArray8ToWasm0(destination_id, wasm.__wbindgen_malloc);
+        const len2 = WASM_VECTOR_LEN;
+        const ret = wasm.rulesystem_stage_export_xyz(this.__wbg_ptr, ptr0, len0, ptr1, len1, ptr2, len2, target_x, target_y, target_z, now_ms, arrival_ms, !isLikeNone(expected_revision), isLikeNone(expected_revision) ? BigInt(0) : expected_revision);
+        return ret >>> 0;
+    }
+    /**
      * @param {Uint8Array} actor_id
      * @param {Uint8Array} order_id
      * @param {Uint8Array} fleet_id
@@ -408,6 +604,70 @@ export class RuleSystem {
         return ret >>> 0;
     }
     /**
+     * XYZ command ingress; the planar method remains compatible with old fixtures.
+     * @param {Uint8Array} actor_id
+     * @param {Uint8Array} order_id
+     * @param {Uint8Array} fleet_id
+     * @param {number} target_x
+     * @param {number} target_y
+     * @param {number} target_z
+     * @param {bigint} now_ms
+     * @param {bigint | null} [expected_revision]
+     * @returns {number}
+     */
+    stage_move_xyz(actor_id, order_id, fleet_id, target_x, target_y, target_z, now_ms, expected_revision) {
+        const ptr0 = passArray8ToWasm0(actor_id, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passArray8ToWasm0(order_id, wasm.__wbindgen_malloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ptr2 = passArray8ToWasm0(fleet_id, wasm.__wbindgen_malloc);
+        const len2 = WASM_VECTOR_LEN;
+        const ret = wasm.rulesystem_stage_move_xyz(this.__wbg_ptr, ptr0, len0, ptr1, len1, ptr2, len2, target_x, target_y, target_z, now_ms, !isLikeNone(expected_revision), isLikeNone(expected_revision) ? BigInt(0) : expected_revision);
+        return ret >>> 0;
+    }
+    /**
+     * @param {Uint8Array} actor_id
+     * @param {Uint8Array} order_id
+     * @param {Uint8Array} fleet_id
+     * @param {number} body_index
+     * @param {bigint} now_ms
+     * @param {bigint} expected_fleet_revision
+     * @returns {number}
+     */
+    stage_orbit(actor_id, order_id, fleet_id, body_index, now_ms, expected_fleet_revision) {
+        const ptr0 = passArray8ToWasm0(actor_id, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passArray8ToWasm0(order_id, wasm.__wbindgen_malloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ptr2 = passArray8ToWasm0(fleet_id, wasm.__wbindgen_malloc);
+        const len2 = WASM_VECTOR_LEN;
+        const ret = wasm.rulesystem_stage_orbit(this.__wbg_ptr, ptr0, len0, ptr1, len1, ptr2, len2, body_index, now_ms, expected_fleet_revision);
+        return ret >>> 0;
+    }
+    /**
+     * Opt-in per-fleet edit contract. Callers first commit due work explicitly;
+     * an online preview never silently advances authoritative state.
+     * @param {Uint8Array} actor_id
+     * @param {Uint8Array} order_id
+     * @param {Uint8Array} fleet_id
+     * @param {number} target_x
+     * @param {number} target_y
+     * @param {number} target_z
+     * @param {bigint} now_ms
+     * @param {bigint} expected_fleet_revision
+     * @returns {number}
+     */
+    stage_retarget_xyz(actor_id, order_id, fleet_id, target_x, target_y, target_z, now_ms, expected_fleet_revision) {
+        const ptr0 = passArray8ToWasm0(actor_id, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passArray8ToWasm0(order_id, wasm.__wbindgen_malloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ptr2 = passArray8ToWasm0(fleet_id, wasm.__wbindgen_malloc);
+        const len2 = WASM_VECTOR_LEN;
+        const ret = wasm.rulesystem_stage_retarget_xyz(this.__wbg_ptr, ptr0, len0, ptr1, len1, ptr2, len2, target_x, target_y, target_z, now_ms, expected_fleet_revision);
+        return ret >>> 0;
+    }
+    /**
      * @returns {BigUint64Array}
      */
     times() {
@@ -420,11 +680,72 @@ export class RuleSystem {
 if (Symbol.dispose) RuleSystem.prototype[Symbol.dispose] = RuleSystem.prototype.free;
 
 /**
+ * @returns {BigUint64Array}
+ */
+export function default_transfer_policy() {
+    const ret = wasm.default_transfer_policy();
+    var v1 = getArrayU64FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 8, 8);
+    return v1;
+}
+
+/**
  * @returns {number}
  */
 export function ephemeris_version() {
     const ret = wasm.ephemeris_version();
     return ret >>> 0;
+}
+
+/**
+ * Geometric preview only. Ownership, occupancy and production costs require
+ * the authoritative construction command; this function grants none of them.
+ * @param {string} class_name
+ * @param {number} kind
+ * @param {number} x
+ * @param {number} y
+ * @returns {Uint32Array}
+ */
+export function planet_footprint(class_name, kind, x, y) {
+    const ptr0 = passStringToWasm0(class_name, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.planet_footprint(ptr0, len0, kind, x, y);
+    if (ret[3]) {
+        throw takeFromExternrefTable0(ret[2]);
+    }
+    var v2 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+    return v2;
+}
+
+/**
+ * @param {number} x
+ * @param {number} y
+ * @param {number} radius_m
+ * @returns {number}
+ */
+export function planet_pixel_area_m2(x, y, radius_m) {
+    const ret = wasm.planet_pixel_area_m2(x, y, radius_m);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return ret[0];
+}
+
+/**
+ * @param {number} x1
+ * @param {number} y1
+ * @param {number} x2
+ * @param {number} y2
+ * @param {number} radius_m
+ * @returns {number}
+ */
+export function planet_surface_distance_m(x1, y1, x2, y2, radius_m) {
+    const ret = wasm.planet_surface_distance_m(x1, y1, x2, y2, radius_m);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return ret[0];
 }
 
 /**
@@ -434,6 +755,23 @@ export function ephemeris_version() {
  */
 export function route_arrival_ms(now, legs) {
     const ret = wasm.route_arrival_ms(now, legs);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return BigInt.asUintN(64, ret[0]);
+}
+
+/**
+ * @param {bigint} now
+ * @param {number} legs
+ * @param {bigint} jump_ms
+ * @param {bigint} cooldown_ms
+ * @param {bigint} configuration_revision
+ * @param {bigint} modifier_revision
+ * @returns {bigint}
+ */
+export function route_arrival_with_policy(now, legs, jump_ms, cooldown_ms, configuration_revision, modifier_revision) {
+    const ret = wasm.route_arrival_with_policy(now, legs, jump_ms, cooldown_ms, configuration_revision, modifier_revision);
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }
@@ -500,6 +838,11 @@ const RuleSystemFinalization = (typeof FinalizationRegistry === 'undefined')
 function getArrayF64FromWasm0(ptr, len) {
     ptr = ptr >>> 0;
     return getFloat64ArrayMemory0().subarray(ptr / 8, ptr / 8 + len);
+}
+
+function getArrayU32FromWasm0(ptr, len) {
+    ptr = ptr >>> 0;
+    return getUint32ArrayMemory0().subarray(ptr / 4, ptr / 4 + len);
 }
 
 function getArrayU64FromWasm0(ptr, len) {
@@ -580,6 +923,43 @@ function passArrayF64ToWasm0(arg, malloc) {
     return ptr;
 }
 
+function passStringToWasm0(arg, malloc, realloc) {
+    if (realloc === undefined) {
+        const buf = cachedTextEncoder.encode(arg);
+        const ptr = malloc(buf.length, 1) >>> 0;
+        getUint8ArrayMemory0().subarray(ptr, ptr + buf.length).set(buf);
+        WASM_VECTOR_LEN = buf.length;
+        return ptr;
+    }
+
+    let len = arg.length;
+    let ptr = malloc(len, 1) >>> 0;
+
+    const mem = getUint8ArrayMemory0();
+
+    let offset = 0;
+
+    for (; offset < len; offset++) {
+        const code = arg.charCodeAt(offset);
+        if (code > 0x7F) break;
+        mem[ptr + offset] = code;
+    }
+    if (offset !== len) {
+        if (offset !== 0) {
+            arg = arg.slice(offset);
+        }
+        ptr = realloc(ptr, len, len = offset + arg.length * 3, 1) >>> 0;
+        const view = getUint8ArrayMemory0().subarray(ptr + offset, ptr + len);
+        const ret = cachedTextEncoder.encodeInto(arg, view);
+
+        offset += ret.written;
+        ptr = realloc(ptr, len, offset, 1) >>> 0;
+    }
+
+    WASM_VECTOR_LEN = offset;
+    return ptr;
+}
+
 function takeFromExternrefTable0(idx) {
     const value = wasm.__wbindgen_externrefs.get(idx);
     wasm.__externref_table_dealloc(idx);
@@ -598,6 +978,19 @@ function decodeText(ptr, len) {
         numBytesDecoded = len;
     }
     return cachedTextDecoder.decode(getUint8ArrayMemory0().subarray(ptr, ptr + len));
+}
+
+const cachedTextEncoder = new TextEncoder();
+
+if (!('encodeInto' in cachedTextEncoder)) {
+    cachedTextEncoder.encodeInto = function (arg, view) {
+        const buf = cachedTextEncoder.encode(arg);
+        view.set(buf);
+        return {
+            read: arg.length,
+            written: buf.length
+        };
+    };
 }
 
 let WASM_VECTOR_LEN = 0;

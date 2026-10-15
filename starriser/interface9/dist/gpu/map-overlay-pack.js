@@ -349,7 +349,7 @@ export function packSceneJumpRaysViewRel(centerRelX, centerRelY, centerRelZ, ray
         dz /= mag;
         const x0 = centerRelX + dx * startR;
         const z0 = centerRelZ + dz * startR;
-        writeLine2Seg(positions, colors, s, x0, centerRelY, z0, x0 + dx * len, centerRelY, z0 + dz * len, color);
+        writeLine2Seg(positions, colors, s, x0, centerRelY, z0, x0 + dx * len, centerRelY, z0 + dz * len, ray.color ? [ray.color[0], ray.color[1], ray.color[2], color[3]] : color);
         s += 1;
     }
     return {

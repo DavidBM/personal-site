@@ -6,10 +6,10 @@
  * Look-at is the compact body; floating origin stays pathEnd / ship / eye.
  */
 import { MAP_NEAR, TAU_S, dampTowardExp } from "./camera-zoom.js";
-import { SCENE_EXIT_PX, SYSTEM_LOCAL_SPAN, distanceForSpanPx, } from "./solar-system-lod.js";
+import { SCENE_EXIT_PX, SCENE_ENTER_PX, SYSTEM_LOCAL_SPAN, distanceForSpanPx, } from "./solar-system-lod.js";
 export const SYSTEM_ORBIT_DEFAULT_YAW = 0.55;
 export const SYSTEM_ORBIT_DEFAULT_PITCH = 0.32;
-/** Default orbit radius = this × {@link SYSTEM_LOCAL_SPAN} (0.18 at span 0.1). */
+/** Default overview radius as a multiple of {@link SYSTEM_LOCAL_SPAN}. */
 export const SYSTEM_ORBIT_RADIUS_SPAN_MUL = 1.8;
 export const SYSTEM_ORBIT_DRAG_YAW_SENS = 0.005;
 export const SYSTEM_ORBIT_DRAG_PITCH_SENS = 0.004;
@@ -144,9 +144,12 @@ export function systemOrbitMinRadius(bodyR, near = MAP_NEAR) {
     const nearPlane = Math.max(0, near);
     return Math.max(SYSTEM_ORBIT_BODY_MIN_R_MUL * radius, SYSTEM_ORBIT_NEAR_MUL * nearPlane);
 }
-/** Distance where {@link SYSTEM_LOCAL_SPAN} projects to {@link SCENE_EXIT_PX}. */
+/**
+ * Selected targets stop at a system overview, well inside scene retirement.
+ * Small viewports/wide FOVs need a tighter limit to keep the system legible.
+ */
 export function systemOrbitMaxRadius(viewportH, fovyDeg) {
-    return distanceForSpanPx(SCENE_EXIT_PX, viewportH, fovyDeg);
+    return Math.min(defaultSystemOrbitRadius(), distanceForSpanPx(SCENE_ENTER_PX * 2, viewportH, fovyDeg));
 }
 /**
  * Galaxy-pan rest height after orbit exit. Just past {@link SCENE_EXIT_PX}

@@ -45,7 +45,7 @@ function addModeSwitcher(ctx, actions, mode) {
         switcher.content.append(renderResolutionControl(actions), gpuBudgetControl());
     return switcher.element;
 }
-function buildEditorContextMenu(ctx, actions) {
+function buildEditorContextMenu(ctx, actions, extraWindows = []) {
     const contextMenu = ctx.panel({
         id: "cluster-context-menu",
         title: "Cluster",
@@ -75,7 +75,7 @@ function buildEditorContextMenu(ctx, actions) {
         select: actionSelect.element,
     };
 }
-export function buildEditorUI(ctx, actions) {
+export function buildEditorUI(ctx, actions, extraWindows = []) {
     const modeSwitcher = addModeSwitcher(ctx, actions, "editor");
     const generation = buildEditorGenerationPanel(ctx, actions);
     const stats = buildEditorStatsPanel(ctx);
@@ -85,7 +85,8 @@ export function buildEditorUI(ctx, actions) {
     });
     const tuning = buildShipTuningPanel(ctx, actions);
     const battleTuning = buildBattleTuningPanel(ctx, actions);
-    installDockLayout(ctx.root.root, [
+    const dock = installDockLayout(ctx.root.root, [
+        ...extraWindows,
         { id: 'battle-tuning-panel', title: 'Battle', initiallyHidden: true, element: battleTuning.panel.element, anchor: screenAnchor('right', 'top', 56, 12, 310, 530) },
         {
             id: "controls-panel",
@@ -121,6 +122,7 @@ export function buildEditorUI(ctx, actions) {
         paused: () => actions.isSimPaused(),
         toggle: () => actions.toggleSimPaused(),
     }, () => actions.resetCameraOrientation?.());
+    ctx.root.register({ id: 'window-dock', kind: 'sidebar', element: dock.element, destroy: dock });
     return {
         mode: "editor",
         stats: stats.stats,
@@ -134,60 +136,43 @@ export function buildEditorUI(ctx, actions) {
         planetPanel,
     };
 }
-export function buildPlayUI(ctx, actions, online = false) {
-    const modeSwitcher = online ? null : addModeSwitcher(ctx, actions, "play");
-    const builtPanels = online ? null : buildPlayUIPanels(ctx);
-    const panels = builtPanels?.panels ?? {};
-    const planetPanel = buildSystemPlanetPanel(ctx, actions, {
-        placement: "play",
-    });
-    const dockWindows = [
-        {
-            id: "system-planet-panel",
-            title: "System",
-            element: planetPanel.panel.element,
-            anchor: screenAnchor("right", "top", 56, 12, 240, 520),
-        },
+function buildLocalPlayDock(ctx, actions) {
+    const switcher = addModeSwitcher(ctx, actions, "play");
+    const { panels } = buildPlayUIPanels(ctx);
+    const battle = buildBattleTuningPanel(ctx, actions);
+    const ships = buildShipTuningPanel(ctx, actions);
+    const pauseRow = document.createElement('div');
+    pauseRow.className = 'micro-actions';
+    pauseRow.append(mountSimPauseButton(ctx, actions));
+    panels.status.content.prepend(pauseRow);
+    const windows = [
+        { id: 'battle-tuning-panel', title: 'Battle', initiallyHidden: true, element: battle.panel.element,
+            anchor: screenAnchor('right', 'top', 56, 12, 310, 530) },
+        { id: 'ship-tuning-panel', title: 'Ships', element: ships.panel.element,
+            anchor: screenAnchor('left', 'bottom', 12, 16, 340, 200) },
+        { id: 'play-status', title: 'Feed', element: panels.status.element,
+            anchor: screenAnchor('right', 'bottom', 56, 16, 280, 140) },
+        { id: 'ui-mode-switcher', title: 'Mode', element: switcher,
+            anchor: screenAnchor('left', 'top', 12, 16, 200, 96, 'center') },
     ];
-    if (!online) {
-        const battleTuning = buildBattleTuningPanel(ctx, actions);
-        dockWindows.push({ id: 'battle-tuning-panel', title: 'Battle', initiallyHidden: true, element: battleTuning.panel.element, anchor: screenAnchor('right', 'top', 56, 12, 310, 530) });
-        const tuning = buildShipTuningPanel(ctx, actions);
-        dockWindows.push({
-            id: "ship-tuning-panel",
-            title: "Ships",
-            element: tuning.panel.element,
-            anchor: screenAnchor("left", "bottom", 12, 16, 340, 200),
-        });
-    }
-    if (builtPanels) {
-        const pauseRow = document.createElement("div");
-        pauseRow.className = "micro-actions";
-        pauseRow.append(mountSimPauseButton(ctx, actions));
-        builtPanels.panels.status.content.prepend(pauseRow);
-        dockWindows.push({
-            id: "play-status",
-            title: "Feed",
-            element: builtPanels.panels.status.element,
-            anchor: screenAnchor("right", "bottom", 56, 16, 280, 140),
-        });
-    }
-    if (modeSwitcher) {
-        dockWindows.push({
-            id: "ui-mode-switcher",
-            title: "Mode",
-            element: modeSwitcher,
-            anchor: screenAnchor("left", "top", 12, 16, 200, 96, "center"),
-        });
-    }
-    installDockLayout(ctx.root.root, dockWindows, online ? undefined : {
-        paused: () => actions.isSimPaused(),
-        toggle: () => actions.toggleSimPaused(),
+    return { panels, windows };
+}
+export function buildPlayUI(ctx, actions, online = false, extraWindows = []) {
+    const local = online ? { panels: {}, windows: [] } : buildLocalPlayDock(ctx, actions);
+    const planetPanel = buildSystemPlanetPanel(ctx, actions, { placement: 'play' });
+    const performance = online ? ctx.panel({ id: 'stats-panel', title: 'Stats', width: 300 }) : undefined;
+    const windows = [
+        { id: 'system-planet-panel', title: 'System', element: planetPanel.panel.element,
+            anchor: screenAnchor('right', 'top', 56, 12, 240, 520) },
+        ...local.windows, ...extraWindows,
+    ];
+    if (performance)
+        windows.push({ id: 'stats-panel', title: 'Stats', element: performance.element,
+            initiallyHidden: true, anchor: screenAnchor('right', 'top', 56, 12, 300, 540) });
+    const dock = installDockLayout(ctx.root.root, windows, online ? undefined : {
+        paused: () => actions.isSimPaused(), toggle: () => actions.toggleSimPaused(),
     }, () => actions.resetCameraOrientation?.());
-    return {
-        mode: "play",
-        panels,
-        planetPanel,
-    };
+    ctx.root.register({ id: 'window-dock', kind: 'sidebar', element: dock.element, destroy: dock });
+    return { mode: 'play', panels: { ...local.panels, performance }, planetPanel };
 }
 //# sourceMappingURL=ui-modes.js.map

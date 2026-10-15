@@ -1,4 +1,3 @@
-import { validatePlaybackCorrection } from './playback-correction.js';
 import { bufferBytes, MAX_STREAM_BATCHES, MAX_STREAM_BYTES, projectionBuffers } from "./contracts.js";
 import { validStreamOptions } from "./transfer-port.js";
 /**
@@ -16,7 +15,6 @@ export function createProjectionReceiver(port, options) {
     let retainedBytes = 0;
     let lastTicket = 0;
     let closed = false;
-    let correctionActive = false, correctionTicket = 0;
     let tail = Promise.resolve();
     function dispose() {
         if (closed)
@@ -67,33 +65,6 @@ export function createProjectionReceiver(port, options) {
             }
         }).catch(fail);
     }
-    function correction(packet) {
-        if (!Number.isSafeInteger(packet.ticket) || packet.ticket <= correctionTicket || correctionActive)
-            return;
-        correctionTicket = packet.ticket;
-        correctionActive = true;
-        tail = tail.then(async () => {
-            try {
-                if (!closed) {
-                    try {
-                        validatePlaybackCorrection(packet.correction);
-                    }
-                    catch {
-                        return;
-                    }
-                    await options.correct?.(packet.correction, controller.signal);
-                }
-            }
-            catch (error) {
-                fail(error);
-            }
-            finally {
-                correctionActive = false;
-                if (!closed)
-                    port.postMessage({ type: 'playbackConsumed', connectionGeneration: options.generation, ticket: packet.ticket });
-            }
-        }).catch(fail);
-    }
     function invalidate() {
         accepting = false;
         controller.abort();
@@ -119,10 +90,6 @@ export function createProjectionReceiver(port, options) {
             catch (error) {
                 fail(error);
             }
-            return;
-        }
-        if (packet.type === 'playbackCorrection') {
-            correction(packet);
             return;
         }
         if (packet.type !== 'projection')

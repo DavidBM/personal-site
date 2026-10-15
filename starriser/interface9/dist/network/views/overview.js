@@ -42,6 +42,27 @@ export function createViewOverview(world, connection) {
     return { install, delta, snapshot, frontier, node: (id) => nodes.get(id), first: () => topology?.systems[0]?.id,
         interest(ids, request) { if (ids.length > 32)
             throw new Error('Aggregate page limit'); interests = [...ids]; generation = request; },
+        installHandles(rows) {
+            validateHandleCount(rows, topology?.systems.length);
+            const expected = new Map(topology.systems.map(row => [row.id, row.clusterId]));
+            const next = new Map(), systems = new Set(), clusters = new Map();
+            for (const row of rows) {
+                if (next.has(row.systemId) || expected.get(row.systemId) !== row.clusterId)
+                    throw new Error('Unknown topology handle identity');
+                const node = row.node;
+                validateNodeHandle(node, systems);
+                if (clusters.has(row.clusterId) && clusters.get(row.clusterId) !== node.clusterId)
+                    throw new Error('Inconsistent cluster handle');
+                clusters.set(row.clusterId, node.clusterId);
+                systems.add(node.solarSystemId);
+                next.set(row.systemId, { ...node });
+            }
+            if (new Set(clusters.values()).size !== clusters.size)
+                throw new Error('Duplicate cluster handle');
+            nodes.clear();
+            for (const [id, node] of next)
+                nodes.set(id, node);
+        },
         clear() { topology = undefined; nodes.clear(); summaries.clear(); } };
 }
 function topologyRows(value) {
@@ -62,5 +83,14 @@ function installNodes(clusters, systems, edges, nodes) {
     for (const edge of edges)
         if (!nodes.has(opaqueIdAt(edge.systemA)) || !nodes.has(opaqueIdAt(edge.systemB)))
             throw new Error('View topology edge missing');
+}
+function validHandle(id) { return Number.isSafeInteger(id) && id > 0 && id <= 0xffffff; }
+function validateNodeHandle(node, systems) {
+    if (!validHandle(node.clusterId) || !validHandle(node.solarSystemId) || systems.has(node.solarSystemId))
+        throw new Error('Invalid topology handle');
+}
+function validateHandleCount(rows, expected) {
+    if (!Array.isArray(rows) || rows.length !== expected)
+        throw new Error('Incomplete topology handle acknowledgement');
 }
 //# sourceMappingURL=overview.js.map

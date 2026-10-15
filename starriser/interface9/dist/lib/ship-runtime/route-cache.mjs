@@ -9,7 +9,8 @@ export const ROUTE_BLOCKS = 16;
 // Header, metadata, position/arc samples, packed speed limits, block bounds.
 export const SCENE_ROUTE_EDITS = 32;
 export const SCENE_ROUTE_EDIT_OFFSET = 8 + SCENE_ROUTE_POINTS * 6 + ROUTE_BLOCKS * 8;
-export const SCENE_ROUTE_WORDS = SCENE_ROUTE_EDIT_OFFSET + 4 + SCENE_ROUTE_EDITS * 4;
+export const SCENE_ROUTE_ORBIT_OFFSET = SCENE_ROUTE_EDIT_OFFSET + 4 + SCENE_ROUTE_EDITS * 4;
+export const SCENE_ROUTE_WORDS = SCENE_ROUTE_ORBIT_OFFSET + 12;
 const SPEEDS = 8 + SCENE_ROUTE_POINTS * 4;
 const BOUNDS = SPEEDS + SCENE_ROUTE_POINTS * 2;
 const delta = (a, b) => b.map((v, i) => v - a[i]);
@@ -116,7 +117,7 @@ export function unpackRoutePoints(data, scale = 1) {
 /** Revision lineage is fleet-bounded and consumed only when a ship adopts an edit. */
 export function writeRouteCorrespondences(data,entries=[]) {
   if(entries.length>SCENE_ROUTE_EDITS)throw Error('Route edit history exceeds authored waypoint capacity');
-  data.fill(0,SCENE_ROUTE_EDIT_OFFSET);data[SCENE_ROUTE_EDIT_OFFSET]=entries.length;
+  data.fill(0,SCENE_ROUTE_EDIT_OFFSET,SCENE_ROUTE_ORBIT_OFFSET);data[SCENE_ROUTE_EDIT_OFFSET]=entries.length;
   entries.forEach((entry,index)=>{
     const {revision,start,oldEnd,newEnd}=entry;
     if(!Number.isInteger(revision)||revision<1||revision>0xffffff)throw Error('Invalid route edit revision');

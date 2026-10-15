@@ -49,8 +49,9 @@ export class FollowJourney {
         // Ports cannot overlap on short edges. Arrival still occurs outside the
         // compact system; the ordinary route planner owns the planet approach.
         const extent = Math.min(radius, length * .15);
-        this.end = { x: destination.x + dx / length * extent, y: 0, z: destination.z + dz / length * extent };
-        this.endMs = Math.max(jump.startTime + jump.durationMs, now + 1000);
+        this.end = jump.acceptedArrival ? { x: destination.x + jump.acceptedArrival.x, y: jump.acceptedArrival.y ?? 0, z: destination.z + jump.acceptedArrival.z }
+            : { x: destination.x + dx / length * extent, y: 0, z: destination.z + dz / length * extent };
+        this.endMs = Math.max(jump.startTime + jump.durationMs, now + (jump.acceptedArrival ? 1 : 1000));
         this.lateMs = Math.max(0, this.endMs - jump.startTime - jump.durationMs);
     }
     frame(now, source, destination) {

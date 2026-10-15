@@ -7,6 +7,12 @@ For native Rust checks, real multi-host API workloads and recorded performance
 results, use the [backend testing guide](../docs/backend/testing.md). It separates
 functional, history, latency and loaded-browser evidence.
 
+For the complete two-player online gameplay path, use the
+[Wave 9 end-to-end runner](../docs/projects/WAVE-09.md). It drives the shipped App
+against a disposable normal native host, including real minute production,
+shipments, combat, travel, process restart and uncertain-response retry. It uses
+two isolated browser contexts and does not run a capacity workload.
+
 ## Working in parallel
 
 `./tests/run.sh <scenario>` builds into an owned temporary directory, mounts that
@@ -17,10 +23,10 @@ explicit `--kill-port` option. CPU checks can run concurrently; serialize GPU
 measurements on one laptop so results describe the workload being measured.
 
 ```bash
-./tests/run.sh fleet-integrate-step --artifacts-dir /tmp/galaxy-results
-./build.sh --out-dir /tmp/galaxy-my-feature
-./tests/run.sh --skip-build --dist-dir /tmp/galaxy-my-feature solar-orbit-mode --headed
-node scripts/run-module-tests.mjs features --dist-dir /tmp/galaxy-my-feature
+./tests/run.sh fleet-integrate-step --artifacts-dir .tmp/galaxy-results
+./build.sh --out-dir .tmp/galaxy-my-feature
+./tests/run.sh --skip-build --dist-dir .tmp/galaxy-my-feature solar-orbit-mode --headed
+node scripts/run-module-tests.mjs features --dist-dir .tmp/galaxy-my-feature
 node scripts/run-module-tests.mjs infrastructure
 node scripts/run-module-tests.mjs --list
 node scripts/check-architecture.mjs
@@ -41,7 +47,7 @@ and architecture-gate failures. Add independent modules under
 `dist/` imports can also use the selected build:
 
 ```bash
-GALAXY_BUILD_DIR=/tmp/galaxy-my-feature node --import ./tests/node/register-build.mjs scripts/check-invariants.mjs
+GALAXY_BUILD_DIR=.tmp/galaxy-my-feature node --import ./tests/node/register-build.mjs scripts/check-invariants.mjs
 ```
 
 The architecture checker follows source imports, type imports, re-exports, and
@@ -55,6 +61,7 @@ build, HTTP port, CDP port, profile, and artifact paths. Temporary Chromium
 profiles are owned by the test process and cleaned after Chromium exits.
 
 Continuous ship-follow checks are documented in
+[online journeys](journey-online/README.md),
 [scene-follow-transit](scene-follow-transit/README.md) and
 [scene-follow-selection](scene-follow-selection/README.md). The
 [lifecycle boundary fixture](scene-follow-lifecycle/README.md) covers late hops,
@@ -78,8 +85,8 @@ Its headed hardware run passed 40 of the 41 default scenarios and 8,462 of
 `planet-gpu-bake` fidelity check: GPU peaks must reach 50% of the JS reference,
 but both the final and immutable baseline builds produce 1,229 versus 3,037.
 The threshold remains unchanged. Raw results are in
-`/tmp/galaxy-final-headed-all.log` and
-`/tmp/galaxy-final-regression-artifacts/run-M6KsNW/`.
+`.tmp/galaxy-final-headed-all.log` and
+`.tmp/galaxy-final-regression-artifacts/run-M6KsNW/`.
 
 ## Fleet orders
 
@@ -90,19 +97,19 @@ test-only GPU readback to check route-to-ring capture at a large galaxy anchor,
 pose continuity, stable ship identities and leaving orbit on another move.
 
 ```sh
-./tests/run.sh app-fleet-move --skip-build --dist-dir /tmp/galaxy-task-build --background
-./tests/run.sh scene-planet-orbit --skip-build --dist-dir /tmp/galaxy-task-build --background
+./tests/run.sh app-fleet-move --skip-build --dist-dir .tmp/galaxy-task-build --background
+./tests/run.sh scene-planet-orbit --skip-build --dist-dir .tmp/galaxy-task-build --background
 ```
 
 ## Fleet battles
 
 ```sh
-./build.sh --wasm --out-dir /tmp/galaxy-battles-build
-node scripts/run-module-tests.mjs features --dist-dir /tmp/galaxy-battles-build
-node scripts/run-module-tests.mjs ship-runtime --dist-dir /tmp/galaxy-battles-build
-./tests/run.sh scene-battles --skip-build --dist-dir /tmp/galaxy-battles-build --background
-./tests/run.sh app-battles --skip-build --dist-dir /tmp/galaxy-battles-build --background
-./tests/run.sh app-battles --query authored=1 --skip-build --dist-dir /tmp/galaxy-battles-build --background
+./build.sh --wasm --out-dir .tmp/galaxy-battles-build
+node scripts/run-module-tests.mjs features --dist-dir .tmp/galaxy-battles-build
+node scripts/run-module-tests.mjs ship-runtime --dist-dir .tmp/galaxy-battles-build
+./tests/run.sh scene-battles --skip-build --dist-dir .tmp/galaxy-battles-build --background
+./tests/run.sh app-battles --skip-build --dist-dir .tmp/galaxy-battles-build --background
+./tests/run.sh app-battles --query authored=1 --skip-build --dist-dir .tmp/galaxy-battles-build --background
 ```
 
 `scene-battles` checks 2,048 ships from all six classes across choreography phases,
@@ -118,7 +125,7 @@ not FPS claims.
 ordinary and eight-battle full-frame workloads in ABBA order at 2560×1440 with
 high-hull MSAA, half glow, stars and every-frame simulation. It verifies actual
 battle membership outside the timing window. Results default to
-`/tmp/galaxy-battle-benchmark.json`; override with `GALAXY_BENCH_OUTPUT`.
+`.tmp/galaxy-battle-benchmark.json`; override with `GALAXY_BENCH_OUTPUT`.
 `GALAXY_BENCH_ORDER='[1]'` is useful for one current-build diagnostic run.
 
 ## Prerequisites
@@ -210,7 +217,7 @@ Run explicitly:
 
 ```bash
 ./tests/run.sh fleet-perf-orbit-5m --timeout 600000
-./tests/run.sh fleet-perf-renderer --headed --timeout 600000 --artifacts-dir /tmp/galaxy-perf
+./tests/run.sh fleet-perf-renderer --headed --timeout 600000 --artifacts-dir .tmp/galaxy-perf
 # list including perf: node tests/scripts/list-tests.mjs --include-perf
 ```
 
@@ -238,9 +245,10 @@ Run explicitly:
 | **[ship-angular-response-gpu](ship-angular-response-gpu/README.md)** | Actual runtime angular limits, pole-flip control, slow motion, orbit lag, local/warp transitions and GPU event/rebase/recovery state. Optional `--query benchmark=1` alternates equal-overhead 50K attitude-only kernel timings; not full-frame or presented-FPS evidence. |
 | **[ship-formation-gpu](ship-formation-gpu/README.md)** | Production loose escort steering: persistent 13-bit identities through row reordering, anchor/cloud translations, all six same-class waiting goals, bounded corrections, and raw turn/acceleration limits on small escort orbits. Steering-field equilibrium is distinct from full locomotion and collision-free packing. |
 | **[contact-mask-padding-gpu](contact-mask-padding-gpu/README.md)** | Actual cache constructor and force/filter contract across 25,920 class/body/gap/velocity/tuning cases; every positive repulsion response must survive the filter. Historical-mask control reproduces missed contacts; does not establish completeness of the capped hash neighborhood. |
-| **ship-model-catalog** | `--query assets=1` draws all six actual HIGH/LOW hulls, checks stable GPU class partitions, all eight packed-counter lanes and exact compact/reference pixel parity. Optional `benchmark=1` measures visibility only; `renderBenchmark=1` compares actual assets and `catalogPolicy=1` applies the catalog 48px HIGH cutoff, with changed visible counts reported. |
+| **ship-model-catalog** | `--query assets=1` draws all six production HIGH/LOW/FAR hulls (`boundaryPreview=1` shows each level at 36/48/64 px), checks stable GPU class partitions, all eight packed-counter lanes and exact compact/reference pixel parity. Optional `benchmark=1` measures visibility only; `renderBenchmark=1` compares actual assets and `catalogPolicy=1` applies the catalog 48px HIGH cutoff, with changed visible counts reported. |
 | **scene-render-integration** | Individual GPU identity/follow, centers, interpolation, selection and per-ship detail, culling image comparison, compaction, replacement, last-fleet removal and live profiler longevity |
-| **scene-ship-lod** | Automatic HIGH/LOW transitions, hysteresis and manual overrides from top, bottom, level and oblique cameras at DPR 1 and 2; camera rotation must not shrink projected ship size |
+| **scene-ship-lod** | Automatic full/mid/low/dart/point transitions over the default overlapping ranges (`DEFAULT_HULL_LOD`), overlaps kept from either side and manual overrides, from top, bottom, level, oblique and steep cameras at DPR 1 and 2; camera rotation must not shrink projected ship size |
+| **scene-hull-gallery** | Review: one ship of a real scene framed inside each of the five detail levels plus a wide fleet view, composed from GPU colour readback into `#hull-gallery`; checks the framed ship's detail level and GPU validation |
 | **fleet-perf-large-topology** | Separate synthetic strategic workload: 7,000 clusters / 280,000 systems / 286,999 canonical connections plus 10,000 fleet icons / 480,000 packed ships; 2719×1822, height 1e6 and moving pan, 24 warmups / 64 timestamped frames. Verifies actual impostor LOD and no camera-driven geometry writes. This is not a replay of the user's galaxy or a substitute for the canonical scene workload. |
 
 The renderer benchmark uses 136 warmup frames and 64 measured frames per mode,
@@ -588,9 +596,9 @@ These focused scenarios use the production shaders and UI. Run each against an
 isolated build, with headed Chromium for hardware WebGPU:
 
 ```sh
-node tests/scripts/run-test.mjs trail-joints-gpu --headed --dist-dir /tmp/galaxy-build
-node tests/scripts/run-test.mjs app-fleet-move --headed --dist-dir /tmp/galaxy-build
-node tests/scripts/run-test.mjs scene-route-lines --headed --dist-dir /tmp/galaxy-build
+node tests/scripts/run-test.mjs trail-joints-gpu --headed --dist-dir .tmp/galaxy-build
+node tests/scripts/run-test.mjs app-fleet-move --headed --dist-dir .tmp/galaxy-build
+node tests/scripts/run-test.mjs scene-route-lines --headed --dist-dir .tmp/galaxy-build
 ```
 
 - **trail-joints-gpu** executes the production trail vertex function and rasterizes
@@ -625,7 +633,7 @@ node tests/scripts/run-test.mjs scene-route-lines --headed --dist-dir /tmp/galax
 128 admitted fleets before steady-state measurement. For example:
 
 ```sh
-./tests/run.sh fleet-perf-renderer --headed --skip-build --dist-dir /tmp/galaxy-build \
+./tests/run.sh fleet-perf-renderer --headed --skip-build --dist-dir .tmp/galaxy-build \
   --query 'ships=50000&width=1920&modes=solar,focus&orders=1'
 ```
 
@@ -633,3 +641,11 @@ Order setup and solver startup are untimed; fleet-order geometry/guidance and
 the normal rendering/simulation remain active during measurement. Report CPU,
 GPU pass and GPU interval timings separately; this does not establish displayed
 120FPS or collision-free motion.
+
+
+`map-layers` is a focused GPU route-animation scenario (stationary-camera pixel
+change, reduced motion, independent removal, validation). Its native/browser
+companion is `node tests/map-layers/online.mjs --server-bin <binary> --provisioner
+<e2e-provision> --dist-dir <dist> --output <repo-local-directory>`; it exercises
+private ownership pages, persistent layer controls and unselected multi-hop
+routes in an isolated world. Neither test establishes load/FPS capacity.

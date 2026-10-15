@@ -3,30 +3,16 @@
     <head>
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-        <title>Galaxy Map Generator</title>
-        <script type="module">
-            // Production renderer defaults to shared GPU visual formations.
-            // Keep the real scene lifecycle (orbit, warp and ship follow) in this entry.
-            document.addEventListener("DOMContentLoaded", async () => {
-                const { App } = await import("./dist/app.js");
-                try {
-                    const app = new App();
-                    await app.initialize();
-                    console.log(
-                        "Galaxy Map Generator initialized successfully",
-                    );
-                    document.getElementById("app-loader").remove();
-                } catch (error) {
-                    console.error(
-                        "Failed to initialize Galaxy Map Generator:",
-                        error,
-                    );
-                    alert(
-                        "Failed to initialize the application. Please refresh the page.",
-                    );
-                }
-            });
+        <title>Galaxy</title>
+        <link rel="stylesheet" href="./game.css" />
+        <script>
+            if (location.hash.startsWith('#galaxy-login=')) {
+                const fragment = location.hash;
+                history.replaceState(history.state, '', location.pathname + location.search);
+                if (fragment.length <= 2048) window.__galaxyDevLoginFragment = fragment;
+            }
         </script>
+        <script type="module" src="./dist/main/galaxy-entry.js"></script>
         <style>
             body {
                 margin: 0;

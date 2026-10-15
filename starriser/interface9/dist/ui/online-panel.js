@@ -1,61 +1,41 @@
+import { onlineShellMarkup, bindOnlineShell } from './online-shell.js';
 import { bindText, bindOptions, setText, setDisabled } from './dom-bindings.js';
 import { createStrategicOverview } from './strategic-overview.js';
 export function createOnlinePanel(parent) {
     const panel = document.createElement('section');
-    panel.className = 'online-panel';
-    panel.innerHTML = `
-    <h1>Galaxy</h1><p class="online-caption">Persistent multiplayer</p>
-    <form class="online-connect">
-      <label>Server<input name="server" type="url" value="https://localhost:4433/session" required></label>
-      <label>Fallback server<input name="fallback" type="url" value="ws://127.0.0.1:4435/session" required></label>
-      <label>Server certificate SHA-256 (optional)<input name="pin" spellcheck="false" autocomplete="off"></label>
-      <label>Access code<input name="credential" type="password" autocomplete="off" spellcheck="false" required></label>
-      <button type="submit">Connect</button>
-    </form>
-    <p class="online-status" role="status" aria-live="polite">Starting the map…</p>
-    <div class="online-orders" hidden>
-      <label>Choose a system<select class="online-systems" aria-label="Viewing system"></select></label>
-      <button type="button" data-action="view">View system</button>
-      <button type="button" data-action="galaxy">Whole galaxy</button><button type="button" data-action="region">Selected system region</button>
-      <label>Your fleets<select class="online-fleets" aria-label="Your fleets"></select></label>
-      <span class="online-page"></span><button type="button" data-action="first">First page</button><button type="button" data-action="more" hidden>Next page</button>
-      <button type="button" data-action="focus">Follow selected fleet</button>
-      <div class="online-target"><label>Destination X<input name="x" type="number" step="0.001" value="0.025"></label>
-        <label>Destination Z<input name="z" type="number" step="0.001" value="0.015"></label></div>
-      <div class="online-buttons"><button type="button" data-action="preview">Preview</button><button type="button" data-action="move">Move</button></div>
-      <label>Route destination<select class="online-destinations" aria-label="Jump destination"></select></label>
-      <button type="button" data-action="route">Preview route</button>
-      <button type="button" data-action="transfer">Jump</button>
-      <p class="online-preview" role="status"></p>
-      <div class="online-recovery" hidden>
-        <label>Retained orders<select class="online-retained" aria-label="Retained orders"></select></label>
-        <p class="online-recovery-message"></p>
-        <button type="button" data-action="resolve">Check original order</button><button type="button" data-action="retry">Retry original order</button>
-        <button type="button" data-action="continue">Continue with a new order</button></div>
-    </div>`;
+    panel.className = 'online-game';
+    panel.innerHTML = onlineShellMarkup();
     parent.appendChild(panel);
+    const shell = bindOnlineShell(panel);
     const find = (selector) => panel.querySelector(selector);
     const form = find('form');
     const fleets = find('.online-fleets');
     const systems = find('.online-systems');
     const destinations = find('.online-destinations');
-    const status = bindText(find('.online-status'), { height: '4.5em', wrap: true }), preview = bindText(find('.online-preview'), { height: '4.5em', wrap: true });
+    const status = bindText(find('.online-status'), { height: '2.8em', wrap: true }), preview = bindText(find('.online-preview'), { height: '4.5em', wrap: true });
     const inputs = new Map(Array.from(panel.querySelectorAll('input')).map(input => [input.name, input]));
     const input = (name) => inputs.get(name);
-    const buttons = Array.from(panel.querySelectorAll('button'));
+    const buttons = Array.from(panel.querySelectorAll('[data-action], form button[type=submit]'));
     const actions = new Map(buttons.filter(button => button.dataset.action).map(button => [button.dataset.action, button]));
     const action = (name) => actions.get(name);
     const orderPanel = find('.online-orders'), recoveryPanel = find('.online-recovery');
     const recoveryText = bindText(find('.online-recovery-message'), { height: '10em', wrap: true }), pageText = bindText(find('.online-page'));
-    const connectText = bindText(form.querySelector('button'), { width: '12ch', height: '40px' }), jumpText = bindText(action('transfer'), { height: '40px' });
-    const overview = createStrategicOverview(orderPanel);
+    const connectText = bindText(form.querySelector('button'), { width: '12ch', height: '24px' }), jumpText = bindText(action('transfer'), { height: '24px' });
+    const navigationPanel = find('.online-navigation .ui-panel-content'), fleetPanel = find('.online-fleet-panel .ui-panel-content');
+    const rosterPanel = find('.online-roster-panel'), activityPanel = find('.online-activity .ui-panel-content'), planetPanel = find('.online-planets .ui-panel-content');
+    const overview = createStrategicOverview(navigationPanel);
     const retained = find('.online-retained');
+    const signIn = document.createElement('a');
+    signIn.href = './';
+    signIn.textContent = 'Sign in again';
+    signIn.hidden = true;
+    form.after(signIn);
     const fleetOptions = bindOptions(fleets), systemOptions = bindOptions(systems);
     const destinationOptions = bindOptions(destinations), retainedOptions = bindOptions(retained);
     let busy = false;
     let blocked = false;
     let orders = [];
-    const needsFleet = new Set(['move', 'transfer', 'preview', 'route', 'focus']);
+    const needsFleet = new Set(['move', 'transfer', 'preview', 'route', 'focus', 'details']);
     function disabled(button) {
         const name = button.dataset.action ?? '';
         if (busy || (needsFleet.has(name) && !fleets.value))
@@ -99,20 +79,24 @@ export function createOnlinePanel(parent) {
         return value;
     }
     return {
-        form, fleets, systems, destinations, retained, overview,
-        action, input, orderPanel,
+        root: panel, dockWindows: shell.windows, form, fleets, systems, destinations, retained, overview,
+        action, input, orderPanel, navigationPanel, fleetPanel, rosterPanel, activityPanel, planetPanel, accountPanel: form.parentElement, show: shell.show,
         credentials: () => ({ server: input('server').value, fallback: input('fallback').value, credential: input('credential').value.trim(), pin: input('pin').value.trim() }),
         target: () => ({ x: coordinate('x'), z: coordinate('z') }),
         status(message) { setText(status, message); },
+        signInRequired(value) { signIn.hidden = !value; if (value)
+            shell.show('account'); },
         preview(message) { setText(preview, message); },
-        jumpLabel(name) { setText(jumpText, name ? `Jump to ${name}` : 'Jump'); },
+        jumpLabel(name) { setText(jumpText, name ? `Travel to ${name}` : 'Travel'); },
         onRouteChange(listener) {
             for (const element of [fleets, destinations, input('x'), input('z')])
                 element.addEventListener('change', listener);
         },
-        connected(value) { orderPanel.hidden = !value; setText(connectText, value ? 'Reconnect' : 'Connect'); },
+        connected(value) { orderPanel.inert = !value; action('signout').hidden = !value; setText(connectText, value ? 'Reconnect' : 'Connect'); },
         busy(value) { busy = value; updateButtons(); },
         recovery(values, canIssue) {
+            if (values.length && !orders.length)
+                shell.show('fleet');
             const selected = retained.value;
             orders = values;
             blocked = !canIssue;

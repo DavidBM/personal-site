@@ -1,3 +1,4 @@
+import { PlanetDepthOfField } from './planet-depth-of-field.js';
 import { BattleFxRenderer } from './battle-fx/renderer.js';
 import { HalfGlow } from './half-glow.js';
 import { SelectiveMsaa } from './selective-msaa.js';
@@ -9,6 +10,7 @@ import { WarpEffect } from './warp-effect.js';
 import { SunLens } from './sun-lens.js';
 export function createMapFrameEncoder(ports) {
     const { bootstrap, surface, attachments, galaxy, fleets, solar, schematics, overlay } = ports;
+    const planetLens = new PlanetDepthOfField(bootstrap, ports.coordinates);
     const warp = new WarpEffect(bootstrap, ports.coordinates);
     const sunLens = MAP_MSAA_SAMPLES === 1 ? new SunLens(bootstrap, ports.coordinates) : null;
     const selective = MAP_SELECTIVE_MSAA ? new SelectiveMsaa(bootstrap) : null;
@@ -268,21 +270,45 @@ export function createMapFrameEncoder(ports) {
         fx?.prepare(frame, fxInputs, 1 / frame.tanHalfFov);
         releaseIdleTargets(frame, scene);
         const target = frameDebugTime('surface and attachments', () => resolveTarget(scene));
+        const focused = planetLens.prepare(frame, attachments.msaaW, attachments.msaaH, attachments.msaaDepthView);
+        const sceneTarget = focused ?? target;
         const warped = warp.prepare(frame, attachments.msaaW, attachments.msaaH, attachments.msaaDepthView);
         frameDebugTime('color/depth/effects encoding', () => {
             if (!scene)
                 encodeGalaxy(encoder, frame, target);
             else
-                encodeScene(encoder, frame, warped ?? target, warped !== null);
+                encodeScene(encoder, frame, warped ?? sceneTarget, warped !== null || focused !== null);
             if (warped)
-                warp.encode(encoder, target);
-            const radius = solar.sunRadius?.() ?? 0;
-            if (frame.sceneOpen && radius > 0 && attachments.msaaDepthView)
-                sunLens?.encode(encoder, target, attachments.msaaDepthView, frame, attachments.msaaW, attachments.msaaH, radius);
+                warp.encode(encoder, sceneTarget);
+            encodeLensEffects(encoder, frame, sceneTarget);
         });
+        if (focused)
+            planetLens.encode(encoder, target);
+        galaxy.encodeHud?.(encoder, target);
         frameDebugTime('population compaction encoding', () => ports.encodeDirectedMaintenance?.(encoder));
         submit(encoder, profiler);
         frameDebugTime('post-submit fleet work', () => ports.commitDirectedTick());
+    }
+    /**
+     * Sun lens, then engine glows in the same pass: both read the finished scene
+     * depth instead of testing it. Without a sun, glows get their own pass only
+     * while a mid/full-detail hull may be on screen.
+     */
+    function encodeLensEffects(encoder, frame, target) {
+        const depth = attachments.msaaDepthView;
+        if (!frame.sceneOpen || !depth)
+            return;
+        const glows = (pass) => fleets.encodeEngineGlows?.(pass, frame, depth);
+        const radius = solar.sunRadius?.() ?? 0;
+        if (radius > 0 && sunLens) {
+            sunLens.encode(encoder, target, depth, frame, attachments.msaaW, attachments.msaaH, radius, glows);
+            return;
+        }
+        if (MAP_MSAA_SAMPLES !== 1 || !fleets.engineGlowsPossible?.(frame))
+            return;
+        const pass = encoder.beginRenderPass({ label: 'engine-glows', colorAttachments: [{ view: target, loadOp: 'load', storeOp: 'store' }] });
+        glows(pass);
+        pass.end();
     }
     function encodeScene(encoder, frame, target, preserveDepth) {
         if (hullMsaa)
@@ -294,6 +320,6 @@ export function createMapFrameEncoder(ports) {
             encodeResolve(encoder, frame, target, preserveDepth);
         }
     }
-    return { encode, warm: () => sunLens?.warm() ?? Promise.resolve(), fxDiagnostics: () => fx?.diagnostics() ?? null, dispose: () => { sunLens?.dispose(); fx?.dispose(); warp.dispose(); selective?.dispose(); hullMsaa?.dispose(); glow?.dispose(); }, lastResolveHadDepth: () => lastResolveHadDepth };
+    return { encode, warm: () => sunLens?.warm() ?? Promise.resolve(), fxDiagnostics: () => fx?.diagnostics() ?? null, fxVisibleParts: () => fx?.visibleParts() ?? Promise.resolve(0), dispose: () => { planetLens.dispose(); sunLens?.dispose(); fx?.dispose(); warp.dispose(); selective?.dispose(); hullMsaa?.dispose(); glow?.dispose(); }, lastResolveHadDepth: () => lastResolveHadDepth };
 }
 //# sourceMappingURL=frame-encoder.js.map

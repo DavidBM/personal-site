@@ -1,0 +1,101 @@
+body { margin:0; overflow:hidden; background:#05080b; color:#d7eaf0; font:13px system-ui,sans-serif }
+canvas { display:block }
+.online-game { display:contents; pointer-events:none; font:11px ui-monospace,SFMono-Regular,Consolas,monospace }
+.online-game [hidden] { display:none !important }
+.online-game button,.online-game input,.online-game select { font:inherit; color:inherit; border:1px solid #31454e; border-radius:2px; background:#101c24; padding:3px 5px; min-height:24px }
+.online-game button { cursor:pointer }
+.online-game button:hover { background:#233c47; border-color:#6c9aaa }
+.online-game button:disabled { opacity:.4; cursor:default }
+.online-game :focus-visible { outline:2px solid #acd9e6; outline-offset:2px }
+.game-drawer { contain:layout style; pointer-events:auto }
+.game-drawer .ui-panel-content { display:block; overscroll-behavior:contain }
+.game-drawer header { display:flex; align-items:center; justify-content:space-between; gap:8px }
+.game-drawer header h2 { margin:0; font-size:11px; letter-spacing:.12em; color:#a7cdd9 }
+.game-drawer header button { border:0; padding:0 4px; min-height:18px; font-size:16px; background:transparent }
+.game-drawer h2 { font-size:11px; margin:10px 0 5px }
+.game-drawer p { color:#9bb5c2; line-height:1.4; margin:6px 0 }
+.game-drawer label { display:block; margin:6px 0; color:#9fb8c5 }
+.game-drawer input,.game-drawer select { box-sizing:border-box; width:100%; margin-top:3px }
+.game-drawer button { margin:2px 3px 2px 0 }
+.game-drawer details { margin:8px 0; border-top:1px solid #243b46; padding-top:6px }
+.game-drawer summary { cursor:pointer; color:#bad8e4 }
+.online-game>.online-status { position:absolute; bottom:10px; left:14px; box-sizing:border-box; width:min(520px,calc(100vw - 80px)); margin:0; padding:5px 8px; color:#acc9d7; background:#061018bb; border-radius:3px; pointer-events:auto; font-size:10px }
+.online-target { display:flex; gap:6px }.online-target label { min-width:0 }
+.online-recovery { padding-top:6px; border-top:1px solid #584c32; color:#eacb91 }
+.online-overview-scroll,.online-owned-roster ul { max-height:200px; overflow:auto; contain:layout paint }
+.online-overview table { width:100%; table-layout:fixed; border-collapse:collapse; font-size:10px }
+.online-overview th,.online-overview td { padding:3px; text-align:left; border-bottom:1px solid #263449; overflow:hidden;white-space:nowrap;text-overflow:ellipsis }
+.online-overview th { position:sticky; top:0; background:#101e30 }
+.online-overview th:first-child { width:32% }.online-overview th:last-child { width:54px }
+.online-owned-roster ul { list-style:none; padding:0 }
+.online-owned-roster li { display:flex; align-items:center; gap:4px; height:32px; contain:layout paint }
+.online-owned-roster li>span { flex:1; min-width:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis }
+.online-owned-roster li>button { flex-shrink:0; font-size:10px; padding:3px }
+@media(max-width:680px) { .online-game>.online-status { bottom:58px }.online-game button,.online-game input,.online-game select { min-height:32px } }
+
+/* Retained fleet command instrument. Six fixed silhouette nodes, no outer box. */
+#selected-fleet{position:fixed;left:18px;bottom:36px;width:330px;height:245px;box-sizing:border-box;z-index:1090;contain:strict;padding:6px;color:#c2deea;font:11px/18px monospace;pointer-events:none;background:radial-gradient(ellipse at 35% 65%,#06121ce6,transparent 75%);}
+#selected-fleet header{display:flex;align-items:center;justify-content:space-between;height:25px;}
+#selected-fleet p{margin:0;height:18px;width:100%;}
+#selected-fleet button{font:inherit;color:inherit;background:#0a2130eb;border:1px solid #34596e;cursor:pointer;pointer-events:auto;border-radius:14px;}
+#selected-fleet header button{width:25px;height:25px;border-radius:50%;}
+#selected-fleet .selected-fleet-actions{display:flex;gap:7px;height:28px;margin-top:5px;}
+#selected-fleet .selected-fleet-actions button{flex:1;min-width:0;height:28px;}
+#selected-fleet button:disabled{opacity:.5;cursor:default;}
+.selected-fleet-types{height:70px;display:flex;align-items:center;padding-left:3px;}
+.selected-ship-circle{flex:none;position:relative;width:53px;height:53px;margin-left:-3px;border-radius:50%;border:1px solid #458db0;box-shadow:0 0 0 3px #020711,0 0 15px #138fff26;background:radial-gradient(circle at 35% 25%,#173a4b,#040e18 80%);pointer-events:auto;text-align:center;}
+.selected-ship-circle:nth-child(even){transform:translateY(6px);}
+.selected-ship-circle svg{display:block;width:24px;height:27px;margin:4px auto 0;fill:#63baff;stroke:#c9efff;stroke-width:.6;}
+.selected-ship-circle span{display:block!important;margin:auto;color:#e7f9ff;font-size:10px;}
+.selected-fleet-timers{height:48px;color:#78d8ff;font-variant-numeric:tabular-nums;}
+@media(max-width:760px){#selected-fleet{left:8px;bottom:calc(56px + env(safe-area-inset-bottom));width:min(330px,calc(100vw - 58px));}.selected-ship-circle{width:44px;height:49px;}}
+
+/* A static worker-painted planet behind a full-screen retained surface console. */
+.planet-screen{position:fixed;inset:0;width:92vw;height:90dvh;max-width:1720px;max-height:1100px;margin:auto;padding:24px 3vw;border:1px solid #63899a66;border-radius:10px;box-sizing:border-box;background:#07121c66;color:#d9e9ef;font:12px/1.6 monospace;overflow:auto;contain:layout style paint;box-shadow:0 16px 80px #0005;}
+.planet-screen::backdrop{background:#02071018;}
+.planet-screen-header,.planet-screen-content{position:relative;z-index:1;}
+.planet-screen-header{height:92px;display:flex;justify-content:space-between;align-items:start;gap:20px;border-bottom:1px solid #3e61764d;margin-bottom:24px;}
+.planet-screen h1,.planet-screen h2{font-family:monospace;font-weight:500;margin:0;color:#ecf8ff;letter-spacing:.02em;}
+.planet-screen-header>div{flex:1;min-width:0;max-width:680px;}.planet-screen h1{font-size:27px;width:100%;}.planet-screen h2{font-size:19px;}
+.planet-eyebrow{font-size:10px;letter-spacing:.23em;color:#75c4da;margin:0 0 8px;}
+.planet-screen-content{display:grid;grid-template-columns:minmax(280px,40%) minmax(220px,270px);justify-content:space-between;gap:32px;max-width:1560px;margin:auto;}
+.planet-screen-content>main{min-width:0;}
+.planet-screen button,.planet-screen select,.planet-screen input{box-sizing:border-box;font:inherit;color:#d3e9f3;border:1px solid #386177;background:#0a1d2ce8;padding:7px 10px;border-radius:3px;}
+.planet-screen button{cursor:pointer;}.planet-screen button:disabled{opacity:.4;cursor:default;}.planet-screen button:hover:not(:disabled){border-color:#8bcadc;background:#173448;}
+.planet-screen [aria-pressed=true]{border-color:#68d6b2!important;background:#123b38!important;}
+.planet-screen .online-planet-inspector{border:0!important;padding:0!important;}
+.planet-screen .online-planet-inspector>summary{display:none;}
+.planet-screen .online-planet-inspector>label{max-width:360px;}
+.planet-screen .online-planet-inspector>p{color:#829cae;}
+.planet-screen fieldset{display:grid;grid-template-columns:1fr 1fr;gap:8px 20px;}
+.planet-screen fieldset>p,.planet-screen fieldset>canvas,.planet-screen fieldset>div{grid-column:1/-1;}
+.planet-screen fieldset>p{margin:0;color:#8daab9;font-size:11px;}
+.planet-screen fieldset>canvas{border:1px solid #456b8066;box-sizing:border-box;box-shadow:0 15px 70px #0008;border-radius:6px;}
+.planet-screen .planet-complex-preview{display:none;}
+.planet-development{padding:20px;background:linear-gradient(155deg,#0b1a26ed,#04101ac9);border-top:2px solid #63bcae;box-shadow:0 20px 60px #0005;border-radius:4px;min-width:0;}
+.development-intro{color:#97afba;line-height:1.7;}
+.development-kinds{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin:18px 0;}
+.development-kinds button{min-height:48px;text-align:left;font-size:11px;}
+.development-build,.development-upgrade,.development-retry{width:100%;}
+.development-anchor{color:#79dec2;height:20px;}.development-status{color:#9fc2d4;margin:10px 0;}
+.development-toolbar{display:flex;justify-content:space-between;align-items:center;margin-top:10px;height:36px;}
+.development-buildings{height:216px;overflow:auto;contain:layout paint;}
+.development-buildings button{display:block;width:100%;text-align:left;height:44px;padding:3px 8px;margin-bottom:4px;}
+.development-buildings button[hidden]{display:none;}.development-buildings span{display:block;}.development-buildings span+span{font-size:10px;color:#80b6c7;}
+.development-paging{display:flex;gap:6px;justify-content:flex-end;margin-top:6px;}.development-selected{color:#a4ddcf;}
+.development-note{font-size:10px;color:#7894a4;line-height:1.7;margin-top:18px;}
+@media(max-width:850px){.planet-screen{padding:14px;width:96vw;height:94dvh;}.planet-screen-content{grid-template-columns:1fr;gap:18px;}.planet-screen-header{height:80px;}.planet-screen h1{font-size:20px;}.planet-development{max-width:none;}.planet-screen fieldset{gap:6px;}}
+
+/* Owned worlds: a bounded retained page, with existing lazy preview textures. */
+.owned-planets{width:100%;min-width:0;contain:layout style;}
+.owned-planet-list{display:grid;gap:8px;}
+.owned-planet{height:100px;box-sizing:border-box;display:grid;grid-template-columns:56px minmax(0,1fr);gap:12px;align-items:center;padding:10px 6px;border-bottom:1px solid #294b58;contain:layout style paint;}
+.owned-planet-info{min-width:0;display:grid;gap:3px;}
+.owned-planet-info>span{color:#82a6b5;text-transform:capitalize;}
+.owned-planet-miniature{position:relative;width:56px;height:56px;border-radius:50%;overflow:hidden;background:radial-gradient(circle at 28% 25%,#487483,#071723 76%);border:1px solid #49839766;}
+.owned-planet-miniature img{display:block;width:56px;height:56px;object-fit:cover;}
+.owned-planet-miniature:after{content:'';position:absolute;inset:0;border-radius:50%;background:radial-gradient(circle at 28% 25%,#c4e5ef22,#03101b00 30%,#010610aa 75%,#010610ed);pointer-events:none;}
+.owned-planet-actions{display:flex;gap:6px;align-items:center;}
+.owned-planets> .owned-planet-actions{margin-top:12px;}
+.owned-planet-actions button{flex:1;min-width:0;}
+.owned-planet-miniature img[hidden]{display:none;}

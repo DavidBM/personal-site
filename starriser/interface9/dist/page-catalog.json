@@ -19,25 +19,31 @@
   },
   {
     "path": "galaxy.html",
-    "title": "Galaxy Map Generator",
+    "title": "Galaxy",
     "description": "Offline galaxy editor with procedural maps, fleets and solar-system exploration.",
     "group": "Game"
   },
   {
     "path": "index.html",
-    "title": "Galaxy · Local launchpad",
-    "description": "Find every Galaxy game, authoring lab, demo and browser test.",
+    "title": "Galaxy · Your place among the stars",
+    "description": "A persistent galaxy. Your place among the stars. Sign in to the Galaxy private playtest.",
     "group": "Game"
   },
   {
+    "path": "labs.html",
+    "title": "Galaxy · Local launchpad",
+    "description": "Find every Galaxy game, authoring lab, demo and browser test.",
+    "group": "Authoring & visual labs"
+  },
+  {
     "path": "model-viewer.html",
-    "title": "Galaxy — Ship model viewer (thruster attach)",
-    "description": "Inspect ship models, lighting and thruster attachment coordinates.",
+    "title": "Galaxy — Ship model viewer",
+    "description": "Compare ship models with true-colour, clay and polygon-edge views; tune per-class LOD ranges by screen size; pick thruster attachment coordinates.",
     "group": "Authoring & visual labs"
   },
   {
     "path": "online.html",
-    "title": "Galaxy · Multiplayer",
+    "title": "Galaxy",
     "description": "Persistent multiplayer client: connect, preview orders, move and jump ships.",
     "group": "Game"
   },

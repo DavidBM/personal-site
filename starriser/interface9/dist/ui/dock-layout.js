@@ -268,9 +268,16 @@ function applyRect(element, rect) {
     element.style.boxSizing = "border-box";
 }
 const DOCK_ICON = {
+    "game-fleet": `<path d="m12 3 6 17-6-4-6 4zM3 9l2 7M21 9l-2 7"/>`,
+    "game-navigation": `<circle cx="5" cy="6" r="2"/><circle cx="19" cy="8" r="2"/><circle cx="11" cy="19" r="2"/><path d="m7 6 10 2M6 8l4 9m3 0 5-7"/>`,
+    "game-activity": `<path d="M4 19V9l5 3V8l5 3V5h6v14zM8 16h1m4 0h1m3 0h1"/>`,
+    "game-planet": `<circle cx="12" cy="12" r="8"/><path d="m7 5 3 5-3 4 3 5m8-12-5 4 4 3"/>`,
+    "game-account": `<circle cx="12" cy="8" r="4"/><path d="M4 21v-2a8 8 0 0 1 16 0v2"/>`,
     "battle-tuning-panel": `<path d="M5 4l15 15M4 19L19 4M4 4l1 5 4-4M15 19l4-4 1 5M5 15l4 4M15 5l4 4"/>`,
     "controls-panel": `<circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/><circle cx="6.2" cy="8" r="1" fill="currentColor" stroke="none"/><circle cx="17.5" cy="7.2" r="1.1" fill="currentColor" stroke="none"/><circle cx="16.2" cy="16.4" r="1" fill="currentColor" stroke="none"/><path d="M8 15.5c1.2-3.2 3-5 6.2-5.6"/>`,
     "stats-panel": `<path d="M5 19V11M12 19V5M19 19v-6"/>`,
+    "map-layers-panel": `<path d="m3 8 9-5 9 5-9 5-9-5Zm0 5 9 5 9-5M3 18l9 5 9-5"/>`,
+    "cluster-survey-panel": `<path d="M7 3h10l5 9-5 9H7l-5-9Z"/><path d="M12 8v8M8 12h8"/>`,
     "system-planet-panel": `<circle cx="12" cy="12" r="4.2"/><ellipse cx="12" cy="12" rx="9" ry="3.2" transform="rotate(-24 12 12)"/>`,
     "ui-mode-switcher": `<path d="M4 7h16M4 12h16M4 17h16"/><circle cx="9" cy="7" r="2.1" fill="currentColor"/><circle cx="15" cy="12" r="2.1" fill="currentColor"/><circle cx="8" cy="17" r="2.1" fill="currentColor"/>`,
     "play-status": `<path d="M8 7h11M8 12h11M8 17h7"/><circle cx="4.5" cy="7" r="1" fill="currentColor" stroke="none"/><circle cx="4.5" cy="12" r="1" fill="currentColor" stroke="none"/><circle cx="4.5" cy="17" r="1" fill="currentColor" stroke="none"/>`,
@@ -407,6 +414,8 @@ export function installDockLayout(host, windows, pause, resetCamera) {
     let mobile = media.matches;
     const saved = readSaved();
     const live = windows.map((row) => {
+        if (!row.element.id)
+            row.element.id = row.id;
         const prior = saved?.windows?.[row.id];
         const anchor = prior && isAnchor(prior.anchor) ? prior.anchor : row.anchor;
         return { ...row, anchor, hidden: prior?.hidden ?? row.initiallyHidden ?? false };
@@ -431,9 +440,14 @@ export function installDockLayout(host, windows, pause, resetCamera) {
     };
     const persist = () => { if (!mobile)
         writeSaved(live, sidebarOpen); };
+    const raise = (active) => {
+        for (const row of live)
+            row.element.style.zIndex = row === active ? '6' : '';
+    };
     const onResize = () => layout();
     window.addEventListener("resize", onResize);
     for (const row of live) {
+        row.element.addEventListener('pointerdown', () => raise(row));
         const title = row.element.querySelector(".ui-panel-title") ?? row.element;
         title.addEventListener("pointerdown", (event) => {
             if (mobile || event.button !== 0)
@@ -538,6 +552,9 @@ export function installDockLayout(host, windows, pause, resetCamera) {
         button.type = "button";
         button.className = "dock-window-toggle";
         button.title = row.title;
+        button.setAttribute('aria-label', row.title);
+        button.dataset.dockTarget = row.id;
+        button.setAttribute('aria-controls', row.element.id);
         button.setAttribute("aria-pressed", row.hidden ? "false" : "true");
         const name = document.createElement("span");
         name.className = "dock-label";
@@ -548,6 +565,8 @@ export function installDockLayout(host, windows, pause, resetCamera) {
                 mobileOpen = mobileOpen === row.id ? null : row.id;
             else
                 row.hidden = !row.hidden;
+            if (!row.hidden || mobile)
+                raise(row);
             layout();
             persist();
         });
@@ -581,11 +600,30 @@ export function installDockLayout(host, windows, pause, resetCamera) {
             mobileOpen = id;
         else
             row.hidden = false;
+        raise(row);
         layout();
         persist();
     };
+    const hidePanel = (event) => {
+        const id = event.detail;
+        const row = live.find(row => row.id === id);
+        if (!row)
+            return;
+        row.hidden = true;
+        if (mobileOpen === id)
+            mobileOpen = null;
+        layout();
+        persist();
+        buttons.get(id)?.focus();
+    };
+    const closeMobilePanels = () => { if (mobile) {
+        mobileOpen = null;
+        layout();
+    } };
+    window.addEventListener('galaxy:close-mobile-panels', closeMobilePanels);
     media.addEventListener('change', applyMode);
     window.addEventListener('galaxy:show-panel', showPanel);
+    window.addEventListener('galaxy:hide-panel', hidePanel);
     applyMode();
     if (pause)
         paintSimPauseButtons(pause.paused());
@@ -596,11 +634,13 @@ export function installDockLayout(host, windows, pause, resetCamera) {
         window.removeEventListener("resize", onResize);
         media.removeEventListener('change', applyMode);
         window.removeEventListener('galaxy:show-panel', showPanel);
+        window.removeEventListener('galaxy:hide-panel', hidePanel);
+        window.removeEventListener('galaxy:close-mobile-panels', closeMobilePanels);
         document.documentElement.classList.remove('galaxy-mobile');
         unregisterPause?.();
         aside.remove();
     };
     activeDispose = dispose;
-    return dispose;
+    return Object.assign(dispose, { element: aside });
 }
 //# sourceMappingURL=dock-layout.js.map

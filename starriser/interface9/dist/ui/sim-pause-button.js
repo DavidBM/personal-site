@@ -1,3 +1,4 @@
+import { markTester } from './tester-badge.js';
 import { ensureMicroStyles, microButton } from './micro.js';
 import { bindText, setText } from './dom-bindings.js';
 const PAUSE_ICON = 'M8 5 V19 M16 5 V19';
@@ -27,6 +28,7 @@ export function registerSimPauseButton(button) {
             path.setAttribute('stroke', paused ? 'none' : 'currentColor');
         }
     };
+    markTester(button);
     bindings.add(paint);
     return () => { bindings.delete(paint); };
 }

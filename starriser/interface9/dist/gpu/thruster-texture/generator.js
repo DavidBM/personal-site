@@ -8,6 +8,11 @@
  *
  * Layers are additive in linear light, then exposure + gamma, then
  * alpha is derived from max channel so transparent-bg PNGs composite well.
+ *
+ * The nozzle column (u = 0) is at full strength — no fade-in — so a ribbon
+ * stretched over a long trail starts solid instead of with a dark gap. Top and
+ * bottom fade to a few fully transparent rows (`edgeFade`, `edgeClearPx`) so the
+ * ribbon's long edges never show.
  */
 import { defaultParams } from "./presets.js";
 export { defaultParams, presetOrangeJet, presetIonNeedle, presetSoftPlasma, paramsForPreset, PRESET_NAMES, } from "./presets.js";
@@ -61,8 +66,8 @@ function lengthEnvelope(uAlong, layer) {
         return 0;
     const decay = Math.exp(-layer.lengthDecay * local);
     const power = Math.pow(1 - local, Math.max(0, layer.lengthPower));
-    // Soft nozzle shoulder so the root is not a hard cut.
-    const shoulder = 1 - Math.exp(-12 * Math.max(0, local + 0.02));
+    // Layers starting at the nozzle are full strength there; a delayed layer rises softly.
+    const shoulder = layer.lengthOffset > 0 ? 1 - Math.exp(-12 * local) : 1;
     return decay * power * shoulder;
 }
 function sampleGlow(uAlong, rNorm, layer, out) {
@@ -145,6 +150,14 @@ function sampleNoiseMod(u, v, params) {
     // Keep base bright; noise modulates rather than punching black holes.
     return 1 + n.intensity * (filament * 2 - 1);
 }
+/** 0 on the `edgeClearPx` outer rows, rising smoothly over `edgeFade` of the half-height to 1. */
+function acrossEdge(v, params) {
+    const rows = Math.max(1, params.heightPx - 1);
+    const fromEdge = Math.min(v, 1 - v) * rows - Math.max(0, params.edgeClearPx);
+    const band = Math.max(1e-4, params.edgeFade) * rows * 0.5;
+    const t = clamp01(fromEdge / band);
+    return t * t * (3 - 2 * t);
+}
 /**
  * Sample linear RGB (unclamped before caller exposure) at UV in [0,1]².
  * Pure; no side effects.
@@ -168,10 +181,9 @@ export function sampleThrusterLinear(u, v, params) {
     acc.r *= mod;
     acc.g *= mod;
     acc.b *= mod;
-    // Mild edge feather so the atlas has soft transparent borders (ribbon-friendly).
-    const edgeV = 1 - Math.pow(Math.max(0, rNorm - 0.85) / 0.35, 2);
-    const edgeU = u < 0.01 ? u / 0.01 : u > 0.98 ? (1 - u) / 0.02 : 1;
-    const edge = Math.max(0, Math.min(1, edgeV)) * Math.max(0, Math.min(1, edgeU));
+    // Hard start at the nozzle; the tip and the long edges fade out.
+    const edgeU = u > 0.98 ? (1 - u) / 0.02 : 1;
+    const edge = acrossEdge(v, params) * Math.max(0, Math.min(1, edgeU));
     acc.r *= edge;
     acc.g *= edge;
     acc.b *= edge;

@@ -1,4 +1,5 @@
 import { SCENE_HULL_SIZE, SCENE_MODEL_SIZE_MUL } from './directed-present.wgsl.js';
+import { SCENE_SCALE_TAG_STEP } from '../../../lib/fleet-sim/gpu/model-ship-pose.wgsl.js';
 import { FLEET_MARKER } from './fleet-marker.js';
 const { stem, cellWidth, cellHeight, padding, glyphScale } = FLEET_MARKER;
 // 3×6 CSS-pixel glyphs with 1px strokes. I/F/B/R/S/C identify the six class tiles;
@@ -8,7 +9,7 @@ const glyphs = ['111101101101101111', '010110010010010111', '111001001111100111'
     '111101111101101111', '111101101111001111', '111010010010010111', '111100110100100100',
     '110101110101101110', '110101110101101101', '111100100111001111', '111100100100100111'];
 const common = /* wgsl */ `
-struct U { vp: mat4x4<f32>, viewport: vec4<f32>, selected: u32, hovered: u32, pad: vec2<u32> }
+struct U { vp: mat4x4<f32>, viewport: vec4<f32>, selected: u32, hovered: u32, pad: vec2<u32>, merged: vec4<u32> }
 @group(0) @binding(0) var<uniform> u: U;
 const corners = array<vec2<f32>, 6>(vec2<f32>(-1,-1),vec2<f32>(1,-1),vec2<f32>(1,1),vec2<f32>(-1,-1),vec2<f32>(1,1),vec2<f32>(-1,1));
 `;
@@ -32,7 +33,7 @@ fn sizeOf(slot: u32) -> vec2<f32> {
   out.clip=vec4<f32>(2,2,2,1); out.xy=vec2<f32>(0); out.slot=i; out.part=v/6u;
   let p=marks[i].pos;
   let base=u.vp*vec4<f32>(p.xyz,1);
-  if(p.w < 0.5 || base.w <= 0.0 || typeCount(i)==0u) { return out; }
+  if(p.w < 0.5 || base.w <= 0.0 || typeCount(i)==0u || i==u.pad.x || (u.merged[i/32u] & (1u<<(i%32u)))!=0u) { return out; }
   let size=sizeOf(i);
   let c=corners[v%6u];
   var offset=vec2<f32>(c.x*0.5, (c.y-1.0)*${stem / 2}.0);
@@ -90,7 +91,7 @@ struct V { @builtin(position) clip:vec4<f32>, @location(0) p:vec2<f32>, @locatio
   let clip=u.vp*vec4<f32>(s.p.xyz,1);
   if(clip.w<=0.0) { return out; }
   let p=corners[v];
-  let scale=f32(flags>>16u)*0.1;
+  let scale=f32(flags>>16u)*${SCENE_SCALE_TAG_STEP};
   let hullRadius=u.viewport.z*${SCENE_HULL_SIZE * SCENE_MODEL_SIZE_MUL}*scale*u.viewport.y/(2.0*clip.w);
   let radius=max(7.0,hullRadius+3.0);
   out.radius=radius;

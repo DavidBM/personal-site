@@ -1,9 +1,10 @@
 import { create } from '@bufbuild/protobuf';
 import * as w from '../generated/galaxy/v1/galaxy_pb.js';
+import { copyFleetComposition } from '../fleet-composition.js';
 // Own exact byte spans, even when the input is a Node Buffer or a view into a
 // large transport frame. Only typed view data is retained, never unknown fields.
 const bytes = (value) => new Uint8Array(value);
-const position = (value) => value && create(w.LocalPositionSchema, { x: value.x, z: value.z });
+const position = (value) => value && create(w.LocalPositionSchema, { x: value.x, y: value.y, z: value.z });
 const galaxyPosition = (value) => value && create(w.GalaxyPositionSchema, { x: value.x, z: value.z });
 export function copyObservation(value) {
     if (!value)
@@ -32,8 +33,9 @@ export function copyRow(value) {
         case 'galaxy.v1.OwnedFleetRow': return create(w.OwnedFleetRowSchema, { fleetId: bytes(value.fleetId), fleetRevision: value.fleetRevision, source: copyObservation(value.source), state: value.state, systemId: bytes(value.systemId), destinationSystemId: bytes(value.destinationSystemId), transferId: bytes(value.transferId), arrivalServerMs: value.arrivalServerMs, memberCount: value.memberCount, departureSystemId: bytes(value.departureSystemId) });
         case 'galaxy.v1.FleetProjection': {
             const m = value.movement;
-            return create(w.FleetProjectionSchema, { fleetId: bytes(value.fleetId), revision: value.revision, position: position(value.position), controllable: value.controllable, transferReadyServerMs: value.transferReadyServerMs,
-                movement: m && create(w.FleetMoveSchema, { from: position(m.from), to: position(m.to), departureServerMs: m.departureServerMs, arrivalServerMs: m.arrivalServerMs, orderId: bytes(m.orderId) }) });
+            const appearance = value.appearance && create(w.FleetAppearanceSchema, { totalShips: value.appearance.totalShips, hullCounts: [...value.appearance.hullCounts] });
+            return create(w.FleetProjectionSchema, { appearance, fleetId: bytes(value.fleetId), revision: value.revision, position: position(value.position), controllable: value.controllable, transferReadyServerMs: value.transferReadyServerMs, composition: copyFleetComposition(value.composition), orbit: bytes(value.orbit),
+                movement: m && create(w.FleetMoveSchema, { from: position(m.from), to: position(m.to), via: m.via.map(p => position(p)), departureServerMs: m.departureServerMs, arrivalServerMs: m.arrivalServerMs, orderId: bytes(m.orderId) }) });
         }
     }
 }

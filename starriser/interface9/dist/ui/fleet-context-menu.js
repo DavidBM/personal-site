@@ -34,8 +34,10 @@ export function createFleetContextMenu(parent, actions) {
     title.style.cssText += ';padding:3px 6px 5px;color:#83a4ba;font-size:10px';
     menu.append(title);
     let planet = null;
-    const orbit = button('Orbit planet', '→', () => { if (planet)
+    const orbit = button('Orbit planet', '→', () => { if (planet?.order)
         actions.orbit?.(planet.order); }, menu);
+    const develop = button('Planet development', '↗', () => { if (planet?.development)
+        actions.develop?.(planet.development); }, menu);
     menu.append(fleetActions);
     const select = button('Select fleet', '↖', () => { if (current)
         actions.select(current.id); });
@@ -91,12 +93,16 @@ export function createFleetContextMenu(parent, actions) {
     function populateTarget(target) {
         planet = 'kind' in target ? target : null;
         fleetActions.hidden = planet != null;
-        orbit.element.hidden = planet == null;
+        orbit.element.hidden = !planet?.order;
+        develop.element.hidden = planet == null;
         if (planet) {
             current = null;
             setText(titleText, planet.name);
-            title.title = planet.order.catalogId;
-            return orbit.element;
+            title.title = planet.catalogId;
+            develop.element.disabled = !planet.development;
+            develop.element.title = planet.developmentHint ?? '';
+            setText(develop.meta, planet.development ? '↗' : 'Unavailable');
+            return planet.development ? develop.element : planet.order ? orbit.element : develop.element;
         }
         const fleet = target;
         if (!fleet.types.length)

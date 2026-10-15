@@ -111,8 +111,8 @@ export function createFleetPathPacking(storage, getLookup, timeline, scene) {
         let posZ = 0;
         let jumping = false;
         if (state.state === "jumping") {
-            const start = lookup(state.startNode);
-            const end = lookup(state.endNode);
+            const start = state.startPosition ?? lookup(state.startNode);
+            const end = state.endPosition ?? lookup(state.endNode);
             if (!start || !end)
                 return null;
             pathStartX = start.x;

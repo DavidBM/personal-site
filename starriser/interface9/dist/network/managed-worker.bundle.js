@@ -1,4 +1,28 @@
-// node_modules/@bufbuild/protobuf/dist/esm/is-message.js
+// js/contracts/opaque-id.ts
+var hex = Array.from({ length: 256 }, (_, value) => value.toString(16).padStart(2, "0"));
+function isOpaqueId(value) {
+  return /^[0-9a-f]{32}$/.test(value) && value !== "00000000000000000000000000000000";
+}
+function opaqueIdAt(bytes2, offset = 0) {
+  if (!Number.isSafeInteger(offset) || offset < 0 || offset + 16 > bytes2.length) throw new Error("Invalid identity column");
+  let result = "";
+  let nonzero = 0;
+  for (let i = offset; i < offset + 16; i++) {
+    const value = bytes2[i];
+    result += hex[value];
+    nonzero |= value;
+  }
+  if (!nonzero) throw new Error("Zero identity is reserved");
+  return result;
+}
+function opaqueIdBytes(value) {
+  if (!isOpaqueId(value)) throw new Error("Invalid opaque identity");
+  const result = new Uint8Array(16);
+  for (let i = 0; i < 16; i++) result[i] = Number.parseInt(value.slice(i * 2, i * 2 + 2), 16);
+  return result;
+}
+
+// ../../../node_modules/@bufbuild/protobuf/dist/esm/is-message.js
 function isMessage(arg, schema) {
   const isMessage2 = arg !== null && typeof arg == "object" && "$typeName" in arg && typeof arg.$typeName == "string";
   if (!isMessage2) {
@@ -10,7 +34,7 @@ function isMessage(arg, schema) {
   return schema.typeName === arg.$typeName;
 }
 
-// node_modules/@bufbuild/protobuf/dist/esm/descriptors.js
+// ../../../node_modules/@bufbuild/protobuf/dist/esm/descriptors.js
 var ScalarType;
 (function(ScalarType2) {
   ScalarType2[ScalarType2["DOUBLE"] = 1] = "DOUBLE";
@@ -30,7 +54,7 @@ var ScalarType;
   ScalarType2[ScalarType2["SINT64"] = 18] = "SINT64";
 })(ScalarType || (ScalarType = {}));
 
-// node_modules/@bufbuild/protobuf/dist/esm/wire/varint.js
+// ../../../node_modules/@bufbuild/protobuf/dist/esm/wire/varint.js
 function varint64read() {
   const buf = this.buf;
   let pos = this.pos;
@@ -144,23 +168,23 @@ var decimalFrom1e7WithLeadingZeros = (digit1e7) => {
   const partial = String(digit1e7);
   return "0000000".slice(partial.length) + partial;
 };
-function varint32write(value, bytes3) {
+function varint32write(value, bytes2) {
   if (value >>> 0 < 128) {
-    bytes3.push(value);
+    bytes2.push(value);
     return;
   }
   if (value >= 0) {
     while (value > 127) {
-      bytes3.push(value & 127 | 128);
+      bytes2.push(value & 127 | 128);
       value = value >>> 7;
     }
-    bytes3.push(value);
+    bytes2.push(value);
   } else {
     for (let i = 0; i < 9; i++) {
-      bytes3.push(value & 127 | 128);
+      bytes2.push(value & 127 | 128);
       value = value >> 7;
     }
-    bytes3.push(1);
+    bytes2.push(1);
   }
 }
 function varint32read() {
@@ -198,7 +222,7 @@ function varint32read() {
   return result >>> 0;
 }
 
-// node_modules/@bufbuild/protobuf/dist/esm/proto-int64.js
+// ../../../node_modules/@bufbuild/protobuf/dist/esm/proto-int64.js
 var protoInt64 = /* @__PURE__ */ makeInt64Support();
 function makeInt64Support() {
   const dv = new DataView(new ArrayBuffer(8));
@@ -301,7 +325,7 @@ function assertUInt64String(value) {
   }
 }
 
-// node_modules/@bufbuild/protobuf/dist/esm/reflect/scalar.js
+// ../../../node_modules/@bufbuild/protobuf/dist/esm/reflect/scalar.js
 function scalarZeroValue(type, longAsString) {
   switch (type) {
     case ScalarType.STRING:
@@ -324,17 +348,17 @@ function scalarZeroValue(type, longAsString) {
   }
 }
 
-// node_modules/@bufbuild/protobuf/dist/esm/reflect/unsafe.js
+// ../../../node_modules/@bufbuild/protobuf/dist/esm/reflect/unsafe.js
 function unsafeIsSetExplicit(target, localName) {
   return Object.prototype.hasOwnProperty.call(target, localName) && target[localName] !== void 0;
 }
 
-// node_modules/@bufbuild/protobuf/dist/esm/reflect/guard.js
+// ../../../node_modules/@bufbuild/protobuf/dist/esm/reflect/guard.js
 function isObject(arg) {
   return arg !== null && typeof arg == "object" && !Array.isArray(arg);
 }
 
-// node_modules/@bufbuild/protobuf/dist/esm/wkt/wrappers.js
+// ../../../node_modules/@bufbuild/protobuf/dist/esm/wkt/wrappers.js
 function isWrapperDesc(messageDesc2) {
   const f = messageDesc2.fields[0];
   return isWrapperTypeName(messageDesc2.typeName) && f !== void 0 && f.fieldKind == "scalar" && f.name == "value" && f.number == 1;
@@ -354,7 +378,7 @@ function isWrapperTypeName(name) {
   return wrapperTypeNames.has(name);
 }
 
-// node_modules/@bufbuild/protobuf/dist/esm/create.js
+// ../../../node_modules/@bufbuild/protobuf/dist/esm/create.js
 var EDITION_PROTO3 = 999;
 var EDITION_PROTO2 = 998;
 var IMPLICIT = 2;
@@ -550,7 +574,7 @@ function createZeroValue(field) {
   return field.fieldKind == "scalar" ? scalarZeroValue(field.scalar, field.longAsString) : field.enum.values[0].number;
 }
 
-// node_modules/@bufbuild/protobuf/dist/esm/reflect/error.js
+// ../../../node_modules/@bufbuild/protobuf/dist/esm/reflect/error.js
 var FieldError = class extends Error {
   constructor(fieldOrOneof, message, name = "FieldValueInvalidError") {
     super(message);
@@ -559,7 +583,7 @@ var FieldError = class extends Error {
   }
 };
 
-// node_modules/@bufbuild/protobuf/dist/esm/wire/text-encoding.js
+// ../../../node_modules/@bufbuild/protobuf/dist/esm/wire/text-encoding.js
 var te;
 function configureTextEncoding(textEncoding) {
   var _a;
@@ -578,16 +602,16 @@ function getTextEncoding() {
       encodeUtf8(text) {
         return textEncoder.encode(text);
       },
-      decodeUtf8(bytes3, strict) {
+      decodeUtf8(bytes2, strict) {
         if (strict) {
           if (!textDecoderStrict) {
             textDecoderStrict = new globals.TextDecoder("utf-8", {
               fatal: true
             });
           }
-          return textDecoderStrict.decode(bytes3);
+          return textDecoderStrict.decode(bytes2);
         }
-        return textDecoder.decode(bytes3);
+        return textDecoder.decode(bytes2);
       },
       checkUtf8(text) {
         try {
@@ -613,13 +637,13 @@ function getTextEncoding() {
 }
 function emulateEncodeInto(encodeUtf8) {
   return (text, dest) => {
-    const bytes3 = encodeUtf8(text);
-    dest.set(bytes3);
-    return { written: bytes3.byteLength };
+    const bytes2 = encodeUtf8(text);
+    dest.set(bytes2);
+    return { written: bytes2.byteLength };
   };
 }
 
-// node_modules/@bufbuild/protobuf/dist/esm/wire/binary-encoding.js
+// ../../../node_modules/@bufbuild/protobuf/dist/esm/wire/binary-encoding.js
 var WireType;
 (function(WireType2) {
   WireType2[WireType2["Varint"] = 0] = "Varint";
@@ -659,11 +683,11 @@ var BinaryWriter = class {
    * was last used.
    */
   view() {
-    const bytes3 = this.buffer;
+    const bytes2 = this.buffer;
     const view = this.viewCache;
-    if (view.byteLength === bytes3.byteLength)
+    if (view.byteLength === bytes2.byteLength)
       return view;
-    const newView = new DataView(bytes3.buffer);
+    const newView = new DataView(bytes2.buffer);
     this.viewCache = newView;
     return newView;
   }
@@ -1144,20 +1168,20 @@ var BinaryReader = class {
    * `strict` is true, throw on invalid UTF-8 instead of substituting U+FFFD.
    */
   string(strict) {
-    const bytes3 = this.bytes();
-    const len = bytes3.length;
+    const bytes2 = this.bytes();
+    const len = bytes2.length;
     if (len <= ASCII_MAX_LENGTH) {
       const codes = new Array(len);
       for (let i = 0; i < len; i++) {
-        const byte = bytes3[i];
+        const byte = bytes2[i];
         if (byte > 127) {
-          return this.decodeUtf8(bytes3, strict);
+          return this.decodeUtf8(bytes2, strict);
         }
         codes[i] = byte;
       }
       return String.fromCharCode.apply(String, codes);
     }
-    return this.decodeUtf8(bytes3, strict);
+    return this.decodeUtf8(bytes2, strict);
   }
 };
 function assertInt32(arg) {
@@ -1192,7 +1216,7 @@ function assertFloat32(arg) {
     throw new Error("invalid float32: " + arg);
 }
 
-// node_modules/@bufbuild/protobuf/dist/esm/reflect/message.js
+// ../../../node_modules/@bufbuild/protobuf/dist/esm/reflect/message.js
 var NULL_VALUE = 0;
 function localMessageMapper(field) {
   if (usesJsonRepresentation(field)) {
@@ -1299,7 +1323,7 @@ function wktValueToReflect(json) {
   return value;
 }
 
-// node_modules/@bufbuild/protobuf/dist/esm/wire/base64-encoding.js
+// ../../../node_modules/@bufbuild/protobuf/dist/esm/wire/base64-encoding.js
 var nativeSetFromBase64 = Uint8Array.prototype.setFromBase64;
 function base64Decode(base64Str) {
   const len = base64Str.length;
@@ -1307,11 +1331,11 @@ function base64Decode(base64Str) {
   if ((len & 3) == 0 && base64Str[len - 1] == "=") {
     size -= base64Str[len - 2] == "=" ? 2 : 1;
   }
-  const bytes3 = new Uint8Array(size);
+  const bytes2 = new Uint8Array(size);
   let written = -1;
   if (nativeSetFromBase64) {
     try {
-      const result = nativeSetFromBase64.call(bytes3, base64Str);
+      const result = nativeSetFromBase64.call(bytes2, base64Str);
       if (result.read == len) {
         written = result.written;
       }
@@ -1319,11 +1343,11 @@ function base64Decode(base64Str) {
     }
   }
   if (written < 0) {
-    written = setFromBase64(bytes3, base64Str);
+    written = setFromBase64(bytes2, base64Str);
   }
-  return written == size ? bytes3 : bytes3.subarray(0, written);
+  return written == size ? bytes2 : bytes2.subarray(0, written);
 }
-function setFromBase64(bytes3, base64Str) {
+function setFromBase64(bytes2, base64Str) {
   const table = getDecodeTable();
   let bytePos = 0, groupPos = 0, b, p = 0;
   for (let i = 0; i < base64Str.length; i++) {
@@ -1350,17 +1374,17 @@ function setFromBase64(bytes3, base64Str) {
         groupPos = 1;
         break;
       case 1:
-        bytes3[bytePos++] = p << 2 | (b & 48) >> 4;
+        bytes2[bytePos++] = p << 2 | (b & 48) >> 4;
         p = b;
         groupPos = 2;
         break;
       case 2:
-        bytes3[bytePos++] = (p & 15) << 4 | (b & 60) >> 2;
+        bytes2[bytePos++] = (p & 15) << 4 | (b & 60) >> 2;
         p = b;
         groupPos = 3;
         break;
       case 3:
-        bytes3[bytePos++] = (p & 3) << 6 | b;
+        bytes2[bytePos++] = (p & 3) << 6 | b;
         groupPos = 0;
         break;
     }
@@ -1395,7 +1419,7 @@ function getDecodeTable() {
   return decodeTable;
 }
 
-// node_modules/@bufbuild/protobuf/dist/esm/reflect/names.js
+// ../../../node_modules/@bufbuild/protobuf/dist/esm/reflect/names.js
 function protoCamelCase(snakeCase) {
   let capNext = false;
   const b = [];
@@ -1440,7 +1464,7 @@ function safeObjectProperty(name) {
   return reservedObjectProperties.has(name) ? name + "$" : name;
 }
 
-// node_modules/@bufbuild/protobuf/dist/esm/codegenv2/restore-json-names.js
+// ../../../node_modules/@bufbuild/protobuf/dist/esm/codegenv2/restore-json-names.js
 function restoreJsonNames(message) {
   for (const f of message.field) {
     if (!unsafeIsSetExplicit(f, "jsonName")) {
@@ -1450,7 +1474,7 @@ function restoreJsonNames(message) {
   message.nestedType.forEach(restoreJsonNames);
 }
 
-// node_modules/@bufbuild/protobuf/dist/esm/wire/text-format.js
+// ../../../node_modules/@bufbuild/protobuf/dist/esm/wire/text-format.js
 function parseTextFormatEnumValue(descEnum, value) {
   const enumValue = descEnum.values.find((v) => v.name === value);
   if (!enumValue) {
@@ -1619,7 +1643,7 @@ function unescapeBytesDefaultValue(str) {
   return new Uint8Array(b);
 }
 
-// node_modules/@bufbuild/protobuf/dist/esm/reflect/nested-types.js
+// ../../../node_modules/@bufbuild/protobuf/dist/esm/reflect/nested-types.js
 function* nestedTypes(desc) {
   switch (desc.kind) {
     case "file":
@@ -1642,7 +1666,7 @@ function* nestedTypes(desc) {
   }
 }
 
-// node_modules/@bufbuild/protobuf/dist/esm/registry.js
+// ../../../node_modules/@bufbuild/protobuf/dist/esm/registry.js
 function createFileRegistry(...args) {
   const registry = createBaseRegistry();
   if (!args.length) {
@@ -2385,7 +2409,7 @@ function assert(condition, msg) {
   }
 }
 
-// node_modules/@bufbuild/protobuf/dist/esm/codegenv2/boot.js
+// ../../../node_modules/@bufbuild/protobuf/dist/esm/codegenv2/boot.js
 function boot(boot2) {
   const root = bootFileDescriptorProto(boot2);
   root.messageType.forEach(restoreJsonNames);
@@ -2457,12 +2481,12 @@ function bootEnumDescriptorProto(init) {
   });
 }
 
-// node_modules/@bufbuild/protobuf/dist/esm/codegenv2/message.js
+// ../../../node_modules/@bufbuild/protobuf/dist/esm/codegenv2/message.js
 function messageDesc(file, path, ...paths) {
   return paths.reduce((acc, cur) => acc.nestedMessages[cur], file.messages[path]);
 }
 
-// node_modules/@bufbuild/protobuf/dist/esm/wkt/gen/google/protobuf/descriptor_pb.js
+// ../../../node_modules/@bufbuild/protobuf/dist/esm/wkt/gen/google/protobuf/descriptor_pb.js
 var file_google_protobuf_descriptor = /* @__PURE__ */ boot({ "name": "google/protobuf/descriptor.proto", "package": "google.protobuf", "messageType": [{ "name": "FileDescriptorSet", "field": [{ "name": "file", "number": 1, "type": 11, "label": 3, "typeName": ".google.protobuf.FileDescriptorProto" }], "extensionRange": [{ "start": 536e6, "end": 536000001 }] }, { "name": "FileDescriptorProto", "field": [{ "name": "name", "number": 1, "type": 9, "label": 1 }, { "name": "package", "number": 2, "type": 9, "label": 1 }, { "name": "dependency", "number": 3, "type": 9, "label": 3 }, { "name": "public_dependency", "number": 10, "type": 5, "label": 3 }, { "name": "weak_dependency", "number": 11, "type": 5, "label": 3 }, { "name": "option_dependency", "number": 15, "type": 9, "label": 3 }, { "name": "message_type", "number": 4, "type": 11, "label": 3, "typeName": ".google.protobuf.DescriptorProto" }, { "name": "enum_type", "number": 5, "type": 11, "label": 3, "typeName": ".google.protobuf.EnumDescriptorProto" }, { "name": "service", "number": 6, "type": 11, "label": 3, "typeName": ".google.protobuf.ServiceDescriptorProto" }, { "name": "extension", "number": 7, "type": 11, "label": 3, "typeName": ".google.protobuf.FieldDescriptorProto" }, { "name": "options", "number": 8, "type": 11, "label": 1, "typeName": ".google.protobuf.FileOptions" }, { "name": "source_code_info", "number": 9, "type": 11, "label": 1, "typeName": ".google.protobuf.SourceCodeInfo" }, { "name": "syntax", "number": 12, "type": 9, "label": 1 }, { "name": "edition", "number": 14, "type": 14, "label": 1, "typeName": ".google.protobuf.Edition" }] }, { "name": "DescriptorProto", "field": [{ "name": "name", "number": 1, "type": 9, "label": 1 }, { "name": "field", "number": 2, "type": 11, "label": 3, "typeName": ".google.protobuf.FieldDescriptorProto" }, { "name": "extension", "number": 6, "type": 11, "label": 3, "typeName": ".google.protobuf.FieldDescriptorProto" }, { "name": "nested_type", "number": 3, "type": 11, "label": 3, "typeName": ".google.protobuf.DescriptorProto" }, { "name": "enum_type", "number": 4, "type": 11, "label": 3, "typeName": ".google.protobuf.EnumDescriptorProto" }, { "name": "extension_range", "number": 5, "type": 11, "label": 3, "typeName": ".google.protobuf.DescriptorProto.ExtensionRange" }, { "name": "oneof_decl", "number": 8, "type": 11, "label": 3, "typeName": ".google.protobuf.OneofDescriptorProto" }, { "name": "options", "number": 7, "type": 11, "label": 1, "typeName": ".google.protobuf.MessageOptions" }, { "name": "reserved_range", "number": 9, "type": 11, "label": 3, "typeName": ".google.protobuf.DescriptorProto.ReservedRange" }, { "name": "reserved_name", "number": 10, "type": 9, "label": 3 }, { "name": "visibility", "number": 11, "type": 14, "label": 1, "typeName": ".google.protobuf.SymbolVisibility" }], "nestedType": [{ "name": "ExtensionRange", "field": [{ "name": "start", "number": 1, "type": 5, "label": 1 }, { "name": "end", "number": 2, "type": 5, "label": 1 }, { "name": "options", "number": 3, "type": 11, "label": 1, "typeName": ".google.protobuf.ExtensionRangeOptions" }] }, { "name": "ReservedRange", "field": [{ "name": "start", "number": 1, "type": 5, "label": 1 }, { "name": "end", "number": 2, "type": 5, "label": 1 }] }] }, { "name": "ExtensionRangeOptions", "field": [{ "name": "uninterpreted_option", "number": 999, "type": 11, "label": 3, "typeName": ".google.protobuf.UninterpretedOption" }, { "name": "declaration", "number": 2, "type": 11, "label": 3, "typeName": ".google.protobuf.ExtensionRangeOptions.Declaration", "options": { "retention": 2 } }, { "name": "features", "number": 50, "type": 11, "label": 1, "typeName": ".google.protobuf.FeatureSet" }, { "name": "verification", "number": 3, "type": 14, "label": 1, "typeName": ".google.protobuf.ExtensionRangeOptions.VerificationState", "defaultValue": "UNVERIFIED", "options": { "retention": 2 } }], "nestedType": [{ "name": "Declaration", "field": [{ "name": "number", "number": 1, "type": 5, "label": 1 }, { "name": "full_name", "number": 2, "type": 9, "label": 1 }, { "name": "type", "number": 3, "type": 9, "label": 1 }, { "name": "reserved", "number": 5, "type": 8, "label": 1 }, { "name": "repeated", "number": 6, "type": 8, "label": 1 }] }], "enumType": [{ "name": "VerificationState", "value": [{ "name": "DECLARATION", "number": 0 }, { "name": "UNVERIFIED", "number": 1 }] }], "extensionRange": [{ "start": 1e3, "end": 536870912 }] }, { "name": "FieldDescriptorProto", "field": [{ "name": "name", "number": 1, "type": 9, "label": 1 }, { "name": "number", "number": 3, "type": 5, "label": 1 }, { "name": "label", "number": 4, "type": 14, "label": 1, "typeName": ".google.protobuf.FieldDescriptorProto.Label" }, { "name": "type", "number": 5, "type": 14, "label": 1, "typeName": ".google.protobuf.FieldDescriptorProto.Type" }, { "name": "type_name", "number": 6, "type": 9, "label": 1 }, { "name": "extendee", "number": 2, "type": 9, "label": 1 }, { "name": "default_value", "number": 7, "type": 9, "label": 1 }, { "name": "oneof_index", "number": 9, "type": 5, "label": 1 }, { "name": "json_name", "number": 10, "type": 9, "label": 1 }, { "name": "options", "number": 8, "type": 11, "label": 1, "typeName": ".google.protobuf.FieldOptions" }, { "name": "proto3_optional", "number": 17, "type": 8, "label": 1 }], "enumType": [{ "name": "Type", "value": [{ "name": "TYPE_DOUBLE", "number": 1 }, { "name": "TYPE_FLOAT", "number": 2 }, { "name": "TYPE_INT64", "number": 3 }, { "name": "TYPE_UINT64", "number": 4 }, { "name": "TYPE_INT32", "number": 5 }, { "name": "TYPE_FIXED64", "number": 6 }, { "name": "TYPE_FIXED32", "number": 7 }, { "name": "TYPE_BOOL", "number": 8 }, { "name": "TYPE_STRING", "number": 9 }, { "name": "TYPE_GROUP", "number": 10 }, { "name": "TYPE_MESSAGE", "number": 11 }, { "name": "TYPE_BYTES", "number": 12 }, { "name": "TYPE_UINT32", "number": 13 }, { "name": "TYPE_ENUM", "number": 14 }, { "name": "TYPE_SFIXED32", "number": 15 }, { "name": "TYPE_SFIXED64", "number": 16 }, { "name": "TYPE_SINT32", "number": 17 }, { "name": "TYPE_SINT64", "number": 18 }] }, { "name": "Label", "value": [{ "name": "LABEL_OPTIONAL", "number": 1 }, { "name": "LABEL_REPEATED", "number": 3 }, { "name": "LABEL_REQUIRED", "number": 2 }] }] }, { "name": "OneofDescriptorProto", "field": [{ "name": "name", "number": 1, "type": 9, "label": 1 }, { "name": "options", "number": 2, "type": 11, "label": 1, "typeName": ".google.protobuf.OneofOptions" }] }, { "name": "EnumDescriptorProto", "field": [{ "name": "name", "number": 1, "type": 9, "label": 1 }, { "name": "value", "number": 2, "type": 11, "label": 3, "typeName": ".google.protobuf.EnumValueDescriptorProto" }, { "name": "options", "number": 3, "type": 11, "label": 1, "typeName": ".google.protobuf.EnumOptions" }, { "name": "reserved_range", "number": 4, "type": 11, "label": 3, "typeName": ".google.protobuf.EnumDescriptorProto.EnumReservedRange" }, { "name": "reserved_name", "number": 5, "type": 9, "label": 3 }, { "name": "visibility", "number": 6, "type": 14, "label": 1, "typeName": ".google.protobuf.SymbolVisibility" }], "nestedType": [{ "name": "EnumReservedRange", "field": [{ "name": "start", "number": 1, "type": 5, "label": 1 }, { "name": "end", "number": 2, "type": 5, "label": 1 }] }] }, { "name": "EnumValueDescriptorProto", "field": [{ "name": "name", "number": 1, "type": 9, "label": 1 }, { "name": "number", "number": 2, "type": 5, "label": 1 }, { "name": "options", "number": 3, "type": 11, "label": 1, "typeName": ".google.protobuf.EnumValueOptions" }] }, { "name": "ServiceDescriptorProto", "field": [{ "name": "name", "number": 1, "type": 9, "label": 1 }, { "name": "method", "number": 2, "type": 11, "label": 3, "typeName": ".google.protobuf.MethodDescriptorProto" }, { "name": "options", "number": 3, "type": 11, "label": 1, "typeName": ".google.protobuf.ServiceOptions" }] }, { "name": "MethodDescriptorProto", "field": [{ "name": "name", "number": 1, "type": 9, "label": 1 }, { "name": "input_type", "number": 2, "type": 9, "label": 1 }, { "name": "output_type", "number": 3, "type": 9, "label": 1 }, { "name": "options", "number": 4, "type": 11, "label": 1, "typeName": ".google.protobuf.MethodOptions" }, { "name": "client_streaming", "number": 5, "type": 8, "label": 1, "defaultValue": "false" }, { "name": "server_streaming", "number": 6, "type": 8, "label": 1, "defaultValue": "false" }] }, { "name": "FileOptions", "field": [{ "name": "java_package", "number": 1, "type": 9, "label": 1 }, { "name": "java_outer_classname", "number": 8, "type": 9, "label": 1 }, { "name": "java_multiple_files", "number": 10, "type": 8, "label": 1, "defaultValue": "false", "options": {} }, { "name": "java_generate_equals_and_hash", "number": 20, "type": 8, "label": 1, "options": { "deprecated": true } }, { "name": "java_string_check_utf8", "number": 27, "type": 8, "label": 1, "defaultValue": "false" }, { "name": "optimize_for", "number": 9, "type": 14, "label": 1, "typeName": ".google.protobuf.FileOptions.OptimizeMode", "defaultValue": "SPEED" }, { "name": "go_package", "number": 11, "type": 9, "label": 1 }, { "name": "cc_generic_services", "number": 16, "type": 8, "label": 1, "defaultValue": "false" }, { "name": "java_generic_services", "number": 17, "type": 8, "label": 1, "defaultValue": "false" }, { "name": "py_generic_services", "number": 18, "type": 8, "label": 1, "defaultValue": "false" }, { "name": "deprecated", "number": 23, "type": 8, "label": 1, "defaultValue": "false" }, { "name": "cc_enable_arenas", "number": 31, "type": 8, "label": 1, "defaultValue": "true" }, { "name": "objc_class_prefix", "number": 36, "type": 9, "label": 1 }, { "name": "csharp_namespace", "number": 37, "type": 9, "label": 1 }, { "name": "swift_prefix", "number": 39, "type": 9, "label": 1 }, { "name": "php_class_prefix", "number": 40, "type": 9, "label": 1 }, { "name": "php_namespace", "number": 41, "type": 9, "label": 1 }, { "name": "php_metadata_namespace", "number": 44, "type": 9, "label": 1 }, { "name": "ruby_package", "number": 45, "type": 9, "label": 1 }, { "name": "features", "number": 50, "type": 11, "label": 1, "typeName": ".google.protobuf.FeatureSet" }, { "name": "uninterpreted_option", "number": 999, "type": 11, "label": 3, "typeName": ".google.protobuf.UninterpretedOption" }], "enumType": [{ "name": "OptimizeMode", "value": [{ "name": "SPEED", "number": 1 }, { "name": "CODE_SIZE", "number": 2 }, { "name": "LITE_RUNTIME", "number": 3 }] }], "extensionRange": [{ "start": 1e3, "end": 536870912 }] }, { "name": "MessageOptions", "field": [{ "name": "message_set_wire_format", "number": 1, "type": 8, "label": 1, "defaultValue": "false" }, { "name": "no_standard_descriptor_accessor", "number": 2, "type": 8, "label": 1, "defaultValue": "false" }, { "name": "deprecated", "number": 3, "type": 8, "label": 1, "defaultValue": "false" }, { "name": "map_entry", "number": 7, "type": 8, "label": 1 }, { "name": "deprecated_legacy_json_field_conflicts", "number": 11, "type": 8, "label": 1, "options": { "deprecated": true } }, { "name": "features", "number": 12, "type": 11, "label": 1, "typeName": ".google.protobuf.FeatureSet" }, { "name": "uninterpreted_option", "number": 999, "type": 11, "label": 3, "typeName": ".google.protobuf.UninterpretedOption" }], "extensionRange": [{ "start": 1e3, "end": 536870912 }] }, { "name": "FieldOptions", "field": [{ "name": "ctype", "number": 1, "type": 14, "label": 1, "typeName": ".google.protobuf.FieldOptions.CType", "defaultValue": "STRING" }, { "name": "packed", "number": 2, "type": 8, "label": 1 }, { "name": "jstype", "number": 6, "type": 14, "label": 1, "typeName": ".google.protobuf.FieldOptions.JSType", "defaultValue": "JS_NORMAL" }, { "name": "lazy", "number": 5, "type": 8, "label": 1, "defaultValue": "false" }, { "name": "unverified_lazy", "number": 15, "type": 8, "label": 1, "defaultValue": "false" }, { "name": "deprecated", "number": 3, "type": 8, "label": 1, "defaultValue": "false" }, { "name": "weak", "number": 10, "type": 8, "label": 1, "defaultValue": "false", "options": { "deprecated": true } }, { "name": "debug_redact", "number": 16, "type": 8, "label": 1, "defaultValue": "false" }, { "name": "retention", "number": 17, "type": 14, "label": 1, "typeName": ".google.protobuf.FieldOptions.OptionRetention" }, { "name": "targets", "number": 19, "type": 14, "label": 3, "typeName": ".google.protobuf.FieldOptions.OptionTargetType" }, { "name": "edition_defaults", "number": 20, "type": 11, "label": 3, "typeName": ".google.protobuf.FieldOptions.EditionDefault" }, { "name": "features", "number": 21, "type": 11, "label": 1, "typeName": ".google.protobuf.FeatureSet" }, { "name": "feature_support", "number": 22, "type": 11, "label": 1, "typeName": ".google.protobuf.FieldOptions.FeatureSupport" }, { "name": "uninterpreted_option", "number": 999, "type": 11, "label": 3, "typeName": ".google.protobuf.UninterpretedOption" }], "nestedType": [{ "name": "EditionDefault", "field": [{ "name": "edition", "number": 3, "type": 14, "label": 1, "typeName": ".google.protobuf.Edition" }, { "name": "value", "number": 2, "type": 9, "label": 1 }] }, { "name": "FeatureSupport", "field": [{ "name": "edition_introduced", "number": 1, "type": 14, "label": 1, "typeName": ".google.protobuf.Edition" }, { "name": "edition_deprecated", "number": 2, "type": 14, "label": 1, "typeName": ".google.protobuf.Edition" }, { "name": "deprecation_warning", "number": 3, "type": 9, "label": 1 }, { "name": "edition_removed", "number": 4, "type": 14, "label": 1, "typeName": ".google.protobuf.Edition" }, { "name": "removal_error", "number": 5, "type": 9, "label": 1 }] }], "enumType": [{ "name": "CType", "value": [{ "name": "STRING", "number": 0 }, { "name": "CORD", "number": 1 }, { "name": "STRING_PIECE", "number": 2 }] }, { "name": "JSType", "value": [{ "name": "JS_NORMAL", "number": 0 }, { "name": "JS_STRING", "number": 1 }, { "name": "JS_NUMBER", "number": 2 }] }, { "name": "OptionRetention", "value": [{ "name": "RETENTION_UNKNOWN", "number": 0 }, { "name": "RETENTION_RUNTIME", "number": 1 }, { "name": "RETENTION_SOURCE", "number": 2 }] }, { "name": "OptionTargetType", "value": [{ "name": "TARGET_TYPE_UNKNOWN", "number": 0 }, { "name": "TARGET_TYPE_FILE", "number": 1 }, { "name": "TARGET_TYPE_EXTENSION_RANGE", "number": 2 }, { "name": "TARGET_TYPE_MESSAGE", "number": 3 }, { "name": "TARGET_TYPE_FIELD", "number": 4 }, { "name": "TARGET_TYPE_ONEOF", "number": 5 }, { "name": "TARGET_TYPE_ENUM", "number": 6 }, { "name": "TARGET_TYPE_ENUM_ENTRY", "number": 7 }, { "name": "TARGET_TYPE_SERVICE", "number": 8 }, { "name": "TARGET_TYPE_METHOD", "number": 9 }] }], "extensionRange": [{ "start": 1e3, "end": 536870912 }] }, { "name": "OneofOptions", "field": [{ "name": "features", "number": 1, "type": 11, "label": 1, "typeName": ".google.protobuf.FeatureSet" }, { "name": "uninterpreted_option", "number": 999, "type": 11, "label": 3, "typeName": ".google.protobuf.UninterpretedOption" }], "extensionRange": [{ "start": 1e3, "end": 536870912 }] }, { "name": "EnumOptions", "field": [{ "name": "allow_alias", "number": 2, "type": 8, "label": 1 }, { "name": "deprecated", "number": 3, "type": 8, "label": 1, "defaultValue": "false" }, { "name": "deprecated_legacy_json_field_conflicts", "number": 6, "type": 8, "label": 1, "options": { "deprecated": true } }, { "name": "features", "number": 7, "type": 11, "label": 1, "typeName": ".google.protobuf.FeatureSet" }, { "name": "uninterpreted_option", "number": 999, "type": 11, "label": 3, "typeName": ".google.protobuf.UninterpretedOption" }], "extensionRange": [{ "start": 1e3, "end": 536870912 }] }, { "name": "EnumValueOptions", "field": [{ "name": "deprecated", "number": 1, "type": 8, "label": 1, "defaultValue": "false" }, { "name": "features", "number": 2, "type": 11, "label": 1, "typeName": ".google.protobuf.FeatureSet" }, { "name": "debug_redact", "number": 3, "type": 8, "label": 1, "defaultValue": "false" }, { "name": "feature_support", "number": 4, "type": 11, "label": 1, "typeName": ".google.protobuf.FieldOptions.FeatureSupport" }, { "name": "uninterpreted_option", "number": 999, "type": 11, "label": 3, "typeName": ".google.protobuf.UninterpretedOption" }], "extensionRange": [{ "start": 1e3, "end": 536870912 }] }, { "name": "ServiceOptions", "field": [{ "name": "features", "number": 34, "type": 11, "label": 1, "typeName": ".google.protobuf.FeatureSet" }, { "name": "deprecated", "number": 33, "type": 8, "label": 1, "defaultValue": "false" }, { "name": "uninterpreted_option", "number": 999, "type": 11, "label": 3, "typeName": ".google.protobuf.UninterpretedOption" }], "extensionRange": [{ "start": 1e3, "end": 536870912 }] }, { "name": "MethodOptions", "field": [{ "name": "deprecated", "number": 33, "type": 8, "label": 1, "defaultValue": "false" }, { "name": "idempotency_level", "number": 34, "type": 14, "label": 1, "typeName": ".google.protobuf.MethodOptions.IdempotencyLevel", "defaultValue": "IDEMPOTENCY_UNKNOWN" }, { "name": "features", "number": 35, "type": 11, "label": 1, "typeName": ".google.protobuf.FeatureSet" }, { "name": "uninterpreted_option", "number": 999, "type": 11, "label": 3, "typeName": ".google.protobuf.UninterpretedOption" }], "enumType": [{ "name": "IdempotencyLevel", "value": [{ "name": "IDEMPOTENCY_UNKNOWN", "number": 0 }, { "name": "NO_SIDE_EFFECTS", "number": 1 }, { "name": "IDEMPOTENT", "number": 2 }] }], "extensionRange": [{ "start": 1e3, "end": 536870912 }] }, { "name": "UninterpretedOption", "field": [{ "name": "name", "number": 2, "type": 11, "label": 3, "typeName": ".google.protobuf.UninterpretedOption.NamePart" }, { "name": "identifier_value", "number": 3, "type": 9, "label": 1 }, { "name": "positive_int_value", "number": 4, "type": 4, "label": 1 }, { "name": "negative_int_value", "number": 5, "type": 3, "label": 1 }, { "name": "double_value", "number": 6, "type": 1, "label": 1 }, { "name": "string_value", "number": 7, "type": 12, "label": 1 }, { "name": "aggregate_value", "number": 8, "type": 9, "label": 1 }], "nestedType": [{ "name": "NamePart", "field": [{ "name": "name_part", "number": 1, "type": 9, "label": 2 }, { "name": "is_extension", "number": 2, "type": 8, "label": 2 }] }] }, { "name": "FeatureSet", "field": [{ "name": "field_presence", "number": 1, "type": 14, "label": 1, "typeName": ".google.protobuf.FeatureSet.FieldPresence", "options": { "retention": 1, "targets": [4, 1], "editionDefaults": [{ "value": "EXPLICIT", "edition": 900 }, { "value": "IMPLICIT", "edition": 999 }, { "value": "EXPLICIT", "edition": 1e3 }] } }, { "name": "enum_type", "number": 2, "type": 14, "label": 1, "typeName": ".google.protobuf.FeatureSet.EnumType", "options": { "retention": 1, "targets": [6, 1], "editionDefaults": [{ "value": "CLOSED", "edition": 900 }, { "value": "OPEN", "edition": 999 }] } }, { "name": "repeated_field_encoding", "number": 3, "type": 14, "label": 1, "typeName": ".google.protobuf.FeatureSet.RepeatedFieldEncoding", "options": { "retention": 1, "targets": [4, 1], "editionDefaults": [{ "value": "EXPANDED", "edition": 900 }, { "value": "PACKED", "edition": 999 }] } }, { "name": "utf8_validation", "number": 4, "type": 14, "label": 1, "typeName": ".google.protobuf.FeatureSet.Utf8Validation", "options": { "retention": 1, "targets": [4, 1], "editionDefaults": [{ "value": "NONE", "edition": 900 }, { "value": "VERIFY", "edition": 999 }] } }, { "name": "message_encoding", "number": 5, "type": 14, "label": 1, "typeName": ".google.protobuf.FeatureSet.MessageEncoding", "options": { "retention": 1, "targets": [4, 1], "editionDefaults": [{ "value": "LENGTH_PREFIXED", "edition": 900 }] } }, { "name": "json_format", "number": 6, "type": 14, "label": 1, "typeName": ".google.protobuf.FeatureSet.JsonFormat", "options": { "retention": 1, "targets": [3, 6, 1], "editionDefaults": [{ "value": "LEGACY_BEST_EFFORT", "edition": 900 }, { "value": "ALLOW", "edition": 999 }] } }, { "name": "enforce_naming_style", "number": 7, "type": 14, "label": 1, "typeName": ".google.protobuf.FeatureSet.EnforceNamingStyle", "options": { "retention": 2, "targets": [1, 2, 3, 4, 5, 6, 7, 8, 9], "editionDefaults": [{ "value": "STYLE_LEGACY", "edition": 900 }, { "value": "STYLE2024", "edition": 1001 }] } }, { "name": "default_symbol_visibility", "number": 8, "type": 14, "label": 1, "typeName": ".google.protobuf.FeatureSet.VisibilityFeature.DefaultSymbolVisibility", "options": { "retention": 2, "targets": [1], "editionDefaults": [{ "value": "EXPORT_ALL", "edition": 900 }, { "value": "EXPORT_TOP_LEVEL", "edition": 1001 }] } }], "nestedType": [{ "name": "VisibilityFeature", "enumType": [{ "name": "DefaultSymbolVisibility", "value": [{ "name": "DEFAULT_SYMBOL_VISIBILITY_UNKNOWN", "number": 0 }, { "name": "EXPORT_ALL", "number": 1 }, { "name": "EXPORT_TOP_LEVEL", "number": 2 }, { "name": "LOCAL_ALL", "number": 3 }, { "name": "STRICT", "number": 4 }] }] }], "enumType": [{ "name": "FieldPresence", "value": [{ "name": "FIELD_PRESENCE_UNKNOWN", "number": 0 }, { "name": "EXPLICIT", "number": 1 }, { "name": "IMPLICIT", "number": 2 }, { "name": "LEGACY_REQUIRED", "number": 3 }] }, { "name": "EnumType", "value": [{ "name": "ENUM_TYPE_UNKNOWN", "number": 0 }, { "name": "OPEN", "number": 1 }, { "name": "CLOSED", "number": 2 }] }, { "name": "RepeatedFieldEncoding", "value": [{ "name": "REPEATED_FIELD_ENCODING_UNKNOWN", "number": 0 }, { "name": "PACKED", "number": 1 }, { "name": "EXPANDED", "number": 2 }] }, { "name": "Utf8Validation", "value": [{ "name": "UTF8_VALIDATION_UNKNOWN", "number": 0 }, { "name": "VERIFY", "number": 2 }, { "name": "NONE", "number": 3 }] }, { "name": "MessageEncoding", "value": [{ "name": "MESSAGE_ENCODING_UNKNOWN", "number": 0 }, { "name": "LENGTH_PREFIXED", "number": 1 }, { "name": "DELIMITED", "number": 2 }] }, { "name": "JsonFormat", "value": [{ "name": "JSON_FORMAT_UNKNOWN", "number": 0 }, { "name": "ALLOW", "number": 1 }, { "name": "LEGACY_BEST_EFFORT", "number": 2 }] }, { "name": "EnforceNamingStyle", "value": [{ "name": "ENFORCE_NAMING_STYLE_UNKNOWN", "number": 0 }, { "name": "STYLE2024", "number": 1 }, { "name": "STYLE_LEGACY", "number": 2 }] }], "extensionRange": [{ "start": 1e3, "end": 9995 }, { "start": 9995, "end": 1e4 }, { "start": 1e4, "end": 10001 }] }, { "name": "FeatureSetDefaults", "field": [{ "name": "defaults", "number": 1, "type": 11, "label": 3, "typeName": ".google.protobuf.FeatureSetDefaults.FeatureSetEditionDefault" }, { "name": "minimum_edition", "number": 4, "type": 14, "label": 1, "typeName": ".google.protobuf.Edition" }, { "name": "maximum_edition", "number": 5, "type": 14, "label": 1, "typeName": ".google.protobuf.Edition" }], "nestedType": [{ "name": "FeatureSetEditionDefault", "field": [{ "name": "edition", "number": 3, "type": 14, "label": 1, "typeName": ".google.protobuf.Edition" }, { "name": "overridable_features", "number": 4, "type": 11, "label": 1, "typeName": ".google.protobuf.FeatureSet" }, { "name": "fixed_features", "number": 5, "type": 11, "label": 1, "typeName": ".google.protobuf.FeatureSet" }] }] }, { "name": "SourceCodeInfo", "field": [{ "name": "location", "number": 1, "type": 11, "label": 3, "typeName": ".google.protobuf.SourceCodeInfo.Location" }], "nestedType": [{ "name": "Location", "field": [{ "name": "path", "number": 1, "type": 5, "label": 3, "options": { "packed": true } }, { "name": "span", "number": 2, "type": 5, "label": 3, "options": { "packed": true } }, { "name": "leading_comments", "number": 3, "type": 9, "label": 1 }, { "name": "trailing_comments", "number": 4, "type": 9, "label": 1 }, { "name": "leading_detached_comments", "number": 6, "type": 9, "label": 3 }] }], "extensionRange": [{ "start": 536e6, "end": 536000001 }] }, { "name": "GeneratedCodeInfo", "field": [{ "name": "annotation", "number": 1, "type": 11, "label": 3, "typeName": ".google.protobuf.GeneratedCodeInfo.Annotation" }], "nestedType": [{ "name": "Annotation", "field": [{ "name": "path", "number": 1, "type": 5, "label": 3, "options": { "packed": true } }, { "name": "source_file", "number": 2, "type": 9, "label": 1 }, { "name": "begin", "number": 3, "type": 5, "label": 1 }, { "name": "end", "number": 4, "type": 5, "label": 1 }, { "name": "semantic", "number": 5, "type": 14, "label": 1, "typeName": ".google.protobuf.GeneratedCodeInfo.Annotation.Semantic" }], "enumType": [{ "name": "Semantic", "value": [{ "name": "NONE", "number": 0 }, { "name": "SET", "number": 1 }, { "name": "ALIAS", "number": 2 }] }] }] }], "enumType": [{ "name": "Edition", "value": [{ "name": "EDITION_UNKNOWN", "number": 0 }, { "name": "EDITION_LEGACY", "number": 900 }, { "name": "EDITION_PROTO2", "number": 998 }, { "name": "EDITION_PROTO3", "number": 999 }, { "name": "EDITION_2023", "number": 1e3 }, { "name": "EDITION_2024", "number": 1001 }, { "name": "EDITION_UNSTABLE", "number": 9999 }, { "name": "EDITION_1_TEST_ONLY", "number": 1 }, { "name": "EDITION_2_TEST_ONLY", "number": 2 }, { "name": "EDITION_99997_TEST_ONLY", "number": 99997 }, { "name": "EDITION_99998_TEST_ONLY", "number": 99998 }, { "name": "EDITION_99999_TEST_ONLY", "number": 99999 }, { "name": "EDITION_MAX", "number": 2147483647 }] }, { "name": "SymbolVisibility", "value": [{ "name": "VISIBILITY_UNSET", "number": 0 }, { "name": "VISIBILITY_LOCAL", "number": 1 }, { "name": "VISIBILITY_EXPORT", "number": 2 }] }] });
 var FileDescriptorProtoSchema = /* @__PURE__ */ messageDesc(file_google_protobuf_descriptor, 1);
 var ExtensionRangeOptions_VerificationState;
@@ -2620,13 +2644,13 @@ var SymbolVisibility;
   SymbolVisibility2[SymbolVisibility2["VISIBILITY_EXPORT"] = 2] = "VISIBILITY_EXPORT";
 })(SymbolVisibility || (SymbolVisibility = {}));
 
-// node_modules/@bufbuild/protobuf/dist/esm/from-binary.js
+// ../../../node_modules/@bufbuild/protobuf/dist/esm/from-binary.js
 function makeReadContext(options) {
   return Object.assign(Object.assign({ readUnknownFields: true, recursionLimit: 100 }, options), { depth: 0 });
 }
-function fromBinary(schema, bytes3, options) {
+function fromBinary(schema, bytes2, options) {
   const message = create(schema);
-  compiledReader(schema).read(message, new BinaryReader(bytes3), makeReadContext(options), bytes3.byteLength);
+  compiledReader(schema).read(message, new BinaryReader(bytes2), makeReadContext(options), bytes2.byteLength);
   return message;
 }
 var compiledReaders = /* @__PURE__ */ new WeakMap();
@@ -2765,13 +2789,13 @@ function compileEnumFieldReader(field) {
         message[localName] = val;
       }
     } else if (ctx.readUnknownFields) {
-      const bytes3 = [];
-      varint32write(val, bytes3);
+      const bytes2 = [];
+      varint32write(val, bytes2);
       const unknownFields = (_a2 = message.$unknown) !== null && _a2 !== void 0 ? _a2 : [];
       unknownFields.push({
         no: fieldNo,
         wireType,
-        data: new Uint8Array(bytes3)
+        data: new Uint8Array(bytes2)
       });
       message.$unknown = unknownFields;
     }
@@ -2944,7 +2968,7 @@ function compileScalarReader(type, utf8Validation, longAsString) {
   }
 }
 
-// node_modules/@bufbuild/protobuf/dist/esm/codegenv2/file.js
+// ../../../node_modules/@bufbuild/protobuf/dist/esm/codegenv2/file.js
 function fileDesc(b64, imports) {
   var _a;
   const root = fromBinary(FileDescriptorProtoSchema, base64Decode(b64));
@@ -2954,7 +2978,7 @@ function fileDesc(b64, imports) {
   return reg.getFile(root.name);
 }
 
-// node_modules/@bufbuild/protobuf/dist/esm/to-binary.js
+// ../../../node_modules/@bufbuild/protobuf/dist/esm/to-binary.js
 var IMPLICIT3 = 2;
 var LEGACY_REQUIRED2 = 3;
 var writeDefaults = {
@@ -3309,30 +3333,31 @@ function writeTypeOfScalar(type) {
 }
 
 // js/network/generated/galaxy/v1/galaxy_pb.ts
-var file_galaxy_v1_galaxy = /* @__PURE__ */ fileDesc("ChZnYWxheHkvdjEvZ2FsYXh5LnByb3RvEglnYWxheHkudjEieQoOQXV0aG9yaXR5U2NvcGUSEAoId29ybGRfaWQYASABKAwSEAoIc2hhcmRfaWQYAiABKAwSEQoJc3lzdGVtX2lkGAMgASgMEhMKC293bmVyX2Vwb2NoGAQgASgEEhsKE3JlY292ZXJ5X2dlbmVyYXRpb24YBSABKAQiXQoKQ29tbWFuZEtleRISCgpjb21tYW5kX2lkGAEgASgMEh0KFXJlY2VpcHRfaG9tZV9zaGFyZF9pZBgCIAEoDBIcChRhZG1pc3Npb25fZ2VuZXJhdGlvbhgDIAEoBCJvCg5BZG1pc3Npb25HcmFudBIdChVyZWNlaXB0X2hvbWVfc2hhcmRfaWQYASABKAwSEgoKZ2VuZXJhdGlvbhgCIAEoBBIbChNub3RfYWZ0ZXJfc2VydmVyX21zGAMgASgEEg0KBXRva2VuGAQgASgMIlYKDlJlbmV3QWRtaXNzaW9uEhEKCXN5c3RlbV9pZBgDIAEoDBIdChVyZWNlaXB0X2hvbWVfc2hhcmRfaWQYASABKAwSEgoKcmVxdWVzdF9pZBgCIAEoBCLJAQoQQWRtaXNzaW9uUmVuZXdlZBIoCgVzY29wZRgGIAEoCzIZLmdhbGF4eS52MS5BdXRob3JpdHlTY29wZRIdChVyZWNlaXB0X2hvbWVfc2hhcmRfaWQYASABKAwSEgoKcmVxdWVzdF9pZBgCIAEoBBIWCg5zZXJ2ZXJfdGltZV9tcxgDIAEoBBIoCgVncmFudBgEIAEoCzIZLmdhbGF4eS52MS5BZG1pc3Npb25HcmFudBIWCg5yZXRyeV9hZnRlcl9tcxgFIAEoDSJeCgxUcmFjZUNvbnRleHQSEAoIdHJhY2VfaWQYASABKAwSDwoHc3Bhbl9pZBgCIAEoDBIWCg5wYXJlbnRfc3Bhbl9pZBgDIAEoDBITCgt0cmFjZV9mbGFncxgEIAEoDSLTAQoORGlhZ25vc3RpY1NwYW4SDQoFc3RhZ2UYASABKAkSKAoHY29udGV4dBgCIAEoCzIXLmdhbGF4eS52MS5UcmFjZUNvbnRleHQSEAoIY2xvY2tfaWQYAyABKAkSEgoKc3RhcnRlZF91cxgEIAEoBBITCgtkdXJhdGlvbl91cxgFIAEoBBIrCgZzdGF0dXMYBiABKA4yGy5nYWxheHkudjEuRGlhZ25vc3RpY1N0YXR1cxIMCgRjb2RlGAcgASgJEhIKCmNvbW1hbmRfaWQYCCABKAwiTAoPRGlhZ25vc3RpY0JhdGNoEigKBXNwYW5zGAEgAygLMhkuZ2FsYXh5LnYxLkRpYWdub3N0aWNTcGFuEg8KB2Ryb3BwZWQYAiABKA0iTwoPUHJvamVjdGlvblRyYWNlEigKB2NvbnRleHQYASABKAsyFy5nYWxheHkudjEuVHJhY2VDb250ZXh0EhIKCmNvbW1hbmRfaWQYAiABKAwixAEKC0NsaWVudEhlbGxvEiAKGG1pbmltdW1fcHJvdG9jb2xfdmVyc2lvbhgBIAEoDRIgChhtYXhpbXVtX3Byb3RvY29sX3ZlcnNpb24YAiABKA0SHwoXc3VwcG9ydGVkX3J1bGVfdmVyc2lvbnMYAyADKA0SNAoVcmVxdWlyZWRfY2FwYWJpbGl0aWVzGAQgAygOMhUuZ2FsYXh5LnYxLkNhcGFiaWxpdHkSGgoSc2Vzc2lvbl9jcmVkZW50aWFsGAUgASgMIvcBCg1TZXJ2ZXJXZWxjb21lEhgKEHByb3RvY29sX3ZlcnNpb24YASABKA0SFAoMcnVsZV92ZXJzaW9uGAIgASgNEhEKCXBsYXllcl9pZBgDIAEoDBIdChVjb25uZWN0aW9uX2dlbmVyYXRpb24YBCABKAQSFgoOc2VydmVyX3RpbWVfbXMYBSABKAQSKwoMY2FwYWJpbGl0aWVzGAYgAygOMhUuZ2FsYXh5LnYxLkNhcGFiaWxpdHkSLQoKYWRtaXNzaW9ucxgHIAMoCzIZLmdhbGF4eS52MS5BZG1pc3Npb25HcmFudBIQCgh3b3JsZF9pZBgIIAEoDCIlCg1Mb2NhbFBvc2l0aW9uEgkKAXgYASABKAESCQoBehgCIAEoASL0AQoLTW92ZUNvbW1hbmQSIgoDa2V5GAEgASgLMhUuZ2FsYXh5LnYxLkNvbW1hbmRLZXkSKAoFc2NvcGUYAiABKAsyGS5nYWxheHkudjEuQXV0aG9yaXR5U2NvcGUSEAoIZmxlZXRfaWQYAyABKAwSKAoGdGFyZ2V0GAQgASgLMhguZ2FsYXh5LnYxLkxvY2FsUG9zaXRpb24SJQoYZXhwZWN0ZWRfc3lzdGVtX3JldmlzaW9uGAUgASgESACIAQESFwoPYWRtaXNzaW9uX3Rva2VuGAYgASgMQhsKGV9leHBlY3RlZF9zeXN0ZW1fcmV2aXNpb24ipQIKD1RyYW5zZmVyQ29tbWFuZBIiCgNrZXkYASABKAsyFS5nYWxheHkudjEuQ29tbWFuZEtleRIoCgVzY29wZRgCIAEoCzIZLmdhbGF4eS52MS5BdXRob3JpdHlTY29wZRIQCghmbGVldF9pZBgDIAEoDBIdChVkZXN0aW5hdGlvbl9zeXN0ZW1faWQYBCABKAwSNgoUZGVzdGluYXRpb25fcG9zaXRpb24YBSABKAsyGC5nYWxheHkudjEuTG9jYWxQb3NpdGlvbhIlChhleHBlY3RlZF9zeXN0ZW1fcmV2aXNpb24YBiABKARIAIgBARIXCg9hZG1pc3Npb25fdG9rZW4YByABKAxCGwoZX2V4cGVjdGVkX3N5c3RlbV9yZXZpc2lvbiJECgxSZWNlaXB0UXVlcnkSEAoId29ybGRfaWQYASABKAwSIgoDa2V5GAIgASgLMhUuZ2FsYXh5LnYxLkNvbW1hbmRLZXkiXgoMTW92ZUFjY2VwdGVkEhcKD3N5c3RlbV9yZXZpc2lvbhgBIAEoBBIWCg5mbGVldF9yZXZpc2lvbhgCIAEoBBIdChVhY2NlcHRlZF9hdF9zZXJ2ZXJfbXMYAyABKAQiQQoPQ29tbWFuZFJlamVjdGVkEi4KBnJlYXNvbhgBIAEoDjIeLmdhbGF4eS52MS5Db21tYW5kUmVqZWN0UmVhc29uIkEKDkNvbW1hbmRVbmtub3duEi8KBnJlYXNvbhgBIAEoDjIfLmdhbGF4eS52MS5Db21tYW5kVW5rbm93blJlYXNvbiLGAQoLTW92ZVJlY2VpcHQSIgoDa2V5GAEgASgLMhUuZ2FsYXh5LnYxLkNvbW1hbmRLZXkSKwoIYWNjZXB0ZWQYAiABKAsyFy5nYWxheHkudjEuTW92ZUFjY2VwdGVkSAASLgoIcmVqZWN0ZWQYAyABKAsyGi5nYWxheHkudjEuQ29tbWFuZFJlamVjdGVkSAASLAoHdW5rbm93bhgEIAEoCzIZLmdhbGF4eS52MS5Db21tYW5kVW5rbm93bkgAQggKBnJlc3VsdCJNCgxTdHJlYW1DdXJzb3ISFwoPc3Vic2NyaXB0aW9uX2lkGAEgASgMEhIKCmdlbmVyYXRpb24YAiABKAQSEAoIc2VxdWVuY2UYAyABKAQifgoPU3Vic2NyaWJlU3lzdGVtEhAKCHdvcmxkX2lkGAEgASgMEhEKCXN5c3RlbV9pZBgCIAEoDBIXCg9zdWJzY3JpcHRpb25faWQYAyABKAwSLQoMcmVzdW1lX2FmdGVyGAQgASgLMhcuZ2FsYXh5LnYxLlN0cmVhbUN1cnNvciKYAQoUUGxheWJhY2tDbG9ja1JlcXVlc3QSKAoFc2NvcGUYASABKAsyGS5nYWxheHkudjEuQXV0aG9yaXR5U2NvcGUSKQoIYmFzZWxpbmUYAiABKAsyFy5nYWxheHkudjEuU3RyZWFtQ3Vyc29yEhcKD3N5c3RlbV9yZXZpc2lvbhgDIAEoBBISCgpyZXF1ZXN0X2lkGAQgASgEIsUBChdQbGF5YmFja0Nsb2NrQ29ycmVjdGlvbhIoCgVzY29wZRgBIAEoCzIZLmdhbGF4eS52MS5BdXRob3JpdHlTY29wZRIpCghiYXNlbGluZRgCIAEoCzIXLmdhbGF4eS52MS5TdHJlYW1DdXJzb3ISFwoPc3lzdGVtX3JldmlzaW9uGAMgASgEEhIKCnJlcXVlc3RfaWQYBCABKAQSEAoIc2VxdWVuY2UYBSABKAQSFgoOc2VydmVyX3RpbWVfbXMYBiABKAQiowEKCUZsZWV0TW92ZRImCgRmcm9tGAEgASgLMhguZ2FsYXh5LnYxLkxvY2FsUG9zaXRpb24SJAoCdG8YAiABKAsyGC5nYWxheHkudjEuTG9jYWxQb3NpdGlvbhIbChNkZXBhcnR1cmVfc2VydmVyX21zGAMgASgEEhkKEWFycml2YWxfc2VydmVyX21zGAQgASgEEhAKCG9yZGVyX2lkGAUgASgMIsEBCg9GbGVldFByb2plY3Rpb24SEAoIZmxlZXRfaWQYASABKAwSEAoIcmV2aXNpb24YAiABKAQSKgoIcG9zaXRpb24YAyABKAsyGC5nYWxheHkudjEuTG9jYWxQb3NpdGlvbhImCghtb3ZlbWVudBgEIAEoCzIULmdhbGF4eS52MS5GbGVldE1vdmUSFAoMY29udHJvbGxhYmxlGAUgASgIEiAKGHRyYW5zZmVyX3JlYWR5X3NlcnZlcl9tcxgGIAEoBCImCg5HYWxheHlQb3NpdGlvbhIJCgF4GAEgASgBEgkKAXoYAiABKAEicAoPVG9wb2xvZ3lDbHVzdGVyEhIKCmNsdXN0ZXJfaWQYASABKAwSDAoEbmFtZRgCIAEoCRIrCghwb3NpdGlvbhgDIAEoCzIZLmdhbGF4eS52MS5HYWxheHlQb3NpdGlvbhIOCgZyYWRpdXMYBCABKAEicgoOVG9wb2xvZ3lTeXN0ZW0SEQoJc3lzdGVtX2lkGAEgASgMEhIKCmNsdXN0ZXJfaWQYAiABKAwSDAoEbmFtZRgDIAEoCRIrCghwb3NpdGlvbhgEIAEoCzIZLmdhbGF4eS52MS5HYWxheHlQb3NpdGlvbiI4ChJUb3BvbG9neUNvbm5lY3Rpb24SEAoIc3lzdGVtX2EYASABKAwSEAoIc3lzdGVtX2IYAiABKAwi3AEKDVdvcmxkVG9wb2xvZ3kSEAoId29ybGRfaWQYASABKAwSEAoIcmV2aXNpb24YAiABKAQSLAoIY2x1c3RlcnMYAyADKAsyGi5nYWxheHkudjEuVG9wb2xvZ3lDbHVzdGVyEioKB3N5c3RlbXMYBCADKAsyGS5nYWxheHkudjEuVG9wb2xvZ3lTeXN0ZW0SMgoLY29ubmVjdGlvbnMYBSADKAsyHS5nYWxheHkudjEuVG9wb2xvZ3lDb25uZWN0aW9uEhkKEWhvc3RlZF9zeXN0ZW1faWRzGAYgAygMIqoBChJTdWJzY3JpYmVTdHJhdGVnaWMSEAoId29ybGRfaWQYASABKAwSFwoPc3Vic2NyaXB0aW9uX2lkGAIgASgMEhsKE2ludGVyZXN0X2dlbmVyYXRpb24YAyABKAQSEgoKc3lzdGVtX2lkcxgEIAMoDBI4ChJyZXF1ZXN0ZWRfZW5jb2RpbmcYBSABKA4yHC5nYWxheHkudjEuU3RyYXRlZ2ljRW5jb2RpbmcigQEKFUNvbW1pdHRlZFN5c3RlbUNvdW50cxIXCg9zeXN0ZW1fcmV2aXNpb24YASABKAQSIAoYY29tbWl0dGVkX3NlcnZlcl90aW1lX21zGAIgASgEEhYKDnByZXNlbnRfZmxlZXRzGAMgASgNEhUKDW1vdmluZ19mbGVldHMYBCABKA0ipwEKDVN5c3RlbVN1bW1hcnkSKAoFc2NvcGUYASABKAsyGS5nYWxheHkudjEuQXV0aG9yaXR5U2NvcGUSOgoMYXZhaWxhYmlsaXR5GAIgASgOMiQuZ2FsYXh5LnYxLlN5c3RlbVN1bW1hcnlBdmFpbGFiaWxpdHkSMAoGY291bnRzGAMgASgLMiAuZ2FsYXh5LnYxLkNvbW1pdHRlZFN5c3RlbUNvdW50cyJAChNTdHJhdGVnaWNTeXN0ZW1WaWV3EikKB3N5c3RlbXMYASADKAsyGC5nYWxheHkudjEuU3lzdGVtU3VtbWFyeSJKChRDb21wYWN0U3RyYXRlZ2ljVmlldxIyCgZncm91cHMYASADKAsyIi5nYWxheHkudjEuU3RyYXRlZ2ljQXV0aG9yaXR5R3JvdXAijwEKF1N0cmF0ZWdpY0F1dGhvcml0eUdyb3VwEhAKCHNoYXJkX2lkGAEgASgMEhMKC293bmVyX2Vwb2NoGAIgASgEEhsKE3JlY292ZXJ5X2dlbmVyYXRpb24YAyABKAQSMAoHc3lzdGVtcxgEIAMoCzIfLmdhbGF4eS52MS5Db21wYWN0U3lzdGVtU3VtbWFyeSKXAQoUQ29tcGFjdFN5c3RlbVN1bW1hcnkSEQoJc3lzdGVtX2lkGAEgASgMEjoKDGF2YWlsYWJpbGl0eRgCIAEoDjIkLmdhbGF4eS52MS5TeXN0ZW1TdW1tYXJ5QXZhaWxhYmlsaXR5EjAKBmNvdW50cxgDIAEoCzIgLmdhbGF4eS52MS5Db21taXR0ZWRTeXN0ZW1Db3VudHMiRQoRU3RyYXRlZ2ljUmVqZWN0ZWQSMAoGcmVhc29uGAEgASgOMiAuZ2FsYXh5LnYxLlN0cmF0ZWdpY1JlamVjdFJlYXNvbiKRAgoQU3RyYXRlZ2ljU3lzdGVtcxIQCgh3b3JsZF9pZBgBIAEoDBIXCg9zdWJzY3JpcHRpb25faWQYAiABKAwSGwoTaW50ZXJlc3RfZ2VuZXJhdGlvbhgDIAEoBBIQCghzZXF1ZW5jZRgEIAEoBBIuCgR2aWV3GAUgASgLMh4uZ2FsYXh5LnYxLlN0cmF0ZWdpY1N5c3RlbVZpZXdIABIwCghyZWplY3RlZBgGIAEoCzIcLmdhbGF4eS52MS5TdHJhdGVnaWNSZWplY3RlZEgAEjcKDGNvbXBhY3RfdmlldxgHIAEoCzIfLmdhbGF4eS52MS5Db21wYWN0U3RyYXRlZ2ljVmlld0gAQggKBnJlc3VsdCKiAgoTU3lzdGVtU25hcHNob3RDaHVuaxIoCgVzY29wZRgBIAEoCzIZLmdhbGF4eS52MS5BdXRob3JpdHlTY29wZRInCgZjdXJzb3IYAiABKAsyFy5nYWxheHkudjEuU3RyZWFtQ3Vyc29yEhMKC3NuYXBzaG90X2lkGAMgASgMEhMKC2NodW5rX2luZGV4GAQgASgNEhMKC2NodW5rX2NvdW50GAUgASgNEhcKD3N5c3RlbV9yZXZpc2lvbhgGIAEoBBIqCgZmbGVldHMYByADKAsyGi5nYWxheHkudjEuRmxlZXRQcm9qZWN0aW9uEh4KEWNvbW1pdHRlZF90aW1lX21zGAggASgESACIAQFCFAoSX2NvbW1pdHRlZF90aW1lX21zIpUCCgtTeXN0ZW1EZWx0YRIoCgVzY29wZRgBIAEoCzIZLmdhbGF4eS52MS5BdXRob3JpdHlTY29wZRInCgZjdXJzb3IYAiABKAsyFy5nYWxheHkudjEuU3RyZWFtQ3Vyc29yEhwKFGJhc2Vfc3lzdGVtX3JldmlzaW9uGAMgASgEEhcKD3N5c3RlbV9yZXZpc2lvbhgEIAEoBBIrCgd1cHNlcnRzGAUgAygLMhouZ2FsYXh5LnYxLkZsZWV0UHJvamVjdGlvbhIZChFyZW1vdmVkX2ZsZWV0X2lkcxgGIAMoDBIeChFjb21taXR0ZWRfdGltZV9tcxgHIAEoBEgAiAEBQhQKEl9jb21taXR0ZWRfdGltZV9tcyI9Cg9Qcm90b2NvbEZhaWx1cmUSKgoEY29kZRgBIAEoDjIcLmdhbGF4eS52MS5Qcm90b2NvbEVycm9yQ29kZSLDBAoNQ2xpZW50TWVzc2FnZRIYChBwcm90b2NvbF92ZXJzaW9uGAEgASgNEh0KFWNvbm5lY3Rpb25fZ2VuZXJhdGlvbhgCIAEoBBIuCg10cmFjZV9jb250ZXh0GAMgASgLMhcuZ2FsYXh5LnYxLlRyYWNlQ29udGV4dBInCgVoZWxsbxgKIAEoCzIWLmdhbGF4eS52MS5DbGllbnRIZWxsb0gAEiYKBG1vdmUYCyABKAsyFi5nYWxheHkudjEuTW92ZUNvbW1hbmRIABIwCg1yZWNlaXB0X3F1ZXJ5GAwgASgLMhcuZ2FsYXh5LnYxLlJlY2VpcHRRdWVyeUgAEi8KCXN1YnNjcmliZRgNIAEoCzIaLmdhbGF4eS52MS5TdWJzY3JpYmVTeXN0ZW1IABIuCgh0cmFuc2ZlchgOIAEoCzIaLmdhbGF4eS52MS5UcmFuc2ZlckNvbW1hbmRIABI0Cg9yZW5ld19hZG1pc3Npb24YDyABKAsyGS5nYWxheHkudjEuUmVuZXdBZG1pc3Npb25IABI8ChNzdWJzY3JpYmVfc3RyYXRlZ2ljGBAgASgLMh0uZ2FsYXh5LnYxLlN1YnNjcmliZVN0cmF0ZWdpY0gAEjkKDnBsYXliYWNrX2Nsb2NrGBEgASgLMh8uZ2FsYXh5LnYxLlBsYXliYWNrQ2xvY2tSZXF1ZXN0SAASLgoMdmlld19yZXF1ZXN0GBIgASgLMhYuZ2FsYXh5LnYxLlZpZXdSZXF1ZXN0SABCBgoEYm9keSLTBQoNU2VydmVyTWVzc2FnZRIYChBwcm90b2NvbF92ZXJzaW9uGAEgASgNEh0KFWNvbm5lY3Rpb25fZ2VuZXJhdGlvbhgCIAEoBBIvCgtkaWFnbm9zdGljcxgDIAEoCzIaLmdhbGF4eS52MS5EaWFnbm9zdGljQmF0Y2gSNAoQcHJvamVjdGlvbl90cmFjZRgEIAEoCzIaLmdhbGF4eS52MS5Qcm9qZWN0aW9uVHJhY2USKwoHd2VsY29tZRgKIAEoCzIYLmdhbGF4eS52MS5TZXJ2ZXJXZWxjb21lSAASKQoHcmVjZWlwdBgLIAEoCzIWLmdhbGF4eS52MS5Nb3ZlUmVjZWlwdEgAEjIKCHNuYXBzaG90GAwgASgLMh4uZ2FsYXh5LnYxLlN5c3RlbVNuYXBzaG90Q2h1bmtIABInCgVkZWx0YRgNIAEoCzIWLmdhbGF4eS52MS5TeXN0ZW1EZWx0YUgAEi0KB2ZhaWx1cmUYDiABKAsyGi5nYWxheHkudjEuUHJvdG9jb2xGYWlsdXJlSAASLAoIdG9wb2xvZ3kYDyABKAsyGC5nYWxheHkudjEuV29ybGRUb3BvbG9neUgAEjgKEWFkbWlzc2lvbl9yZW5ld2VkGBAgASgLMhsuZ2FsYXh5LnYxLkFkbWlzc2lvblJlbmV3ZWRIABIwCglzdHJhdGVnaWMYESABKAsyGy5nYWxheHkudjEuU3RyYXRlZ2ljU3lzdGVtc0gAEjwKDnBsYXliYWNrX2Nsb2NrGBIgASgLMiIuZ2FsYXh5LnYxLlBsYXliYWNrQ2xvY2tDb3JyZWN0aW9uSAASKgoKdmlld19ldmVudBgTIAEoCzIULmdhbGF4eS52MS5WaWV3RXZlbnRIABIyCg52aWV3X3BsYWNlbWVudBgUIAEoCzIYLmdhbGF4eS52MS5WaWV3UGxhY2VtZW50SABCBgoEYm9keSJzChJUcmFuc2ZlckZsZWV0U3RhdGUSFwoPb3duZXJfcGxheWVyX2lkGAEgASgMEi4KCnByb2plY3Rpb24YAiABKAsyGi5nYWxheHkudjEuRmxlZXRQcm9qZWN0aW9uEhQKDHJ1bGVfdmVyc2lvbhgDIAEoDSLkAwoNRmxlZXRUcmFuc2ZlchITCgt0cmFuc2Zlcl9pZBgBIAEoDBIaChJpbnRlbnRfZmluZ2VycHJpbnQYAiABKAwSNgoTc291cmNlX2F0X2RlcGFydHVyZRgDIAEoCzIZLmdhbGF4eS52MS5BdXRob3JpdHlTY29wZRIcChRkZXN0aW5hdGlvbl9zaGFyZF9pZBgEIAEoDBIdChVkZXN0aW5hdGlvbl9zeXN0ZW1faWQYBSABKAwSLAoFZmxlZXQYBiABKAsyHS5nYWxheHkudjEuVHJhbnNmZXJGbGVldFN0YXRlEjIKE29yaWdpbmF0aW5nX2NvbW1hbmQYByABKAsyFS5nYWxheHkudjEuQ29tbWFuZEtleRIbChNkZXBhcnR1cmVfc2VydmVyX21zGAggASgEEhkKEWFycml2YWxfc2VydmVyX21zGAkgASgEEjYKFGRlc3RpbmF0aW9uX3Bvc2l0aW9uGAogASgLMhguZ2FsYXh5LnYxLkxvY2FsUG9zaXRpb24SFwoPc291cmNlX3JldmlzaW9uGAsgASgEEiUKGGV4cGVjdGVkX3N5c3RlbV9yZXZpc2lvbhgMIAEoBEgAiAEBQhsKGV9leHBlY3RlZF9zeXN0ZW1fcmV2aXNpb24iTwoQVHJhbnNmZXJJbXBvcnRlZBIjChtkZXN0aW5hdGlvbl9zeXN0ZW1fcmV2aXNpb24YASABKAQSFgoOZmxlZXRfcmV2aXNpb24YAiABKAQiQwoQVHJhbnNmZXJSZWplY3RlZBIvCgZyZWFzb24YASABKA4yHy5nYWxheHkudjEuVHJhbnNmZXJSZWplY3RSZWFzb24irAIKD1RyYW5zZmVyUmVjZWlwdBITCgt0cmFuc2Zlcl9pZBgBIAEoDBIaChJpbnRlbnRfZmluZ2VycHJpbnQYAiABKAwSLwoIaW1wb3J0ZWQYAyABKAsyGy5nYWxheHkudjEuVHJhbnNmZXJJbXBvcnRlZEgAEi8KCHJlamVjdGVkGAQgASgLMhsuZ2FsYXh5LnYxLlRyYW5zZmVyUmVqZWN0ZWRIABIiCgNrZXkYBSABKAsyFS5nYWxheHkudjEuQ29tbWFuZEtleRI6ChdkZXN0aW5hdGlvbl9hdF9kZWNpc2lvbhgGIAEoCzIZLmdhbGF4eS52MS5BdXRob3JpdHlTY29wZRIcChRkZWNpZGVkX2F0X3NlcnZlcl9tcxgHIAEoBEIICgZyZXN1bHQiZwoNVHJhbnNmZXJRdWVyeRITCgt0cmFuc2Zlcl9pZBgBIAEoDBIiCgNrZXkYAiABKAsyFS5nYWxheHkudjEuQ29tbWFuZEtleRIdChVkZXN0aW5hdGlvbl9zeXN0ZW1faWQYAyABKAwiqgEKC0hvbWVSZXF1ZXN0EhEKCXBsYXllcl9pZBgBIAEoDBImCgRtb3ZlGAIgASgLMhYuZ2FsYXh5LnYxLk1vdmVDb21tYW5kSAASLgoIdHJhbnNmZXIYAyABKAsyGi5nYWxheHkudjEuVHJhbnNmZXJDb21tYW5kSAASKAoFcXVlcnkYBCABKAsyFy5nYWxheHkudjEuUmVjZWlwdFF1ZXJ5SABCBgoEYm9keSI8ChVSZXRpcmVtZW50U3lzdGVtRmxvb3ISEQoJc3lzdGVtX2lkGAEgASgMEhAKCHJldmlzaW9uGAIgASgEIrQCChdUcmFuc2ZlclJldGlyZW1lbnRQcm9vZhI0ChFzb3VyY2VfYXRfcHJlcGFyZRgBIAEoCzIZLmdhbGF4eS52MS5BdXRob3JpdHlTY29wZRIcChRkZXN0aW5hdGlvbl9zaGFyZF9pZBgCIAEoDBIYChBwcmV2aW91c190aHJvdWdoGAMgASgEEg8KB3Rocm91Z2gYBCABKAQSFwoPcHJldmlvdXNfZGlnZXN0GAUgASgMEg4KBmRpZ2VzdBgGIAEoDBIPCgdyZWNvcmRzGAcgASgNEiAKGHNvdXJjZV9yZXF1aXJlZF9yZXZpc2lvbhgIIAEoBBI+ChRkZXN0aW5hdGlvbl9yZXF1aXJlZBgJIAMoCzIgLmdhbGF4eS52MS5SZXRpcmVtZW50U3lzdGVtRmxvb3IioQQKC1BlZXJNZXNzYWdlEhgKEHByb3RvY29sX3ZlcnNpb24YASABKA0SKQoGc2VuZGVyGAIgASgLMhkuZ2FsYXh5LnYxLkF1dGhvcml0eVNjb3BlEi4KDXRyYWNlX2NvbnRleHQYAyABKAsyFy5nYWxheHkudjEuVHJhY2VDb250ZXh0Ei8KC2RpYWdub3N0aWNzGAQgASgLMhouZ2FsYXh5LnYxLkRpYWdub3N0aWNCYXRjaBIsCgh0cmFuc2ZlchgKIAEoCzIYLmdhbGF4eS52MS5GbGVldFRyYW5zZmVySAASLQoHcmVjZWlwdBgLIAEoCzIaLmdhbGF4eS52MS5UcmFuc2ZlclJlY2VpcHRIABIpCgVxdWVyeRgMIAEoCzIYLmdhbGF4eS52MS5UcmFuc2ZlclF1ZXJ5SAASLgoMaG9tZV9yZXF1ZXN0GA0gASgLMhYuZ2FsYXh5LnYxLkhvbWVSZXF1ZXN0SAASLgoMaG9tZV9yZWNlaXB0GA4gASgLMhYuZ2FsYXh5LnYxLk1vdmVSZWNlaXB0SAASPgoQcmV0aXJlbWVudF9vZmZlchgPIAEoCzIiLmdhbGF4eS52MS5UcmFuc2ZlclJldGlyZW1lbnRQcm9vZkgAEjwKDnJldGlyZW1lbnRfYWNrGBAgASgLMiIuZ2FsYXh5LnYxLlRyYW5zZmVyUmV0aXJlbWVudFByb29mSABCBgoEYm9keSLSAQoLVmlld1JlcXVlc3QSEAoId29ybGRfaWQYASABKAwSDAoEc2xvdBgCIAEoDRIaChJyZXF1ZXN0X2dlbmVyYXRpb24YAyABKAQSKgoHcmVwbGFjZRgEIAEoCzIXLmdhbGF4eS52MS5WaWV3U2VsZWN0b3JIABInCgZyZXN1bWUYBSABKAsyFS5nYWxheHkudjEuVmlld1Jlc3VtZUgAEiUKBWNsb3NlGAYgASgLMhQuZ2FsYXh5LnYxLlZpZXdDbG9zZUgAQgsKCW9wZXJhdGlvbiKfAQoMVmlld1NlbGVjdG9yEi8KCG92ZXJ2aWV3GAEgASgLMhsuZ2FsYXh5LnYxLk92ZXJ2aWV3U2VsZWN0b3JIABIpCgVvd25lZBgCIAEoCzIYLmdhbGF4eS52MS5Pd25lZFNlbGVjdG9ySAASKwoGZGV0YWlsGAMgASgLMhkuZ2FsYXh5LnYxLkRldGFpbFNlbGVjdG9ySABCBgoEa2luZCJXChBPdmVydmlld1NlbGVjdG9yEhoKEndob2xlX2tub3duX2dhbGF4eRgBIAEoCBISCgpzeXN0ZW1faWRzGAIgAygMEhMKC2NsdXN0ZXJfaWRzGAMgAygMIg8KDU93bmVkU2VsZWN0b3IiIwoORGV0YWlsU2VsZWN0b3ISEQoJc3lzdGVtX2lkGAEgASgMIgsKCVZpZXdDbG9zZSJwCgpWaWV3UmVzdW1lEhsKE2Jhc2VsaW5lX2dlbmVyYXRpb24YBCABKAQSEwoLYmFzZWxpbmVfaWQYASABKAwSGAoQdmlzaWJpbGl0eV9lcG9jaBgCIAEoBBIWCg5hZnRlcl9zZXF1ZW5jZRgDIAEoBCKPAwoJVmlld0V2ZW50EhAKCHdvcmxkX2lkGAEgASgMEgwKBHNsb3QYAiABKA0SGgoScmVxdWVzdF9nZW5lcmF0aW9uGAMgASgEEhgKEHZpc2liaWxpdHlfZXBvY2gYBCABKAQSJQoFYmVnaW4YBSABKAsyFC5nYWxheHkudjEuVmlld0JlZ2luSAASJQoFY2h1bmsYBiABKAsyFC5nYWxheHkudjEuVmlld0NodW5rSAASJQoFcmVhZHkYByABKAsyFC5nYWxheHkudjEuVmlld1JlYWR5SAASJQoFZGVsdGEYCCABKAsyFC5nYWxheHkudjEuVmlld0RlbHRhSAASMQoLaW52YWxpZGF0ZWQYCSABKAsyGi5nYWxheHkudjEuVmlld0ludmFsaWRhdGVkSAASKwoIcmVqZWN0ZWQYCiABKAsyFy5nYWxheHkudjEuVmlld1JlamVjdGVkSAASJgoGY2xvc2VkGAsgASgLMhQuZ2FsYXh5LnYxLlZpZXdDbG9zZUgAQggKBnJlc3VsdCLSAQoJVmlld0JlZ2luEhkKEXRvcG9sb2d5X3JldmlzaW9uGAcgASgEEhsKE2Jhc2VsaW5lX2dlbmVyYXRpb24YBiABKAQSEwoLYmFzZWxpbmVfaWQYASABKAwSKQoIc2VsZWN0b3IYAiABKAsyFy5nYWxheHkudjEuVmlld1NlbGVjdG9yEhsKE3Byb2plY3Rpb25fb3duZXJfaWQYAyABKAwSEwoLb3duZXJfZXBvY2gYBCABKAQSGwoTcmVjb3ZlcnlfZ2VuZXJhdGlvbhgFIAEoBCLXAQoJVmlld0NodW5rEhsKE2Jhc2VsaW5lX2dlbmVyYXRpb24YBiABKAQSEwoLYmFzZWxpbmVfaWQYASABKAwSEwoLY2h1bmtfaW5kZXgYAiABKA0SKwoIb3ZlcnZpZXcYAyABKAsyFy5nYWxheHkudjEuT3ZlcnZpZXdSb3dzSAASJQoFb3duZWQYBCABKAsyFC5nYWxheHkudjEuT3duZWRSb3dzSAASJwoGZGV0YWlsGAUgASgLMhUuZ2FsYXh5LnYxLkRldGFpbFJvd3NIAEIGCgRyb3dzInYKCVZpZXdSZWFkeRIbChNiYXNlbGluZV9nZW5lcmF0aW9uGAUgASgEEhMKC2Jhc2VsaW5lX2lkGAEgASgMEhMKC2NodW5rX2NvdW50GAIgASgNEhAKCHNlcXVlbmNlGAMgASgEEhAKCGNvbXBsZXRlGAQgASgIIusBCglWaWV3RGVsdGESGwoTYmFzZWxpbmVfZ2VuZXJhdGlvbhgHIAEoBBITCgtiYXNlbGluZV9pZBgBIAEoDBIVCg1iYXNlX3NlcXVlbmNlGAIgASgEEhAKCHNlcXVlbmNlGAMgASgEEisKCG92ZXJ2aWV3GAQgASgLMhcuZ2FsYXh5LnYxLk92ZXJ2aWV3Um93c0gAEiUKBW93bmVkGAUgASgLMhQuZ2FsYXh5LnYxLk93bmVkUm93c0gAEicKBmRldGFpbBgGIAEoCzIVLmdhbGF4eS52MS5EZXRhaWxSb3dzSABCBgoEcm93cyI+Cg9WaWV3SW52YWxpZGF0ZWQSDgoGcmVhc29uGAEgASgNEhsKE2Jhc2VsaW5lX2dlbmVyYXRpb24YAiABKAQiNgoMVmlld1JlamVjdGVkEg4KBnJlYXNvbhgBIAEoDRIWCg5yZXRyeV9hZnRlcl9tcxgCIAEoDSKCAQoRU291cmNlT2JzZXJ2YXRpb24SKAoFc2NvcGUYASABKAsyGS5nYWxheHkudjEuQXV0aG9yaXR5U2NvcGUSEAoIcmV2aXNpb24YAiABKAQSGwoTY29tbWl0dGVkX3NlcnZlcl9tcxgDIAEoBBIUCgxhdmFpbGFiaWxpdHkYBCABKA0itAEKDk92ZXJ2aWV3U3lzdGVtEhEKCXN5c3RlbV9pZBgBIAEoDBIxCgtvYnNlcnZhdGlvbhgCIAEoCzIcLmdhbGF4eS52MS5Tb3VyY2VPYnNlcnZhdGlvbhIbCg5wcmVzZW50X2ZsZWV0cxgDIAEoDUgAiAEBEhoKDW1vdmluZ19mbGVldHMYBCABKA1IAYgBAUIRCg9fcHJlc2VudF9mbGVldHNCEAoOX21vdmluZ19mbGVldHMivwIKDE92ZXJ2aWV3Um93cxIsCghjbHVzdGVycxgBIAMoCzIaLmdhbGF4eS52MS5Ub3BvbG9neUNsdXN0ZXISKgoHc3lzdGVtcxgCIAMoCzIZLmdhbGF4eS52MS5Ub3BvbG9neVN5c3RlbRIyCgtjb25uZWN0aW9ucxgDIAMoCzIdLmdhbGF4eS52MS5Ub3BvbG9neUNvbm5lY3Rpb24SLAoJc3VtbWFyaWVzGAQgAygLMhkuZ2FsYXh5LnYxLk92ZXJ2aWV3U3lzdGVtEhoKEnJlbW92ZWRfc3lzdGVtX2lkcxgFIAMoDBIbChNyZW1vdmVkX2NsdXN0ZXJfaWRzGAYgAygMEjoKE3JlbW92ZWRfY29ubmVjdGlvbnMYByADKAsyHS5nYWxheHkudjEuVG9wb2xvZ3lDb25uZWN0aW9uIrwCCg1Pd25lZEZsZWV0Um93EhAKCGZsZWV0X2lkGAEgASgMEhYKDmZsZWV0X3JldmlzaW9uGAIgASgEEiwKBnNvdXJjZRgDIAEoCzIcLmdhbGF4eS52MS5Tb3VyY2VPYnNlcnZhdGlvbhINCgVzdGF0ZRgEIAEoDRIRCglzeXN0ZW1faWQYBSABKAwSHQoVZGVzdGluYXRpb25fc3lzdGVtX2lkGAYgASgMEhMKC3RyYW5zZmVyX2lkGAcgASgMEh4KEWFycml2YWxfc2VydmVyX21zGAggASgESACIAQESGQoMbWVtYmVyX2NvdW50GAkgASgNSAGIAQESGwoTZGVwYXJ0dXJlX3N5c3RlbV9pZBgKIAEoDEIUChJfYXJyaXZhbF9zZXJ2ZXJfbXNCDwoNX21lbWJlcl9jb3VudCJxCglPd25lZFJvd3MSKQoHdXBzZXJ0cxgBIAMoCzIYLmdhbGF4eS52MS5Pd25lZEZsZWV0Um93EhkKEXJlbW92ZWRfZmxlZXRfaWRzGAIgAygMEh4KFnVuYXZhaWxhYmxlX3NvdXJjZV9pZHMYAyADKAwihwEKCkRldGFpbFJvd3MSMQoLb2JzZXJ2YXRpb24YASABKAsyHC5nYWxheHkudjEuU291cmNlT2JzZXJ2YXRpb24SKwoHdXBzZXJ0cxgCIAMoCzIaLmdhbGF4eS52MS5GbGVldFByb2plY3Rpb24SGQoRcmVtb3ZlZF9mbGVldF9pZHMYAyADKAwijQIKDVZpZXdQbGFjZW1lbnQSEQoJcGxheWVyX2lkGAogASgMEhAKCHdvcmxkX2lkGAEgASgMEhsKE3BsYXllcl9wYXJ0aXRpb25faWQYAiABKAwSDwoHaG9zdF9pZBgDIAEoDBIVCg13ZWJzb2NrZXRfdXJsGAQgASgJEh0KEHdlYnRyYW5zcG9ydF91cmwYBSABKAlIAIgBARIaChJjZXJ0aWZpY2F0ZV9zaGEyNTYYBiABKAwSEAoIb3duZXJfaWQYByABKAwSEwoLb3duZXJfZXBvY2gYCCABKAQSGwoTcmVjb3ZlcnlfZ2VuZXJhdGlvbhgJIAEoBEITChFfd2VidHJhbnNwb3J0X3VybCq0AwoKQ2FwYWJpbGl0eRIaChZDQVBBQklMSVRZX1VOU1BFQ0lGSUVEEAASIwofQ0FQQUJJTElUWV9JTlRSQV9TWVNURU1fTU9WRV9WMRABEh8KG0NBUEFCSUxJVFlfU1lTVEVNX1NUUkVBTV9WMRACEiAKHENBUEFCSUxJVFlfV09STERfVE9QT0xPR1lfVjEQAxIhCh1DQVBBQklMSVRZX09XTkVEX1JVTEVfU0VFRF9WMRAEEicKI0NBUEFCSUxJVFlfQ1JPU1NfU1lTVEVNX1RSQU5TRkVSX1YxEAUSHQoZQ0FQQUJJTElUWV9ESUFHTk9TVElDU19WMRAGEiMKH0NBUEFCSUxJVFlfQURNSVNTSU9OX1JFTkVXQUxfVjEQBxIjCh9DQVBBQklMSVRZX1NUUkFURUdJQ19TWVNURU1TX1YxEAgSKwonQ0FQQUJJTElUWV9TVFJBVEVHSUNfU1lTVEVNU19DT01QQUNUX1YxEAkSIAocQ0FQQUJJTElUWV9QTEFZQkFDS19DTE9DS19WMRAKEh4KGkNBUEFCSUxJVFlfUExBWUVSX1ZJRVdTX1YxEAsqbAoQRGlhZ25vc3RpY1N0YXR1cxIhCh1ESUFHTk9TVElDX1NUQVRVU19VTlNQRUNJRklFRBAAEhgKFERJQUdOT1NUSUNfU1RBVFVTX09LEAESGwoXRElBR05PU1RJQ19TVEFUVVNfRVJST1IQAirZAgoTQ29tbWFuZFJlamVjdFJlYXNvbhIlCiFDT01NQU5EX1JFSkVDVF9SRUFTT05fVU5TUEVDSUZJRUQQABImCiJDT01NQU5EX1JFSkVDVF9SRUFTT05fVU5BVVRIT1JJWkVEEAESKAokQ09NTUFORF9SRUpFQ1RfUkVBU09OX0lOVkFMSURfVEFSR0VUEAISKAokQ09NTUFORF9SRUpFQ1RfUkVBU09OX1NUQUxFX1JFVklTSU9OEAMSJQohQ09NTUFORF9SRUpFQ1RfUkVBU09OX1dST05HX09XTkVSEAQSKwonQ09NTUFORF9SRUpFQ1RfUkVBU09OX0lERU5USVRZX0NPTkZMSUNUEAUSKwonQ09NTUFORF9SRUpFQ1RfUkVBU09OX0FETUlTU0lPTl9FWFBJUkVEEAYSHgoaQ09NTUFORF9SRUpFQ1RfUkVBU09OX0JVU1kQByq2AQoUQ29tbWFuZFVua25vd25SZWFzb24SJgoiQ09NTUFORF9VTktOT1dOX1JFQVNPTl9VTlNQRUNJRklFRBAAEiQKIENPTU1BTkRfVU5LTk9XTl9SRUFTT05fTk9UX0ZPVU5EEAESIgoeQ09NTUFORF9VTktOT1dOX1JFQVNPTl9FWFBJUkVEEAISLAooQ09NTUFORF9VTktOT1dOX1JFQVNPTl9SRUNPVkVSWV9SRVFVSVJFRBADKloKEVN0cmF0ZWdpY0VuY29kaW5nEiIKHlNUUkFURUdJQ19FTkNPRElOR19VTlNQRUNJRklFRBAAEiEKHVNUUkFURUdJQ19FTkNPRElOR19DT01QQUNUX1YxEAEqoAEKGVN5c3RlbVN1bW1hcnlBdmFpbGFiaWxpdHkSKwonU1lTVEVNX1NVTU1BUllfQVZBSUxBQklMSVRZX1VOU1BFQ0lGSUVEEAASKQolU1lTVEVNX1NVTU1BUllfQVZBSUxBQklMSVRZX0FWQUlMQUJMRRABEisKJ1NZU1RFTV9TVU1NQVJZX0FWQUlMQUJJTElUWV9VTkFWQUlMQUJMRRACKu0BChVTdHJhdGVnaWNSZWplY3RSZWFzb24SJwojU1RSQVRFR0lDX1JFSkVDVF9SRUFTT05fVU5TUEVDSUZJRUQQABInCiNTVFJBVEVHSUNfUkVKRUNUX1JFQVNPTl9XUk9OR19XT1JMRBABEigKJFNUUkFURUdJQ19SRUpFQ1RfUkVBU09OX1VOQVVUSE9SSVpFRBACEiYKIlNUUkFURUdJQ19SRUpFQ1RfUkVBU09OX05PVF9IT1NURUQQAxIwCixTVFJBVEVHSUNfUkVKRUNUX1JFQVNPTl9VTlNVUFBPUlRFRF9FTkNPRElORxAEKqwCChFQcm90b2NvbEVycm9yQ29kZRIjCh9QUk9UT0NPTF9FUlJPUl9DT0RFX1VOU1BFQ0lGSUVEEAASKwonUFJPVE9DT0xfRVJST1JfQ09ERV9VTlNVUFBPUlRFRF9WRVJTSU9OEAESKAokUFJPVE9DT0xfRVJST1JfQ09ERV9VTlNVUFBPUlRFRF9SVUxFEAISLgoqUFJPVE9DT0xfRVJST1JfQ09ERV9VTlNVUFBPUlRFRF9DQVBBQklMSVRZEAMSIQodUFJPVE9DT0xfRVJST1JfQ09ERV9NQUxGT1JNRUQQBBIkCiBQUk9UT0NPTF9FUlJPUl9DT0RFX1VOQVVUSE9SSVpFRBAFEiIKHlBST1RPQ09MX0VSUk9SX0NPREVfT1ZFUkxPQURFRBAGKsEBChRUcmFuc2ZlclJlamVjdFJlYXNvbhImCiJUUkFOU0ZFUl9SRUpFQ1RfUkVBU09OX1VOU1BFQ0lGSUVEEAASLgoqVFJBTlNGRVJfUkVKRUNUX1JFQVNPTl9JTlZBTElEX0RFU1RJTkFUSU9OEAESLAooVFJBTlNGRVJfUkVKRUNUX1JFQVNPTl9JREVOVElUWV9DT05GTElDVBACEiMKH1RSQU5TRkVSX1JFSkVDVF9SRUFTT05fQ0FQQUNJVFkQA2IGcHJvdG8z");
+var file_galaxy_v1_galaxy = /* @__PURE__ */ fileDesc("ChZnYWxheHkvdjEvZ2FsYXh5LnByb3RvEglnYWxheHkudjEieQoOQXV0aG9yaXR5U2NvcGUSEAoId29ybGRfaWQYASABKAwSEAoIc2hhcmRfaWQYAiABKAwSEQoJc3lzdGVtX2lkGAMgASgMEhMKC293bmVyX2Vwb2NoGAQgASgEEhsKE3JlY292ZXJ5X2dlbmVyYXRpb24YBSABKAQiXQoKQ29tbWFuZEtleRISCgpjb21tYW5kX2lkGAEgASgMEh0KFXJlY2VpcHRfaG9tZV9zaGFyZF9pZBgCIAEoDBIcChRhZG1pc3Npb25fZ2VuZXJhdGlvbhgDIAEoBCKfAQoOQWRtaXNzaW9uR3JhbnQSHQoVcmVjZWlwdF9ob21lX3NoYXJkX2lkGAEgASgMEhIKCmdlbmVyYXRpb24YAiABKAQSGwoTbm90X2FmdGVyX3NlcnZlcl9tcxgDIAEoBBINCgV0b2tlbhgEIAEoDBIuCg10cmF2ZWxfcG9saWN5GAUgASgLMhcuZ2FsYXh5LnYxLlRyYXZlbFBvbGljeSJvCgxUcmF2ZWxQb2xpY3kSDwoHanVtcF9tcxgBIAEoBBITCgtjb29sZG93bl9tcxgCIAEoBBIeChZjb25maWd1cmF0aW9uX3JldmlzaW9uGAMgASgEEhkKEW1vZGlmaWVyX3JldmlzaW9uGAQgASgEIlAKDFRyYXZlbFRpbWluZxInCgZwb2xpY3kYASABKAsyFy5nYWxheHkudjEuVHJhdmVsUG9saWN5EhcKD3JlYWR5X3NlcnZlcl9tcxgCIAEoBCI9Cg5SZW5ld0FkbWlzc2lvbhIRCglzeXN0ZW1faWQYAyABKAwSEgoKcmVxdWVzdF9pZBgCIAEoBEoECAEQAiL/AQoQQWRtaXNzaW9uUmVuZXdlZBI0ChBtb3ZlbWVudF9jb250ZXh0GAcgASgLMhouZ2FsYXh5LnYxLk1vdmVtZW50Q29udGV4dBIoCgVzY29wZRgGIAEoCzIZLmdhbGF4eS52MS5BdXRob3JpdHlTY29wZRIdChVyZWNlaXB0X2hvbWVfc2hhcmRfaWQYASABKAwSEgoKcmVxdWVzdF9pZBgCIAEoBBIWCg5zZXJ2ZXJfdGltZV9tcxgDIAEoBBIoCgVncmFudBgEIAEoCzIZLmdhbGF4eS52MS5BZG1pc3Npb25HcmFudBIWCg5yZXRyeV9hZnRlcl9tcxgFIAEoDSKKAQoPTW92ZW1lbnRDb250ZXh0Eg8KB3ZlcnNpb24YASABKA0SEgoKY2F0YWxvZ19pZBgCIAEoCRIYChBzcGVlZF9wZXJfc2Vjb25kGAMgASgBEhEKCWNsZWFyYW5jZRgEIAEoARIOCgZleHRlbnQYBSABKAESFQoNc3VuX2NsZWFyYW5jZRgGIAEoASJeCgxUcmFjZUNvbnRleHQSEAoIdHJhY2VfaWQYASABKAwSDwoHc3Bhbl9pZBgCIAEoDBIWCg5wYXJlbnRfc3Bhbl9pZBgDIAEoDBITCgt0cmFjZV9mbGFncxgEIAEoDSLTAQoORGlhZ25vc3RpY1NwYW4SDQoFc3RhZ2UYASABKAkSKAoHY29udGV4dBgCIAEoCzIXLmdhbGF4eS52MS5UcmFjZUNvbnRleHQSEAoIY2xvY2tfaWQYAyABKAkSEgoKc3RhcnRlZF91cxgEIAEoBBITCgtkdXJhdGlvbl91cxgFIAEoBBIrCgZzdGF0dXMYBiABKA4yGy5nYWxheHkudjEuRGlhZ25vc3RpY1N0YXR1cxIMCgRjb2RlGAcgASgJEhIKCmNvbW1hbmRfaWQYCCABKAwiTAoPRGlhZ25vc3RpY0JhdGNoEigKBXNwYW5zGAEgAygLMhkuZ2FsYXh5LnYxLkRpYWdub3N0aWNTcGFuEg8KB2Ryb3BwZWQYAiABKA0ixAEKC0NsaWVudEhlbGxvEiAKGG1pbmltdW1fcHJvdG9jb2xfdmVyc2lvbhgBIAEoDRIgChhtYXhpbXVtX3Byb3RvY29sX3ZlcnNpb24YAiABKA0SHwoXc3VwcG9ydGVkX3J1bGVfdmVyc2lvbnMYAyADKA0SNAoVcmVxdWlyZWRfY2FwYWJpbGl0aWVzGAQgAygOMhUuZ2FsYXh5LnYxLkNhcGFiaWxpdHkSGgoSc2Vzc2lvbl9jcmVkZW50aWFsGAUgASgMIs4BCg1TZXJ2ZXJXZWxjb21lEhgKEHByb3RvY29sX3ZlcnNpb24YASABKA0SFAoMcnVsZV92ZXJzaW9uGAIgASgNEhEKCXBsYXllcl9pZBgDIAEoDBIdChVjb25uZWN0aW9uX2dlbmVyYXRpb24YBCABKAQSFgoOc2VydmVyX3RpbWVfbXMYBSABKAQSKwoMY2FwYWJpbGl0aWVzGAYgAygOMhUuZ2FsYXh5LnYxLkNhcGFiaWxpdHkSEAoId29ybGRfaWQYCCABKAxKBAgHEAgiMAoNTG9jYWxQb3NpdGlvbhIJCgF4GAEgASgBEgkKAXoYAiABKAESCQoBeRgDIAEoASLeAgoLTW92ZUNvbW1hbmQSFwoKb3JiaXRfYm9keRgIIAEoDUgAiAEBEiIKA2tleRgBIAEoCzIVLmdhbGF4eS52MS5Db21tYW5kS2V5EigKBXNjb3BlGAIgASgLMhkuZ2FsYXh5LnYxLkF1dGhvcml0eVNjb3BlEhAKCGZsZWV0X2lkGAMgASgMEigKBnRhcmdldBgEIAEoCzIYLmdhbGF4eS52MS5Mb2NhbFBvc2l0aW9uEiUKGGV4cGVjdGVkX3N5c3RlbV9yZXZpc2lvbhgFIAEoBEgBiAEBEhcKD2FkbWlzc2lvbl90b2tlbhgGIAEoDBIkChdleHBlY3RlZF9mbGVldF9yZXZpc2lvbhgHIAEoBEgCiAEBQg0KC19vcmJpdF9ib2R5QhsKGV9leHBlY3RlZF9zeXN0ZW1fcmV2aXNpb25CGgoYX2V4cGVjdGVkX2ZsZWV0X3JldmlzaW9uIqUCCg9UcmFuc2ZlckNvbW1hbmQSIgoDa2V5GAEgASgLMhUuZ2FsYXh5LnYxLkNvbW1hbmRLZXkSKAoFc2NvcGUYAiABKAsyGS5nYWxheHkudjEuQXV0aG9yaXR5U2NvcGUSEAoIZmxlZXRfaWQYAyABKAwSHQoVZGVzdGluYXRpb25fc3lzdGVtX2lkGAQgASgMEjYKFGRlc3RpbmF0aW9uX3Bvc2l0aW9uGAUgASgLMhguZ2FsYXh5LnYxLkxvY2FsUG9zaXRpb24SJQoYZXhwZWN0ZWRfc3lzdGVtX3JldmlzaW9uGAYgASgESACIAQESFwoPYWRtaXNzaW9uX3Rva2VuGAcgASgMQhsKGV9leHBlY3RlZF9zeXN0ZW1fcmV2aXNpb24iRAoMUmVjZWlwdFF1ZXJ5EhAKCHdvcmxkX2lkGAEgASgMEiIKA2tleRgCIAEoCzIVLmdhbGF4eS52MS5Db21tYW5kS2V5Il4KDE1vdmVBY2NlcHRlZBIXCg9zeXN0ZW1fcmV2aXNpb24YASABKAQSFgoOZmxlZXRfcmV2aXNpb24YAiABKAQSHQoVYWNjZXB0ZWRfYXRfc2VydmVyX21zGAMgASgEIkEKD0NvbW1hbmRSZWplY3RlZBIuCgZyZWFzb24YASABKA4yHi5nYWxheHkudjEuQ29tbWFuZFJlamVjdFJlYXNvbiJBCg5Db21tYW5kVW5rbm93bhIvCgZyZWFzb24YASABKA4yHy5nYWxheHkudjEuQ29tbWFuZFVua25vd25SZWFzb24ixgEKC01vdmVSZWNlaXB0EiIKA2tleRgBIAEoCzIVLmdhbGF4eS52MS5Db21tYW5kS2V5EisKCGFjY2VwdGVkGAIgASgLMhcuZ2FsYXh5LnYxLk1vdmVBY2NlcHRlZEgAEi4KCHJlamVjdGVkGAMgASgLMhouZ2FsYXh5LnYxLkNvbW1hbmRSZWplY3RlZEgAEiwKB3Vua25vd24YBCABKAsyGS5nYWxheHkudjEuQ29tbWFuZFVua25vd25IAEIICgZyZXN1bHQiygEKCUZsZWV0TW92ZRIlCgN2aWEYBiADKAsyGC5nYWxheHkudjEuTG9jYWxQb3NpdGlvbhImCgRmcm9tGAEgASgLMhguZ2FsYXh5LnYxLkxvY2FsUG9zaXRpb24SJAoCdG8YAiABKAsyGC5nYWxheHkudjEuTG9jYWxQb3NpdGlvbhIbChNkZXBhcnR1cmVfc2VydmVyX21zGAMgASgEEhkKEWFycml2YWxfc2VydmVyX21zGAQgASgEEhAKCG9yZGVyX2lkGAUgASgMIkQKDUh1bGxSZWZlcmVuY2USDwoHaHVsbF9pZBgBIAEoDBIPCgd2ZXJzaW9uGAIgASgNEhEKCWFzc2V0X2tleRgDIAEoCSK+AQoKU2hpcERlc2lnbhIRCglkZXNpZ25faWQYASABKAwSDwoHdmVyc2lvbhgCIAEoDRIMCgRyb2xlGAMgASgNEiYKBGh1bGwYBCABKAsyGC5nYWxheHkudjEuSHVsbFJlZmVyZW5jZRITCgtodWxsX3BvaW50cxgFIAEoDRIVCg1zaGllbGRfcG9pbnRzGAYgASgNEhUKDWF0dGFja19wb2ludHMYByABKA0SEwoLY2FyZ29fdW5pdHMYCCABKA0iWQoKRmxlZXRHcm91cBIlCgZkZXNpZ24YASABKAsyFS5nYWxheHkudjEuU2hpcERlc2lnbhINCgVjb3VudBgCIAEoDRIVCg1kYW1hZ2VfcG9pbnRzGAMgASgEIjkKEEZsZWV0Q29tcG9zaXRpb24SJQoGZ3JvdXBzGAEgAygLMhUuZ2FsYXh5LnYxLkZsZWV0R3JvdXAiOwoPRmxlZXRBcHBlYXJhbmNlEhMKC3RvdGFsX3NoaXBzGAEgASgNEhMKC2h1bGxfY291bnRzGAIgAygNIrICCg9GbGVldFByb2plY3Rpb24SDQoFb3JiaXQYCCABKAwSEAoIZmxlZXRfaWQYASABKAwSEAoIcmV2aXNpb24YAiABKAQSKgoIcG9zaXRpb24YAyABKAsyGC5nYWxheHkudjEuTG9jYWxQb3NpdGlvbhImCghtb3ZlbWVudBgEIAEoCzIULmdhbGF4eS52MS5GbGVldE1vdmUSFAoMY29udHJvbGxhYmxlGAUgASgIEiAKGHRyYW5zZmVyX3JlYWR5X3NlcnZlcl9tcxgGIAEoBBIwCgtjb21wb3NpdGlvbhgHIAEoCzIbLmdhbGF4eS52MS5GbGVldENvbXBvc2l0aW9uEi4KCmFwcGVhcmFuY2UYCSABKAsyGi5nYWxheHkudjEuRmxlZXRBcHBlYXJhbmNlIiYKDkdhbGF4eVBvc2l0aW9uEgkKAXgYASABKAESCQoBehgCIAEoASJwCg9Ub3BvbG9neUNsdXN0ZXISEgoKY2x1c3Rlcl9pZBgBIAEoDBIMCgRuYW1lGAIgASgJEisKCHBvc2l0aW9uGAMgASgLMhkuZ2FsYXh5LnYxLkdhbGF4eVBvc2l0aW9uEg4KBnJhZGl1cxgEIAEoASJyCg5Ub3BvbG9neVN5c3RlbRIRCglzeXN0ZW1faWQYASABKAwSEgoKY2x1c3Rlcl9pZBgCIAEoDBIMCgRuYW1lGAMgASgJEisKCHBvc2l0aW9uGAQgASgLMhkuZ2FsYXh5LnYxLkdhbGF4eVBvc2l0aW9uIjgKElRvcG9sb2d5Q29ubmVjdGlvbhIQCghzeXN0ZW1fYRgBIAEoDBIQCghzeXN0ZW1fYhgCIAEoDCLcAQoNV29ybGRUb3BvbG9neRIQCgh3b3JsZF9pZBgBIAEoDBIQCghyZXZpc2lvbhgCIAEoBBIsCghjbHVzdGVycxgDIAMoCzIaLmdhbGF4eS52MS5Ub3BvbG9neUNsdXN0ZXISKgoHc3lzdGVtcxgEIAMoCzIZLmdhbGF4eS52MS5Ub3BvbG9neVN5c3RlbRIyCgtjb25uZWN0aW9ucxgFIAMoCzIdLmdhbGF4eS52MS5Ub3BvbG9neUNvbm5lY3Rpb24SGQoRaG9zdGVkX3N5c3RlbV9pZHMYBiADKAwiPQoPUHJvdG9jb2xGYWlsdXJlEioKBGNvZGUYASABKA4yHC5nYWxheHkudjEuUHJvdG9jb2xFcnJvckNvZGUiuQMKDUNsaWVudE1lc3NhZ2USGAoQcHJvdG9jb2xfdmVyc2lvbhgBIAEoDRIdChVjb25uZWN0aW9uX2dlbmVyYXRpb24YAiABKAQSJwoFaGVsbG8YCiABKAsyFi5nYWxheHkudjEuQ2xpZW50SGVsbG9IABImCgRtb3ZlGAsgASgLMhYuZ2FsYXh5LnYxLk1vdmVDb21tYW5kSAASMAoNcmVjZWlwdF9xdWVyeRgMIAEoCzIXLmdhbGF4eS52MS5SZWNlaXB0UXVlcnlIABIuCgh0cmFuc2ZlchgOIAEoCzIaLmdhbGF4eS52MS5UcmFuc2ZlckNvbW1hbmRIABI0Cg9yZW5ld19hZG1pc3Npb24YDyABKAsyGS5nYWxheHkudjEuUmVuZXdBZG1pc3Npb25IABIuCgx2aWV3X3JlcXVlc3QYEiABKAsyFi5nYWxheHkudjEuVmlld1JlcXVlc3RIABI2ChBnYW1lcGxheV9yZXF1ZXN0GBMgASgLMhouZ2FsYXh5LnYxLkdhbWVwbGF5UmVxdWVzdEgAQgYKBGJvZHlKBAgNEA5KBAgQEBFKBAgREBJKBAgDEAQihwQKDVNlcnZlck1lc3NhZ2USGAoQcHJvdG9jb2xfdmVyc2lvbhgBIAEoDRIdChVjb25uZWN0aW9uX2dlbmVyYXRpb24YAiABKAQSKwoHd2VsY29tZRgKIAEoCzIYLmdhbGF4eS52MS5TZXJ2ZXJXZWxjb21lSAASKQoHcmVjZWlwdBgLIAEoCzIWLmdhbGF4eS52MS5Nb3ZlUmVjZWlwdEgAEi0KB2ZhaWx1cmUYDiABKAsyGi5nYWxheHkudjEuUHJvdG9jb2xGYWlsdXJlSAASOAoRYWRtaXNzaW9uX3JlbmV3ZWQYECABKAsyGy5nYWxheHkudjEuQWRtaXNzaW9uUmVuZXdlZEgAEioKCnZpZXdfZXZlbnQYEyABKAsyFC5nYWxheHkudjEuVmlld0V2ZW50SAASMgoOdmlld19wbGFjZW1lbnQYFCABKAsyGC5nYWxheHkudjEuVmlld1BsYWNlbWVudEgAEjIKDmdhbWVwbGF5X3JlcGx5GBUgASgLMhguZ2FsYXh5LnYxLkdhbWVwbGF5UmVwbHlIABI2ChBnYW1lcGxheV9jaGFuZ2VkGBYgASgLMhouZ2FsYXh5LnYxLkdhbWVwbGF5Q2hhbmdlZEgAQgYKBGJvZHlKBAgMEA1KBAgNEA5KBAgPEBBKBAgREBJKBAgSEBNKBAgDEARKBAgEEAUicwoSVHJhbnNmZXJGbGVldFN0YXRlEhcKD293bmVyX3BsYXllcl9pZBgBIAEoDBIuCgpwcm9qZWN0aW9uGAIgASgLMhouZ2FsYXh5LnYxLkZsZWV0UHJvamVjdGlvbhIUCgxydWxlX3ZlcnNpb24YAyABKA0ilgQKDUZsZWV0VHJhbnNmZXISEwoLdHJhbnNmZXJfaWQYASABKAwSGgoSaW50ZW50X2ZpbmdlcnByaW50GAIgASgMEjYKE3NvdXJjZV9hdF9kZXBhcnR1cmUYAyABKAsyGS5nYWxheHkudjEuQXV0aG9yaXR5U2NvcGUSHAoUZGVzdGluYXRpb25fc2hhcmRfaWQYBCABKAwSHQoVZGVzdGluYXRpb25fc3lzdGVtX2lkGAUgASgMEiwKBWZsZWV0GAYgASgLMh0uZ2FsYXh5LnYxLlRyYW5zZmVyRmxlZXRTdGF0ZRIyChNvcmlnaW5hdGluZ19jb21tYW5kGAcgASgLMhUuZ2FsYXh5LnYxLkNvbW1hbmRLZXkSGwoTZGVwYXJ0dXJlX3NlcnZlcl9tcxgIIAEoBBIZChFhcnJpdmFsX3NlcnZlcl9tcxgJIAEoBBI2ChRkZXN0aW5hdGlvbl9wb3NpdGlvbhgKIAEoCzIYLmdhbGF4eS52MS5Mb2NhbFBvc2l0aW9uEhcKD3NvdXJjZV9yZXZpc2lvbhgLIAEoBBIlChhleHBlY3RlZF9zeXN0ZW1fcmV2aXNpb24YDCABKARIAIgBARIwCg9hY2NlcHRlZF90aW1pbmcYDSABKAsyFy5nYWxheHkudjEuVHJhdmVsVGltaW5nQhsKGV9leHBlY3RlZF9zeXN0ZW1fcmV2aXNpb24iTwoQVHJhbnNmZXJJbXBvcnRlZBIjChtkZXN0aW5hdGlvbl9zeXN0ZW1fcmV2aXNpb24YASABKAQSFgoOZmxlZXRfcmV2aXNpb24YAiABKAQiQwoQVHJhbnNmZXJSZWplY3RlZBIvCgZyZWFzb24YASABKA4yHy5nYWxheHkudjEuVHJhbnNmZXJSZWplY3RSZWFzb24irAIKD1RyYW5zZmVyUmVjZWlwdBITCgt0cmFuc2Zlcl9pZBgBIAEoDBIaChJpbnRlbnRfZmluZ2VycHJpbnQYAiABKAwSLwoIaW1wb3J0ZWQYAyABKAsyGy5nYWxheHkudjEuVHJhbnNmZXJJbXBvcnRlZEgAEi8KCHJlamVjdGVkGAQgASgLMhsuZ2FsYXh5LnYxLlRyYW5zZmVyUmVqZWN0ZWRIABIiCgNrZXkYBSABKAsyFS5nYWxheHkudjEuQ29tbWFuZEtleRI6ChdkZXN0aW5hdGlvbl9hdF9kZWNpc2lvbhgGIAEoCzIZLmdhbGF4eS52MS5BdXRob3JpdHlTY29wZRIcChRkZWNpZGVkX2F0X3NlcnZlcl9tcxgHIAEoBEIICgZyZXN1bHQiZwoNVHJhbnNmZXJRdWVyeRITCgt0cmFuc2Zlcl9pZBgBIAEoDBIiCgNrZXkYAiABKAsyFS5nYWxheHkudjEuQ29tbWFuZEtleRIdChVkZXN0aW5hdGlvbl9zeXN0ZW1faWQYAyABKAwiqgEKC0hvbWVSZXF1ZXN0EhEKCXBsYXllcl9pZBgBIAEoDBImCgRtb3ZlGAIgASgLMhYuZ2FsYXh5LnYxLk1vdmVDb21tYW5kSAASLgoIdHJhbnNmZXIYAyABKAsyGi5nYWxheHkudjEuVHJhbnNmZXJDb21tYW5kSAASKAoFcXVlcnkYBCABKAsyFy5nYWxheHkudjEuUmVjZWlwdFF1ZXJ5SABCBgoEYm9keSI8ChVSZXRpcmVtZW50U3lzdGVtRmxvb3ISEQoJc3lzdGVtX2lkGAEgASgMEhAKCHJldmlzaW9uGAIgASgEIrQCChdUcmFuc2ZlclJldGlyZW1lbnRQcm9vZhI0ChFzb3VyY2VfYXRfcHJlcGFyZRgBIAEoCzIZLmdhbGF4eS52MS5BdXRob3JpdHlTY29wZRIcChRkZXN0aW5hdGlvbl9zaGFyZF9pZBgCIAEoDBIYChBwcmV2aW91c190aHJvdWdoGAMgASgEEg8KB3Rocm91Z2gYBCABKAQSFwoPcHJldmlvdXNfZGlnZXN0GAUgASgMEg4KBmRpZ2VzdBgGIAEoDBIPCgdyZWNvcmRzGAcgASgNEiAKGHNvdXJjZV9yZXF1aXJlZF9yZXZpc2lvbhgIIAEoBBI+ChRkZXN0aW5hdGlvbl9yZXF1aXJlZBgJIAMoCzIgLmdhbGF4eS52MS5SZXRpcmVtZW50U3lzdGVtRmxvb3IioQQKC1BlZXJNZXNzYWdlEhgKEHByb3RvY29sX3ZlcnNpb24YASABKA0SKQoGc2VuZGVyGAIgASgLMhkuZ2FsYXh5LnYxLkF1dGhvcml0eVNjb3BlEi4KDXRyYWNlX2NvbnRleHQYAyABKAsyFy5nYWxheHkudjEuVHJhY2VDb250ZXh0Ei8KC2RpYWdub3N0aWNzGAQgASgLMhouZ2FsYXh5LnYxLkRpYWdub3N0aWNCYXRjaBIsCgh0cmFuc2ZlchgKIAEoCzIYLmdhbGF4eS52MS5GbGVldFRyYW5zZmVySAASLQoHcmVjZWlwdBgLIAEoCzIaLmdhbGF4eS52MS5UcmFuc2ZlclJlY2VpcHRIABIpCgVxdWVyeRgMIAEoCzIYLmdhbGF4eS52MS5UcmFuc2ZlclF1ZXJ5SAASLgoMaG9tZV9yZXF1ZXN0GA0gASgLMhYuZ2FsYXh5LnYxLkhvbWVSZXF1ZXN0SAASLgoMaG9tZV9yZWNlaXB0GA4gASgLMhYuZ2FsYXh5LnYxLk1vdmVSZWNlaXB0SAASPgoQcmV0aXJlbWVudF9vZmZlchgPIAEoCzIiLmdhbGF4eS52MS5UcmFuc2ZlclJldGlyZW1lbnRQcm9vZkgAEjwKDnJldGlyZW1lbnRfYWNrGBAgASgLMiIuZ2FsYXh5LnYxLlRyYW5zZmVyUmV0aXJlbWVudFByb29mSABCBgoEYm9keSLSAQoLVmlld1JlcXVlc3QSEAoId29ybGRfaWQYASABKAwSDAoEc2xvdBgCIAEoDRIaChJyZXF1ZXN0X2dlbmVyYXRpb24YAyABKAQSKgoHcmVwbGFjZRgEIAEoCzIXLmdhbGF4eS52MS5WaWV3U2VsZWN0b3JIABInCgZyZXN1bWUYBSABKAsyFS5nYWxheHkudjEuVmlld1Jlc3VtZUgAEiUKBWNsb3NlGAYgASgLMhQuZ2FsYXh5LnYxLlZpZXdDbG9zZUgAQgsKCW9wZXJhdGlvbiKfAQoMVmlld1NlbGVjdG9yEi8KCG92ZXJ2aWV3GAEgASgLMhsuZ2FsYXh5LnYxLk92ZXJ2aWV3U2VsZWN0b3JIABIpCgVvd25lZBgCIAEoCzIYLmdhbGF4eS52MS5Pd25lZFNlbGVjdG9ySAASKwoGZGV0YWlsGAMgASgLMhkuZ2FsYXh5LnYxLkRldGFpbFNlbGVjdG9ySABCBgoEa2luZCJXChBPdmVydmlld1NlbGVjdG9yEhoKEndob2xlX2tub3duX2dhbGF4eRgBIAEoCBISCgpzeXN0ZW1faWRzGAIgAygMEhMKC2NsdXN0ZXJfaWRzGAMgAygMIg8KDU93bmVkU2VsZWN0b3IiIwoORGV0YWlsU2VsZWN0b3ISEQoJc3lzdGVtX2lkGAEgASgMIgsKCVZpZXdDbG9zZSJwCgpWaWV3UmVzdW1lEhsKE2Jhc2VsaW5lX2dlbmVyYXRpb24YBCABKAQSEwoLYmFzZWxpbmVfaWQYASABKAwSGAoQdmlzaWJpbGl0eV9lcG9jaBgCIAEoBBIWCg5hZnRlcl9zZXF1ZW5jZRgDIAEoBCKPAwoJVmlld0V2ZW50EhAKCHdvcmxkX2lkGAEgASgMEgwKBHNsb3QYAiABKA0SGgoScmVxdWVzdF9nZW5lcmF0aW9uGAMgASgEEhgKEHZpc2liaWxpdHlfZXBvY2gYBCABKAQSJQoFYmVnaW4YBSABKAsyFC5nYWxheHkudjEuVmlld0JlZ2luSAASJQoFY2h1bmsYBiABKAsyFC5nYWxheHkudjEuVmlld0NodW5rSAASJQoFcmVhZHkYByABKAsyFC5nYWxheHkudjEuVmlld1JlYWR5SAASJQoFZGVsdGEYCCABKAsyFC5nYWxheHkudjEuVmlld0RlbHRhSAASMQoLaW52YWxpZGF0ZWQYCSABKAsyGi5nYWxheHkudjEuVmlld0ludmFsaWRhdGVkSAASKwoIcmVqZWN0ZWQYCiABKAsyFy5nYWxheHkudjEuVmlld1JlamVjdGVkSAASJgoGY2xvc2VkGAsgASgLMhQuZ2FsYXh5LnYxLlZpZXdDbG9zZUgAQggKBnJlc3VsdCLSAQoJVmlld0JlZ2luEhkKEXRvcG9sb2d5X3JldmlzaW9uGAcgASgEEhsKE2Jhc2VsaW5lX2dlbmVyYXRpb24YBiABKAQSEwoLYmFzZWxpbmVfaWQYASABKAwSKQoIc2VsZWN0b3IYAiABKAsyFy5nYWxheHkudjEuVmlld1NlbGVjdG9yEhsKE3Byb2plY3Rpb25fb3duZXJfaWQYAyABKAwSEwoLb3duZXJfZXBvY2gYBCABKAQSGwoTcmVjb3ZlcnlfZ2VuZXJhdGlvbhgFIAEoBCLXAQoJVmlld0NodW5rEhsKE2Jhc2VsaW5lX2dlbmVyYXRpb24YBiABKAQSEwoLYmFzZWxpbmVfaWQYASABKAwSEwoLY2h1bmtfaW5kZXgYAiABKA0SKwoIb3ZlcnZpZXcYAyABKAsyFy5nYWxheHkudjEuT3ZlcnZpZXdSb3dzSAASJQoFb3duZWQYBCABKAsyFC5nYWxheHkudjEuT3duZWRSb3dzSAASJwoGZGV0YWlsGAUgASgLMhUuZ2FsYXh5LnYxLkRldGFpbFJvd3NIAEIGCgRyb3dzInYKCVZpZXdSZWFkeRIbChNiYXNlbGluZV9nZW5lcmF0aW9uGAUgASgEEhMKC2Jhc2VsaW5lX2lkGAEgASgMEhMKC2NodW5rX2NvdW50GAIgASgNEhAKCHNlcXVlbmNlGAMgASgEEhAKCGNvbXBsZXRlGAQgASgIIusBCglWaWV3RGVsdGESGwoTYmFzZWxpbmVfZ2VuZXJhdGlvbhgHIAEoBBITCgtiYXNlbGluZV9pZBgBIAEoDBIVCg1iYXNlX3NlcXVlbmNlGAIgASgEEhAKCHNlcXVlbmNlGAMgASgEEisKCG92ZXJ2aWV3GAQgASgLMhcuZ2FsYXh5LnYxLk92ZXJ2aWV3Um93c0gAEiUKBW93bmVkGAUgASgLMhQuZ2FsYXh5LnYxLk93bmVkUm93c0gAEicKBmRldGFpbBgGIAEoCzIVLmdhbGF4eS52MS5EZXRhaWxSb3dzSABCBgoEcm93cyI+Cg9WaWV3SW52YWxpZGF0ZWQSDgoGcmVhc29uGAEgASgNEhsKE2Jhc2VsaW5lX2dlbmVyYXRpb24YAiABKAQiNgoMVmlld1JlamVjdGVkEg4KBnJlYXNvbhgBIAEoDRIWCg5yZXRyeV9hZnRlcl9tcxgCIAEoDSKCAQoRU291cmNlT2JzZXJ2YXRpb24SKAoFc2NvcGUYASABKAsyGS5nYWxheHkudjEuQXV0aG9yaXR5U2NvcGUSEAoIcmV2aXNpb24YAiABKAQSGwoTY29tbWl0dGVkX3NlcnZlcl9tcxgDIAEoBBIUCgxhdmFpbGFiaWxpdHkYBCABKA0itAEKDk92ZXJ2aWV3U3lzdGVtEhEKCXN5c3RlbV9pZBgBIAEoDBIxCgtvYnNlcnZhdGlvbhgCIAEoCzIcLmdhbGF4eS52MS5Tb3VyY2VPYnNlcnZhdGlvbhIbCg5wcmVzZW50X2ZsZWV0cxgDIAEoDUgAiAEBEhoKDW1vdmluZ19mbGVldHMYBCABKA1IAYgBAUIRCg9fcHJlc2VudF9mbGVldHNCEAoOX21vdmluZ19mbGVldHMivwIKDE92ZXJ2aWV3Um93cxIsCghjbHVzdGVycxgBIAMoCzIaLmdhbGF4eS52MS5Ub3BvbG9neUNsdXN0ZXISKgoHc3lzdGVtcxgCIAMoCzIZLmdhbGF4eS52MS5Ub3BvbG9neVN5c3RlbRIyCgtjb25uZWN0aW9ucxgDIAMoCzIdLmdhbGF4eS52MS5Ub3BvbG9neUNvbm5lY3Rpb24SLAoJc3VtbWFyaWVzGAQgAygLMhkuZ2FsYXh5LnYxLk92ZXJ2aWV3U3lzdGVtEhoKEnJlbW92ZWRfc3lzdGVtX2lkcxgFIAMoDBIbChNyZW1vdmVkX2NsdXN0ZXJfaWRzGAYgAygMEjoKE3JlbW92ZWRfY29ubmVjdGlvbnMYByADKAsyHS5nYWxheHkudjEuVG9wb2xvZ3lDb25uZWN0aW9uIrwCCg1Pd25lZEZsZWV0Um93EhAKCGZsZWV0X2lkGAEgASgMEhYKDmZsZWV0X3JldmlzaW9uGAIgASgEEiwKBnNvdXJjZRgDIAEoCzIcLmdhbGF4eS52MS5Tb3VyY2VPYnNlcnZhdGlvbhINCgVzdGF0ZRgEIAEoDRIRCglzeXN0ZW1faWQYBSABKAwSHQoVZGVzdGluYXRpb25fc3lzdGVtX2lkGAYgASgMEhMKC3RyYW5zZmVyX2lkGAcgASgMEh4KEWFycml2YWxfc2VydmVyX21zGAggASgESACIAQESGQoMbWVtYmVyX2NvdW50GAkgASgNSAGIAQESGwoTZGVwYXJ0dXJlX3N5c3RlbV9pZBgKIAEoDEIUChJfYXJyaXZhbF9zZXJ2ZXJfbXNCDwoNX21lbWJlcl9jb3VudCJxCglPd25lZFJvd3MSKQoHdXBzZXJ0cxgBIAMoCzIYLmdhbGF4eS52MS5Pd25lZEZsZWV0Um93EhkKEXJlbW92ZWRfZmxlZXRfaWRzGAIgAygMEh4KFnVuYXZhaWxhYmxlX3NvdXJjZV9pZHMYAyADKAwihwEKCkRldGFpbFJvd3MSMQoLb2JzZXJ2YXRpb24YASABKAsyHC5nYWxheHkudjEuU291cmNlT2JzZXJ2YXRpb24SKwoHdXBzZXJ0cxgCIAMoCzIaLmdhbGF4eS52MS5GbGVldFByb2plY3Rpb24SGQoRcmVtb3ZlZF9mbGVldF9pZHMYAyADKAwijQIKDVZpZXdQbGFjZW1lbnQSEQoJcGxheWVyX2lkGAogASgMEhAKCHdvcmxkX2lkGAEgASgMEhsKE3BsYXllcl9wYXJ0aXRpb25faWQYAiABKAwSDwoHaG9zdF9pZBgDIAEoDBIVCg13ZWJzb2NrZXRfdXJsGAQgASgJEh0KEHdlYnRyYW5zcG9ydF91cmwYBSABKAlIAIgBARIaChJjZXJ0aWZpY2F0ZV9zaGEyNTYYBiABKAwSEAoIb3duZXJfaWQYByABKAwSEwoLb3duZXJfZXBvY2gYCCABKAQSGwoTcmVjb3ZlcnlfZ2VuZXJhdGlvbhgJIAEoBEITChFfd2VidHJhbnNwb3J0X3VybCJnCg9HYW1lcGxheVJlcXVlc3QSEgoKcmVxdWVzdF9pZBgBIAEoBBIvCglvcGVyYXRpb24YAiABKA4yHC5nYWxheHkudjEuR2FtZXBsYXlPcGVyYXRpb24SDwoHcGF5bG9hZBgDIAEoDCJeCg1HYW1lcGxheVJlcGx5EhIKCnJlcXVlc3RfaWQYASABKAQSDgoGc3RhdHVzGAIgASgNEhgKEHZpc2liaWxpdHlfZXBvY2gYAyABKAQSDwoHcGF5bG9hZBgEIAEoDCI0Cg9HYW1lcGxheUNoYW5nZWQSDgoGdG9waWNzGAEgASgNEhEKCWZsZWV0X2lkcxgCIAMoDCqaAwoKQ2FwYWJpbGl0eRIaChZDQVBBQklMSVRZX1VOU1BFQ0lGSUVEEAASIwofQ0FQQUJJTElUWV9JTlRSQV9TWVNURU1fTU9WRV9WMRABEiEKHUNBUEFCSUxJVFlfT1dORURfUlVMRV9TRUVEX1YxEAQSJwojQ0FQQUJJTElUWV9DUk9TU19TWVNURU1fVFJBTlNGRVJfVjEQBRIjCh9DQVBBQklMSVRZX0FETUlTU0lPTl9SRU5FV0FMX1YxEAcSHgoaQ0FQQUJJTElUWV9QTEFZRVJfVklFV1NfVjEQCxIiCh5DQVBBQklMSVRZX0dBTUVQTEFZX0NIQU5ORUxfVjEQDxIkCiBDQVBBQklMSVRZX0xPQ0FMX1BPU0lUSU9OX1hZWl9WMRAMEiAKHENBUEFCSUxJVFlfRkxFRVRfUkVUQVJHRVRfVjEQDRIqCiZDQVBBQklMSVRZX1BMQU5FVF9BVk9JRElOR19NT1ZFTUVOVF9WMRAOIgQIAhACIgQIAxADIgQIBhAGIgQICBAIIgQICRAJIgQIChAKKmwKEERpYWdub3N0aWNTdGF0dXMSIQodRElBR05PU1RJQ19TVEFUVVNfVU5TUEVDSUZJRUQQABIYChRESUFHTk9TVElDX1NUQVRVU19PSxABEhsKF0RJQUdOT1NUSUNfU1RBVFVTX0VSUk9SEAIq2QIKE0NvbW1hbmRSZWplY3RSZWFzb24SJQohQ09NTUFORF9SRUpFQ1RfUkVBU09OX1VOU1BFQ0lGSUVEEAASJgoiQ09NTUFORF9SRUpFQ1RfUkVBU09OX1VOQVVUSE9SSVpFRBABEigKJENPTU1BTkRfUkVKRUNUX1JFQVNPTl9JTlZBTElEX1RBUkdFVBACEigKJENPTU1BTkRfUkVKRUNUX1JFQVNPTl9TVEFMRV9SRVZJU0lPThADEiUKIUNPTU1BTkRfUkVKRUNUX1JFQVNPTl9XUk9OR19PV05FUhAEEisKJ0NPTU1BTkRfUkVKRUNUX1JFQVNPTl9JREVOVElUWV9DT05GTElDVBAFEisKJ0NPTU1BTkRfUkVKRUNUX1JFQVNPTl9BRE1JU1NJT05fRVhQSVJFRBAGEh4KGkNPTU1BTkRfUkVKRUNUX1JFQVNPTl9CVVNZEAcqtgEKFENvbW1hbmRVbmtub3duUmVhc29uEiYKIkNPTU1BTkRfVU5LTk9XTl9SRUFTT05fVU5TUEVDSUZJRUQQABIkCiBDT01NQU5EX1VOS05PV05fUkVBU09OX05PVF9GT1VORBABEiIKHkNPTU1BTkRfVU5LTk9XTl9SRUFTT05fRVhQSVJFRBACEiwKKENPTU1BTkRfVU5LTk9XTl9SRUFTT05fUkVDT1ZFUllfUkVRVUlSRUQQAyqsAgoRUHJvdG9jb2xFcnJvckNvZGUSIwofUFJPVE9DT0xfRVJST1JfQ09ERV9VTlNQRUNJRklFRBAAEisKJ1BST1RPQ09MX0VSUk9SX0NPREVfVU5TVVBQT1JURURfVkVSU0lPThABEigKJFBST1RPQ09MX0VSUk9SX0NPREVfVU5TVVBQT1JURURfUlVMRRACEi4KKlBST1RPQ09MX0VSUk9SX0NPREVfVU5TVVBQT1JURURfQ0FQQUJJTElUWRADEiEKHVBST1RPQ09MX0VSUk9SX0NPREVfTUFMRk9STUVEEAQSJAogUFJPVE9DT0xfRVJST1JfQ09ERV9VTkFVVEhPUklaRUQQBRIiCh5QUk9UT0NPTF9FUlJPUl9DT0RFX09WRVJMT0FERUQQBirBAQoUVHJhbnNmZXJSZWplY3RSZWFzb24SJgoiVFJBTlNGRVJfUkVKRUNUX1JFQVNPTl9VTlNQRUNJRklFRBAAEi4KKlRSQU5TRkVSX1JFSkVDVF9SRUFTT05fSU5WQUxJRF9ERVNUSU5BVElPThABEiwKKFRSQU5TRkVSX1JFSkVDVF9SRUFTT05fSURFTlRJVFlfQ09ORkxJQ1QQAhIjCh9UUkFOU0ZFUl9SRUpFQ1RfUkVBU09OX0NBUEFDSVRZEAMq2AMKEUdhbWVwbGF5T3BlcmF0aW9uEiIKHkdBTUVQTEFZX09QRVJBVElPTl9VTlNQRUNJRklFRBAAEh4KGkdBTUVQTEFZX09QRVJBVElPTl9KT1VSTkVZEAESIAocR0FNRVBMQVlfT1BFUkFUSU9OX0VOQ09VTlRFUhACEh0KGUdBTUVQTEFZX09QRVJBVElPTl9CQVRUTEUQAxIfChtHQU1FUExBWV9PUEVSQVRJT05fSU5EVVNUUlkQBBIiCh5HQU1FUExBWV9PUEVSQVRJT05fREVWRUxPUE1FTlQQBRIjCh9HQU1FUExBWV9PUEVSQVRJT05fRkxFRVRfU1RBVFVTEAYSHQoZR0FNRVBMQVlfT1BFUkFUSU9OX1NVUlZFWRAHEh8KG0dBTUVQTEFZX09QRVJBVElPTl9JTkNPTUlORxAIEiQKIEdBTUVQTEFZX09QRVJBVElPTl9ST1VURV9QUkVWSUVXEAkSIwofR0FNRVBMQVlfT1BFUkFUSU9OX1RFU1RFUl9GTEVFVBAKEiMKH0dBTUVQTEFZX09QRVJBVElPTl9KT1VSTkVZX1BBVEgQCxIkCiBHQU1FUExBWV9PUEVSQVRJT05fVEVTVEVSX09XTkVSUxAMYgZwcm90bzM");
 var AuthorityScopeSchema = /* @__PURE__ */ messageDesc(file_galaxy_v1_galaxy, 0);
 var AdmissionGrantSchema = /* @__PURE__ */ messageDesc(file_galaxy_v1_galaxy, 2);
-var LocalPositionSchema = /* @__PURE__ */ messageDesc(file_galaxy_v1_galaxy, 11);
-var MoveCommandSchema = /* @__PURE__ */ messageDesc(file_galaxy_v1_galaxy, 12);
-var TransferCommandSchema = /* @__PURE__ */ messageDesc(file_galaxy_v1_galaxy, 13);
-var MoveReceiptSchema = /* @__PURE__ */ messageDesc(file_galaxy_v1_galaxy, 18);
-var PlaybackClockRequestSchema = /* @__PURE__ */ messageDesc(file_galaxy_v1_galaxy, 21);
-var FleetMoveSchema = /* @__PURE__ */ messageDesc(file_galaxy_v1_galaxy, 23);
-var FleetProjectionSchema = /* @__PURE__ */ messageDesc(file_galaxy_v1_galaxy, 24);
-var GalaxyPositionSchema = /* @__PURE__ */ messageDesc(file_galaxy_v1_galaxy, 25);
-var TopologyClusterSchema = /* @__PURE__ */ messageDesc(file_galaxy_v1_galaxy, 26);
-var TopologySystemSchema = /* @__PURE__ */ messageDesc(file_galaxy_v1_galaxy, 27);
-var TopologyConnectionSchema = /* @__PURE__ */ messageDesc(file_galaxy_v1_galaxy, 28);
-var SystemSnapshotChunkSchema = /* @__PURE__ */ messageDesc(file_galaxy_v1_galaxy, 39);
-var SystemDeltaSchema = /* @__PURE__ */ messageDesc(file_galaxy_v1_galaxy, 40);
-var ClientMessageSchema = /* @__PURE__ */ messageDesc(file_galaxy_v1_galaxy, 42);
-var ServerMessageSchema = /* @__PURE__ */ messageDesc(file_galaxy_v1_galaxy, 43);
-var ViewRequestSchema = /* @__PURE__ */ messageDesc(file_galaxy_v1_galaxy, 54);
-var ViewSelectorSchema = /* @__PURE__ */ messageDesc(file_galaxy_v1_galaxy, 55);
-var ViewDeltaSchema = /* @__PURE__ */ messageDesc(file_galaxy_v1_galaxy, 65);
-var SourceObservationSchema = /* @__PURE__ */ messageDesc(file_galaxy_v1_galaxy, 68);
-var OverviewSystemSchema = /* @__PURE__ */ messageDesc(file_galaxy_v1_galaxy, 69);
-var OwnedFleetRowSchema = /* @__PURE__ */ messageDesc(file_galaxy_v1_galaxy, 71);
+var TravelPolicySchema = /* @__PURE__ */ messageDesc(file_galaxy_v1_galaxy, 3);
+var LocalPositionSchema = /* @__PURE__ */ messageDesc(file_galaxy_v1_galaxy, 13);
+var MoveCommandSchema = /* @__PURE__ */ messageDesc(file_galaxy_v1_galaxy, 14);
+var TransferCommandSchema = /* @__PURE__ */ messageDesc(file_galaxy_v1_galaxy, 15);
+var MoveReceiptSchema = /* @__PURE__ */ messageDesc(file_galaxy_v1_galaxy, 20);
+var FleetMoveSchema = /* @__PURE__ */ messageDesc(file_galaxy_v1_galaxy, 21);
+var FleetCompositionSchema = /* @__PURE__ */ messageDesc(file_galaxy_v1_galaxy, 25);
+var FleetAppearanceSchema = /* @__PURE__ */ messageDesc(file_galaxy_v1_galaxy, 26);
+var FleetProjectionSchema = /* @__PURE__ */ messageDesc(file_galaxy_v1_galaxy, 27);
+var GalaxyPositionSchema = /* @__PURE__ */ messageDesc(file_galaxy_v1_galaxy, 28);
+var TopologyClusterSchema = /* @__PURE__ */ messageDesc(file_galaxy_v1_galaxy, 29);
+var TopologySystemSchema = /* @__PURE__ */ messageDesc(file_galaxy_v1_galaxy, 30);
+var TopologyConnectionSchema = /* @__PURE__ */ messageDesc(file_galaxy_v1_galaxy, 31);
+var ClientMessageSchema = /* @__PURE__ */ messageDesc(file_galaxy_v1_galaxy, 34);
+var ServerMessageSchema = /* @__PURE__ */ messageDesc(file_galaxy_v1_galaxy, 35);
+var ViewRequestSchema = /* @__PURE__ */ messageDesc(file_galaxy_v1_galaxy, 46);
+var ViewSelectorSchema = /* @__PURE__ */ messageDesc(file_galaxy_v1_galaxy, 47);
+var ViewDeltaSchema = /* @__PURE__ */ messageDesc(file_galaxy_v1_galaxy, 57);
+var SourceObservationSchema = /* @__PURE__ */ messageDesc(file_galaxy_v1_galaxy, 60);
+var OverviewSystemSchema = /* @__PURE__ */ messageDesc(file_galaxy_v1_galaxy, 61);
+var OwnedFleetRowSchema = /* @__PURE__ */ messageDesc(file_galaxy_v1_galaxy, 63);
+var GameplayRequestSchema = /* @__PURE__ */ messageDesc(file_galaxy_v1_galaxy, 67);
 var Capability = {
   /**
    * @generated from enum value: CAPABILITY_UNSPECIFIED = 0;
@@ -3342,14 +3367,6 @@ var Capability = {
    * @generated from enum value: CAPABILITY_INTRA_SYSTEM_MOVE_V1 = 1;
    */
   INTRA_SYSTEM_MOVE_V1: 1,
-  /**
-   * @generated from enum value: CAPABILITY_SYSTEM_STREAM_V1 = 2;
-   */
-  SYSTEM_STREAM_V1: 2,
-  /**
-   * @generated from enum value: CAPABILITY_WORLD_TOPOLOGY_V1 = 3;
-   */
-  WORLD_TOPOLOGY_V1: 3,
   /**
    * Observer-owned rule seeds include real order identity and committed time.
    *
@@ -3361,29 +3378,37 @@ var Capability = {
    */
   CROSS_SYSTEM_TRANSFER_V1: 5,
   /**
-   * @generated from enum value: CAPABILITY_DIAGNOSTICS_V1 = 6;
-   */
-  DIAGNOSTICS_V1: 6,
-  /**
    * @generated from enum value: CAPABILITY_ADMISSION_RENEWAL_V1 = 7;
    */
   ADMISSION_RENEWAL_V1: 7,
   /**
-   * @generated from enum value: CAPABILITY_STRATEGIC_SYSTEMS_V1 = 8;
-   */
-  STRATEGIC_SYSTEMS_V1: 8,
-  /**
-   * @generated from enum value: CAPABILITY_STRATEGIC_SYSTEMS_COMPACT_V1 = 9;
-   */
-  STRATEGIC_SYSTEMS_COMPACT_V1: 9,
-  /**
-   * @generated from enum value: CAPABILITY_PLAYBACK_CLOCK_V1 = 10;
-   */
-  PLAYBACK_CLOCK_V1: 10,
-  /**
    * @generated from enum value: CAPABILITY_PLAYER_VIEWS_V1 = 11;
    */
-  PLAYER_VIEWS_V1: 11
+  PLAYER_VIEWS_V1: 11,
+  /**
+   * Authenticated gameplay calls and coalesced player change subscriptions.
+   *
+   * @generated from enum value: CAPABILITY_GAMEPLAY_CHANNEL_V1 = 15;
+   */
+  GAMEPLAY_CHANNEL_V1: 15,
+  /**
+   * Both endpoints preserve sun-local XYZ in commands and projections.
+   *
+   * @generated from enum value: CAPABILITY_LOCAL_POSITION_XYZ_V1 = 12;
+   */
+  LOCAL_POSITION_XYZ_V1: 12,
+  /**
+   * Per-fleet optimistic revision, due-event ordering and analytical retargeting.
+   *
+   * @generated from enum value: CAPABILITY_FLEET_RETARGET_V1 = 13;
+   */
+  FLEET_RETARGET_V1: 13,
+  /**
+   * Bounded planetary avoidance, arc-length progress and immutable path confirmation.
+   *
+   * @generated from enum value: CAPABILITY_PLANET_AVOIDING_MOVEMENT_V1 = 14;
+   */
+  PLANET_AVOIDING_MOVEMENT_V1: 14
 };
 var CommandUnknownReason = {
   /**
@@ -3403,18 +3428,169 @@ var CommandUnknownReason = {
    */
   RECOVERY_REQUIRED: 3
 };
-var StrategicEncoding = {
-  /**
-   * Omitted/default requests retain the legacy complete-view representation.
-   *
-   * @generated from enum value: STRATEGIC_ENCODING_UNSPECIFIED = 0;
-   */
-  UNSPECIFIED: 0,
-  /**
-   * @generated from enum value: STRATEGIC_ENCODING_COMPACT_V1 = 1;
-   */
-  COMPACT_V1: 1
-};
+
+// js/network/views/gameplay.ts
+function createGameplayChannel(port, send) {
+  let closed = false, ready = false;
+  const active = /* @__PURE__ */ new Set();
+  if (port) {
+    port.onmessage = ({ data }) => {
+      if (data.kind === "cancel") {
+        active.delete(BigInt(data.id));
+        return;
+      }
+      if (closed || data.kind !== "request") return;
+      const id2 = BigInt(data.id);
+      if (!ready || active.size >= 8 || active.has(id2)) {
+        port.postMessage({ kind: "reply", id: data.id, error: "Gameplay channel unavailable" });
+        return;
+      }
+      active.add(id2);
+      void send(create(GameplayRequestSchema, { requestId: id2, operation: data.operation, payload: data.payload })).catch(() => {
+        active.delete(id2);
+        port.postMessage({ kind: "reply", id: data.id, error: "Gameplay send unconfirmed; retry the same order" });
+      });
+    };
+    port.start();
+  }
+  return {
+    ready() {
+      ready = true;
+      port?.postMessage({ kind: "ready" });
+    },
+    barrier() {
+      active.clear();
+      port?.postMessage({ kind: "barrier" });
+    },
+    changed(topics, ids2 = []) {
+      port?.postMessage({ kind: "changed", topics, fleetIds: ids2.map((id2) => opaqueIdAt(id2)) });
+    },
+    reply(value) {
+      if (!active.delete(value.requestId)) return;
+      port?.postMessage({ kind: "reply", id: Number(value.requestId), status: value.status, epoch: value.visibilityEpoch.toString(), payload: value.payload }, value.payload.length >= 1024 ? [value.payload.buffer] : []);
+    },
+    dispose() {
+      closed = true;
+      active.clear();
+      port?.postMessage({ kind: "closed" });
+      port?.close();
+    }
+  };
+}
+
+// js/contracts/hull-appearance.ts
+var HULL_ASSET_KEYS = Object.freeze([
+  "aster-vale/interceptor",
+  "aster-vale/fighter",
+  "aster-vale/bomber",
+  "aster-vale/frigate",
+  "aster-vale/battleship",
+  "aster-vale/colossus"
+]);
+var MAX_FLEET_MEMBERS = 1e6;
+var LEGACY_HULL_APPEARANCE = Object.freeze({ totalShips: 0, hullCounts: Object.freeze([0, 0, 0, 0, 0, 0]), placeholder: true });
+function hullClass(assetKey, version) {
+  if (version !== 1) return;
+  const index = HULL_ASSET_KEYS.indexOf(assetKey);
+  return index < 0 ? void 0 : index;
+}
+
+// js/network/fleet-appearance.ts
+function packFleetAppearance(target, offset, value, appearance) {
+  if (appearance) {
+    validateFleetAppearance(appearance);
+    target[offset] = appearance.totalShips;
+    target.set(appearance.hullCounts, offset + 1);
+    return;
+  }
+  if (!value) return;
+  if (!value.groups.length || value.groups.length > 16) throw new Error("Invalid fleet appearance groups");
+  let total = 0;
+  for (const group of value.groups) {
+    validateCount(group.count);
+    total += group.count;
+    const hull = group.design?.hull, index = hull && hullClass(hull.assetKey, hull.version);
+    if (index !== void 0) target[offset + 1 + index] += group.count;
+  }
+  if (total > MAX_FLEET_MEMBERS) throw new Error("Fleet appearance budget exceeded");
+  target[offset] = total;
+}
+function validateFleetAppearance(value) {
+  validateCount(value.totalShips);
+  if (value.hullCounts.length !== 6) throw new Error("Invalid fleet appearance hulls");
+  let represented = 0;
+  for (const count of value.hullCounts) {
+    if (!Number.isInteger(count) || count < 0 || count > MAX_FLEET_MEMBERS) throw new Error("Invalid fleet appearance count");
+    represented += count;
+  }
+  if (represented > value.totalShips) throw new Error("Invalid fleet appearance total");
+}
+function validateCount(count) {
+  if (!Number.isInteger(count) || count < 1 || count > MAX_FLEET_MEMBERS) throw new Error("Invalid fleet appearance count");
+}
+
+// js/network/fleet-composition.ts
+var u32 = (n) => Number.isInteger(n) && n >= 0 && n <= 4294967295;
+var identity = (id2) => id2?.length === 16 && id2.some((n) => n !== 0);
+function designValid(d) {
+  if (!d || !identity(d.designId) || !u32(d.version) || d.version < 1 || !Number.isInteger(d.role) || d.role < 1 || d.role > 6) return false;
+  return hullValid(d) && [d.hullPoints, d.shieldPoints, d.attackPoints, d.cargoUnits].every(u32) && d.hullPoints > 0;
+}
+function hullValid(d) {
+  const h = d.hull;
+  return !!h && identity(h.hullId) && u32(h.version) && h.version > 0 && /^[a-z][a-z0-9/_-]{0,63}$/.test(h.assetKey) && h.assetKey.split("/").every(Boolean);
+}
+function damageValid(damage, design) {
+  return typeof damage === "bigint" && damage >= 0n && damage < BigInt(design.hullPoints) + BigInt(design.shieldPoints);
+}
+function validateFleetComposition(value) {
+  if (!value.groups.length || value.groups.length > 16) throw new Error("Invalid fleet groups");
+  const seen = /* @__PURE__ */ new Set();
+  let total = 0;
+  for (const group of value.groups) {
+    if (!designValid(group.design) || !u32(group.count) || group.count < 1) throw new Error("Invalid fleet design/count");
+    if (!damageValid(group.damagePoints, group.design)) throw new Error("Invalid fleet damage");
+    const key3 = `${opaqueIdAt(group.design.designId)}:${group.design.version}`;
+    if (seen.has(key3)) throw new Error("Duplicate fleet design");
+    seen.add(key3);
+    total += group.count;
+  }
+  if (total > 1e6) throw new Error("Fleet member budget exceeded");
+}
+function copyFleetComposition(value) {
+  if (!value) return void 0;
+  validateFleetComposition(value);
+  return create(FleetCompositionSchema, { groups: value.groups.map((group) => {
+    const d = group.design, h = d.hull;
+    return { count: group.count, damagePoints: group.damagePoints, design: {
+      designId: new Uint8Array(d.designId),
+      version: d.version,
+      role: d.role,
+      hull: { hullId: new Uint8Array(h.hullId), version: h.version, assetKey: h.assetKey },
+      hullPoints: d.hullPoints,
+      shieldPoints: d.shieldPoints,
+      attackPoints: d.attackPoints,
+      cargoUnits: d.cargoUnits
+    } };
+  }) });
+}
+function summarizeComposition(value) {
+  if (!value) return void 0;
+  validateFleetComposition(value);
+  return value.groups.map(({ count, damagePoints, design: d }) => ({ count, ...damagePoints ? { damagePoints: Number(damagePoints) } : {}, design: {
+    id: opaqueIdAt(d.designId),
+    version: d.version,
+    role: d.role,
+    hull: { id: opaqueIdAt(d.hull.hullId), version: d.hull.version, assetKey: d.hull.assetKey },
+    hullPoints: d.hullPoints,
+    shieldPoints: d.shieldPoints,
+    attackPoints: d.attackPoints,
+    cargoUnits: d.cargoUnits
+  } }));
+}
+function copyCompositionSummary(value) {
+  return value?.map((group) => ({ count: group.count, ...group.damagePoints ? { damagePoints: group.damagePoints } : {}, design: { ...group.design, hull: { ...group.design.hull } } }));
+}
 
 // js/network/validate-fields.ts
 function check(condition, field) {
@@ -3424,11 +3600,11 @@ function present(value, field) {
   check(value !== void 0, field);
   return value;
 }
-function id(bytes3) {
-  check(bytes3.byteLength === 16 && bytes3.some((byte) => byte !== 0), "identity");
+function id(bytes2) {
+  check(bytes2.byteLength === 16 && bytes2.some((byte) => byte !== 0), "identity");
 }
-function token(bytes3) {
-  check(bytes3.byteLength > 0 && bytes3.byteLength <= 4096, "credential length");
+function token(bytes2) {
+  check(bytes2.byteLength > 0 && bytes2.byteLength <= 4096, "credential length");
 }
 function key(value) {
   const item = present(value, "command key");
@@ -3445,45 +3621,21 @@ function scope(value) {
 }
 function position(value) {
   const item = present(value, "local position");
-  check(Number.isFinite(item.x) && Number.isFinite(item.z), "local position");
-}
-function cursor(value) {
-  const item = present(value, "stream cursor");
-  id(item.subscriptionId);
-  check(item.generation > 0n, "stream generation");
+  check(Number.isFinite(item.x) && Number.isFinite(item.y) && Number.isFinite(item.z), "local position");
 }
 function fleet(value) {
+  check(!value.orbit?.length || value.orbit.length === 122 && (value.orbit[0] === 1 || value.orbit[0] === 2) && value.orbit[1] >= 1 && value.orbit[1] <= 15, "orbit record");
   id(value.fleetId);
   position(value.position);
+  if (value.composition) validateFleetComposition(value.composition);
+  if (value.appearance) validateFleetAppearance(value.appearance);
   if (!value.movement) return;
   if (value.movement.orderId.byteLength) id(value.movement.orderId);
   position(value.movement.from);
   position(value.movement.to);
+  check((value.movement.via?.length ?? 0) <= 14, "movement path size");
+  for (const point2 of value.movement.via ?? []) position(point2);
   check(value.movement.arrivalServerMs > value.movement.departureServerMs, "movement deadline");
-}
-
-// js/contracts/opaque-id.ts
-var hex = Array.from({ length: 256 }, (_, value) => value.toString(16).padStart(2, "0"));
-function isOpaqueId(value) {
-  return /^[0-9a-f]{32}$/.test(value) && value !== "00000000000000000000000000000000";
-}
-function opaqueIdAt(bytes3, offset = 0) {
-  if (!Number.isSafeInteger(offset) || offset < 0 || offset + 16 > bytes3.length) throw new Error("Invalid identity column");
-  let result = "";
-  let nonzero = 0;
-  for (let i = offset; i < offset + 16; i++) {
-    const value = bytes3[i];
-    result += hex[value];
-    nonzero |= value;
-  }
-  if (!nonzero) throw new Error("Zero identity is reserved");
-  return result;
-}
-function opaqueIdBytes(value) {
-  if (!isOpaqueId(value)) throw new Error("Invalid opaque identity");
-  const result = new Uint8Array(16);
-  for (let i = 0; i < 16; i++) result[i] = Number.parseInt(value.slice(i * 2, i * 2 + 2), 16);
-  return result;
 }
 
 // js/network/views/validate.ts
@@ -3667,91 +3819,12 @@ function invalidatedFields(v) {
   if (v.reason !== 1) counter(v.baselineGeneration);
 }
 
-// js/network/validate-strategic.ts
-function u64(value, positive) {
-  check(value >= (positive ? 1n : 0n) && value <= 0xffffffffffffffffn, "strategic version/time");
-}
-function unique(ids2) {
-  check(ids2.length <= 32, "strategic system limit");
-  const seen = /* @__PURE__ */ new Set();
-  for (const bytes3 of ids2) {
-    id(bytes3);
-    const key3 = bytes3.join(",");
-    check(!seen.has(key3), "duplicate strategic system");
-    seen.add(key3);
-  }
-}
-function validateSubscribeStrategic(value) {
-  id(value.worldId);
-  id(value.subscriptionId);
-  u64(value.interestGeneration, true);
-  check(Number.isInteger(value.requestedEncoding) && value.requestedEncoding >= 0 && value.requestedEncoding <= 2147483647, "strategic encoding");
-  unique(value.systemIds);
-}
-function row(value, world) {
-  scope(value.scope);
-  const authority = present(value.scope, "summary authority");
-  check(authority.worldId.every((byte, index) => byte === world[index]), "summary world");
-  u64(authority.ownerEpoch, true);
-  u64(authority.recoveryGeneration, true);
-  counts(value.availability, value.counts);
-}
-function counts(availability, value) {
-  if (availability === 2) {
-    check(value === void 0, "unavailable counts");
-    return;
-  }
-  check(availability === 1, "summary availability");
-  const item = present(value, "available counts");
-  u64(item.systemRevision, true);
-  u64(item.committedServerTimeMs, false);
-  check(Number.isInteger(item.presentFleets) && Number.isInteger(item.movingFleets), "summary integer counts");
-  check(item.movingFleets >= 0 && item.movingFleets <= item.presentFleets && item.presentFleets <= 16384, "summary counts");
-}
-function compact(view) {
-  check(view.groups.length <= 32, "strategic group limit");
-  const seen = /* @__PURE__ */ new Set();
-  for (const group of view.groups) {
-    id(group.shardId);
-    u64(group.ownerEpoch, true);
-    u64(group.recoveryGeneration, true);
-    check(group.systems.length > 0 && group.systems.length <= 32, "strategic group rows");
-    for (const item of group.systems) {
-      id(item.systemId);
-      const key3 = item.systemId.join(",");
-      check(!seen.has(key3), "duplicate strategic system");
-      seen.add(key3);
-      check(seen.size <= 32, "strategic system limit");
-      counts(item.availability, item.counts);
-    }
-  }
-}
-function validateStrategicSystems(value) {
-  id(value.worldId);
-  id(value.subscriptionId);
-  u64(value.interestGeneration, true);
-  u64(value.sequence, true);
-  if (value.result.case === "rejected") {
-    const reason = value.result.value.reason;
-    check(Number.isInteger(reason) && reason > 0 && reason <= 2147483647, "strategic rejection");
-    return;
-  }
-  if (value.result.case === "compactView") {
-    compact(value.result.value);
-    return;
-  }
-  check(value.result.case === "view", "strategic result");
-  const rows = value.result.value.systems;
-  unique(rows.map((item) => present(item.scope, "summary authority").systemId));
-  for (const item of rows) row(item, value.worldId);
-}
-
 // js/network/validate-client.ts
 function hello(value) {
   check(value.minimumProtocolVersion > 0 && value.minimumProtocolVersion <= 1 && value.maximumProtocolVersion >= 1, "protocol version range");
   check(value.supportedRuleVersions.length <= 16 && value.supportedRuleVersions.includes(1), "rule versions");
   check(value.requiredCapabilities.length <= 16, "capabilities length");
-  for (const capability of value.requiredCapabilities) check(capability >= 1 && capability <= 11, "required capability");
+  for (const capability of value.requiredCapabilities) check([1, 4, 5, 7, 11, 12, 13, 14, 15].includes(capability), "required capability");
   token(value.sessionCredential);
 }
 function move(value) {
@@ -3763,14 +3836,11 @@ function move(value) {
   if (value.expectedSystemRevision !== void 0) {
     check(value.expectedSystemRevision >= 0n && value.expectedSystemRevision <= 0xffffffffffffffffn, "expected revision");
   }
-}
-function subscribe(value) {
-  id(value.worldId);
-  id(value.systemId);
-  id(value.subscriptionId);
-  if (!value.resumeAfter) return;
-  cursor(value.resumeAfter);
-  check(value.subscriptionId.every((byte, index) => value.resumeAfter?.subscriptionId[index] === byte), "resume subscription");
+  if (value.orbitBody !== void 0) check(Number.isInteger(value.orbitBody) && value.orbitBody >= 1 && value.orbitBody <= 15 && value.expectedFleetRevision !== void 0, "orbit body/revision");
+  if (value.expectedFleetRevision !== void 0) {
+    check(value.expectedSystemRevision === void 0, "mutually exclusive move revisions");
+    check(value.expectedFleetRevision > 0n && value.expectedFleetRevision <= 0xffffffffffffffffn, "expected fleet revision");
+  }
 }
 function transfer(value) {
   key(value.key);
@@ -3792,6 +3862,9 @@ function validateClientMessage(message) {
   }
   check(message.protocolVersion === 1 && message.connectionGeneration > 0n, "session envelope");
   switch (body.case) {
+    case "gameplayRequest":
+      check(body.value.requestId > 0n && body.value.operation >= 1 && body.value.operation <= 12 && body.value.payload.length > 0 && body.value.payload.length <= 4096, "gameplay request");
+      break;
     case "viewRequest":
       validateViewRequest(body.value);
       break;
@@ -3806,91 +3879,12 @@ function validateClientMessage(message) {
       key(body.value.key);
       break;
     case "renewAdmission":
-      if (body.value.systemId.length) {
-        id(body.value.systemId);
-        check(!body.value.receiptHomeShardId.length, "renewal selector");
-      } else id(body.value.receiptHomeShardId);
+      id(body.value.systemId);
       check(body.value.requestId > 0n, "renewal request identity");
-      break;
-    case "playbackClock":
-      scope(body.value.scope);
-      cursor(body.value.baseline);
-      check(body.value.requestId > 0n && body.value.systemRevision > 0n, "playback request");
-      break;
-    case "subscribe":
-      subscribe(body.value);
-      break;
-    case "subscribeStrategic":
-      validateSubscribeStrategic(body.value);
       break;
     default:
       throw new Error("Client message has no supported operation");
   }
-}
-
-// js/network/limits.ts
-var MAX_MESSAGE_BYTES = 256 * 1024;
-var MAX_TOPOLOGY_BYTES = 2 * 1024 * 1024;
-var MAX_TOPOLOGY_CLUSTERS = 256;
-var MAX_TOPOLOGY_SYSTEMS = 4096;
-var MAX_TOPOLOGY_CONNECTIONS = 16384;
-
-// js/network/topology.ts
-var utf8 = new TextEncoder();
-function identifier(value) {
-  id(value);
-  return opaqueIdAt(value);
-}
-function point2(value) {
-  const p = present(value, "strategic position");
-  check(Number.isFinite(p.x) && Number.isFinite(p.z), "strategic position");
-}
-function unique2(set, value) {
-  const key3 = identifier(value);
-  check(!set.has(key3), "duplicate topology identity");
-  set.add(key3);
-  return key3;
-}
-function validateTopology(value) {
-  id(value.worldId);
-  check(value.revision > 0n, "topology revision");
-  check(value.clusters.length <= MAX_TOPOLOGY_CLUSTERS && value.systems.length <= MAX_TOPOLOGY_SYSTEMS && value.connections.length <= MAX_TOPOLOGY_CONNECTIONS, "topology budget");
-  const clusters = /* @__PURE__ */ new Set();
-  const systems = /* @__PURE__ */ new Set();
-  const edges = /* @__PURE__ */ new Set();
-  for (const cluster of value.clusters) {
-    unique2(clusters, cluster.clusterId);
-    point2(cluster.position);
-    check(utf8.encode(cluster.name).length <= 64 && Number.isFinite(cluster.radius) && cluster.radius > 0, "cluster metadata");
-  }
-  for (const system of value.systems) {
-    unique2(systems, system.systemId);
-    point2(system.position);
-    check(clusters.has(identifier(system.clusterId)), "missing topology cluster");
-    check(utf8.encode(system.name).length <= 64, "system name");
-  }
-  for (const edge of value.connections) validateEdge(edge.systemA, edge.systemB, systems, edges);
-  const hosted = /* @__PURE__ */ new Set();
-  check(value.hostedSystemIds.length <= MAX_TOPOLOGY_SYSTEMS, "hosted system budget");
-  for (const system of value.hostedSystemIds) check(systems.has(unique2(hosted, system)), "hosted system outside visible topology");
-}
-function validateEdge(first, second, systems, edges) {
-  const a = identifier(first);
-  const b = identifier(second);
-  check(a !== b && systems.has(a) && systems.has(b), "invalid topology edge");
-  const key3 = a < b ? `${a}:${b}` : `${b}:${a}`;
-  check(!edges.has(key3), "duplicate topology edge");
-  edges.add(key3);
-}
-function topologyView(value) {
-  return {
-    worldId: opaqueIdAt(value.worldId),
-    revision: value.revision,
-    hostedSystemIds: value.hostedSystemIds.map(identifier),
-    clusters: value.clusters.map((c) => ({ id: opaqueIdAt(c.clusterId), name: c.name, x: c.position.x, z: c.position.z, radius: c.radius })),
-    systems: value.systems.map((s) => ({ id: opaqueIdAt(s.systemId), clusterId: opaqueIdAt(s.clusterId), name: s.name, x: s.position.x, z: s.position.z })),
-    connections: value.connections.map((c) => ({ a: opaqueIdAt(c.systemA), b: opaqueIdAt(c.systemB) }))
-  };
 }
 
 // js/network/validate-server.ts
@@ -3899,16 +3893,26 @@ function welcome(value, generation) {
   check(value.connectionGeneration === generation, "welcome generation");
   id(value.playerId);
   id(value.worldId);
-  check(value.capabilities.length <= 16 && value.admissions.length <= 16, "welcome limits");
+  check(value.capabilities.length <= 16, "welcome limits");
   for (const capability of value.capabilities) check(capability > 0, "capability");
-  for (const grant of value.admissions) admissionGrant(grant);
 }
 function admissionGrant(grant) {
   id(grant.receiptHomeShardId);
   check(grant.generation > 0n && grant.notAfterServerMs > 0n, "admission grant");
   token(grant.token);
+  const policy = grant.travelPolicy;
+  if (policy) {
+    check(policy.jumpMs > 0n && policy.jumpMs <= 86400000n, "travel jump");
+    check(policy.cooldownMs <= 2592000000n, "travel cooldown");
+    check(policy.configurationRevision > 0n && policy.modifierRevision > 0n, "travel revisions");
+  }
 }
 function admissionRenewed(value) {
+  if (value.movementContext) {
+    const c = value.movementContext;
+    check(!!value.scope && !!value.grant && c.version === 3 && c.catalogId.length > 0 && c.catalogId.length <= 64, "movement context identity");
+    check([c.speedPerSecond, c.clearance, c.extent, c.sunClearance].every(Number.isFinite) && c.speedPerSecond > 0 && c.clearance >= 0 && c.extent > 0 && c.sunClearance >= 0 && c.sunClearance <= 1, "movement context policy");
+  }
   if (value.scope) {
     scope(value.scope);
     check(value.scope.shardId.every((b, i) => b === value.receiptHomeShardId[i]), "renewal scope home");
@@ -3927,23 +3931,6 @@ function receipt(value) {
   check(value.result.case !== void 0, "receipt outcome");
   if (value.result.case !== "accepted") check(value.result.value.reason > 0, "receipt reason");
 }
-function snapshot(value) {
-  scope(value.scope);
-  cursor(value.cursor);
-  id(value.snapshotId);
-  check(value.chunkCount > 0 && value.chunkCount <= 4096, "snapshot chunks");
-  check(value.chunkIndex < value.chunkCount, "snapshot index");
-  check(value.fleets.length <= 256, "snapshot fleets");
-  for (const item of value.fleets) fleet(item);
-}
-function delta(value) {
-  scope(value.scope);
-  cursor(value.cursor);
-  check(value.systemRevision > value.baseSystemRevision, "delta revision");
-  check(value.upserts.length + value.removedFleetIds.length <= 256, "delta changes");
-  for (const item of value.upserts) fleet(item);
-  for (const removed of value.removedFleetIds) id(removed);
-}
 function envelope(message) {
   if (message.protocolVersion === 0 && message.connectionGeneration === 0n && message.body.case === "failure") return;
   check(message.protocolVersion === 1 && message.connectionGeneration > 0n, "session envelope");
@@ -3961,6 +3948,13 @@ function validateServerMessage(message) {
       check(p.certificateSha256.length === 0 || p.certificateSha256.length === 32, "placement certificate");
       break;
     }
+    case "gameplayReply":
+      check(body.value.requestId > 0n && body.value.status >= 200 && body.value.status <= 599 && body.value.payload.length <= 8192, "gameplay reply");
+      break;
+    case "gameplayChanged":
+      check(body.value.topics > 0 && (body.value.topics & ~63) === 0 && body.value.fleetIds.length <= 32, "gameplay topics");
+      for (const v of body.value.fleetIds) id(v);
+      break;
     case "viewEvent":
       validateViewEvent(body.value);
       break;
@@ -3973,23 +3967,6 @@ function validateServerMessage(message) {
     case "admissionRenewed":
       admissionRenewed(body.value);
       break;
-    case "snapshot":
-      snapshot(body.value);
-      break;
-    case "delta":
-      delta(body.value);
-      break;
-    case "topology":
-      validateTopology(body.value);
-      break;
-    case "strategic":
-      validateStrategicSystems(body.value);
-      break;
-    case "playbackClock":
-      scope(body.value.scope);
-      cursor(body.value.baseline);
-      check(body.value.requestId > 0n && body.value.systemRevision > 0n && body.value.sequence > 0n && body.value.serverTimeMs > 0n, "playback correction");
-      break;
     case "failure":
       check(body.value.code > 0, "protocol failure");
       break;
@@ -3999,8 +3976,12 @@ function validateServerMessage(message) {
 }
 function placementUrl(value, protocol) {
   const url = new URL(value);
-  check(value.length <= 2048 && url.protocol === protocol && url.pathname === "/session" && !url.username && !url.password && !url.search && !url.hash, "placement endpoint");
+  const path = value.slice(value.indexOf("/", value.indexOf("://") + 3));
+  check(value.length <= 2048 && url.protocol === protocol && path === url.pathname && path.length <= 136 && /^(\/[A-Za-z0-9_-]+)*\/session$/.test(path) && !url.username && !url.password && !url.search && !url.hash, "placement endpoint");
 }
+
+// js/network/limits.ts
+var MAX_MESSAGE_BYTES = 256 * 1024;
 
 // js/network/decode-budget.ts
 var fields = /* @__PURE__ */ new WeakMap();
@@ -4026,10 +4007,10 @@ function descriptorFields(schema) {
   }
   return found;
 }
-function checkDecodeBudget(schema, bytes3) {
-  const budget = { fields: MAX_FIELDS, messages: MAX_MESSAGES, bytes: bytes3.length, strategicRows: 0, viewRows: 0, repeated: /* @__PURE__ */ new Map() };
-  scan(new BinaryReader(bytes3), schema, bytes3.length, 0, budget);
-  if (bytes3.length > MAX_MESSAGE_BYTES && !budget.topology) throw new Error("Protocol ordinary message size exceeded");
+function checkDecodeBudget(schema, bytes2) {
+  const budget = { fields: MAX_FIELDS, messages: MAX_MESSAGES, bytes: bytes2.length, viewRows: 0, repeated: /* @__PURE__ */ new Map() };
+  scan(new BinaryReader(bytes2), schema, bytes2.length, 0, budget);
+  if (bytes2.length > MAX_MESSAGE_BYTES) throw new Error("Protocol message size exceeded");
 }
 function scan(reader, schema, end, depth, budget) {
   budget = messageBudget(schema, budget);
@@ -4040,36 +4021,17 @@ function scan(reader, schema, end, depth, budget) {
     if (--budget.fields < 0) throw new Error("Protocol field budget exceeded");
     const [number, wire] = reader.tag();
     const field = known.get(number);
-    serverBodyBudget(schema, number, budget.bytes);
     if (field) countField(field, wire, budget);
     scanValue(reader, field, wire, end, depth, budget);
   }
   if (reader.pos !== end) throw new Error("Protocol nested message crosses its boundary");
 }
 function messageBudget(schema, budget) {
-  if (schema.typeName === "galaxy.v1.ViewEvent" || schema.typeName === "galaxy.v1.ViewRequest") return budget.views ?? (budget.views = { fields: 12 * 1024, messages: MAX_MESSAGES, bytes: budget.bytes, strategicRows: 0, viewRows: 0, repeated: /* @__PURE__ */ new Map() });
-  if (schema.typeName !== "galaxy.v1.WorldTopology") return budget;
-  return budget.topology ?? (budget.topology = {
-    fields: 128 * 1024,
-    messages: 32 * 1024,
-    bytes: budget.bytes,
-    strategicRows: 0,
-    viewRows: 0,
-    repeated: /* @__PURE__ */ new Map()
-  });
+  if (schema.typeName === "galaxy.v1.ViewEvent" || schema.typeName === "galaxy.v1.ViewRequest") return budget.views ?? (budget.views = { fields: 12 * 1024, messages: MAX_MESSAGES, bytes: budget.bytes, viewRows: 0, repeated: /* @__PURE__ */ new Map() });
+  return budget;
 }
-function serverBodyBudget(schema, number, bytes3) {
-  if (schema.typeName !== "galaxy.v1.ServerMessage" || number === 15) return;
-  if (number >= 10 && number <= 19 && bytes3 > MAX_MESSAGE_BYTES) throw new Error("Protocol ordinary server message size exceeded");
-}
-function enclosingBudget(name, bytes3) {
-  if (["galaxy.v1.ViewRequest", "galaxy.v1.ViewEvent"].includes(name) && bytes3 > 128 * 1024) throw new Error("View enclosing byte budget exceeded");
-  if ((name === "galaxy.v1.SubscribeStrategic" || name === "galaxy.v1.StrategicSystems") && bytes3 > 8192) {
-    throw new Error("Protocol strategic enclosing message budget exceeded");
-  }
-  if ((name === "galaxy.v1.PlaybackClockCorrection" || name === "galaxy.v1.PlaybackClockRequest") && bytes3 + 4 > 1200) {
-    throw new Error("Playback correction exceeds 1200 framed bytes");
-  }
+function enclosingBudget(name, bytes2) {
+  if (["galaxy.v1.ViewRequest", "galaxy.v1.ViewEvent"].includes(name) && bytes2 > 128 * 1024) throw new Error("View enclosing byte budget exceeded");
 }
 function countField(field, wire, budget) {
   validateWire(field, wire);
@@ -4081,12 +4043,7 @@ function countRepeated(field, budget) {
   if (count > limit) throw new Error("Protocol repeated field expansion budget exceeded");
   budget.repeated.set(field, count);
 }
-function strategicRowLimit(budget) {
-  if (++budget.strategicRows > 32) throw new Error("Protocol strategic row expansion budget exceeded");
-  return 32;
-}
 function repeatedLimit(field, budget) {
-  if (field.parent.typeName === "galaxy.v1.WorldTopology") return topologyLimit(field.number);
   if (["galaxy.v1.OverviewRows", "galaxy.v1.OwnedRows", "galaxy.v1.DetailRows"].includes(field.parent.typeName)) {
     if (field.parent.typeName === "galaxy.v1.OwnedRows" && field.number === 3) return 4096;
     if (++budget.viewRows > 256) throw new Error("View row allocation budget exceeded");
@@ -4097,24 +4054,9 @@ function repeatedLimit(field, budget) {
     case "galaxy.v1.DiagnosticBatch":
       return 16;
     // Its only list is diagnostic spans.
-    case "galaxy.v1.SubscribeStrategic":
-      return 32;
-    // Its only list is system IDs.
-    case "galaxy.v1.StrategicSystemView":
-      return strategicRowLimit(budget);
-    case "galaxy.v1.CompactStrategicView":
-      return 32;
-    // Its only list is authority groups.
-    case "galaxy.v1.StrategicAuthorityGroup":
-      return strategicRowLimit(budget);
     default:
       return MAX_REPEATED;
   }
-}
-function topologyLimit(number) {
-  if (number === 3) return MAX_TOPOLOGY_CLUSTERS;
-  if (number === 5) return MAX_TOPOLOGY_CONNECTIONS;
-  return MAX_TOPOLOGY_SYSTEMS;
 }
 function scanValue(reader, field, wire, end, depth, budget) {
   if (wire === WireType.StartGroup || wire === WireType.EndGroup) {
@@ -4162,24 +4104,21 @@ function chargePacked(field, length, budget) {
 }
 
 // js/network/codec.ts
-function bounded(bytes3) {
-  if (bytes3.byteLength === 0 || bytes3.byteLength > MAX_MESSAGE_BYTES) {
+function bounded(bytes2) {
+  if (bytes2.byteLength === 0 || bytes2.byteLength > MAX_MESSAGE_BYTES) {
     throw new RangeError(`Protocol message length must be 1..${MAX_MESSAGE_BYTES}`);
   }
-  return bytes3;
+  return bytes2;
 }
 function encodeClientMessage(message) {
   validateClientMessage(message);
-  const bytes3 = bounded(toBinary(ClientMessageSchema, message));
-  if (message.body.case === "subscribeStrategic" && bytes3.byteLength > 8192) throw new RangeError("Strategic message exceeds 8 KiB");
-  if (message.body.case === "playbackClock" && bytes3.byteLength + 4 > 1200) throw new RangeError("Playback request exceeds 1200 framed bytes");
-  return bytes3;
+  const bytes2 = bounded(toBinary(ClientMessageSchema, message));
+  return bytes2;
 }
-function decodeServerMessage(bytes3) {
-  if (bytes3.byteLength === 0 || bytes3.byteLength > MAX_TOPOLOGY_BYTES) throw new RangeError("Protocol server message length exceeded");
-  checkDecodeBudget(ServerMessageSchema, bytes3);
-  const message = fromBinary(ServerMessageSchema, bytes3);
-  if (message.body.case !== "topology") bounded(bytes3);
+function decodeServerMessage(bytes2) {
+  bounded(bytes2);
+  checkDecodeBudget(ServerMessageSchema, bytes2);
+  const message = fromBinary(ServerMessageSchema, bytes2);
   validateServerMessage(message);
   return message;
 }
@@ -4188,7 +4127,7 @@ function decodeServerMessage(bytes3) {
 function createFrameInbox(maxBytes, maxFrames) {
   let frames = [];
   let head = 0;
-  let bytes3 = 0;
+  let bytes2 = 0;
   let closed = false;
   let failure;
   let waiter;
@@ -4201,9 +4140,9 @@ function createFrameInbox(maxBytes, maxFrames) {
         pending.resolve(frame);
         return;
       }
-      if (bytes3 + frame.byteLength > maxBytes || frames.length - head >= maxFrames) throw new Error("Network receive queue budget exceeded");
+      if (bytes2 + frame.byteLength > maxBytes || frames.length - head >= maxFrames) throw new Error("Network receive queue budget exceeded");
       frames.push(frame);
-      bytes3 += frame.byteLength;
+      bytes2 += frame.byteLength;
     },
     receive() {
       if (waiter) return Promise.reject(new Error("Concurrent transport receive is unsupported"));
@@ -4212,7 +4151,7 @@ function createFrameInbox(maxBytes, maxFrames) {
       if (head < frames.length) {
         const frame = frames[head];
         frames[head++] = void 0;
-        bytes3 -= frame.byteLength;
+        bytes2 -= frame.byteLength;
         if (head >= maxFrames || head === frames.length) {
           frames = frames.slice(head);
           head = 0;
@@ -4229,7 +4168,7 @@ function createFrameInbox(maxBytes, maxFrames) {
       failure = error;
       frames = [];
       head = 0;
-      bytes3 = 0;
+      bytes2 = 0;
       if (error) waiter?.reject(error);
       else waiter?.resolve(null);
       waiter = void 0;
@@ -4246,7 +4185,7 @@ function frameMessage(payload) {
   return frame;
 }
 function unframeMessage(frame) {
-  if (frame.byteLength < 5 || frame.byteLength > MAX_TOPOLOGY_BYTES + 4) throw new RangeError("Invalid network frame length");
+  if (frame.byteLength < 5 || frame.byteLength > MAX_MESSAGE_BYTES + 4) throw new RangeError("Invalid network frame length");
   const size = new DataView(frame).getUint32(0, true);
   if (size !== frame.byteLength - 4) throw new Error("WebSocket message must contain exactly one complete frame");
   return new Uint8Array(frame, 4);
@@ -4287,7 +4226,7 @@ function createFrameReader(reader, maxChunkBytes) {
       const header = await exact(4, true);
       if (!header) return null;
       const size = new DataView(header.buffer, header.byteOffset, 4).getUint32(0, true);
-      if (size < 1 || size > MAX_TOPOLOGY_BYTES) throw new RangeError("Invalid network frame length");
+      if (size < 1 || size > MAX_MESSAGE_BYTES) throw new RangeError("Invalid network frame length");
       return exact(size, false);
     }
   };
@@ -4295,7 +4234,7 @@ function createFrameReader(reader, maxChunkBytes) {
 
 // js/network/session-contracts.ts
 var SESSION_LIMITS = {
-  readBytes: MAX_TOPOLOGY_BYTES + 1024 * 1024,
+  readBytes: MAX_MESSAGE_BYTES * 4,
   readFrames: 16,
   sendBytes: 1024 * 1024,
   sendFrames: 32,
@@ -4373,7 +4312,6 @@ async function connectWebTransport(endpoints, signal) {
   const serverCertificateHashes = endpoints.certificateHashes?.map((hash) => ({ algorithm: hash.algorithm, value: new Uint8Array(hash.value) }));
   const session = new WebTransport(endpoints.webTransportUrl, { serverCertificateHashes });
   let reader;
-  let datagrams;
   let writer;
   let stopped = false;
   let rejectAbort;
@@ -4387,8 +4325,6 @@ async function connectWebTransport(endpoints, signal) {
     stopped = true;
     signal.removeEventListener("abort", onAbort);
     rejectAbort(new Error("WebTransport connection aborted"));
-    if (datagrams) void datagrams.cancel().catch(() => {
-    }).finally(() => datagrams?.releaseLock());
     if (reader) void reader.cancel().catch(() => {
     }).finally(() => reader?.releaseLock());
     if (writer) void writer.abort().catch(() => {
@@ -4414,16 +4350,7 @@ async function connectWebTransport(endpoints, signal) {
     }
     reader = stream.readable.getReader();
     writer = stream.writable.getWriter();
-    session.datagrams.incomingHighWaterMark = 1;
-    session.datagrams.incomingMaxAge = 2e3;
-    datagrams = session.datagrams.readable.getReader();
-    return {
-      ...createConnectedTransport(reader, writer, close, () => stopped),
-      async receiveDatagram() {
-        const item = await datagrams.read();
-        return item.done ? null : item.value;
-      }
-    };
+    return { ...createConnectedTransport(reader, writer, close, () => stopped) };
   } catch (error) {
     close();
     throw error;
@@ -4513,9 +4440,9 @@ async function openPlayerHome(options) {
   for (let redirects = 0; redirects <= 3; redirects++) {
     const transport = await (options.factory ?? connectTransport)(endpoints, options.signal);
     try {
-      const reply = await handshake(transport, options.credential, options.signal);
+      const reply = await handshake(transport, options.credential, options.signal, options.gameplay);
       bindIdentity(expected, reply.value);
-      if (reply.case === "welcome") return { transport, welcome: reply.value, redirects };
+      if (reply.case === "welcome") return { transport, welcome: reply.value, redirects, contentEndpoint: contentEndpoint(endpoints) };
       const home = reply.value;
       const host = opaqueIdAt(home.hostId);
       if (visited.has(host) || redirects === 3) throw new Error("Player home redirect limit");
@@ -4529,24 +4456,27 @@ async function openPlayerHome(options) {
   }
   throw new Error("Player home redirect limit");
 }
-async function handshake(transport, credential, signal) {
+async function handshake(transport, credential, signal, gameplay = false) {
   if (signal.aborted) throw new Error("Player home connection canceled");
   await transport.send(encodeClientMessage(create(ClientMessageSchema, { body: { case: "hello", value: {
     minimumProtocolVersion: 1,
     maximumProtocolVersion: 1,
     supportedRuleVersions: [1],
-    requiredCapabilities: [1, 4, 5, 7, 11],
+    requiredCapabilities: [1, 4, 5, 7, 11, 12, 14, ...gameplay ? [15] : []],
     sessionCredential: credential
   } } })));
-  const bytes3 = await transport.receive();
-  if (signal.aborted || !bytes3) throw new Error("Player home handshake ended");
-  const reply = decodeServerMessage(bytes3).body;
+  const bytes2 = await transport.receive();
+  if (signal.aborted || !bytes2) throw new Error("Player home handshake ended");
+  const reply = decodeServerMessage(bytes2).body;
+  if (reply.case === "failure") throw new Error(`Player protocol failure ${reply.value.code}`);
   if (reply.case !== "welcome" && reply.case !== "viewPlacement") throw new Error("Authenticated player home placement required");
-  if (reply.case === "welcome") {
-    const capabilities = reply.value.capabilities;
-    if (![1, 4, 5, 7, 11].every((capability) => capabilities.includes(capability))) throw new Error("Player views capability is required");
-  }
+  if (reply.case === "welcome") validateCapabilities(reply.value, gameplay);
   return reply;
+}
+function validateCapabilities(welcome2, gameplay) {
+  const capabilities = welcome2.capabilities;
+  if (gameplay && !capabilities.includes(15)) throw new Error("Gameplay channel capability required");
+  if (![1, 4, 5, 7, 11, 12, 14].every((capability) => capabilities.includes(capability))) throw new Error("Player views and XYZ capabilities are required");
 }
 function bindIdentity(expected, value) {
   const world = opaqueIdAt(value.worldId), player = opaqueIdAt(value.playerId);
@@ -4561,6 +4491,16 @@ function placementEndpoints(value) {
     webTransportUrl: value.webtransportUrl,
     certificateHashes: value.certificateSha256.length ? [{ algorithm: "sha-256", value: new Uint8Array(value.certificateSha256) }] : void 0
   };
+}
+function contentEndpoint(endpoints) {
+  const value = endpoints.webSocketUrl;
+  if (!value) return;
+  const url = new URL(value);
+  if (url.username || url.password || url.search || url.hash) return;
+  if (url.protocol === "wss:") url.protocol = "https:";
+  else if (url.protocol === "ws:" && url.hostname === "127.0.0.1") url.protocol = "http:";
+  else return;
+  return new URL("./world-content", url).href;
 }
 
 // js/network/views/admissions.ts
@@ -4577,15 +4517,15 @@ function createViewAdmissions(options) {
   async function transmit(value) {
     if (closed || pending.get(value.request) !== value) return;
     try {
-      await options.send({ $typeName: "galaxy.v1.RenewAdmission", systemId: opaqueIdBytes(value.system), receiptHomeShardId: new Uint8Array(), requestId: value.request });
+      await options.send({ $typeName: "galaxy.v1.RenewAdmission", systemId: opaqueIdBytes(value.system), requestId: value.request });
     } catch (error) {
       if (pending.get(value.request) === value) finish(value, error instanceof Error ? error : new Error(String(error)));
     }
   }
-  function ensure(system) {
+  function ensure(system, refreshPolicy = false) {
     if (closed) return Promise.reject(new Error("Admission owner closed"));
     const cached = grants.get(system);
-    if (cached && cached.grant.notAfterServerMs > options.serverNow() + 30000n) return Promise.resolve(cached);
+    if (!refreshPolicy && cached && cached.grant.notAfterServerMs > options.serverNow() + 30000n) return Promise.resolve(cached);
     for (const value2 of pending.values()) if (value2.system === system) return value2.promise;
     if (pending.size === 4) return Promise.reject(new Error("Admission request capacity"));
     if (next === 2n ** 64n - 1n) return Promise.reject(new Error("Admission request identity exhausted"));
@@ -4611,7 +4551,9 @@ function createViewAdmissions(options) {
     }
     const scope2 = reply.scope;
     if (opaqueIdAt(scope2.worldId) !== options.world || opaqueIdAt(scope2.systemId) !== value.system || opaqueIdAt(scope2.shardId) !== opaqueIdAt(reply.grant.receiptHomeShardId)) throw new Error("Scoped admission identity mismatch");
-    const result = { scope: create(AuthorityScopeSchema, { worldId: new Uint8Array(scope2.worldId), shardId: new Uint8Array(scope2.shardId), systemId: new Uint8Array(scope2.systemId), ownerEpoch: scope2.ownerEpoch, recoveryGeneration: scope2.recoveryGeneration }), grant: create(AdmissionGrantSchema, { receiptHomeShardId: new Uint8Array(reply.grant.receiptHomeShardId), generation: reply.grant.generation, notAfterServerMs: reply.grant.notAfterServerMs, token: new Uint8Array(reply.grant.token) }) };
+    const policy = reply.grant.travelPolicy;
+    const result = { scope: create(AuthorityScopeSchema, { worldId: new Uint8Array(scope2.worldId), shardId: new Uint8Array(scope2.shardId), systemId: new Uint8Array(scope2.systemId), ownerEpoch: scope2.ownerEpoch, recoveryGeneration: scope2.recoveryGeneration }), grant: create(AdmissionGrantSchema, { receiptHomeShardId: new Uint8Array(reply.grant.receiptHomeShardId), generation: reply.grant.generation, notAfterServerMs: reply.grant.notAfterServerMs, token: new Uint8Array(reply.grant.token), travelPolicy: policy && create(TravelPolicySchema, { jumpMs: policy.jumpMs, cooldownMs: policy.cooldownMs, configurationRevision: policy.configurationRevision, modifierRevision: policy.modifierRevision }) }) };
+    if (reply.movementContext) result.movementContext = { ...reply.movementContext };
     if (grants.size === 32) grants.delete(grants.keys().next().value);
     grants.set(value.system, result);
     finish(value, void 0, result);
@@ -4656,11 +4598,11 @@ function createViewInterests(world, player, initial) {
     Object.assign(selected, copySelection(initial.slots));
     Object.assign(accepted, copySelection(initial.accepted ?? {}));
   }
-  function snapshot2() {
+  function snapshot() {
     return { world, player, slots: copySelection(selected), accepted: copySelection(accepted) };
   }
   return {
-    snapshot: snapshot2,
+    snapshot,
     request(slot, generation, value) {
       if (value && value.kind !== slot) throw new Error("Wrong interest slot");
       generations.set(slot, generation);
@@ -4681,7 +4623,7 @@ function createViewInterests(world, player, initial) {
 
 // js/network/views/copy.ts
 var bytes = (value) => new Uint8Array(value);
-var position2 = (value) => value && create(LocalPositionSchema, { x: value.x, z: value.z });
+var position2 = (value) => value && create(LocalPositionSchema, { x: value.x, y: value.y, z: value.z });
 var galaxyPosition = (value) => value && create(GalaxyPositionSchema, { x: value.x, z: value.z });
 function copyObservation(value) {
   if (!value) return void 0;
@@ -4720,19 +4662,23 @@ function copyRow(value) {
       return create(OwnedFleetRowSchema, { fleetId: bytes(value.fleetId), fleetRevision: value.fleetRevision, source: copyObservation(value.source), state: value.state, systemId: bytes(value.systemId), destinationSystemId: bytes(value.destinationSystemId), transferId: bytes(value.transferId), arrivalServerMs: value.arrivalServerMs, memberCount: value.memberCount, departureSystemId: bytes(value.departureSystemId) });
     case "galaxy.v1.FleetProjection": {
       const m = value.movement;
+      const appearance = value.appearance && create(FleetAppearanceSchema, { totalShips: value.appearance.totalShips, hullCounts: [...value.appearance.hullCounts] });
       return create(FleetProjectionSchema, {
+        appearance,
         fleetId: bytes(value.fleetId),
         revision: value.revision,
         position: position2(value.position),
         controllable: value.controllable,
         transferReadyServerMs: value.transferReadyServerMs,
-        movement: m && create(FleetMoveSchema, { from: position2(m.from), to: position2(m.to), departureServerMs: m.departureServerMs, arrivalServerMs: m.arrivalServerMs, orderId: bytes(m.orderId) })
+        composition: copyFleetComposition(value.composition),
+        orbit: bytes(value.orbit),
+        movement: m && create(FleetMoveSchema, { from: position2(m.from), to: position2(m.to), via: m.via.map((p) => position2(p)), departureServerMs: m.departureServerMs, arrivalServerMs: m.arrivalServerMs, orderId: bytes(m.orderId) })
       });
     }
   }
 }
 function copyRows(value) {
-  return { tables: new Map([...value.tables].map(([name, rows]) => [name, new Map([...rows].map(([key3, row3]) => [key3, copyRow(row3)]))])), unavailable: [...value.unavailable], unavailableSummaries: value.unavailableSummaries, ownedCut: value.ownedCut, observation: copyObservation(value.observation) };
+  return { tables: new Map([...value.tables].map(([name, rows]) => [name, new Map([...rows].map(([key3, row2]) => [key3, copyRow(row2)]))])), unavailable: [...value.unavailable], unavailableSummaries: value.unavailableSummaries, ownedCut: value.ownedCut, observation: copyObservation(value.observation) };
 }
 function copyBaseline(value) {
   return { ...value, selector: copySelector(value.selector), rows: copyRows(value.rows) };
@@ -4752,11 +4698,11 @@ function copySnapshot(value) {
 function emptyRows() {
   return { tables: /* @__PURE__ */ new Map(), unavailable: [], unavailableSummaries: 0 };
 }
-function key2(row3) {
-  if ("fleetId" in row3) return opaqueIdAt(row3.fleetId);
-  if ("systemId" in row3) return opaqueIdAt(row3.systemId);
-  if ("clusterId" in row3) return opaqueIdAt(row3.clusterId);
-  return [opaqueIdAt(row3.systemA), opaqueIdAt(row3.systemB)].sort().join(":");
+function key2(row2) {
+  if ("fleetId" in row2) return opaqueIdAt(row2.fleetId);
+  if ("systemId" in row2) return opaqueIdAt(row2.systemId);
+  if ("clusterId" in row2) return opaqueIdAt(row2.clusterId);
+  return [opaqueIdAt(row2.systemA), opaqueIdAt(row2.systemB)].sort().join(":");
 }
 function apply(state, name, upserts, removals, baseline, limit) {
   let table = state.tables.get(name);
@@ -4765,23 +4711,23 @@ function apply(state, name, upserts, removals, baseline, limit) {
     state.tables.set(name, table);
   }
   validateChanges(table, upserts, removals, baseline);
-  const unavailable = (row3) => row3?.$typeName === "galaxy.v1.OverviewSystem" && row3.observation?.availability !== 1 ? 1 : 0;
+  const unavailable = (row2) => row2?.$typeName === "galaxy.v1.OverviewSystem" && row2.observation?.availability !== 1 ? 1 : 0;
   for (const k of removals) {
     if (name === "summaries") state.unavailableSummaries -= unavailable(table.get(k));
     table.delete(k);
   }
-  for (const row3 of upserts) {
-    const k = key2(row3);
-    if (name === "summaries") state.unavailableSummaries += unavailable(row3) - unavailable(table.get(k));
-    table.set(k, copyRow(row3));
+  for (const row2 of upserts) {
+    const k = key2(row2);
+    if (name === "summaries") state.unavailableSummaries += unavailable(row2) - unavailable(table.get(k));
+    table.set(k, copyRow(row2));
   }
   if (table.size > limit) throw new Error("View retained row budget");
 }
 function validateChanges(table, upserts, removals, baseline) {
   const seen = new Set(removals);
   if (seen.size !== removals.length || baseline && removals.length) throw new Error("Invalid view removals");
-  for (const row3 of upserts) {
-    const k = key2(row3);
+  for (const row2 of upserts) {
+    const k = key2(row2);
     if (seen.has(k) || baseline && table.has(k)) throw new Error("Duplicate view row");
     seen.add(k);
   }
@@ -4842,10 +4788,10 @@ function viewToken(connection, baseline) {
 function sameToken(a, b) {
   return a.connection === b.connection && a.request === b.request && a.baseline === b.baseline && a.epoch === b.epoch && a.sequence === b.sequence;
 }
-function productRow(row3) {
-  if (row3.$typeName !== "galaxy.v1.OwnedFleetRow" || !row3.source) throw new Error("Invalid owned roster row");
-  const location = row3.state === 3 ? { kind: "transit", sourceSystemId: opaqueIdAt(row3.departureSystemId), destinationSystemId: opaqueIdAt(row3.destinationSystemId), arrivalMs: row3.arrivalServerMs } : { kind: "resident", systemId: opaqueIdAt(row3.systemId), moving: row3.state === 2, ...row3.arrivalServerMs === void 0 ? {} : { arrivalMs: row3.arrivalServerMs } };
-  return { id: opaqueIdAt(row3.fleetId), revision: row3.fleetRevision, location, sourceRevision: row3.source.revision, committedMs: row3.source.committedServerMs, availability: row3.source.availability };
+function productRow(row2) {
+  if (row2.$typeName !== "galaxy.v1.OwnedFleetRow" || !row2.source) throw new Error("Invalid owned roster row");
+  const location = row2.state === 3 ? { kind: "transit", sourceSystemId: opaqueIdAt(row2.departureSystemId), destinationSystemId: opaqueIdAt(row2.destinationSystemId), arrivalMs: row2.arrivalServerMs } : { kind: "resident", systemId: opaqueIdAt(row2.systemId), moving: row2.state === 2, ...row2.arrivalServerMs === void 0 ? {} : { arrivalMs: row2.arrivalServerMs } };
+  return { id: opaqueIdAt(row2.fleetId), revision: row2.fleetRevision, location, sourceRevision: row2.source.revision, committedMs: row2.source.committedServerMs, availability: row2.source.availability, memberCount: row2.memberCount };
 }
 function validateQuery(baseline, query, token2, total) {
   if (!baseline.complete || baseline.selector.kind.case !== "owned") throw new Error("Complete owned roster required");
@@ -4861,9 +4807,9 @@ function validateWindow({ offset, limit }, total) {
 function projectPage(rows, { offset, limit }) {
   const fleets = [];
   let seen = 0;
-  for (const row3 of rows) {
+  for (const row2 of rows) {
     if (seen++ < offset) continue;
-    fleets.push(productRow(row3));
+    fleets.push(productRow(row2));
     if (fleets.length === limit) break;
   }
   return fleets;
@@ -4874,8 +4820,8 @@ function ownedRosterPage(connection, baseline, query) {
   const window = validateQuery(baseline, query, token2, total);
   const common = { token: token2, unavailableSourceIds: [...baseline.rows.unavailable], total };
   if (query.fleetId) {
-    const row3 = rows?.get(query.fleetId);
-    return { ...common, fleets: row3 ? [productRow(row3)] : [], nextOffset: null };
+    const row2 = rows?.get(query.fleetId);
+    return { ...common, fleets: row2 ? [productRow(row2)] : [], nextOffset: null };
   }
   const fleets = projectPage(rows?.values() ?? [], window);
   const next = window.offset + fleets.length;
@@ -4917,6 +4863,7 @@ function createPlayerViewCache(world, connection, changed = () => {
       s.baselineGeneration = 0n;
       s.baselineId = "";
       s.retired = 0n;
+      s.recovering = false;
       s.status = selector ? "loading" : "closed";
       s.stale = !!s.displayed;
       if (!selector) {
@@ -4934,6 +4881,7 @@ function createPlayerViewCache(world, connection, changed = () => {
       s.staged = void 0;
       s.stale = false;
       s.status = s.requested ? status : "closed";
+      s.recovering = false;
     }
     barrier(next);
     for (const s of slots2.values()) changed(s.slot);
@@ -4961,21 +4909,21 @@ function createPlayerViewCache(world, connection, changed = () => {
     s.stale = !!s.displayed;
     return true;
   }
-  function chunk(s, v, bytes3) {
+  function chunk(s, v, bytes2) {
     const b = s.staged;
     if (!b || b.id !== opaqueIdAt(v.baselineId) || b.baselineGeneration !== v.baselineGeneration) return false;
     if (v.chunkIndex !== b.chunks) throw new Error("View chunk gap");
-    stagingBudget(s, b, bytes3);
+    stagingBudget(s, b, bytes2);
     membership(s, v.rows);
     applyRows(b.rows, v.rows, true);
     b.chunks++;
-    b.bytes += bytes3;
+    b.bytes += bytes2;
     return true;
   }
-  function stagingBudget(s, b, bytes3) {
+  function stagingBudget(s, b, bytes2) {
     const limit = s.slot === 3 ? 4 * 1024 * 1024 : 8 * 1024 * 1024;
     const total = [...slots2.values()].reduce((n, x) => n + (x.staged?.bytes ?? 0), 0);
-    if (!Number.isInteger(bytes3) || bytes3 <= 0 || bytes3 > 128 * 1024 || b.bytes + bytes3 > limit || total + bytes3 > 8 * 1024 * 1024) throw new Error("View staging byte budget");
+    if (!Number.isInteger(bytes2) || bytes2 <= 0 || bytes2 > 128 * 1024 || b.bytes + bytes2 > limit || total + bytes2 > 8 * 1024 * 1024) throw new Error("View staging byte budget");
   }
   function ready(s, v) {
     const b = s.staged;
@@ -4986,9 +4934,10 @@ function createPlayerViewCache(world, connection, changed = () => {
     s.staged = void 0;
     s.status = "ready";
     s.stale = false;
+    s.recovering = false;
     return true;
   }
-  function delta2(s, v) {
+  function delta(s, v) {
     const b = s.displayed;
     if (s.staged || !b || b.requestGeneration !== s.requestedGeneration || b.id !== opaqueIdAt(v.baselineId) || b.baselineGeneration !== v.baselineGeneration) return false;
     if (v.sequence <= b.sequence) return false;
@@ -4999,11 +4948,11 @@ function createPlayerViewCache(world, connection, changed = () => {
     b.sequence = v.sequence;
     return true;
   }
-  function data(s, m, bytes3) {
+  function data(s, m, bytes2) {
     const r = m.result;
-    if (r.case === "chunk") return chunk(s, r.value, bytes3);
+    if (r.case === "chunk") return chunk(s, r.value, bytes2);
     if (r.case === "ready") return ready(s, r.value);
-    if (r.case === "delta") return delta2(s, r.value);
+    if (r.case === "delta") return delta(s, r.value);
     return false;
   }
   function invalidate(next) {
@@ -5023,6 +4972,7 @@ function createPlayerViewCache(world, connection, changed = () => {
     advanceEpoch(m.visibilityEpoch);
     s.retired = retired;
     s.baselineGeneration = retired;
+    s.recovering = m.result.value.reason === 4;
     s.displayed = void 0;
     s.staged = void 0;
     s.stale = false;
@@ -5030,7 +4980,7 @@ function createPlayerViewCache(world, connection, changed = () => {
     changed(s.slot);
     return true;
   }
-  function dispatch(s, m, bytes3) {
+  function dispatch(s, m, bytes2) {
     let applied = true;
     if (m.result.case === "begin") applied = begin(s, m.result.value, m);
     else if (m.result.case === "rejected") {
@@ -5042,7 +4992,7 @@ function createPlayerViewCache(world, connection, changed = () => {
       s.displayed = void 0;
       s.status = "closed";
       s.stale = false;
-    } else applied = data(s, m, bytes3);
+    } else applied = data(s, m, bytes2);
     if (applied && m.result.case !== "chunk") changed(s.slot);
     return applied;
   }
@@ -5058,9 +5008,9 @@ function createPlayerViewCache(world, connection, changed = () => {
     advanceEpoch(m.visibilityEpoch);
     return dispatch(s, m, encodedBytes);
   }
-  function admittedReceive(m, generation, bytes3) {
+  function admittedReceive(m, generation, bytes2) {
     try {
-      return receive(m, generation, bytes3);
+      return receive(m, generation, bytes2);
     } catch (error) {
       const s = slots2.get(m.slot);
       if (s) {
@@ -5081,6 +5031,7 @@ function createPlayerViewCache(world, connection, changed = () => {
       return {
         slot,
         status: s.status,
+        recovering: s.recovering === true,
         stale: s.stale,
         requestGeneration: s.requestedGeneration,
         visibilityEpoch: epoch,
@@ -5103,6 +5054,53 @@ function createPlayerViewCache(world, connection, changed = () => {
   };
 }
 
+// js/contracts/fleet-orbit.ts
+var ORBIT_RECORD_BYTES = 122;
+function readFleetOrbit(bytes2) {
+  if (!bytes2.length) return;
+  if (!validHeader(bytes2)) throw new Error("Invalid accepted orbit");
+  const view = new DataView(bytes2.buffer, bytes2.byteOffset, bytes2.byteLength);
+  const epochMs = view.getBigUint64(2), periodMs = view.getBigUint64(10), radius = view.getFloat64(18);
+  const body = new Float64Array(12);
+  for (let i = 0; i < 12; i++) body[i] = view.getFloat64(26 + i * 8);
+  const phase = readPhase(bytes2[0], body);
+  if (!validGeometry(periodMs, radius, body)) throw new Error("Invalid orbit geometry");
+  return { bodyIndex: bytes2[1], epochMs, periodMs, radius, phase, body, record: bytes2.slice() };
+}
+function validHeader(bytes2) {
+  return bytes2.length === ORBIT_RECORD_BYTES && (bytes2[0] === 1 || bytes2[0] === 2) && bytes2[1] >= 1 && bytes2[1] <= 15;
+}
+function readPhase(version, body) {
+  if (version === 1) return;
+  const phase = body[11];
+  if (!Number.isFinite(phase) || phase < 0 || phase >= Math.PI * 2) throw new Error("Invalid orbit phase");
+  body[11] = 0;
+  return phase;
+}
+function validGeometry(period, radius, body) {
+  return period > 0n && Number.isFinite(radius) && radius > body[1] && radius <= 100 && body.every(Number.isFinite) && body[2] > 0;
+}
+function packFleetOrbits(rows) {
+  const orbitOffsets = new Uint32Array(rows.length + 1);
+  for (let i = 0; i < rows.length; i++) {
+    const length = rows[i]?.length ?? 0;
+    if (length !== 0 && length !== ORBIT_RECORD_BYTES) throw new Error("Invalid orbit size");
+    orbitOffsets[i + 1] = orbitOffsets[i] + length;
+  }
+  const orbitBytes = new Uint8Array(orbitOffsets[rows.length]);
+  for (let i = 0; i < rows.length; i++) if (rows[i]?.length) orbitBytes.set(rows[i], orbitOffsets[i]);
+  return { orbitOffsets, orbitBytes };
+}
+function orbitBuffers(count, offsets, bytes2) {
+  if (!(offsets instanceof Uint32Array) || !(bytes2 instanceof Uint8Array) || offsets.length !== count + 1 || offsets[0] !== 0 || offsets[count] !== bytes2.length) throw new Error("Invalid orbit columns");
+  if (!(offsets.buffer instanceof ArrayBuffer) || !(bytes2.buffer instanceof ArrayBuffer)) throw new Error("Invalid orbit storage");
+  for (let i = 0; i < count; i++) {
+    const n = offsets[i + 1] - offsets[i];
+    if (n !== 0 && n !== ORBIT_RECORD_BYTES) throw new Error("Invalid orbit offset");
+  }
+  return [offsets.buffer, bytes2.buffer];
+}
+
 // js/render/remote/contracts.ts
 var MAX_BATCH_ENTITIES = 256;
 var MAX_STREAM_BYTES = 1024 * 1024;
@@ -5112,22 +5110,40 @@ var MAX_SNAPSHOT_BYTES = 4 * 1024 * 1024;
 function projectionBuffers(batch) {
   const count = batch.ids.byteLength / 16;
   const removed = batch.removedIds.byteLength / 16;
-  if (batch.layoutVersion !== 1 || !Number.isInteger(count) || !Number.isInteger(removed) || count + removed > MAX_BATCH_ENTITIES) throw new Error("Invalid projection batch size/layout");
+  if (![1, 2, 3, 4, 5, 6].includes(batch.layoutVersion) || !Number.isInteger(count) || !Number.isInteger(removed) || count + removed > MAX_BATCH_ENTITIES) throw new Error("Invalid projection batch size/layout");
   const views = [batch.ids, batch.revisions, batch.positions, batch.targets, batch.times, batch.moving, batch.removedIds];
-  const lengths = [count * 16, count * 8, count * 16, count * 16, count * 16, count, removed * 16];
+  const coordinateBytes = count * (batch.layoutVersion >= 2 ? 24 : 16);
+  const lengths = [count * 16, count * 8, coordinateBytes, coordinateBytes, count * 16, count, removed * 16];
   const constructors = [Uint8Array, BigUint64Array, Float64Array, Float64Array, BigUint64Array, Uint8Array, Uint8Array];
+  if (batch.layoutVersion >= 3) {
+    views.push(batch.appearance);
+    lengths.push(count * 28);
+    constructors.push(Uint32Array);
+  } else if (batch.appearance !== void 0) throw new Error("Appearance requires projection layout 3 or 4");
+  if (batch.layoutVersion >= 5) {
+    const offsets = batch.pathOffsets, points = batch.pathPoints;
+    if (!(offsets instanceof Uint32Array) || offsets.length !== count + 1 || offsets[0] !== 0 || !(points instanceof Float64Array) || points.length !== offsets[count] * 3) throw new Error("Invalid projection paths");
+    for (let i = 0; i < count; i++) if (offsets[i + 1] < offsets[i] || offsets[i + 1] - offsets[i] > 14) throw new Error("Projection path exceeds bound");
+    if (!points.every(Number.isFinite)) throw new Error("Invalid projection path point");
+    views.push(offsets, points);
+    lengths.push((count + 1) * 4, points.byteLength);
+    constructors.push(Uint32Array, Float64Array);
+  }
   const buffers = /* @__PURE__ */ new Set();
   for (let i = 0; i < views.length; i++) {
-    const view = views[i];
-    if (!(view instanceof constructors[i]) || view.byteLength !== lengths[i] || !(view.buffer instanceof ArrayBuffer)) throw new Error("Invalid projection column");
-    buffers.add(view.buffer);
+    buffers.add(columnBuffer(views[i], constructors[i], lengths[i]));
   }
+  if (batch.layoutVersion >= 6) for (const buffer of orbitBuffers(count, batch.orbitOffsets, batch.orbitBytes)) buffers.add(buffer);
   return [...buffers];
 }
 function bufferBytes(buffers) {
-  let bytes3 = 0;
-  for (const buffer of buffers) bytes3 += buffer.byteLength;
-  return bytes3;
+  let bytes2 = 0;
+  for (const buffer of buffers) bytes2 += buffer.byteLength;
+  return bytes2;
+}
+function columnBuffer(view, constructor, length) {
+  if (!view || !(view instanceof constructor) || view.byteLength !== length || !(view.buffer instanceof ArrayBuffer)) throw new Error("Invalid projection column");
+  return view.buffer;
 }
 
 // js/render/remote/projection-state.ts
@@ -5151,28 +5167,41 @@ function sameScope(a, b) {
 var MAX_RULE_SEED_FLEETS = 256;
 
 // js/network/owned-projection.ts
-function row2(fleet2) {
-  const move2 = fleet2.movement;
-  const base = { id: opaqueIdAt(fleet2.fleetId), revision: fleet2.revision, x: fleet2.position.x, z: fleet2.position.z };
-  if (!move2) return { ...base, targetX: base.x, targetZ: base.z, moving: false, departureMs: 0n, arrivalMs: 0n, transferReadyMs: fleet2.transferReadyServerMs };
+function row(fleet3) {
+  const move2 = fleet3.movement;
+  const composition = summarizeComposition(fleet3.composition);
+  const base = {
+    orbitBody: fleet3.orbit?.length ? fleet3.orbit[1] : void 0,
+    orbitRecord: readFleetOrbit(fleet3.orbit ?? new Uint8Array())?.record,
+    id: opaqueIdAt(fleet3.fleetId),
+    revision: fleet3.revision,
+    x: fleet3.position.x,
+    y: fleet3.position.y,
+    z: fleet3.position.z,
+    composition,
+    memberCount: composition?.reduce((sum, group) => sum + group.count, 0)
+  };
+  if (!move2) return { ...base, targetX: base.x, targetY: base.y, targetZ: base.z, moving: false, departureMs: 0n, arrivalMs: 0n, transferReadyMs: fleet3.transferReadyServerMs };
   const orderId = opaqueIdAt(move2.orderId);
   opaqueIdBytes(orderId);
   return {
     ...base,
     targetX: move2.to.x,
+    targetY: move2.to.y,
     targetZ: move2.to.z,
     moving: true,
     orderId,
+    via: move2.via?.map((p) => ({ x: p.x, y: p.y, z: p.z })),
     departureMs: move2.departureServerMs,
     arrivalMs: move2.arrivalServerMs,
-    transferReadyMs: fleet2.transferReadyServerMs
+    transferReadyMs: fleet3.transferReadyServerMs
   };
 }
 function change(rows, fleets, removed) {
   for (const id2 of removed) rows.delete(opaqueIdAt(id2));
-  for (const fleet2 of fleets) {
-    if (fleet2.controllable) rows.set(opaqueIdAt(fleet2.fleetId), row2(fleet2));
-    else rows.delete(opaqueIdAt(fleet2.fleetId));
+  for (const fleet3 of fleets) {
+    if (fleet3.controllable) rows.set(opaqueIdAt(fleet3.fleetId), row(fleet3));
+    else rows.delete(opaqueIdAt(fleet3.fleetId));
     if (rows.size > MAX_SNAPSHOT_ENTITIES) throw new Error("Owned projection entity budget exceeded");
   }
 }
@@ -5214,7 +5243,20 @@ function createOwnedProjection(connectionGeneration, playerId) {
       const seed = pack(rows, current, connectionGeneration, playerId);
       return {
         seed,
-        fleets: rows.map(({ id: id2, revision, x, z, targetX, targetZ, moving }) => ({ id: id2, revision, x, z, targetX, targetZ, moving })),
+        fleets: rows.map(({ id: id2, revision, x, y, z, targetX, targetY, targetZ, moving, orbitBody, memberCount, composition }) => ({
+          id: id2,
+          revision,
+          x,
+          y,
+          z,
+          targetX,
+          targetY,
+          targetZ,
+          moving,
+          orbitBody,
+          memberCount,
+          ...query.fleetId ? { composition: copyCompositionSummary(composition) } : {}
+        })),
         nextOffset,
         total: current.rows.size,
         serverNowMs
@@ -5229,9 +5271,9 @@ function createOwnedProjection(connectionGeneration, playerId) {
 }
 function select(all, query) {
   if (query.fleetId) {
-    const fleet2 = all.get(query.fleetId);
-    if (!fleet2) throw new Error("Fleet is outside the owned projection");
-    return { rows: [fleet2], nextOffset: null };
+    const fleet3 = all.get(query.fleetId);
+    if (!fleet3) throw new Error("Fleet is outside the owned projection");
+    return { rows: [fleet3], nextOffset: null };
   }
   const offset = query.offset ?? 0;
   const limit = query.limit ?? 64;
@@ -5244,9 +5286,9 @@ function select(all, query) {
 function pageRows(all, offset, limit) {
   const rows = [];
   let index = 0;
-  for (const fleet2 of all.values()) {
+  for (const fleet3 of all.values()) {
     if (index++ < offset) continue;
-    rows.push(fleet2);
+    rows.push(fleet3);
     if (rows.length === limit) break;
   }
   return rows;
@@ -5258,24 +5300,35 @@ function pageBounds(offset, limit, total) {
 }
 function pack(rows, state, generation, playerId) {
   const n = rows.length;
-  const bytes3 = new ArrayBuffer(n * 112);
-  const identities = new Uint8Array(bytes3, 0, n * 48);
-  const revisions = new BigUint64Array(bytes3, n * 48, n);
-  const positions = new Float64Array(bytes3, n * 56, n * 4);
-  const times = new BigUint64Array(bytes3, n * 88, n * 3);
+  const bytes2 = new ArrayBuffer(n * 128);
+  const identities = new Uint8Array(bytes2, 0, n * 48);
+  const revisions = new BigUint64Array(bytes2, n * 48, n);
+  const positions = new Float64Array(bytes2, n * 56, n * 6);
+  const times = new BigUint64Array(bytes2, n * 104, n * 3);
+  const pathOffsets = new Uint32Array(n + 1);
+  rows.forEach((fleet3, i) => {
+    if ((fleet3.via?.length ?? 0) > 14) throw new Error("Owned path exceeds bound");
+    pathOffsets[i + 1] = pathOffsets[i] + (fleet3.via?.length ?? 0);
+  });
+  const pathPoints = new Float64Array(pathOffsets[n] * 3);
+  rows.forEach((fleet3, i) => fleet3.via?.forEach((p, j) => pathPoints.set([p.x, p.y, p.z], (pathOffsets[i] + j) * 3)));
   const owner = opaqueIdBytes(playerId);
-  rows.forEach((fleet2, i) => {
-    identities.set(opaqueIdBytes(fleet2.id), i * 48);
+  rows.forEach((fleet3, i) => {
+    identities.set(opaqueIdBytes(fleet3.id), i * 48);
     identities.set(owner, i * 48 + 16);
-    if (fleet2.orderId) identities.set(opaqueIdBytes(fleet2.orderId), i * 48 + 32);
-    revisions[i] = fleet2.revision;
-    positions.set([fleet2.x, fleet2.z, fleet2.moving ? fleet2.targetX : 0, fleet2.moving ? fleet2.targetZ : 0], i * 4);
-    times.set([fleet2.departureMs, fleet2.arrivalMs, fleet2.transferReadyMs], i * 3);
+    if (fleet3.orderId) identities.set(opaqueIdBytes(fleet3.orderId), i * 48 + 32);
+    revisions[i] = fleet3.revision;
+    positions.set([fleet3.x, fleet3.y, fleet3.z, fleet3.moving ? fleet3.targetX : 0, fleet3.moving ? fleet3.targetY : 0, fleet3.moving ? fleet3.targetZ : 0], i * 6);
+    times.set([fleet3.departureMs, fleet3.arrivalMs, fleet3.transferReadyMs], i * 3);
   });
   return {
     token: { connectionGeneration: generation, watermark: copyWatermark(state.watermark) },
     playerId,
     ruleVersion: 1,
+    positionDimensions: 3,
+    pathOffsets,
+    pathPoints,
+    ...packFleetOrbits(rows.map((r) => r.orbitRecord)),
     committedTimeMs: state.committedTimeMs,
     identities,
     revisions,
@@ -5286,43 +5339,54 @@ function pack(rows, state, generation, playerId) {
 
 // js/network/projection-pack.ts
 function allocate(count, removed) {
-  const buffer = new ArrayBuffer(count * 73 + removed.length * 16);
+  const buffer = new ArrayBuffer(count * 117 + removed.length * 16);
   return {
     ids: new Uint8Array(buffer, 0, count * 16),
     revisions: new BigUint64Array(buffer, count * 16, count),
-    positions: new Float64Array(buffer, count * 24, count * 2),
-    targets: new Float64Array(buffer, count * 40, count * 2),
-    times: new BigUint64Array(buffer, count * 56, count * 2),
-    moving: new Uint8Array(buffer, count * 72, count),
-    removedIds: new Uint8Array(buffer, count * 73, removed.length * 16)
+    positions: new Float64Array(buffer, count * 24, count * 3),
+    targets: new Float64Array(buffer, count * 48, count * 3),
+    times: new BigUint64Array(buffer, count * 72, count * 2),
+    appearance: new Uint32Array(buffer, count * 88, count * 7),
+    moving: new Uint8Array(buffer, count * 116, count),
+    removedIds: new Uint8Array(buffer, count * 117, removed.length * 16)
   };
 }
 function packRows(fleets, removed) {
-  const columns = allocate(fleets.length, removed);
+  const pathOffsets = new Uint32Array(fleets.length + 1);
   for (let i = 0; i < fleets.length; i++) {
-    const fleet2 = fleets[i];
-    const from = fleet2.movement?.from ?? fleet2.position;
-    const target = fleet2.movement?.to ?? fleet2.position;
-    columns.ids.set(fleet2.fleetId, i * 16);
-    columns.revisions[i] = fleet2.revision;
-    columns.positions.set([from.x, from.z], i * 2);
-    columns.targets.set([target.x, target.z], i * 2);
-    if (fleet2.movement) {
-      columns.times[i * 2] = fleet2.movement.departureServerMs;
-      columns.times[i * 2 + 1] = fleet2.movement.arrivalServerMs;
-      columns.moving[i] = 1;
+    const n = fleets[i].movement?.via?.length ?? 0;
+    if (n > 14) throw new Error("Authoritative route exceeds vertex bound");
+    pathOffsets[i + 1] = pathOffsets[i] + n;
+  }
+  const pathPoints = new Float64Array(pathOffsets[fleets.length] * 3);
+  const columns = { ...allocate(fleets.length, removed), pathOffsets, pathPoints, ...packFleetOrbits(fleets.map((f) => f.orbit)) };
+  for (let i = 0; i < fleets.length; i++) {
+    const fleet3 = fleets[i];
+    columns.moving[i] = fleet3.controllable ? 2 : 0;
+    packFleetAppearance(columns.appearance, i * 7, fleet3.composition, fleet3.appearance);
+    const from = fleet3.movement?.from ?? fleet3.position;
+    const target = fleet3.movement?.to ?? fleet3.position;
+    columns.ids.set(fleet3.fleetId, i * 16);
+    columns.revisions[i] = fleet3.revision;
+    columns.positions.set([from.x, from.y, from.z], i * 3);
+    columns.targets.set([target.x, target.y, target.z], i * 3);
+    if (fleet3.movement) {
+      columns.times[i * 2] = fleet3.movement.departureServerMs;
+      columns.times[i * 2 + 1] = fleet3.movement.arrivalServerMs;
+      columns.moving[i] |= 1;
+      fleet3.movement.via?.forEach((point2, j) => pathPoints.set([point2.x, point2.y, point2.z], (pathOffsets[i] + j) * 3));
     }
   }
   for (let i = 0; i < removed.length; i++) columns.removedIds.set(removed[i], i * 16);
   return columns;
 }
-function metadata(scope2, cursor2) {
+function metadata(scope2, cursor) {
   return {
-    layoutVersion: 1,
+    layoutVersion: 6,
     scope: { worldId: opaqueIdAt(scope2.worldId), shardId: opaqueIdAt(scope2.shardId), systemId: opaqueIdAt(scope2.systemId), ownerEpoch: scope2.ownerEpoch, recoveryGeneration: scope2.recoveryGeneration },
-    subscriptionId: opaqueIdAt(cursor2.subscriptionId),
-    streamGeneration: cursor2.generation,
-    sequence: cursor2.sequence
+    subscriptionId: opaqueIdAt(cursor.subscriptionId),
+    streamGeneration: cursor.generation,
+    sequence: cursor.sequence
   };
 }
 function packSnapshot(chunk) {
@@ -5334,12 +5398,12 @@ function packSnapshot(chunk) {
     snapshot: { id: opaqueIdAt(chunk.snapshotId), index: chunk.chunkIndex, count: chunk.chunkCount }
   };
 }
-function packDelta(delta2) {
+function packDelta(delta) {
   return {
-    ...metadata(delta2.scope, delta2.cursor),
-    ...packRows(delta2.upserts, delta2.removedFleetIds),
-    baseSystemRevision: delta2.baseSystemRevision,
-    systemRevision: delta2.systemRevision
+    ...metadata(delta.scope, delta.cursor),
+    ...packRows(delta.upserts, delta.removedFleetIds),
+    baseSystemRevision: delta.baseSystemRevision,
+    systemRevision: delta.systemRevision
   };
 }
 
@@ -5353,7 +5417,7 @@ function createDetailProjection(connection, player, subscriptionId) {
     owned2.dispose();
     owned2 = createOwnedProjection(connection, player);
   }
-  function* snapshot2(value) {
+  function* snapshot(value) {
     validateBaseline(value);
     invalidate();
     if (nextGeneration === 2n ** 64n - 1n) throw new Error("Render generation exhausted");
@@ -5376,7 +5440,7 @@ function createDetailProjection(connection, player, subscriptionId) {
     for (let index = 0; index < count; index++) {
       if (current !== state) return;
       const fleets = takeFleets(iterator);
-      const chunk = create(SystemSnapshotChunkSchema, {
+      const chunk = {
         scope: observation2.scope,
         cursor: { subscriptionId: opaqueIdBytes(subscriptionId), generation: state.generation, sequence: 0n },
         snapshotId: opaqueIdBytes(value.id),
@@ -5385,13 +5449,13 @@ function createDetailProjection(connection, player, subscriptionId) {
         systemRevision: observation2.revision,
         committedTimeMs: observation2.committedServerMs,
         fleets
-      });
+      };
       const batch = packSnapshot(chunk);
       owned2.snapshot(chunk, watermark(batch));
       yield batch;
     }
   }
-  function delta2(value, request, epoch) {
+  function delta(value, request, epoch) {
     const state = current;
     if (!state || state.id !== opaqueIdAt(value.baselineId) || state.baseline !== value.baselineGeneration || state.request !== request || state.epoch !== epoch) return;
     if (value.sequence <= state.wireSequence) return;
@@ -5399,7 +5463,7 @@ function createDetailProjection(connection, player, subscriptionId) {
     const rows = value.rows.value;
     const observation2 = rows.observation;
     validateAdvance(observation2, state);
-    const wire = create(SystemDeltaSchema, { scope: observation2.scope, cursor: { subscriptionId: opaqueIdBytes(subscriptionId), generation: state.generation, sequence: state.sequence + 1n }, baseSystemRevision: state.revision, systemRevision: observation2.revision, committedTimeMs: observation2.committedServerMs, upserts: rows.upserts, removedFleetIds: rows.removedFleetIds });
+    const wire = { scope: observation2.scope, cursor: { subscriptionId: opaqueIdBytes(subscriptionId), generation: state.generation, sequence: state.sequence + 1n }, baseSystemRevision: state.revision, systemRevision: observation2.revision, committedTimeMs: observation2.committedServerMs, upserts: rows.upserts, removedFleetIds: rows.removedFleetIds };
     const batch = packDelta(wire);
     owned2.delta(wire, watermark(batch));
     state.sequence++;
@@ -5409,8 +5473,8 @@ function createDetailProjection(connection, player, subscriptionId) {
     return batch;
   }
   return {
-    snapshot: snapshot2,
-    delta: delta2,
+    snapshot,
+    delta,
     invalidate,
     dispose: invalidate,
     page: (query, serverNow) => owned2.page(query, serverNow),
@@ -5445,31 +5509,31 @@ function createViewOverview(world, connection) {
     topology = {
       worldId: world,
       revision: value.topologyRevision,
-      hostedSystemIds: systems.map((row3) => opaqueIdAt(row3.systemId)),
-      clusters: clusters.map((row3) => ({ id: opaqueIdAt(row3.clusterId), name: row3.name, x: row3.position.x, z: row3.position.z, radius: row3.radius })),
-      systems: systems.map((row3) => ({ id: opaqueIdAt(row3.systemId), clusterId: opaqueIdAt(row3.clusterId), name: row3.name, x: row3.position.x, z: row3.position.z })),
-      connections: edges.map((row3) => ({ a: opaqueIdAt(row3.systemA), b: opaqueIdAt(row3.systemB) }))
+      hostedSystemIds: systems.map((row2) => opaqueIdAt(row2.systemId)),
+      clusters: clusters.map((row2) => ({ id: opaqueIdAt(row2.clusterId), name: row2.name, x: row2.position.x, z: row2.position.z, radius: row2.radius })),
+      systems: systems.map((row2) => ({ id: opaqueIdAt(row2.systemId), clusterId: opaqueIdAt(row2.clusterId), name: row2.name, x: row2.position.x, z: row2.position.z })),
+      connections: edges.map((row2) => ({ a: opaqueIdAt(row2.systemA), b: opaqueIdAt(row2.systemB) }))
     };
     summaries.clear();
-    for (const row3 of value.rows.tables.get("summaries")?.values() ?? []) if (row3.$typeName === "galaxy.v1.OverviewSystem") summaries.set(opaqueIdAt(row3.systemId), row3);
+    for (const row2 of value.rows.tables.get("summaries")?.values() ?? []) if (row2.$typeName === "galaxy.v1.OverviewSystem") summaries.set(opaqueIdAt(row2.systemId), row2);
     generation = value.requestGeneration;
     sequence = value.sequence;
     return topology;
   }
-  function delta2(rows, next) {
+  function delta(rows, next) {
     for (const id2 of rows.removedSystemIds) summaries.delete(opaqueIdAt(id2));
-    for (const row3 of rows.summaries) summaries.set(opaqueIdAt(row3.systemId), copyRow(row3));
+    for (const row2 of rows.summaries) summaries.set(opaqueIdAt(row2.systemId), copyRow(row2));
     sequence = next;
     return !!(rows.clusters.length + rows.systems.length + rows.connections.length + rows.removedClusterIds.length + rows.removedSystemIds.length + rows.removedConnections.length);
   }
-  function snapshot2() {
+  function snapshot() {
     const systems = [];
     for (const id2 of interests) {
-      const row3 = summaries.get(id2), o = row3?.observation, s = o?.scope;
-      if (!row3 || !o || !s) continue;
+      const row2 = summaries.get(id2), o = row2?.observation, s = o?.scope;
+      if (!row2 || !o || !s) continue;
       systems.push({
         scope: { worldId: opaqueIdAt(s.worldId), shardId: opaqueIdAt(s.shardId), systemId: id2, ownerEpoch: s.ownerEpoch, recoveryGeneration: s.recoveryGeneration },
-        counts: o.availability === 1 ? { systemRevision: o.revision, committedServerTimeMs: o.committedServerMs, presentFleets: row3.presentFleets, movingFleets: row3.movingFleets } : void 0
+        counts: o.availability === 1 ? { systemRevision: o.revision, committedServerTimeMs: o.committedServerMs, presentFleets: row2.presentFleets, movingFleets: row2.movingFleets } : void 0
       });
     }
     return { ...frontier(), status: topology ? "view" : "unavailable", systems };
@@ -5479,8 +5543,8 @@ function createViewOverview(world, connection) {
   }
   return {
     install,
-    delta: delta2,
-    snapshot: snapshot2,
+    delta,
+    snapshot,
     frontier,
     node: (id2) => nodes.get(id2),
     first: () => topology?.systems[0]?.id,
@@ -5488,6 +5552,23 @@ function createViewOverview(world, connection) {
       if (ids2.length > 32) throw new Error("Aggregate page limit");
       interests = [...ids2];
       generation = request;
+    },
+    installHandles(rows) {
+      validateHandleCount(rows, topology?.systems.length);
+      const expected = new Map(topology.systems.map((row2) => [row2.id, row2.clusterId]));
+      const next = /* @__PURE__ */ new Map(), systems = /* @__PURE__ */ new Set(), clusters = /* @__PURE__ */ new Map();
+      for (const row2 of rows) {
+        if (next.has(row2.systemId) || expected.get(row2.systemId) !== row2.clusterId) throw new Error("Unknown topology handle identity");
+        const node = row2.node;
+        validateNodeHandle(node, systems);
+        if (clusters.has(row2.clusterId) && clusters.get(row2.clusterId) !== node.clusterId) throw new Error("Inconsistent cluster handle");
+        clusters.set(row2.clusterId, node.clusterId);
+        systems.add(node.solarSystemId);
+        next.set(row2.systemId, { ...node });
+      }
+      if (new Set(clusters.values()).size !== clusters.size) throw new Error("Duplicate cluster handle");
+      nodes.clear();
+      for (const [id2, node] of next) nodes.set(id2, node);
     },
     clear() {
       topology = void 0;
@@ -5499,20 +5580,29 @@ function createViewOverview(world, connection) {
 function topologyRows(value) {
   const table = value.rows.tables;
   return {
-    clusters: [...table.get("clusters")?.values() ?? []].filter((row3) => row3.$typeName === "galaxy.v1.TopologyCluster"),
-    systems: [...table.get("systems")?.values() ?? []].filter((row3) => row3.$typeName === "galaxy.v1.TopologySystem"),
-    edges: [...table.get("connections")?.values() ?? []].filter((row3) => row3.$typeName === "galaxy.v1.TopologyConnection")
+    clusters: [...table.get("clusters")?.values() ?? []].filter((row2) => row2.$typeName === "galaxy.v1.TopologyCluster"),
+    systems: [...table.get("systems")?.values() ?? []].filter((row2) => row2.$typeName === "galaxy.v1.TopologySystem"),
+    edges: [...table.get("connections")?.values() ?? []].filter((row2) => row2.$typeName === "galaxy.v1.TopologyConnection")
   };
 }
 function installNodes(clusters, systems, edges, nodes) {
-  const clusterIds = new Map(clusters.map((row3, index) => [opaqueIdAt(row3.clusterId), index + 1]));
+  const clusterIds = new Map(clusters.map((row2, index) => [opaqueIdAt(row2.clusterId), index + 1]));
   nodes.clear();
-  for (const [index, row3] of systems.entries()) {
-    const clusterId = clusterIds.get(opaqueIdAt(row3.clusterId));
+  for (const [index, row2] of systems.entries()) {
+    const clusterId = clusterIds.get(opaqueIdAt(row2.clusterId));
     if (!clusterId) throw new Error("View topology cluster missing");
-    nodes.set(opaqueIdAt(row3.systemId), { clusterId, solarSystemId: index + 1 });
+    nodes.set(opaqueIdAt(row2.systemId), { clusterId, solarSystemId: index + 1 });
   }
   for (const edge of edges) if (!nodes.has(opaqueIdAt(edge.systemA)) || !nodes.has(opaqueIdAt(edge.systemB))) throw new Error("View topology edge missing");
+}
+function validHandle(id2) {
+  return Number.isSafeInteger(id2) && id2 > 0 && id2 <= 16777215;
+}
+function validateNodeHandle(node, systems) {
+  if (!validHandle(node.clusterId) || !validHandle(node.solarSystemId) || systems.has(node.solarSystemId)) throw new Error("Invalid topology handle");
+}
+function validateHandleCount(rows, expected) {
+  if (!Array.isArray(rows) || rows.length !== expected) throw new Error("Incomplete topology handle acknowledgement");
 }
 
 // js/network/views/bridge.ts
@@ -5520,25 +5610,31 @@ var slots = { overview: 1, owned: 2, detail: 3 };
 var names2 = ["overview", "owned", "detail"];
 function createPlayerViewBridge(options) {
   const interests = createViewInterests(options.world, options.player, options.interests);
-  let autoDetail = interests.snapshot().slots.detail === void 0;
+  let autoDetail = !options.viewportNavigation && interests.snapshot().slots.detail === void 0;
   const publishInterests = () => void options.emit({ type: "viewInterests", generation: options.generation, interests: interests.snapshot() });
   const selectors = /* @__PURE__ */ new Map();
   let installed, pending, closed = false, projecting = false;
+  let recoveringTargets = false;
+  let detailNode;
+  let projected;
   let deferred = [];
   let deferredBytes = 0;
   const detail = createDetailProjection(options.generation, options.player, options.subscriptionId);
   const overview2 = createViewOverview(options.world, options.generation);
-  function fence() {
-    options.output.reset();
+  function fence(preserveTargets = false, preserveJourney = false) {
+    recoveringTargets = preserveTargets;
+    options.output.reset({ preserveTargets, preserveJourney });
     detail.invalidate();
+    projected = void 0;
     projecting = false;
     deferred = [];
     deferredBytes = 0;
   }
   const cache = createPlayerViewCache(opaqueIdBytes(options.world), options.connection, (slot) => {
-    void options.emit({ type: "viewChanged", status: status(names2[slot - 1], false) });
+    void options.emit({ type: "viewChanged", status: status(names2[slot - 1], names2[slot - 1] === "detail") });
   }, (epoch) => {
     fence();
+    detailNode = void 0;
     installed = void 0;
     pending = void 0;
     overview2.clear();
@@ -5553,6 +5649,7 @@ function createPlayerViewBridge(options) {
       requestedGeneration: f.requestGeneration,
       state: f.status,
       stale: f.stale,
+      recovering: f.recovering,
       displayed: b && { connection: options.generation, request: b.requestGeneration, baseline: b.baselineGeneration, epoch: b.visibilityEpoch, sequence: b.sequence }
     };
   }
@@ -5562,10 +5659,10 @@ function createPlayerViewBridge(options) {
     if (selector) selector = normalizedSelector(selector);
     if (slot === "detail") {
       autoDetail = false;
-      fence();
+      detailNode = void 0;
+      fence(false, true);
     }
     if (slot === "overview") {
-      fence();
       installed = void 0;
       pending = void 0;
     }
@@ -5581,13 +5678,12 @@ function createPlayerViewBridge(options) {
   function topology() {
     const baseline = cache.snapshot(1).displayed;
     if (!baseline) return;
-    fence();
     installed = void 0;
     const view = overview2.install(baseline);
     pending = { connection: options.generation, request: baseline.requestGeneration, baseline: baseline.baselineGeneration, epoch: baseline.visibilityEpoch, sequence: baseline.sequence };
     const requested = selectors.get("detail");
     const desired = requested?.kind === "detail" ? requested.systemId : options.preferred;
-    const systemId = desired && overview2.node(desired) ? desired : overview2.first() ?? "";
+    const systemId = desired && (overview2.node(desired) || detailNode?.systemId === desired) ? desired : options.viewportNavigation ? "" : overview2.first() ?? "";
     void options.emit({ type: "topology", generation: options.generation, topology: view, subscription: { worldId: options.world, systemId, subscriptionId: options.subscriptionId }, viewToken: { ...pending } });
     aggregateChanged();
   }
@@ -5596,14 +5692,11 @@ function createPlayerViewBridge(options) {
   }
   async function topologyInstalled(token2) {
     if (closed || !pending || !same(token2, pending)) return;
+    overview2.installHandles(token2.nodes);
     installed = pending;
     pending = void 0;
     const requested = selectors.get("detail");
     if (requested?.kind === "detail") {
-      if (!overview2.node(requested.systemId)) {
-        await replace("detail");
-        return;
-      }
       projectDetail();
       return;
     }
@@ -5632,14 +5725,20 @@ function createPlayerViewBridge(options) {
     return { baseline, systemId: systemId.systemId };
   }
   function projectDetail() {
-    if (!installed || pending || closed) return;
+    if (closed) return;
     const current = currentDetail();
     if (!current) return;
     const { baseline, systemId } = current;
-    const node = overview2.node(systemId);
+    const node = installed && !pending ? overview2.node(systemId) ?? (detailNode?.systemId === systemId ? detailNode.node : void 0) : detailNode?.systemId === systemId ? detailNode.node : void 0;
     if (!node) return;
-    fence();
-    options.output.reset({ identity: { worldId: options.world, systemId, subscriptionId: options.subscriptionId }, node });
+    detailNode = { systemId, node };
+    const key3 = `${baseline.id}:${baseline.baselineGeneration}:${baseline.requestGeneration}:${baseline.visibilityEpoch}:${node.clusterId}:${node.solarSystemId}`;
+    if (projected?.key === key3) return;
+    const preserveTargets = recoveringTargets;
+    fence(preserveTargets, true);
+    options.output.reset({ preserveJourney: true, identity: { worldId: options.world, systemId, subscriptionId: options.subscriptionId }, node, preserveTargets });
+    recoveringTargets = false;
+    projected = { key: key3, systemId };
     projecting = true;
     const source = detail.snapshot(baseline);
     function* pages() {
@@ -5654,7 +5753,7 @@ function createPlayerViewBridge(options) {
       const queued = deferred;
       deferred = [];
       deferredBytes = 0;
-      for (const delta2 of queued) projectDelta(delta2.value, delta2.request, delta2.epoch);
+      for (const delta of queued) projectDelta(delta.value, delta.request, delta.epoch);
     });
   }
   function projectDelta(value, request, epoch) {
@@ -5667,16 +5766,15 @@ function createPlayerViewBridge(options) {
   function aggregateChanged() {
     void options.emit({ type: "strategic", frontier: overview2.frontier() });
   }
-  function receive(value, bytes3) {
-    if (!cache.receive(value, options.connection, bytes3)) return;
+  function receive(value, bytes2) {
+    if (!cache.receive(value, options.connection, bytes2)) return;
     const result = value.result;
     recordInterest(value);
     if (result.case === "invalidated" && value.slot === 3) {
-      fence();
+      fence(result.value.reason === 4, result.value.reason === 4);
       return;
     }
     if (result.case === "invalidated" && value.slot === 1) {
-      fence();
       installed = void 0;
       pending = void 0;
       overview2.clear();
@@ -5687,7 +5785,7 @@ function createPlayerViewBridge(options) {
       if (value.slot === 1) topology();
       if (value.slot === 3) projectDetail();
     }
-    if (result.case === "delta") receiveDelta(result.value, value, bytes3);
+    if (result.case === "delta") receiveDelta(result.value, value, bytes2);
   }
   function recordInterest(value) {
     if (value.result.case === "begin") {
@@ -5699,19 +5797,19 @@ function createPlayerViewBridge(options) {
       publishInterests();
     }
   }
-  function receiveDelta(delta2, value, bytes3) {
-    if (delta2.rows.case === "overview") {
-      if (overview2.delta(delta2.rows.value, delta2.sequence)) topology();
+  function receiveDelta(delta, value, bytes2) {
+    if (delta.rows.case === "overview") {
+      if (overview2.delta(delta.rows.value, delta.sequence)) topology();
       else aggregateChanged();
     }
     if (value.slot !== 3) return;
     if (!projecting) {
-      projectDelta(delta2, value.requestGeneration, value.visibilityEpoch);
+      projectDelta(delta, value.requestGeneration, value.visibilityEpoch);
       return;
     }
-    if (deferredBytes + bytes3 > 1024 * 1024 || deferred.length >= 64) throw new Error("Detail projection consumer is too slow");
-    deferred.push({ value: copyDetailDelta(delta2), request: value.requestGeneration, epoch: value.visibilityEpoch, bytes: bytes3 });
-    deferredBytes += bytes3;
+    if (deferredBytes + bytes2 > 1024 * 1024 || deferred.length >= 64) throw new Error("Detail projection consumer is too slow");
+    deferred.push({ value: copyDetailDelta(delta), request: value.requestGeneration, epoch: value.visibilityEpoch, bytes: bytes2 });
+    deferredBytes += bytes2;
   }
   return {
     receive,
@@ -5723,7 +5821,7 @@ function createPlayerViewBridge(options) {
     owned: (query) => cache.ownedPage(options.generation, query),
     async start() {
       const initial = interests.snapshot().slots;
-      await replace("overview", initial.overview === null ? void 0 : initial.overview ?? { kind: "overview", scope: { kind: "galaxy" } });
+      await replace("overview", initial.overview === null ? void 0 : initial.overview ?? (options.viewportNavigation ? void 0 : { kind: "overview", scope: options.preferred ? { kind: "systems", ids: [options.preferred] } : { kind: "galaxy" } }));
       await replace("owned", initial.owned === null ? void 0 : initial.owned ?? { kind: "owned" });
       if (initial.detail !== void 0) await replace("detail", initial.detail ?? void 0);
     },
@@ -5744,7 +5842,7 @@ function wireSelector(value) {
 function copyDetailDelta(value) {
   if (value.rows.case !== "detail") throw new Error("Expected detail delta");
   const rows = value.rows.value;
-  return create(ViewDeltaSchema, { baselineId: new Uint8Array(value.baselineId), baselineGeneration: value.baselineGeneration, baseSequence: value.baseSequence, sequence: value.sequence, rows: { case: "detail", value: { observation: copyObservation(rows.observation), upserts: rows.upserts.map((row3) => copyRow(row3)), removedFleetIds: rows.removedFleetIds.map((id2) => new Uint8Array(id2)) } } });
+  return create(ViewDeltaSchema, { baselineId: new Uint8Array(value.baselineId), baselineGeneration: value.baselineGeneration, baseSequence: value.baseSequence, sequence: value.sequence, rows: { case: "detail", value: { observation: copyObservation(rows.observation), upserts: rows.upserts.map((row2) => copyRow(row2)), removedFleetIds: rows.removedFleetIds.map((id2) => new Uint8Array(id2)) } } });
 }
 
 // js/render/remote/transfer-port.ts
@@ -5755,10 +5853,10 @@ function validStreamOptions(generation, maxBytes, maxBatches) {
 }
 
 // js/render/remote/transfer-sender.ts
-function validReturnedBuffers(value, bytes3) {
+function validReturnedBuffers(value, bytes2) {
   if (!Array.isArray(value) || value.length > 7) return false;
   if (new Set(value).size !== value.length || !value.every((buffer) => buffer instanceof ArrayBuffer)) return false;
-  return bufferBytes(value) === bytes3;
+  return bufferBytes(value) === bytes2;
 }
 function createProjectionSender(port, options) {
   const maxBytes = options.maxBytes ?? MAX_STREAM_BYTES;
@@ -5788,15 +5886,15 @@ function createProjectionSender(port, options) {
   function onMessage(event2) {
     const message = event2.data;
     if (closed || message?.type !== "released" || message.connectionGeneration !== options.generation) return;
-    const bytes3 = pending.get(message.ticket);
-    if (bytes3 === void 0) return;
+    const bytes2 = pending.get(message.ticket);
+    if (bytes2 === void 0) return;
     const buffers = message.buffers;
-    if (!validReturnedBuffers(buffers, bytes3)) {
+    if (!validReturnedBuffers(buffers, bytes2)) {
       fail(new Error("Invalid returned projection buffers"));
       return;
     }
     pending.delete(message.ticket);
-    inFlightBytes -= bytes3;
+    inFlightBytes -= bytes2;
     try {
       options.onReturned?.(buffers);
     } catch (error) {
@@ -5811,13 +5909,13 @@ function createProjectionSender(port, options) {
     send(batch) {
       if (closed) throw new Error("Projection stream is closed");
       const buffers = projectionBuffers(batch);
-      const bytes3 = bufferBytes(buffers);
-      if (bytes3 > maxBytes) throw new RangeError("Projection batch exceeds stream byte budget");
-      if (pending.size >= maxBatches || inFlightBytes + bytes3 > maxBytes) return false;
+      const bytes2 = bufferBytes(buffers);
+      if (bytes2 > maxBytes) throw new RangeError("Projection batch exceeds stream byte budget");
+      if (pending.size >= maxBatches || inFlightBytes + bytes2 > maxBytes) return false;
       if (ticket === Number.MAX_SAFE_INTEGER) throw new Error("Projection stream ticket space exhausted");
       const packet = { type: "projection", connectionGeneration: options.generation, ticket: ++ticket, batch };
-      pending.set(ticket, bytes3);
-      inFlightBytes += bytes3;
+      pending.set(ticket, bytes2);
+      inFlightBytes += bytes2;
       try {
         port.postMessage(packet, buffers);
       } catch (error) {
@@ -5835,7 +5933,7 @@ function createProjectionSender(port, options) {
 function createProjectionOutput(port, generation, onError, onIdle) {
   let queue = [];
   let head = 0;
-  let bytes3 = 0;
+  let bytes2 = 0;
   let disposed = false;
   let viewGeneration = 0;
   let producer;
@@ -5846,7 +5944,7 @@ function createProjectionOutput(port, generation, onError, onIdle) {
       const batch = queue[head];
       const size = bufferBytes(projectionBuffers(batch));
       if (!sender.send(batch)) return false;
-      bytes3 -= size;
+      bytes2 -= size;
       queue[head++] = void 0;
       if (head >= SESSION_LIMITS.pendingProjectionBatches) {
         queue = queue.slice(head);
@@ -5872,7 +5970,7 @@ function createProjectionOutput(port, generation, onError, onIdle) {
       if (viewGeneration) next.value.viewGeneration = viewGeneration;
       if (!sender.send(next.value)) {
         queue.push(next.value);
-        bytes3 += bufferBytes(projectionBuffers(next.value));
+        bytes2 += bufferBytes(projectionBuffers(next.value));
         break;
       }
     }
@@ -5887,7 +5985,7 @@ function createProjectionOutput(port, generation, onError, onIdle) {
       if (disposed || viewGeneration === Number.MAX_SAFE_INTEGER) throw new Error("Projection lifetime unavailable");
       queue = [];
       head = 0;
-      bytes3 = 0;
+      bytes2 = 0;
       producer = void 0;
       produced = void 0;
       port.postMessage({ type: "projectionReset", connectionGeneration: generation, viewGeneration: ++viewGeneration, ...value });
@@ -5902,10 +6000,10 @@ function createProjectionOutput(port, generation, onError, onIdle) {
     enqueue(batch) {
       if (disposed) throw new Error("Projection output disposed");
       const size = bufferBytes(projectionBuffers(batch));
-      if (bytes3 + size > SESSION_LIMITS.pendingProjectionBytes || queue.length - head >= SESSION_LIMITS.pendingProjectionBatches) throw new Error("Render consumer is too slow; projection queue budget exceeded");
+      if (bytes2 + size > SESSION_LIMITS.pendingProjectionBytes || queue.length - head >= SESSION_LIMITS.pendingProjectionBatches) throw new Error("Render consumer is too slow; projection queue budget exceeded");
       if (viewGeneration) batch.viewGeneration = viewGeneration;
       queue.push(batch);
-      bytes3 += size;
+      bytes2 += size;
       flush();
     },
     dispose() {
@@ -5915,10 +6013,10 @@ function createProjectionOutput(port, generation, onError, onIdle) {
       produced = void 0;
       queue = [];
       head = 0;
-      bytes3 = 0;
+      bytes2 = 0;
       sender.dispose();
     },
-    inspect: () => ({ ...sender.inspect(), queuedBatches: queue.length - head, queuedBytes: bytes3 })
+    inspect: () => ({ ...sender.inspect(), queuedBatches: queue.length - head, queuedBytes: bytes2 })
   };
 }
 
@@ -5950,10 +6048,10 @@ function commandIdentity(key3) {
 }
 function createCommandTracker(emit) {
   const pending = /* @__PURE__ */ new Map();
-  function unknown2(identity) {
-    const item = pending.get(identity);
+  function unknown2(identity2) {
+    const item = pending.get(identity2);
     if (!item) return;
-    pending.delete(identity);
+    pending.delete(identity2);
     clearTimeout(item.timer);
     emit({ type: "unknown", requestId: item.requestId, key: item.key });
   }
@@ -5961,61 +6059,59 @@ function createCommandTracker(emit) {
     async beforeSend(requestId, command) {
       if (!requestId || requestId.length > 128) throw new Error("Invalid command request ID");
       const key3 = command.key;
-      const identity = commandIdentity(key3);
-      if (pending.has(identity)) throw new Error("Command is already pending; query its original receipt home");
+      const identity2 = commandIdentity(key3);
+      if (pending.has(identity2)) throw new Error("Command is already pending; query its original receipt home");
       if (pending.size >= SESSION_LIMITS.pendingCommands) throw new Error("Pending command budget exceeded");
-      const timer = setTimeout(() => unknown2(identity), SESSION_LIMITS.receiptMs);
+      const timer = setTimeout(() => unknown2(identity2), SESSION_LIMITS.receiptMs);
       const item = { requestId, key: key3, timer };
-      pending.set(identity, item);
-      await emit({ type: "pending", requestId, command: structuredClone(command) });
-      if (pending.get(identity) !== item) throw new Error("Command preparation expired before submission");
+      pending.set(identity2, item);
+      try {
+        await emit({ type: "pending", requestId, command: structuredClone(command) });
+        if (pending.get(identity2) !== item) throw new Error("Command preparation expired before submission");
+      } catch (error) {
+        if (pending.get(identity2) === item) unknown2(identity2);
+        throw error;
+      }
     },
     receipt(receipt2) {
-      const identity = commandIdentity(receipt2.key);
-      const item = pending.get(identity);
+      const identity2 = commandIdentity(receipt2.key);
+      const item = pending.get(identity2);
       if (item) {
         clearTimeout(item.timer);
-        pending.delete(identity);
+        pending.delete(identity2);
       }
       emit({ type: "receipt", receipt: receipt2 });
     },
     dispose() {
-      for (const identity of pending.keys()) unknown2(identity);
+      for (const identity2 of pending.keys()) unknown2(identity2);
     },
     inspect: () => pending.size
   };
 }
 
-// js/network/messages.ts
-function hello2(credential, options = {}) {
-  if (credential.byteLength !== 32) throw new Error("Provisioned session credential must contain 32 bytes");
-  return create(ClientMessageSchema, { body: { case: "hello", value: {
-    minimumProtocolVersion: 1,
-    maximumProtocolVersion: 1,
-    supportedRuleVersions: [1],
-    requiredCapabilities: [
-      1,
-      2,
-      ...options.discovery ? [3] : [],
-      ...options.ownedProjection ? [4] : [],
-      ...options.transfers ? [5] : [],
-      ...options.diagnostics ? [6] : [],
-      ...options.renewAdmissions ? [7] : [],
-      ...options.strategic ? [8] : []
-    ],
-    sessionCredential: credential
-  } } });
+// js/network/command-capabilities.ts
+function requireCommandCapabilities(command, capabilities) {
+  if (command.$typeName === "galaxy.v1.MoveCommand" && command.expectedFleetRevision !== void 0 && !capabilities.includes(Capability.FLEET_RETARGET_V1)) {
+    throw new Error("Fleet retarget capability is missing");
+  }
 }
+
+// js/network/travel-policy.ts
+function withTravelPolicy(page, grant) {
+  const value = grant.travelPolicy;
+  if (!value) throw new Error("Source authority does not provide configurable travel previews");
+  const transferPolicy = {
+    jumpMs: value.jumpMs,
+    cooldownMs: value.cooldownMs,
+    configurationRevision: value.configurationRevision,
+    modifierRevision: value.modifierRevision
+  };
+  return { ...page, seed: { ...page.seed, transferPolicy } };
+}
+
+// js/network/messages.ts
 function clientMessage(generation, body) {
   return create(ClientMessageSchema, { protocolVersion: 1, connectionGeneration: generation, body });
-}
-function subscribeMessage(generation, subscription, resumeAfter) {
-  return create(ClientMessageSchema, { protocolVersion: 1, connectionGeneration: generation, body: { case: "subscribe", value: {
-    worldId: opaqueIdBytes(subscription.worldId),
-    systemId: opaqueIdBytes(subscription.systemId),
-    subscriptionId: opaqueIdBytes(subscription.subscriptionId),
-    resumeAfter
-  } } });
 }
 function moveCommand(control, scope2, admissions, serverNow) {
   const grant = admission(scope2, admissions, serverNow);
@@ -6024,7 +6120,9 @@ function moveCommand(control, scope2, admissions, serverNow) {
     scope: scope2,
     fleetId: opaqueIdBytes(control.fleetId),
     target: control.target,
+    orbitBody: control.orbitBody,
     expectedSystemRevision: control.expectedSystemRevision,
+    expectedFleetRevision: control.expectedFleetRevision,
     admissionToken: grant.token
   });
 }
@@ -6046,166 +6144,6 @@ function admission(scope2, admissions, serverNow) {
   return grant;
 }
 
-// js/worker/bus/service-validation.ts
-function contextCopy(value) {
-  if (!value) return;
-  if (!/^(?!0{32}$)[0-9a-f]{32}$/.test(value.traceId) || !validSpan(value.spanId)) throw new Error("Invalid trace context");
-  if (value.parentSpanId !== void 0 && !validSpan(value.parentSpanId)) throw new Error("Invalid parent span");
-  if (value.traceFlags !== void 0 && (!Number.isInteger(value.traceFlags) || value.traceFlags < 0 || value.traceFlags > 255)) throw new Error("Invalid trace flags");
-  return { traceId: value.traceId, spanId: value.spanId, parentSpanId: value.parentSpanId, traceFlags: value.traceFlags };
-}
-function validSpan(value) {
-  return /^(?!0{16}$)[0-9a-f]{16}$/.test(value);
-}
-
-// js/debug/bus/context.ts
-function randomHex(bytes3) {
-  return Array.from(crypto.getRandomValues(new Uint8Array(bytes3)), (byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-function childContext(parent) {
-  return { traceId: parent.traceId, spanId: randomHex(8), parentSpanId: parent.spanId, traceFlags: parent.traceFlags };
-}
-
-// js/debug/game-stages.ts
-var GAME_STAGES = [
-  { id: "ui.intent", service: "online-ui", source: "js/main/online-entry.ts" },
-  { id: "network.command", service: "network", source: "js/network/session.ts" },
-  { id: "gateway.command", service: "gateway", source: "crates/server/src/session/mod.rs" },
-  { id: "system.command", service: "system", source: "crates/server/src/system/actor.rs" },
-  { id: "storage.queue", service: "storage", source: "crates/server/src/executor/worker.rs" },
-  { id: "storage.commit", service: "storage", source: "crates/server/src/executor/decisions.rs" },
-  { id: "peer.forward", service: "placement", source: "crates/server/src/placement/peer/home.rs" },
-  { id: "network.projection", service: "network", source: "js/network/session.ts" },
-  { id: "render.apply", service: "render", source: "js/render/remote/runtime-projection.ts" }
-];
-
-// js/debug/worker-traces.ts
-var STAGES = new Set(GAME_STAGES.map((stage) => stage.id));
-var MAX_SPANS = 256;
-var ID = /^(?!0{32}$)[0-9a-f]{32}$/;
-var CODES = /* @__PURE__ */ new Set([
-  "accepted",
-  "committed",
-  "queued",
-  "rejected",
-  "unauthorized",
-  "invalid_target",
-  "stale_revision",
-  "wrong_owner",
-  "identity_conflict",
-  "admission_expired",
-  "busy",
-  "not_found",
-  "expired",
-  "recovery_required",
-  "storage_error",
-  "unavailable",
-  "peer_error",
-  "canceled",
-  "unknown",
-  "submission_failed",
-  "projection_apply",
-  "projection_pack"
-]);
-function validTiming(span) {
-  return [span.startedMs, span.durationMs, span.startedMs + span.durationMs].every((value) => Number.isFinite(value) && value >= 0);
-}
-var emptyTraces = () => ({ kind: "diagnostics", clocks: [], spans: [], dropped: 0 });
-function projectionTrace(value) {
-  try {
-    const context = contextCopy(value?.context);
-    if (!context || !(context.traceFlags & 1) || !ID.test(value.commandId)) return;
-    return { context, commandId: value.commandId };
-  } catch {
-    return;
-  }
-}
-function workerClock(owner) {
-  return { id: `${owner}:${crypto.randomUUID()}`, originUnixMs: performance.timeOrigin, uncertaintyMs: 1 };
-}
-function createWorkerTraces(clock, now = () => performance.now()) {
-  const clocks = /* @__PURE__ */ new Map([[clock.id, { ...clock }]]);
-  let ring = [], cursor2 = 0, dropped = 0;
-  function record(span) {
-    try {
-      const trace = projectionTrace({ context: span.context, commandId: span.commandId });
-      if (!trace || !STAGES.has(span.stage) || !clocks.has(span.clockId)) throw new Error("Invalid trace identity");
-      if (!validTiming(span)) throw new Error("Invalid local duration");
-      if (!["ok", "error", "unknown"].includes(span.status) || span.code !== void 0 && !CODES.has(span.code)) throw new Error("Invalid trace status");
-      const copy = {
-        stage: span.stage,
-        context: trace.context,
-        commandId: trace.commandId,
-        clockId: span.clockId,
-        startedMs: span.startedMs,
-        durationMs: span.durationMs,
-        status: span.status,
-        code: span.code
-      };
-      if (ring.length === MAX_SPANS) dropped++;
-      ring[cursor2++ % MAX_SPANS] = copy;
-    } catch {
-      dropped++;
-    }
-  }
-  function begin(stage, parent) {
-    try {
-      const trace = projectionTrace(parent);
-      if (!trace) return;
-      const context = childContext(trace.context), startedMs = now();
-      let ended = false;
-      return {
-        context,
-        commandId: trace.commandId,
-        finish(status, code) {
-          if (ended) return;
-          ended = true;
-          try {
-            record({
-              stage,
-              context,
-              commandId: trace.commandId,
-              clockId: clock.id,
-              startedMs,
-              durationMs: now() - startedMs,
-              status,
-              code
-            });
-          } catch {
-            dropped++;
-          }
-        }
-      };
-    } catch {
-      dropped++;
-      return;
-    }
-  }
-  return {
-    begin,
-    record,
-    nativeClock(id2) {
-      if (!/^native:[a-zA-Z0-9_-]{1,64}$/.test(id2) || !clocks.has(id2) && clocks.size >= 32) {
-        dropped++;
-        return false;
-      }
-      clocks.set(id2, { id: id2 });
-      return true;
-    },
-    drop(count = 1) {
-      if (Number.isSafeInteger(count) && count > 0) dropped += count;
-    },
-    take() {
-      const spans = cursor2 < MAX_SPANS ? ring : ring.slice(cursor2 % MAX_SPANS).concat(ring.slice(0, cursor2 % MAX_SPANS));
-      const value = { kind: "diagnostics", clocks: Array.from(clocks.values(), (value2) => ({ ...value2 })), spans, dropped };
-      ring = [];
-      cursor2 = 0;
-      dropped = 0;
-      return value;
-    }
-  };
-}
-
 // js/network/views/session.ts
 function createPlayerSession(options) {
   const { bootstrap, emit } = options, controller = new AbortController();
@@ -6220,10 +6158,12 @@ function createPlayerSession(options) {
   void ready.catch(() => {
   });
   const output = createProjectionOutput(bootstrap.renderPort, bootstrap.generation, fail);
+  const gameplay = createGameplayChannel(bootstrap.gameplayPort, (value) => send({ case: "gameplayRequest", value }));
   const deadline = setTimeout(() => fail(new Error("Player home handshake timed out")), 15e3);
   function dispose(error = new Error("Network session disposed")) {
     if (closed) return;
     closed = true;
+    gameplay.dispose();
     clearTimeout(deadline);
     controller.abort();
     transport?.close();
@@ -6247,7 +6187,7 @@ function createPlayerSession(options) {
   async function start() {
     void emit({ type: "state", generation: bootstrap.generation, state: "connecting" });
     const sentAt = now();
-    const home = await openPlayerHome({ endpoints: bootstrap.endpoints, credential: bootstrap.credential, expected: bootstrap.playerViews, signal: controller.signal, factory: options.transportFactory });
+    const home = await openPlayerHome({ endpoints: bootstrap.endpoints, credential: bootstrap.credential, expected: bootstrap.playerViews, gameplay: !!bootstrap.gameplayPort, signal: controller.signal, factory: options.transportFactory });
     if (closed) {
       home.transport.close();
       return;
@@ -6256,10 +6196,11 @@ function createPlayerSession(options) {
     welcome2 = home.welcome;
     clearTimeout(deadline);
     const world = opaqueIdAt(welcome2.worldId), player = opaqueIdAt(welcome2.playerId);
-    void emit({ type: "welcome", generation: bootstrap.generation, worldId: world, playerId: player, connectionGeneration: welcome2.connectionGeneration, clock: clock.sample(welcome2.serverTimeMs, sentAt) });
+    void emit({ type: "welcome", generation: bootstrap.generation, worldId: world, playerId: player, connectionGeneration: welcome2.connectionGeneration, contentEndpoint: home.contentEndpoint, clock: clock.sample(welcome2.serverTimeMs, sentAt) });
     admissions = createViewAdmissions({ world, serverNow: clock.serverNow, send: (value) => send({ case: "renewAdmission", value }) });
     const subscription = bootstrap.discovery?.subscriptionId ?? bootstrap.subscription.subscriptionId;
     views = createPlayerViewBridge({
+      viewportNavigation: bootstrap.playerViews?.viewportNavigation,
       interests: bootstrap.viewInterests,
       world,
       player,
@@ -6271,23 +6212,33 @@ function createPlayerSession(options) {
       emit,
       output,
       clock: clock.anchor,
-      policy: () => admissions.invalidate()
+      policy: () => {
+        admissions.invalidate();
+        gameplay.barrier();
+      }
     });
     await views.start();
+    gameplay.ready();
     resolveReady();
     void emit({ type: "state", generation: bootstrap.generation, state: "ready", transport: transport.kind });
     await readMessages();
   }
   async function readMessages() {
     while (!closed) {
-      const bytes3 = await transport.receive();
+      const bytes2 = await transport.receive();
       if (closed) return;
-      if (!bytes3) throw new Error("Player transport ended");
-      const message = decodeServerMessage(bytes3);
+      if (!bytes2) throw new Error("Player transport ended");
+      const message = decodeServerMessage(bytes2);
       if (message.connectionGeneration !== welcome2.connectionGeneration) continue;
       switch (message.body.case) {
+        case "gameplayReply":
+          gameplay.reply(message.body.value);
+          break;
+        case "gameplayChanged":
+          gameplay.changed(message.body.value.topics, message.body.value.fleetIds);
+          break;
         case "viewEvent":
-          views.receive(message.body.value, bytes3.byteLength);
+          views.receive(message.body.value, bytes2.byteLength);
           break;
         case "admissionRenewed":
           admissions.receive(message.body.value);
@@ -6298,7 +6249,7 @@ function createPlayerSession(options) {
         case "failure":
           throw new Error(`Player protocol failure ${message.body.value.code}`);
         default:
-          throw new Error("Legacy observation is not valid on a player-view session");
+          throw new Error("Unexpected player-session message");
       }
     }
   }
@@ -6315,11 +6266,12 @@ function createPlayerSession(options) {
     } else {
       command = await freshCommand(message);
     }
+    requireCommandCapabilities(command, welcome2.capabilities);
     const body = command.$typeName === "galaxy.v1.TransferCommand" ? { case: "transfer", value: command } : { case: "move", value: command };
-    const bytes3 = encodeClientMessage(clientMessage(welcome2.connectionGeneration, body));
+    const bytes2 = encodeClientMessage(clientMessage(welcome2.connectionGeneration, body));
     await tracker.beforeSend(message.requestId, command);
     if (closed) throw new Error("Session closed before command submission");
-    await transport.send(bytes3);
+    await transport.send(bytes2);
   }
   async function freshCommand(message) {
     if (!views || !admissions) throw new Error("Player session unavailable");
@@ -6337,7 +6289,6 @@ function createPlayerSession(options) {
       return;
     }
     if (closed || !welcome2) throw new Error("Player session unavailable");
-    if (message.type === "refreshPlayback") return;
     if (message.type === "strategicInterest") {
       await replaceStrategic(message.interest);
       return;
@@ -6352,6 +6303,22 @@ function createPlayerSession(options) {
     if (!views || value.connectionGeneration !== bootstrap.generation) throw new Error("View owner changed");
     views.overview.interest(value.systemIds, value.interestGeneration);
     void emit({ type: "strategic", frontier: views.overview.frontier() });
+  }
+  async function policyPage(query) {
+    if (closed || !views || !admissions) throw new Error("Detail seed unavailable");
+    const before = views.detail.current();
+    if (!before) throw new Error("Complete authorized detail required");
+    const admitted = await admissions.ensure(opaqueIdAt(before.scope.systemId), query.travelPolicy === true);
+    const current = views.detail.current();
+    if (closed || !current || current.generation !== before.generation || current.request !== before.request) throw new Error("Travel preview detail was superseded");
+    requireSameAuthority(admitted.scope, current.scope);
+    let page = views.detail.page(query, clock.serverNow());
+    if (query.travelPolicy) page = withTravelPolicy(page, admitted.grant);
+    if (query.movementContext) {
+      if (!admitted.movementContext) throw new Error("Source authority does not support planet-avoiding movement");
+      page = { ...page, seed: { ...page.seed, movementContext: admitted.movementContext } };
+    }
+    return page;
   }
   void start().catch(fail);
   return {
@@ -6368,1022 +6335,13 @@ function createPlayerSession(options) {
     },
     ownedFleets(query) {
       if (!views) throw new Error("Detail seed unavailable");
-      return views.detail.page(query, clock.serverNow());
+      return query.travelPolicy || query.movementContext ? policyPage(query) : views.detail.page(query, clock.serverNow());
     },
-    takeDiagnostics: () => emptyTraces(),
     inspect: () => ({ closed, connectionGeneration: welcome2?.connectionGeneration, pendingCommands: tracker.inspect(), projection: output.inspect(), views: views?.inspect() })
   };
 }
 function requireSameAuthority(a, b) {
-  if (a.ownerEpoch !== b.ownerEpoch || a.recoveryGeneration !== b.recoveryGeneration || opaqueIdAt(a.shardId) !== opaqueIdAt(b.shardId)) throw new Error("Command source authority changed");
-}
-
-// js/contracts/server-clock.ts
-function validateServerClock(anchor) {
-  if (typeof anchor.serverMs !== "bigint" || anchor.serverMs < 0n || anchor.serverMs > 0xffffffffffffffffn || ![anchor.monotonicMs, anchor.timeOriginMs, anchor.roundTripMs].every(Number.isFinite) || anchor.monotonicMs < 0 || anchor.roundTripMs < 0) throw new Error("Invalid server clock observation");
-}
-
-// js/render/remote/playback-correction.ts
-function matchesPlaybackBaseline(a, b) {
-  return !!b && sameScope(a.scope, b.scope) && a.subscriptionId === b.subscriptionId && a.streamGeneration === b.streamGeneration && a.sequence === b.sequence && a.systemRevision === b.systemRevision;
-}
-function validatePlaybackCorrection(value) {
-  const b = value.baseline, s = b.scope;
-  if (![s.worldId, s.shardId, s.systemId, b.subscriptionId].every(isOpaqueId)) throw new Error("Invalid playback identity");
-  for (const n of [s.ownerEpoch, s.recoveryGeneration, b.streamGeneration, b.systemRevision, value.sequence]) {
-    if (typeof n !== "bigint" || n <= 0n || n > 0xffffffffffffffffn) throw new Error("Invalid playback generation");
-  }
-  if (typeof b.sequence !== "bigint" || b.sequence < 0n || b.sequence > 0xffffffffffffffffn) throw new Error("Invalid playback baseline");
-  validateServerClock(value.clock);
-}
-
-// js/network/playback-corrections.ts
-function createPlaybackCorrections(options) {
-  let pending;
-  let timer, serial = 0n, sequence = 0n, last = -Infinity, closed = false;
-  function clear() {
-    clearTimeout(timer);
-    timer = void 0;
-    pending = void 0;
-  }
-  return {
-    refresh() {
-      const baseline = options.baseline(), now = options.now();
-      if (closed || pending || !baseline || !Number.isFinite(now) || now - last < 5e3 || serial === 0xffffffffffffffffn) return;
-      const id2 = ++serial;
-      last = now;
-      pending = { id: id2, sentAt: now, baseline };
-      const expire = () => {
-        if (pending?.id === id2) clear();
-      };
-      timer = setTimeout(expire, 2e3);
-      void options.send(makeRequest(baseline, id2)).catch(expire);
-    },
-    receive(value) {
-      const request = pending;
-      if (closed || !request || request.id !== value.requestId || value.sequence <= sequence) return;
-      const at = options.now(), elapsed = at - request.sentAt;
-      if (!(elapsed >= 0 && elapsed < 2e3)) {
-        clear();
-        return;
-      }
-      const scope2 = value.scope, cursor2 = value.baseline;
-      const baseline = {
-        scope: {
-          worldId: opaqueIdAt(scope2.worldId),
-          shardId: opaqueIdAt(scope2.shardId),
-          systemId: opaqueIdAt(scope2.systemId),
-          ownerEpoch: scope2.ownerEpoch,
-          recoveryGeneration: scope2.recoveryGeneration
-        },
-        subscriptionId: opaqueIdAt(cursor2.subscriptionId),
-        streamGeneration: cursor2.generation,
-        sequence: cursor2.sequence,
-        systemRevision: value.systemRevision
-      };
-      if (!matchesPlaybackBaseline(baseline, request.baseline) || !matchesPlaybackBaseline(baseline, options.baseline())) return;
-      clear();
-      sequence = value.sequence;
-      options.apply({ baseline, sequence, clock: {
-        serverMs: value.serverTimeMs,
-        monotonicMs: at,
-        timeOriginMs: options.timeOriginMs,
-        roundTripMs: elapsed
-      } });
-    },
-    inspect: () => ({ pending: !!pending, sequence }),
-    dispose() {
-      closed = true;
-      clear();
-    }
-  };
-}
-function makeRequest(b, requestId) {
-  return create(PlaybackClockRequestSchema, {
-    scope: {
-      worldId: opaqueIdBytes(b.scope.worldId),
-      shardId: opaqueIdBytes(b.scope.shardId),
-      systemId: opaqueIdBytes(b.scope.systemId),
-      ownerEpoch: b.scope.ownerEpoch,
-      recoveryGeneration: b.scope.recoveryGeneration
-    },
-    baseline: { subscriptionId: opaqueIdBytes(b.subscriptionId), generation: b.streamGeneration, sequence: b.sequence },
-    systemRevision: b.systemRevision,
-    requestId
-  });
-}
-
-// js/render/remote/correction-sender.ts
-function createCorrectionSender(port, generation) {
-  let pending, active = 0, serial = 0, closed = false;
-  function flush() {
-    if (closed || active || !pending) return;
-    if (serial === Number.MAX_SAFE_INTEGER) {
-      pending = void 0;
-      return;
-    }
-    const correction = pending;
-    pending = void 0;
-    active = ++serial;
-    port.postMessage({ type: "playbackCorrection", connectionGeneration: generation, ticket: active, correction });
-  }
-  function receive({ data }) {
-    if (data?.type !== "playbackConsumed" || data.connectionGeneration !== generation || !active || data.ticket !== active) return;
-    active = 0;
-    flush();
-  }
-  port.addEventListener("message", receive);
-  return {
-    send(value) {
-      if (closed) return;
-      validatePlaybackCorrection(value);
-      pending = value;
-      flush();
-    },
-    inspect: () => ({ active: Number(!!active), pending: Number(!!pending) }),
-    dispose() {
-      closed = true;
-      pending = void 0;
-      active = 0;
-      port.removeEventListener("message", receive);
-    }
-  };
-}
-
-// js/network/system-stream.ts
-function scopeKey(scope2) {
-  return [opaqueIdAt(scope2.worldId), opaqueIdAt(scope2.shardId), opaqueIdAt(scope2.systemId), scope2.ownerEpoch, scope2.recoveryGeneration].join(":");
-}
-function createSystemStream(subscription, requestSnapshot) {
-  let baseline;
-  let snapshot2;
-  let resyncPending = false;
-  function scoped(scope2, cursor2) {
-    if (opaqueIdAt(cursor2.subscriptionId) !== subscription.subscriptionId) return false;
-    if (opaqueIdAt(scope2.worldId) !== subscription.worldId || opaqueIdAt(scope2.systemId) !== subscription.systemId) throw new Error("Server projection is outside the subscribed system");
-    return true;
-  }
-  function resync(cursor2) {
-    if (resyncPending) return;
-    resyncPending = true;
-    requestSnapshot(cursor2);
-  }
-  function begin(chunk) {
-    if (chunk.chunkCount > 64) throw new Error("Snapshot chunk budget exceeded");
-    return {
-      scope: scopeKey(chunk.scope),
-      generation: chunk.cursor.generation,
-      sequence: chunk.cursor.sequence,
-      revision: chunk.systemRevision,
-      id: opaqueIdAt(chunk.snapshotId),
-      count: chunk.chunkCount,
-      next: 0,
-      bytes: 0,
-      entities: 0,
-      ids: /* @__PURE__ */ new Set()
-    };
-  }
-  function checkSnapshot(chunk, current, encodedBytes) {
-    if (scopeKey(chunk.scope) !== current.scope || chunk.cursor.sequence !== current.sequence || chunk.systemRevision !== current.revision || opaqueIdAt(chunk.snapshotId) !== current.id || chunk.chunkCount !== current.count) throw new Error("Snapshot metadata changed between chunks");
-    current.bytes += encodedBytes;
-    current.entities += chunk.fleets.length;
-    if (current.bytes > MAX_SNAPSHOT_BYTES || current.entities > MAX_SNAPSHOT_ENTITIES) throw new Error("Snapshot aggregate budget exceeded");
-    for (const fleet2 of chunk.fleets) {
-      const id2 = opaqueIdAt(fleet2.fleetId);
-      if (current.ids.has(id2)) throw new Error("Duplicate fleet in snapshot");
-      current.ids.add(id2);
-    }
-  }
-  function snapshotFor(chunk) {
-    const generation = chunk.cursor.generation;
-    const latest = snapshot2 ?? baseline;
-    if (latest && generation < latest.generation) return void 0;
-    if (!snapshot2 && baseline && generation === baseline.generation) return void 0;
-    if (snapshot2 && generation === snapshot2.generation) return snapshot2;
-    if (chunk.chunkIndex !== 0) {
-      resync();
-      return void 0;
-    }
-    snapshot2 = begin(chunk);
-    return snapshot2;
-  }
-  function deltaBaseline(delta2) {
-    const latest = snapshot2 ?? baseline;
-    if (latest && delta2.cursor.generation < latest.generation) return void 0;
-    if (snapshot2 || !baseline) {
-      resync();
-      return void 0;
-    }
-    if (delta2.cursor.generation !== baseline.generation || scopeKey(delta2.scope) !== baseline.scope) {
-      resync();
-      return void 0;
-    }
-    return baseline;
-  }
-  return {
-    snapshot(chunk, encodedBytes) {
-      const cursor2 = chunk.cursor;
-      if (!scoped(chunk.scope, cursor2)) return false;
-      const current = snapshotFor(chunk);
-      if (!current || chunk.chunkIndex < current.next) return false;
-      if (chunk.chunkIndex !== current.next) {
-        resync();
-        return false;
-      }
-      checkSnapshot(chunk, current, encodedBytes);
-      current.next++;
-      if (current.next === current.count) {
-        baseline = { scope: current.scope, generation: current.generation, sequence: current.sequence, revision: current.revision };
-        snapshot2 = void 0;
-        resyncPending = false;
-      }
-      return true;
-    },
-    delta(delta2) {
-      const cursor2 = delta2.cursor;
-      if (!scoped(delta2.scope, cursor2)) return false;
-      const current = deltaBaseline(delta2);
-      if (!current || cursor2.sequence <= current.sequence) return false;
-      if (cursor2.sequence !== current.sequence + 1n || delta2.baseSystemRevision !== current.revision) {
-        resync({ ...cursor2, sequence: current.sequence });
-        return false;
-      }
-      baseline = { scope: current.scope, generation: cursor2.generation, sequence: cursor2.sequence, revision: delta2.systemRevision };
-      resyncPending = false;
-      return true;
-    },
-    inspect: () => ({ baseline, snapshotPending: !!snapshot2, resyncPending })
-  };
-}
-
-// js/network/diagnostics.ts
-var hex2 = (bytes3) => Array.from(bytes3, (byte) => byte.toString(16).padStart(2, "0")).join("");
-var bytes2 = (value) => Uint8Array.from(value.match(/../g), (part) => Number.parseInt(part, 16));
-function wireTrace(context) {
-  try {
-    const value = contextCopy(context);
-    if (!value || !(value.traceFlags & 1)) return;
-    return {
-      $typeName: "galaxy.v1.TraceContext",
-      traceId: bytes2(value.traceId),
-      spanId: bytes2(value.spanId),
-      parentSpanId: value.parentSpanId ? bytes2(value.parentSpanId) : new Uint8Array(),
-      traceFlags: value.traceFlags
-    };
-  } catch {
-    return;
-  }
-}
-function localContext(value) {
-  if (!value || value.traceId.length !== 16 || value.spanId.length !== 8 || ![0, 8].includes(value.parentSpanId.length)) return;
-  return contextCopy({
-    traceId: hex2(value.traceId),
-    spanId: hex2(value.spanId),
-    parentSpanId: value.parentSpanId.length ? hex2(value.parentSpanId) : void 0,
-    traceFlags: value.traceFlags
-  });
-}
-function localProjectionTrace(value) {
-  try {
-    if (value?.commandId.byteLength !== 16) return;
-    const context = localContext(value?.context);
-    return context && projectionTrace({ context, commandId: opaqueIdAt(value.commandId) });
-  } catch {
-    return;
-  }
-}
-function collectNativeTraces(traces, batch) {
-  if (!batch) return;
-  if (batch.spans.length > 16) {
-    traces.drop();
-    return;
-  }
-  traces.drop(batch.dropped);
-  for (const value of batch.spans) collectSpan(traces, value);
-}
-function collectSpan(traces, value) {
-  try {
-    if (value.commandId.byteLength !== 16) {
-      traces.drop();
-      return;
-    }
-    const context = localContext(value.context);
-    if (!context || value.startedUs > BigInt(Number.MAX_SAFE_INTEGER) || value.durationUs > BigInt(Number.MAX_SAFE_INTEGER) || !traces.nativeClock(value.clockId)) {
-      traces.drop();
-      return;
-    }
-    const status = value.status === 1 ? "ok" : value.status === 2 ? "error" : "unknown";
-    traces.record({
-      stage: value.stage,
-      context,
-      clockId: value.clockId,
-      startedMs: Number(value.startedUs) / 1e3,
-      durationMs: Number(value.durationUs) / 1e3,
-      status,
-      code: value.code || void 0,
-      commandId: opaqueIdAt(value.commandId)
-    });
-  } catch {
-    traces.drop();
-  }
-}
-
-// js/debug/projection-progress.ts
-function progressCursor(value) {
-  if (!value) return;
-  return {
-    ...value.scope,
-    subscriptionId: value.subscriptionId,
-    ownerEpoch: String(value.scope.ownerEpoch),
-    recoveryGeneration: String(value.scope.recoveryGeneration),
-    streamGeneration: String(value.streamGeneration),
-    sequence: String(value.sequence),
-    systemRevision: String(value.systemRevision)
-  };
-}
-
-// js/network/admission-renewal.ts
-var EARLY_MS = 5 * 6e4;
-var RETRY_MS = 3e4;
-var RESPONSE_MS = 5e3;
-function copyGrant(value) {
-  return {
-    $typeName: "galaxy.v1.AdmissionGrant",
-    receiptHomeShardId: value.receiptHomeShardId.slice(),
-    generation: value.generation,
-    notAfterServerMs: value.notAfterServerMs,
-    token: value.token.slice()
-  };
-}
-function createAdmissionRenewal(options) {
-  const homes = /* @__PURE__ */ new Map();
-  let pending, timer;
-  let nextId = 0n, closed = false;
-  function home(id2) {
-    let value = homes.get(id2);
-    if (!value) {
-      if (homes.size >= 16) throw new Error("Admission home capacity exceeded");
-      value = { id: id2, retryAt: 0 };
-      homes.set(id2, value);
-    }
-    return value;
-  }
-  for (const grant of options.grants) home(opaqueIdAt(grant.receiptHomeShardId)).grant = copyGrant(grant);
-  function usable(value) {
-    return !!value.grant && value.grant.notAfterServerMs >= options.serverNow();
-  }
-  function dueAt(value) {
-    const remaining = value.grant ? value.grant.notAfterServerMs - options.serverNow() : 0n;
-    const delay = Number(remaining > BigInt(EARLY_MS) ? remaining - BigInt(EARLY_MS) : 0n);
-    return Math.max(value.retryAt, options.now() + Math.min(delay, 2147483647));
-  }
-  function arm() {
-    clearTimeout(timer);
-    timer = void 0;
-    if (closed || pending || !homes.size) return;
-    let selected, due = Infinity;
-    for (const value of homes.values()) {
-      const at = dueAt(value);
-      if (at < due) {
-        selected = value;
-        due = at;
-      }
-    }
-    timer = setTimeout(() => {
-      timer = void 0;
-      void refresh(selected);
-    }, Math.max(0, due - options.now()));
-  }
-  function complete(attempt, retryMs) {
-    if (pending !== attempt) return;
-    clearTimeout(attempt.timer);
-    pending = void 0;
-    attempt.home.retryAt = options.now() + retryMs;
-    attempt.finish();
-    arm();
-  }
-  function refresh(value) {
-    if (closed) return Promise.resolve();
-    if (pending) return pending.promise;
-    if (value.retryAt > options.now()) {
-      arm();
-      return Promise.resolve();
-    }
-    if (nextId === 0xffffffffffffffffn) {
-      dispose();
-      return Promise.resolve();
-    }
-    clearTimeout(timer);
-    timer = void 0;
-    let finish;
-    const promise = new Promise((resolve) => {
-      finish = resolve;
-    });
-    const attempt = {
-      home: value,
-      id: ++nextId,
-      sentAt: options.now(),
-      promise,
-      finish,
-      timer: setTimeout(() => complete(attempt, RETRY_MS), RESPONSE_MS)
-    };
-    pending = attempt;
-    void options.send(value.id, attempt.id).catch(() => complete(attempt, RETRY_MS));
-    return promise;
-  }
-  function receive(value) {
-    const attempt = pending;
-    if (!attempt || value.requestId !== attempt.id || opaqueIdAt(value.receiptHomeShardId) !== attempt.home.id) return false;
-    options.sample(value.serverTimeMs, attempt.sentAt);
-    retainGrant(attempt.home, value.grant);
-    const retry = value.retryAfterMs || (usable(attempt.home) && dueAt(attempt.home) > options.now() ? 0 : RETRY_MS);
-    complete(attempt, retry);
-    return true;
-  }
-  function retainGrant(value, grant) {
-    if (!grant || grant.notAfterServerMs < options.serverNow()) return;
-    if (value.grant && grant.notAfterServerMs < value.grant.notAfterServerMs) return;
-    value.grant = copyGrant(grant);
-    options.accept(value.grant);
-  }
-  async function ensure(id2) {
-    if (closed) throw new Error("Admission renewal disposed");
-    const value = home(id2);
-    if (usable(value)) return;
-    if (pending && pending.home !== value) await pending.promise;
-    if (!closed && !usable(value)) await refresh(value);
-    if (closed) throw new Error("Admission renewal disposed");
-    if (!usable(value)) throw new Error("Command admission temporarily unavailable; try again shortly");
-  }
-  function expired(key3) {
-    const value = homes.get(opaqueIdAt(key3.receiptHomeShardId));
-    if (!value?.grant || value.grant.generation !== key3.admissionGeneration) return;
-    value.grant = void 0;
-    arm();
-  }
-  function dispose() {
-    if (closed) return;
-    closed = true;
-    clearTimeout(timer);
-    if (pending) {
-      clearTimeout(pending.timer);
-      pending.finish();
-      pending = void 0;
-    }
-    homes.clear();
-  }
-  arm();
-  return { ensure, receive, expired, dispose };
-}
-
-// js/network/strategic-contracts.ts
-var STRATEGIC_PAGE_SIZE = 32;
-function compareStrategic(a, b) {
-  if (a.connectionGeneration !== b.connectionGeneration) return Math.sign(a.connectionGeneration - b.connectionGeneration);
-  if (a.interestGeneration !== b.interestGeneration) return a.interestGeneration < b.interestGeneration ? -1 : 1;
-  return a.sequence === b.sequence ? 0 : a.sequence < b.sequence ? -1 : 1;
-}
-function strategicDisposed(error) {
-  if (!error || typeof error !== "object" || !("code" in error)) return false;
-  return error.code === "DISPOSED" || error.code === "CANCELED";
-}
-
-// js/network/strategic-rows.ts
-function counts2(value) {
-  return value && {
-    systemRevision: value.systemRevision,
-    committedServerTimeMs: value.committedServerTimeMs,
-    presentFleets: value.presentFleets,
-    movingFleets: value.movingFleets
-  };
-}
-function legacyRow(value) {
-  const scope2 = value.scope;
-  return { scope: {
-    worldId: opaqueIdAt(scope2.worldId),
-    shardId: opaqueIdAt(scope2.shardId),
-    systemId: opaqueIdAt(scope2.systemId),
-    ownerEpoch: scope2.ownerEpoch,
-    recoveryGeneration: scope2.recoveryGeneration
-  }, counts: counts2(value.counts) };
-}
-function compactRows(view, worldId) {
-  const result = [];
-  for (const group of view.groups) {
-    const shardId = opaqueIdAt(group.shardId);
-    for (const value of group.systems) {
-      result.push({ scope: {
-        worldId,
-        shardId,
-        systemId: opaqueIdAt(value.systemId),
-        ownerEpoch: group.ownerEpoch,
-        recoveryGeneration: group.recoveryGeneration
-      }, counts: counts2(value.counts) });
-    }
-  }
-  return result;
-}
-function normalizeStrategicRows(message) {
-  if (message.result.case === "view") return message.result.value.systems.map(legacyRow);
-  if (message.result.case === "compactView") return compactRows(message.result.value, opaqueIdAt(message.worldId));
-  return [];
-}
-
-// js/network/strategic-cache.ts
-function canonical(ids2) {
-  if (ids2.length > STRATEGIC_PAGE_SIZE) throw new Error("Strategic interest exceeds 32 systems");
-  const result = ids2.map((value) => opaqueIdAt(opaqueIdBytes(value))).sort();
-  if (new Set(result).size !== result.length) throw new Error("Duplicate strategic system");
-  return result;
-}
-function createStrategicCache(connectionGeneration, subscriptionId, changed) {
-  let worldId = "";
-  let ids2 = [];
-  let closed = false;
-  let requestedEncoding = 0;
-  let value = { connectionGeneration, interestGeneration: 0n, sequence: 0n, status: "unavailable", systems: [] };
-  function frontier() {
-    return { connectionGeneration, interestGeneration: value.interestGeneration, sequence: value.sequence };
-  }
-  function initialize(id2, encoding = 0) {
-    if (closed || worldId) throw new Error("Strategic connection was already initialized or closed");
-    if (encoding !== 0 && encoding !== 1) throw new Error("Unsupported strategic encoding");
-    worldId = opaqueIdAt(opaqueIdBytes(id2));
-    requestedEncoding = encoding;
-  }
-  function replace(interest) {
-    if (closed || !worldId || interest.connectionGeneration !== connectionGeneration) throw new Error("Strategic connection is unavailable");
-    if (interest.interestGeneration <= 0n || interest.interestGeneration > 0xffffffffffffffffn) throw new Error("Invalid strategic generation");
-    const next = canonical(interest.systemIds);
-    if (interest.interestGeneration < value.interestGeneration) throw new Error("Obsolete strategic interest");
-    if (interest.interestGeneration === value.interestGeneration && next.join() !== ids2.join()) throw new Error("Strategic generation changed its systems");
-    if (interest.interestGeneration > value.interestGeneration) {
-      ids2 = next;
-      value = { connectionGeneration, interestGeneration: interest.interestGeneration, sequence: 0n, status: "pending", systems: [] };
-      changed(frontier());
-    }
-    return {
-      worldId: opaqueIdBytes(worldId),
-      subscriptionId: opaqueIdBytes(subscriptionId),
-      interestGeneration: value.interestGeneration,
-      systemIds: ids2.map(opaqueIdBytes),
-      requestedEncoding
-    };
-  }
-  function receive(message) {
-    if (closed || opaqueIdAt(message.worldId) !== worldId || opaqueIdAt(message.subscriptionId) !== subscriptionId) return;
-    if (message.interestGeneration !== value.interestGeneration || message.sequence <= value.sequence) return;
-    const systems = members(message);
-    value = {
-      ...frontier(),
-      sequence: message.sequence,
-      status: message.result.case === "rejected" ? "rejected" : "view",
-      systems,
-      rejectionReason: message.result.case === "rejected" ? message.result.value.reason : void 0
-    };
-    changed(frontier());
-  }
-  function members(message) {
-    if (message.result.case === "rejected") return [];
-    const expected = requestedEncoding === 1 ? "compactView" : "view";
-    if (message.result.case !== expected) throw new Error("Strategic result changed requested encoding");
-    const systems = normalizeStrategicRows(message);
-    const actual = systems.map((item) => item.scope.systemId).sort();
-    if (actual.join() !== ids2.join() || systems.some((item) => item.scope.worldId !== worldId)) throw new Error("Strategic result changed requested membership");
-    return systems;
-  }
-  return {
-    replace,
-    receive,
-    initialize,
-    snapshot() {
-      if (closed) throw new Error("Strategic connection is unavailable");
-      return structuredClone(value);
-    },
-    dispose() {
-      closed = true;
-      ids2 = [];
-      value = { ...frontier(), status: "unavailable", systems: [] };
-    }
-  };
-}
-
-// js/network/session.ts
-function requireCapabilities(value, bootstrap) {
-  const required = [
-    [true, 1, "Required negotiated"],
-    [true, 2, "Required negotiated"],
-    [!!bootstrap.discovery, 3, "Topology discovery"],
-    [!!bootstrap.ownedProjection, 4, "Owned rule seed"],
-    [!!bootstrap.transfers, 5, "Cross-system transfer"],
-    [!!bootstrap.diagnostics, 6, "Diagnostics"],
-    [!!bootstrap.renewAdmissions, 7, "Admission renewal"],
-    [!!bootstrap.strategic, 8, "Strategic summaries"]
-  ];
-  for (const [enabled, capability, label] of required) {
-    if (enabled && !value.capabilities.includes(capability)) throw new Error(`${label} capability is missing`);
-  }
-}
-function createNetworkSession(options) {
-  if (options.bootstrap.playerViews) return createPlayerSession(options);
-  const { bootstrap, emit } = options;
-  const controller = new AbortController();
-  const now = options.now ?? (() => performance.now());
-  const clock = createSessionClock(now, options.timeOriginMs ?? performance.timeOrigin);
-  const commands = createCommandTracker(emit);
-  const traces = bootstrap.diagnostics ? createWorkerTraces(workerClock("network"), now) : void 0;
-  let transport;
-  let welcome2;
-  let scope2;
-  let owned2;
-  let received;
-  let renewal;
-  let closed = false;
-  let sentAt = 0;
-  let handshakeTimer;
-  let snapshotTimer;
-  let resolveReady;
-  let rejectReady;
-  const ready = new Promise((resolve, reject) => {
-    resolveReady = resolve;
-    rejectReady = reject;
-  });
-  void ready.catch(() => {
-  });
-  let corrections;
-  const correctionOutput = createCorrectionSender(bootstrap.renderPort, bootstrap.generation);
-  const output = createProjectionOutput(bootstrap.renderPort, bootstrap.generation, fail, () => corrections?.refresh());
-  let subscription = bootstrap.subscription;
-  let stream = subscription && createSystemStream(subscription, requestSnapshot);
-  const strategic = bootstrap.strategic && createStrategicCache(
-    bootstrap.generation,
-    crypto.randomUUID().replace(/-/g, ""),
-    (frontier) => {
-      emit({ type: "strategic", frontier });
-    }
-  );
-  function dispose(error = new Error("Network session disposed")) {
-    if (closed) return;
-    closed = true;
-    clearTimeout(handshakeTimer);
-    clearTimeout(snapshotTimer);
-    corrections?.dispose();
-    correctionOutput.dispose();
-    controller.abort();
-    renewal?.dispose();
-    transport?.close();
-    output.dispose();
-    commands.dispose();
-    owned2?.dispose();
-    if (strategic) strategic.dispose();
-    rejectReady(error);
-    emit({ type: "state", generation: bootstrap.generation, state: "closed" });
-  }
-  function fail(reason) {
-    if (closed) return;
-    const error = reason instanceof Error ? reason : new Error(String(reason));
-    emit({ type: "error", message: error.message });
-    dispose(error);
-  }
-  function snapshotDeadline() {
-    if (snapshotTimer) return;
-    snapshotTimer = setTimeout(() => fail(new Error("Snapshot/replay deadline exceeded")), SESSION_LIMITS.snapshotMs);
-  }
-  function requestSnapshot(resume) {
-    if (!welcome2 || !subscription || closed) return;
-    snapshotDeadline();
-    emit({ type: "resync", reason: resume ? "stream gap: requested bounded replay" : "baseline changed: requested replacement snapshot" });
-    void send(subscribeMessage(welcome2.connectionGeneration, subscription, resume)).catch(fail);
-  }
-  async function send(message) {
-    if (closed || !transport) throw new Error("Network session is closed");
-    await transport.send(encodeClientMessage(message));
-  }
-  function enableCorrections(value) {
-    if (bootstrap.playbackCorrections && value.capabilities.includes(Capability.PLAYBACK_CLOCK_V1)) {
-      corrections = createPlaybackCorrections({
-        now,
-        timeOriginMs: options.timeOriginMs ?? performance.timeOrigin,
-        baseline: () => {
-          const state = stream?.inspect();
-          return state?.snapshotPending || state?.resyncPending ? void 0 : received;
-        },
-        send: (request) => send(clientMessage(value.connectionGeneration, { case: "playbackClock", value: request })),
-        apply: correctionOutput.send
-      });
-    }
-  }
-  async function acceptWelcome(value) {
-    if (welcome2) throw new Error("Repeated welcome on an active connection");
-    if (subscription && opaqueIdAt(value.worldId) !== subscription.worldId) throw new Error("Welcome belongs to a different world");
-    requireCapabilities(value, bootstrap);
-    welcome2 = value;
-    enableCorrections(value);
-    if (strategic) strategic.initialize(
-      opaqueIdAt(value.worldId),
-      value.capabilities.includes(Capability.STRATEGIC_SYSTEMS_COMPACT_V1) ? StrategicEncoding.COMPACT_V1 : StrategicEncoding.UNSPECIFIED
-    );
-    if (bootstrap.ownedProjection) owned2 = createOwnedProjection(bootstrap.generation, opaqueIdAt(value.playerId));
-    clearTimeout(handshakeTimer);
-    emit({
-      type: "welcome",
-      generation: bootstrap.generation,
-      playerId: opaqueIdAt(value.playerId),
-      worldId: opaqueIdAt(value.worldId),
-      connectionGeneration: value.connectionGeneration,
-      clock: clock.sample(value.serverTimeMs, sentAt)
-    });
-    if (bootstrap.renewAdmissions) renewal = createAdmissionRenewal({
-      grants: value.admissions,
-      now,
-      serverNow: clock.serverNow,
-      sample: clock.sample,
-      send: (home, requestId) => send(clientMessage(value.connectionGeneration, {
-        case: "renewAdmission",
-        value: { $typeName: "galaxy.v1.RenewAdmission", systemId: new Uint8Array(), receiptHomeShardId: opaqueIdBytes(home), requestId }
-      })),
-      accept(grant) {
-        const index = value.admissions.findIndex((item) => opaqueIdAt(item.receiptHomeShardId) === opaqueIdAt(grant.receiptHomeShardId));
-        if (index < 0) value.admissions.push(grant);
-        else value.admissions[index] = grant;
-      }
-    });
-    if (bootstrap.discovery) {
-      snapshotDeadline();
-      return;
-    }
-    await beginSubscription();
-  }
-  async function beginSubscription() {
-    await send(subscribeMessage(welcome2.connectionGeneration, subscription));
-    if (closed) return;
-    snapshotDeadline();
-    resolveReady();
-    emit({ type: "state", generation: bootstrap.generation, state: "ready", transport: transport.kind });
-  }
-  async function acceptTopology(value) {
-    if (!bootstrap.discovery || subscription) throw new Error("Unexpected topology replacement");
-    const topology = topologyView(value);
-    if (topology.worldId !== opaqueIdAt(welcome2.worldId)) throw new Error("Topology belongs to a different world");
-    const available = bootstrap.transfers || bootstrap.strategic ? topology.hostedSystemIds : topology.systems.map((system) => system.id);
-    const systemId = bootstrap.discovery.preferredSystemId ?? available[0];
-    if (!topology.systems.some((system) => system.id === systemId)) throw new Error("No permitted requested system in topology");
-    if (!available.includes(systemId)) throw new Error("Requested system is served by another host");
-    subscription = { worldId: topology.worldId, systemId, subscriptionId: bootstrap.discovery.subscriptionId };
-    stream = createSystemStream(subscription, requestSnapshot);
-    emit({ type: "topology", generation: bootstrap.generation, topology, subscription });
-    await beginSubscription();
-  }
-  function projection(message, bytes3) {
-    const parent = traces && localProjectionTrace(message.projectionTrace);
-    const trace = traces?.begin("network.projection", parent);
-    try {
-      const batch = packProjection(message.body, bytes3);
-      if (!batch) return;
-      output.enqueue({ ...batch, clock: clock.anchor(), trace: trace && { context: trace.context, commandId: trace.commandId } });
-      trace?.finish("ok");
-      projectionReceived(batch);
-    } catch (error) {
-      trace?.finish("error", "projection_pack");
-      throw error;
-    }
-  }
-  function packProjection(body, bytes3) {
-    if (!stream) throw new Error("Projection arrived before topology discovery");
-    let batch;
-    if (body.case === "snapshot") {
-      if (!stream.snapshot(body.value, bytes3)) return;
-      scope2 = body.value.scope;
-      batch = packSnapshot(body.value);
-      owned2?.snapshot(body.value, watermark(batch));
-    } else if (body.case === "delta") {
-      if (!stream.delta(body.value)) return;
-      batch = packDelta(body.value);
-      owned2?.delta(body.value, watermark(batch));
-    } else {
-      throw new Error("Unexpected projection body");
-    }
-    return batch;
-  }
-  function projectionReceived(batch) {
-    const state = stream.inspect();
-    received = watermark(batch);
-    if (!state.snapshotPending && !state.resyncPending) {
-      clearTimeout(snapshotTimer);
-      snapshotTimer = void 0;
-    }
-    emit({
-      type: "received",
-      streamGeneration: batch.streamGeneration,
-      sequence: batch.sequence,
-      systemRevision: batch.systemRevision,
-      snapshotComplete: !state.snapshotPending,
-      watermark: received
-    });
-  }
-  async function receive(message, bytes3) {
-    if (welcome2 && message.connectionGeneration !== welcome2.connectionGeneration) return;
-    if (message.body.case === "welcome") {
-      await acceptWelcome(message.body.value);
-      return;
-    }
-    if (message.body.case === "failure") throw new Error(`Server protocol failure (${message.body.value.code})`);
-    if (!welcome2) throw new Error("Session data arrived before welcome");
-    return receiveActive(message, bytes3);
-  }
-  function receiveActive(message, bytes3) {
-    if (message.body.case === "playbackClock") {
-      corrections?.receive(message.body.value);
-      return;
-    }
-    if (message.body.case === "admissionRenewed") {
-      acceptRenewal(message.body.value);
-      return;
-    }
-    if (message.body.case === "strategic") {
-      if (!strategic) throw new Error("Strategic summaries were not negotiated");
-      strategic.receive(message.body.value);
-      return;
-    }
-    if (traces) collectNativeTraces(traces, message.diagnostics);
-    if (message.body.case === "topology") return acceptTopology(message.body.value);
-    if (message.body.case === "receipt") acceptReceipt(message.body.value);
-    else projection(message, bytes3);
-  }
-  function acceptReceipt(value) {
-    if (value.result.case === "unknown" && value.result.value.reason === CommandUnknownReason.EXPIRED) renewal?.expired(value.key);
-    commands.receipt(value);
-  }
-  function acceptRenewal(value) {
-    if (!renewal) throw new Error("Admission renewal was not negotiated");
-    renewal.receive(value);
-  }
-  function acceptDatagram(frame) {
-    if (!corrections || frame.byteLength > 1200) return;
-    try {
-      const bytes3 = unframeMessage(frame.buffer.slice(frame.byteOffset, frame.byteOffset + frame.byteLength));
-      const message = decodeServerMessage(bytes3);
-      if (message.connectionGeneration === welcome2?.connectionGeneration && message.body.case === "playbackClock") corrections.receive(message.body.value);
-    } catch {
-    }
-  }
-  async function datagramLoop() {
-    try {
-      while (!closed) {
-        const frame = await transport.receiveDatagram();
-        if (closed || !frame) return;
-        acceptDatagram(frame);
-      }
-    } catch {
-    }
-  }
-  async function readLoop() {
-    while (!closed) {
-      const bytes3 = await transport.receive();
-      if (closed) return;
-      if (!bytes3) throw new Error("Network transport ended");
-      await receive(decodeServerMessage(bytes3), bytes3.byteLength);
-    }
-  }
-  async function start() {
-    const greeting = hello2(bootstrap.credential, { ...bootstrap, discovery: !!bootstrap.discovery });
-    validateSubscription();
-    emit({ type: "state", generation: bootstrap.generation, state: "connecting" });
-    const opened = await (options.transportFactory ?? connectTransport)(bootstrap.endpoints, controller.signal);
-    if (closed) {
-      opened.close();
-      return;
-    }
-    transport = opened;
-    sentAt = now();
-    handshakeTimer = setTimeout(() => fail(new Error("Session welcome timed out")), SESSION_LIMITS.handshakeMs);
-    await send(greeting);
-    if (transport.receiveDatagram) void datagramLoop();
-    await readLoop();
-  }
-  function validateSubscription() {
-    if (bootstrap.strategic && !bootstrap.discovery) throw new Error("Strategic summaries require topology discovery");
-    if (subscription) {
-      opaqueIdBytes(subscription.worldId);
-      opaqueIdBytes(subscription.systemId);
-      opaqueIdBytes(subscription.subscriptionId);
-    } else if (bootstrap.discovery) {
-      opaqueIdBytes(bootstrap.discovery.subscriptionId);
-      if (bootstrap.discovery.preferredSystemId) opaqueIdBytes(bootstrap.discovery.preferredSystemId);
-    } else throw new Error("Explicit subscription or discovery is required");
-  }
-  async function control(message) {
-    if (message.type === "disconnect" || message.type === "dispose") {
-      dispose();
-      return;
-    }
-    if (closed || !welcome2) throw new Error("Network session is not ready");
-    if (message.type === "refreshPlayback") {
-      corrections?.refresh();
-      return;
-    }
-    if (message.type === "strategicInterest") {
-      await replaceStrategic(message.interest);
-      return;
-    }
-    if (message.type === "queryReceipt") {
-      await queryReceipt(message);
-      return;
-    }
-    await freshCommand(message);
-  }
-  async function freshCommand(message) {
-    if (renewal && scope2 && message.type !== "retry") await renewal.ensure(opaqueIdAt(scope2.shardId));
-    await submitCommand(message, prepareCommand(message));
-  }
-  async function submitCommand(message, command) {
-    const trace = traces?.begin("network.command", message.context && { context: message.context, commandId: opaqueIdAt(command.key.commandId) });
-    const envelope2 = commandEnvelope(command);
-    envelope2.traceContext = wireTrace(trace?.context);
-    const bytes3 = encodeClientMessage(envelope2);
-    try {
-      await commands.beforeSend(message.requestId, command);
-      if (closed) throw new Error("Network session closed before submission");
-      await transport.send(bytes3);
-      trace?.finish("ok");
-    } catch (error) {
-      trace?.finish("error", "submission_failed");
-      fail(error);
-      throw error;
-    }
-  }
-  async function queryReceipt(message) {
-    const trace = traces?.begin("network.command", message.context && { context: message.context, commandId: opaqueIdAt(message.key.commandId) });
-    const envelope2 = clientMessage(welcome2.connectionGeneration, { case: "receiptQuery", value: {
-      $typeName: "galaxy.v1.ReceiptQuery",
-      worldId: welcome2.worldId,
-      key: message.key
-    } });
-    envelope2.traceContext = wireTrace(trace?.context);
-    try {
-      await send(envelope2);
-      trace?.finish("ok");
-    } catch (error) {
-      trace?.finish("error", "submission_failed");
-      throw error;
-    }
-  }
-  function commandEnvelope(command) {
-    const body = command.$typeName === "galaxy.v1.TransferCommand" ? { case: "transfer", value: command } : { case: "move", value: command };
-    if (body.case === "transfer" && !bootstrap.transfers) throw new Error("Cross-system transfers were not negotiated");
-    return clientMessage(welcome2.connectionGeneration, body);
-  }
-  function prepareCommand(message) {
-    if (message.type === "retry") {
-      const command = message.command.$typeName === "galaxy.v1.TransferCommand" ? create(TransferCommandSchema, message.command) : create(MoveCommandSchema, message.command);
-      if (opaqueIdAt(command.scope.worldId) !== opaqueIdAt(welcome2.worldId)) throw new Error("Retry belongs to a different world");
-      return command;
-    }
-    if (!scope2 || !stream || stream.inspect().snapshotPending) throw new Error("Move needs a complete system snapshot");
-    return message.type === "transfer" ? transferCommand(message, scope2, welcome2.admissions, clock.serverNow()) : moveCommand(message, scope2, welcome2.admissions, clock.serverNow());
-  }
-  void start().catch(fail);
-  function takeDiagnostics() {
-    const queue = output.inspect();
-    return { ...traces?.take() ?? emptyTraces(), progress: {
-      owner: "network",
-      connectionGeneration: bootstrap.generation,
-      received: progressCursor(received),
-      queuedBytes: queue.queuedBytes,
-      queuedBatches: queue.queuedBatches,
-      inFlightBytes: queue.inFlightBytes,
-      inFlightBatches: queue.inFlightBatches
-    } };
-  }
-  async function replaceStrategic(interest) {
-    if (closed || !welcome2 || !strategic) throw new Error("Strategic summaries are not available");
-    const value = strategic.replace(interest);
-    await send(clientMessage(welcome2.connectionGeneration, { case: "subscribeStrategic", value: { $typeName: "galaxy.v1.SubscribeStrategic", ...value } }));
-  }
-  return {
-    views: void 0,
-    ready,
-    control,
-    dispose: () => dispose(),
-    takeDiagnostics,
-    replaceStrategic,
-    strategicSnapshot() {
-      if (!strategic) throw new Error("Strategic summaries were not negotiated");
-      return strategic.snapshot();
-    },
-    ownedFleets(query) {
-      if (closed || !owned2) throw new Error("Owned projection is not available");
-      return owned2.page(query, clock.serverNow());
-    },
-    inspect: () => ({
-      closed,
-      connectionGeneration: welcome2?.connectionGeneration,
-      pendingCommands: commands.inspect(),
-      projection: output.inspect(),
-      stream: stream?.inspect(),
-      owned: owned2?.inspect()
-    })
-  };
+  if (a.ownerEpoch !== b.ownerEpoch || a.recoveryGeneration !== b.recoveryGeneration || opaqueIdAt(a.shardId) !== opaqueIdAt(b.shardId) || opaqueIdAt(a.worldId) !== opaqueIdAt(b.worldId) || opaqueIdAt(a.systemId) !== opaqueIdAt(b.systemId)) throw new Error("Command source authority changed");
 }
 
 // js/worker/protocol/services.ts
@@ -7451,8 +6409,6 @@ var NetworkEvents = {
   error: event("error")
 };
 var OwnedFleets = defineQuery("fleetOrders.ownedFleets", { capacity: 4 });
-var NetworkPlayback = { refresh: defineCommand("network.playback.refresh", { capacity: 1 }) };
-var NetworkDiagnostics = defineQuery("network.diagnostics", { capacity: 1 });
 var RememberIntent = defineCommand("fleetOrders.rememberIntent", { capacity: 128, ordered: "networkIntents" });
 var ViewTopologyInstalled = defineCommand("network.viewTopologyInstalled", { capacity: 4, ordered: "playerViewControls" });
 
@@ -7477,13 +6433,13 @@ function createServiceRequests(control) {
   function claim(requestId, key3) {
     const item = pending.get(requestId);
     if (!item) throw new Error("Receipt operation is no longer pending");
-    const identity = commandIdentity(key3);
-    const owner = keys.get(identity);
+    const identity2 = commandIdentity(key3);
+    const owner = keys.get(identity2);
     if (owner && owner !== requestId) throw new Error("An operation for this command is already pending");
-    if (item.identity && item.identity !== identity) throw new Error("Receipt operation changed its command key");
-    keys.set(identity, requestId);
+    if (item.identity && item.identity !== identity2) throw new Error("Receipt operation changed its command key");
+    keys.set(identity2, requestId);
     item.key = key3;
-    item.identity = identity;
+    item.identity = identity2;
   }
   function unresolved(requestId) {
     const item = pending.get(requestId);
@@ -7552,6 +6508,17 @@ var StrategicServices = {
   query: defineQuery("strategic.cached", { capacity: 2 }),
   refresh: defineCommand("strategic.refresh", { capacity: 2 })
 };
+
+// js/network/strategic-contracts.ts
+function compareStrategic(a, b) {
+  if (a.connectionGeneration !== b.connectionGeneration) return Math.sign(a.connectionGeneration - b.connectionGeneration);
+  if (a.interestGeneration !== b.interestGeneration) return a.interestGeneration < b.interestGeneration ? -1 : 1;
+  return a.sequence === b.sequence ? 0 : a.sequence < b.sequence ? -1 : 1;
+}
+function strategicDisposed(error) {
+  if (!error || typeof error !== "object" || !("code" in error)) return false;
+  return error.code === "DISPOSED" || error.code === "CANCELED";
+}
 
 // js/network/strategic-notifier.ts
 function createStrategicNotifier(send) {
@@ -7640,8 +6607,6 @@ function createNetworkService(bus, scope2, session) {
       retry: FleetOrders.retry,
       queryReceipt: FleetOrders.receipt,
       ownedFleets: OwnedFleets,
-      diagnostics: NetworkDiagnostics,
-      refreshPlayback: NetworkPlayback.refresh,
       projection: FleetProjection.batches
     }
   });
@@ -7665,8 +6630,6 @@ function createNetworkService(bus, scope2, session) {
   binding.provides.retry.handle((command, context) => requests.submit((requestId) => ({ type: "retry", requestId, command }), command.key, context.causal));
   binding.provides.queryReceipt.handle((key3, context) => requests.submit((requestId) => ({ type: "queryReceipt", requestId, key: key3 }), key3, context.causal));
   binding.provides.ownedFleets.handle((query) => session().ownedFleets(query));
-  binding.provides.refreshPlayback.handle(() => session().control({ type: "refreshPlayback" }));
-  binding.provides.diagnostics.handle(() => session().takeDiagnostics());
   return {
     ready: () => binding.ready(),
     emit(event2) {
@@ -7704,7 +6667,7 @@ function createNetworkWorker(bus) {
   let prepared = false;
   let failed = false;
   let disconnectStream;
-  const previousError = bus?._options.onError;
+  const previousError = bus._options.onError;
   function lifecycle(value) {
     worker.postMessage(value);
   }
@@ -7728,12 +6691,12 @@ function createNetworkWorker(bus) {
         return;
       }
     }
-    worker.postMessage(event2);
+    throw new Error("Network service is not prepared");
   }
   const busError = (error) => fatal(new Error(error.message));
-  if (bus) bus._options.onError = busError;
+  bus._options.onError = busError;
   async function prepare(value) {
-    if (!bus || service || !Number.isSafeInteger(value.generation) || value.generation < 1) throw new Error("Invalid network service bootstrap");
+    if (service || !Number.isSafeInteger(value.generation) || value.generation < 1) throw new Error("Invalid network service bootstrap");
     generation = value.generation;
     service = createNetworkService(bus, value.scope, () => {
       if (!session) throw new Error("Network session is not connected");
@@ -7745,7 +6708,7 @@ function createNetworkWorker(bus) {
     lifecycle({ type: "servicesReady", generation });
   }
   function connect(data) {
-    if (bus && (!prepared || data.generation !== generation)) {
+    if (!prepared || data.generation !== generation) {
       data.renderPort.close();
       throw new Error("Network service bootstrap is not ready");
     }
@@ -7753,7 +6716,7 @@ function createNetworkWorker(bus) {
     disconnectStream?.();
     generation = data.generation;
     try {
-      session = createNetworkSession({ bootstrap: data, emit });
+      session = createPlayerSession({ bootstrap: data, emit });
       disconnectStream = service?.connectStream(generation);
     } catch (error) {
       data.renderPort.close();
@@ -7766,7 +6729,7 @@ function createNetworkWorker(bus) {
     disconnectStream?.();
     if (service) void service.dispose().catch(() => {
     });
-    if (bus?._options.onError === busError) bus._options.onError = previousError;
+    if (bus._options.onError === busError) bus._options.onError = previousError;
     worker.onmessage = null;
     worker.onmessageerror = null;
   }
@@ -7795,8 +6758,7 @@ function createNetworkWorker(bus) {
     try {
       receive(data);
     } catch (error) {
-      if (bus) fatal(error);
-      else emit({ type: "error", message: String(error) });
+      fatal(error);
     }
   };
   worker.onmessageerror = () => {

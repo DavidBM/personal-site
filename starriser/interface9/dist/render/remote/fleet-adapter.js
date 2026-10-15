@@ -1,10 +1,13 @@
+import { sameHullAppearance } from '../../contracts/hull-appearance.js';
 import { runBounded } from './bounded-work.js';
 /** One direct stream owns its active, staged and retired slot identities. Packing
  * is sliced; publication changes visibility in one task before the next frame. */
-export function createRemoteFleetAdapter(slots, map, prefix) {
+/** `handoff` and `restore` move live visuals between owners without rebuilding
+ * them; both see the appearance the visual's ships were allocated for. */
+export function createRemoteFleetAdapter(slots, map, prefix, handoff, restore, protects) {
     let active = new Map();
-    let moving = new Set();
     const owned = new Set();
+    const allocatedAppearance = new WeakMap();
     const lifetime = new AbortController();
     let serial = 0;
     let retired = Promise.resolve();
@@ -13,7 +16,14 @@ export function createRemoteFleetAdapter(slots, map, prefix) {
     function create(fleet) {
         if (closed || slots.unavailable())
             throw new Error('Remote renderer unavailable');
-        const visual = slots.create(`${prefix}:${++serial}:${fleet.id}`, map(fleet));
+        const path = map(fleet);
+        const restored = restore?.(fleet.id, path.appearance);
+        const visual = restored ?? slots.create(`${prefix}:${++serial}:${fleet.id}`, path);
+        if (restored) {
+            visual.state = { state: 'awaiting', node: path.node };
+            slots.update(visual, path);
+        }
+        allocatedAppearance.set(visual, path.appearance);
         owned.add(visual);
         return visual;
     }
@@ -46,15 +56,13 @@ export function createRemoteFleetAdapter(slots, map, prefix) {
         async replace(fleets, signal) {
             const alive = AbortSignal.any([signal, lifetime.signal]);
             await retired;
-            const staged = new Map(), stagedMoving = new Set();
+            const staged = new Map();
             try {
-                await runBounded(fleets.values(), fleet => { staged.set(fleet.id, create(fleet)); if (fleet.moving)
-                    stagedMoving.add(fleet.id); }, alive, slots.flush);
+                await runBounded(fleets.values(), fleet => { staged.set(fleet.id, create(fleet)); }, alive, slots.flush);
                 const publication = slots.preparePublication(active, staged);
                 await prepare(staged, alive, publication.stage);
                 alive.throwIfAborted();
                 commit(staged, publication.publish);
-                moving = stagedMoving;
             }
             catch (error) {
                 for (const visual of staged.values()) {
@@ -69,45 +77,52 @@ export function createRemoteFleetAdapter(slots, map, prefix) {
             await retired;
             const additions = new Map();
             try {
-                await runBounded(change.upserts, fleet => { if (!active.has(fleet.id))
-                    additions.set(fleet.id, create(fleet)); }, alive);
+                await runBounded(change.upserts, fleet => {
+                    const previous = active.get(fleet.id);
+                    if (!previous || (!protects?.(fleet.id) && !sameHullAppearance(allocatedAppearance.get(previous), map(fleet).appearance)))
+                        additions.set(fleet.id, create(fleet));
+                }, alive);
                 await prepare(additions, alive);
                 alive.throwIfAborted();
                 const removed = remove(change.removed);
                 for (const fleet of change.upserts)
-                    update(fleet, additions);
+                    update(fleet, additions, removed);
                 slots.flush();
                 retire(removed);
             }
             catch (error) {
                 for (const [id, visual] of additions) {
-                    if (!active.has(id) && owned.has(visual))
+                    if (active.get(id) !== visual && owned.has(visual))
                         release(visual);
                 }
                 throw error;
             }
         },
-        async retime(lookup, signal) {
-            const alive = AbortSignal.any([signal, lifetime.signal]);
-            await retired;
-            await runBounded(moving, id => {
-                const fleet = lookup(id);
-                if (fleet?.moving)
-                    slots.update(active.get(id), map(fleet));
-            }, alive, slots.flush);
+        /** The ships these fleets' visuals already show stand for their current
+         * appearance (a finished battle's survivors), so the next update keeps them. */
+        adopt(fleets) {
+            for (const fleet of fleets) {
+                const visual = active.get(fleet.id);
+                if (visual)
+                    allocatedAppearance.set(visual, map(fleet).appearance);
+            }
         },
         visual: (id) => active.get(id),
         entries: () => active.entries(),
         inspect: () => ({ active: active.size, allocated: owned.size, lastCommitMs }),
-        dispose() {
+        dispose(preserveJourney = false) {
             if (closed)
                 return;
             closed = true;
             lifetime.abort();
+            if (preserveJourney) {
+                for (const [id, visual] of active)
+                    if (handoff?.(id, visual, allocatedAppearance.get(visual)))
+                        owned.delete(visual);
+            }
             for (const visual of owned)
                 release(visual);
             active.clear();
-            moving.clear();
         },
     };
     function remove(ids) {
@@ -116,26 +131,29 @@ export function createRemoteFleetAdapter(slots, map, prefix) {
             const visual = active.get(id);
             if (!visual)
                 continue;
-            slots.hide(visual);
             active.delete(id);
-            moving.delete(id);
+            if (handoff?.(id, visual, allocatedAppearance.get(visual))) {
+                owned.delete(visual);
+                continue;
+            }
+            slots.hide(visual);
             removed.push(visual);
         }
         return removed;
     }
-    function update(fleet, additions) {
-        if (fleet.moving)
-            moving.add(fleet.id);
-        else
-            moving.delete(fleet.id);
+    function update(fleet, additions, retiredVisuals) {
         const existing = active.get(fleet.id);
-        if (existing)
-            slots.update(existing, map(fleet));
-        else {
-            const visual = additions.get(fleet.id);
+        const visual = additions.get(fleet.id);
+        if (visual) {
+            if (existing) {
+                slots.hide(existing);
+                retiredVisuals.push(existing);
+            }
             slots.publish(visual);
             active.set(fleet.id, visual);
         }
+        else if (existing)
+            slots.update(existing, map(fleet));
     }
 }
 //# sourceMappingURL=fleet-adapter.js.map

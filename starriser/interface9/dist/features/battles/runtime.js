@@ -1,7 +1,7 @@
-import { battleTactics } from './script.js';
+import { BATTLE_PHASE_MS, BATTLE_PHASES, battleTactics } from './script.js';
 import { battleOrder, MAX_BATTLES } from './contracts.js';
-const PHASES = ['pincer', 'pass', 'pursue', 'evade', 'orbit', 'regroup'];
-const PHASE_MS = 12000;
+const PHASES = BATTLE_PHASES;
+const PHASE_MS = BATTLE_PHASE_MS;
 function sameNode(a, b) {
     return a.clusterId === b.clusterId && a.solarSystemId === b.solarSystemId;
 }

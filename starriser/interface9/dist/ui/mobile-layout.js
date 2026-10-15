@@ -10,4 +10,11 @@ export function menuBottomInset() {
 export function showDockPanel(id) {
     window.dispatchEvent(new CustomEvent('galaxy:show-panel', { detail: id }));
 }
+/** Closing a mobile sheet must not overwrite the saved desktop window layout. */
+export function closeMobileDockPanels() {
+    if (!isMobileLayout())
+        return false;
+    window.dispatchEvent(new Event('galaxy:close-mobile-panels'));
+    return true;
+}
 //# sourceMappingURL=mobile-layout.js.map

@@ -1,6 +1,6 @@
 /** Player-relative presentation metadata, independent of ship class/color counts. */
 export const FLEET_RELATIONSHIPS = ['enemy', 'neutral', 'ally', 'own'];
-export const RELATIONSHIP_COLORS = [[1, .22, .25], [1, 1, 1], [.25, .9, .45], [.25, .6, 1]];
+export const RELATIONSHIP_COLORS = [[1, .22, .25], [1, .82, .2], [.25, .9, .45], [.25, .6, 1]];
 export function fleetRelationship(value) {
     return FLEET_RELATIONSHIPS.includes(value) ? value : 'neutral';
 }

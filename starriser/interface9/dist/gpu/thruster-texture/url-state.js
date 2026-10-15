@@ -69,6 +69,13 @@ function applyGlow(g, prefix, get) {
             g[field] = n;
     }
 }
+function applyEdges(p, get) {
+    for (const [k, field] of [["ef", "edgeFade"], ["ec", "edgeClearPx"]]) {
+        const v = get(k);
+        if (v != null && v !== "" && Number.isFinite(Number(v)))
+            p[field] = Number(v);
+    }
+}
 /** Serialize full params to a query string (no leading ?). */
 export function paramsToQuery(p) {
     const e = [
@@ -78,6 +85,8 @@ export function paramsToQuery(p) {
         ["tl", f(p.trailLength)],
         ["ex", f(p.exposure)],
         ["gm", f(p.gamma, 3)],
+        ["ef", f(p.edgeFade)],
+        ["ec", f(p.edgeClearPx)],
         ...glowToEntries("c", p.core),
         ...glowToEntries("m", p.midGlow),
         ...glowToEntries("o", p.outerGlow),
@@ -154,6 +163,7 @@ export function paramsFromQuery(search, base) {
     const gm = get("gm");
     if (gm != null && Number.isFinite(Number(gm)))
         p.gamma = Number(gm);
+    applyEdges(p, get);
     applyGlow(p.core, "c", get);
     applyGlow(p.midGlow, "m", get);
     applyGlow(p.outerGlow, "o", get);

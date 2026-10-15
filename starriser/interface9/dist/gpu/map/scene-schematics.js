@@ -3,7 +3,7 @@ import { KEPLER_SCALE, SYSTEM_LOCAL_SPAN } from "../solar-system-lod.js";
 import { MAP_MSAA_SAMPLES } from "../map-msaa.js";
 import { Line2Renderer } from "../../vendor/line2/index.js";
 import { keplerInclinationFromCatalogId } from "../math/world-origin.js";
-import { KEPLER_ORBIT_RING_SEGMENTS, SCENE_GRID_DIVISIONS, SCENE_GRID_SPAN_MUL, SCENE_JUMP_RAY_R0_MUL, SCENE_SCHEMATIC_GRID_COLOR, SCENE_SCHEMATIC_RING_COLOR, SCENE_JUMP_RAY_COLOR, capSceneJumpRayLength, packKeplerOrbitRingsViewRel, packSceneGridViewRel, packSceneJumpRaysViewRel } from "../map-overlay-pack.js";
+import { KEPLER_ORBIT_RING_SEGMENTS, SCENE_GRID_DIVISIONS, SCENE_GRID_SPAN_MUL, SCENE_JUMP_RAY_R0_MUL, SCENE_SCHEMATIC_GRID_COLOR, SCENE_SCHEMATIC_RING_COLOR, capSceneJumpRayLength, packKeplerOrbitRingsViewRel, packSceneGridViewRel, packSceneJumpRaysViewRel } from "../map-overlay-pack.js";
 import { parseSolarConnectionKey } from "../../contracts/connection-key.js";
 export class SceneSchematics {
     constructor(bootstrap, canvas, topology, coordinates, shouldEncodeKeplerScene) {
@@ -99,7 +99,7 @@ export class SceneSchematics {
         const store = this.topology.solarBodies;
         const rays = this.collectSceneJumpRays(store.systemId, store.systemX, store.systemZ);
         const pack = packSceneJumpRaysViewRel(0, 0, 0, rays, SCENE_JUMP_RAY_R0_MUL * max);
-        this.sceneJumpRays ?? (this.sceneJumpRays = this.makeLine(SCENE_JUMP_RAY_COLOR[3]));
+        this.sceneJumpRays ?? (this.sceneJumpRays = this.makeLine(0.7));
         this.upload(this.sceneJumpRays, pack);
         this.lastJumpRaySegments = pack.segmentCount;
     }
@@ -143,17 +143,14 @@ export class SceneSchematics {
         const da = Math.hypot(ends.ax - x, ends.az - z), db = Math.hypot(ends.bx - x, ends.bz - z);
         return da <= db ? { x: ends.bx, z: ends.bz } : { x: ends.ax, z: ends.az };
     }
-    collectIncidentKeys(systemId) {
+    collectIncidentKeys(systemId, x, z) {
         const keys = new Map();
         const rec = this.topology.sceneSystems.get(systemId);
         const meta = rec ? this.topology.clusterLodMeta.get(rec.clusterId) : undefined;
         if (meta)
             for (const key of meta.lineKeys) {
-                const ends = parseSolarConnectionKey(key);
-                if (!ends)
-                    continue;
-                const other = incidentOther(systemId, ends.a, ends.b);
-                if (other >= 0)
+                const other = this.solarNeighbor(key, systemId, x, z);
+                if (other !== null)
                     keys.set(key, other);
             }
         for (const [key, jump] of this.topology.jumpEdgesByKey) {
@@ -161,18 +158,36 @@ export class SceneSchematics {
             if (other >= 0)
                 keys.set(key, other);
         }
+        for (const key of this.topology.onlineJumpKeys) {
+            if (this.coordinateNeighbor(key, x, z))
+                keys.set(key, -1);
+        }
         return keys;
+    }
+    solarNeighbor(key, systemId, x, z) {
+        const ends = parseSolarConnectionKey(key);
+        if (!ends)
+            return this.coordinateNeighbor(key, x, z) ? -1 : null;
+        const other = incidentOther(systemId, ends.a, ends.b);
+        return other >= 0 ? other : null;
+    }
+    coordinateNeighbor(key, x, z) {
+        const ends = this.topology.lineStore.getLogicalEndpoints(key);
+        // Online endpoints and the selected sun share the exact f64 catalog coordinates.
+        return !!ends && ((ends.ax === x && ends.az === z) || (ends.bx === x && ends.bz === z));
     }
     collectSceneJumpRays(systemId, systemX, systemZ) {
         const rays = [];
-        for (const [key, other] of this.collectIncidentKeys(systemId)) {
+        for (const [key, other] of this.collectIncidentKeys(systemId, systemX, systemZ)) {
             const pos = this.otherPosition(key, other, systemX, systemZ);
             if (!pos)
                 continue;
             const dx = pos.x - systemX, dz = pos.z - systemZ, length = Math.hypot(dx, dz);
             if (!(length > 1e-12))
                 continue;
-            rays.push({ dirX: dx / length, dirZ: dz / length, length: capSceneJumpRayLength(length, SYSTEM_LOCAL_SPAN) });
+            const index = this.topology.lineStore.keyToIndex.get(key) * 6;
+            const colors = this.topology.lineStore.colors;
+            rays.push({ color: [colors[index], colors[index + 1], colors[index + 2]], dirX: dx / length, dirZ: dz / length, length: capSceneJumpRayLength(length, SYSTEM_LOCAL_SPAN) });
         }
         return rays;
     }

@@ -24,10 +24,11 @@ fn battlePhaseStrategy(phase:u32)->u32 {
   }
 }
 fn battleStrategy(b:VisualBattle,kind:u32,k:u32)->u32 {
-  let chosen=director.battleStrategies[kind*4u+k/4u][k%4u];
+  let online=(b.reserve.w&2u)!=0u;
+  let chosen=select(director.battleStrategies[kind*4u+k/4u][k%4u],(b.classes[kind].w>>20u)&15u,online);
   if(chosen>0u){return chosen;}
   if(kind>=4u){return BATTLE_CRUISE;}
-  if(b.reserve.w!=1u){return battlePhaseStrategy(b.own.w);}
+  if((b.reserve.w&1u)!=1u){return battlePhaseStrategy(b.own.w);}
   if(kind==2u){return BATTLE_STRIKE;}
   if(kind==1u&&(k&1u)==1u){return BATTLE_ESCORT;}
   return BATTLE_GUARD;

@@ -23,7 +23,7 @@ fn visualSide(tangent:vec3<f32>,previous:vec3<f32>)->vec3<f32>{
   return unit(select(cross(axis,tangent),projected,dot(projected,projected)>.0001));
 }
 struct VisualSample {point:Ship,tangent:vec3<f32>}
-fn visualRouteSample(fleet:u32,unwrapped:f32)->VisualSample{
+fn visualRouteSample(fleet:u32,unwrapped:f32,heldTangent:vec3<f32>)->VisualSample{
   let count=u32(director.sceneRoutes[fleet].head.x);
   let arc=sceneRouteWrappedArc(fleet,unwrapped);
   var lo=0u;var hi=count-1u;
@@ -34,7 +34,28 @@ fn visualRouteSample(fleet:u32,unwrapped:f32)->VisualSample{
   let a=director.sceneRoutes[fleet].points[lo];let b=director.sceneRoutes[fleet].points[hi];
   let t=clamp((arc-a.w)/max(b.w-a.w,.000001),0.0,1.0);
   // Keep base and interpolation offset separate, including at large positions.
-  return VisualSample(visualPoint(a.xyz,(b.xyz-a.xyz)*t),unit(b.xyz-a.xyz));
+  let segment=b.xyz-a.xyz;
+  // A stationary projection retains the terminal formation frame.
+  let tangent=unit(select(heldTangent,segment,dot(segment,segment)>1e-12));
+  return VisualSample(visualPoint(a.xyz,segment*t),tangent);
+}
+fn acceptedOrbitActive(s:Ship)->bool {
+  return director.sceneRoutes[s.identity.y].orbitV.w>0.0&&u.clock.x>=journeyFor(s).mode.w;
+}
+fn acceptedOrbitGuide(initial:Ship,member:Ship)->Ship {
+  var g=initial;let r=director.sceneRoutes[member.identity.y];
+  let elapsed=u.clock.x-journeyFor(member).mode.w;
+  let a=r.orbit.z+fract(elapsed/r.orbit.y)*2.0*PI;
+  let b=r.orbitV.w-1.0+fract(elapsed/r.orbit.w)*2.0*PI;
+  let pos=r.orbit.x*(r.orbitU.xyz*cos(a)+r.orbitV.xyz*sin(a))
+    +r.orbitU.w*(r.orbitU.xyz*cos(b)+r.orbitV.xyz*sin(b));
+  let velocity=r.orbit.x*2.0*PI/r.orbit.y*(-r.orbitU.xyz*sin(a)+r.orbitV.xyz*cos(a))
+    +r.orbitU.w*2.0*PI/r.orbit.w*(-r.orbitU.xyz*sin(b)+r.orbitV.xyz*cos(b));
+  let tangent=unit(velocity);
+  g=moveShipPosition(g,visualDelta(visualPoint(pos,vec3<f32>(0.0)),g));
+  g.v=vec4<f32>(velocity,length(velocity));g.aim=vec4<f32>(tangent,g.v.w);
+  g.origin=vec4<f32>(visualSide(tangent,g.origin.xyz),0.0);g.memory.z=-2.0;
+  return g;
 }
 fn visualMember(fleet:u32,ordinal:u32)->Ship{
   var s:Ship;let form=director.forms[fleet];let i=form.head.z+ordinal;
@@ -70,7 +91,10 @@ fn prepareVisualFleets(@builtin(global_invocation_id) gid:vec3<u32>){
   let prior=director.fleetGuides[fleet];
   let route=director.sceneRoutes[fleet];
   let entryDone=route.head.x>=2.0&&route.info.y<0.0&&prior.ship.memory.z==-1.0&&prior.ship.memory.x>=-route.info.y-1.0&&prior.status.x==route.head.w&&prior.ship.flight.x==member.flight.x;
-  if(visualBattleConfigured(member)&&route.head.x>=2.0&&route.info.y<0.0&&(visualInBattle(member)||entryDone)){
+  // The safe ingress is needed once. Engaged squads constrain their own goals
+  // against current bodies; expiry of the ingress cache cannot stop combat.
+  let acceptedBattle=(director.battleOrders[fleet].reserve.w&2u)!=0u;
+  if(visualBattleConfigured(member)&&(acceptedBattle||visualInBattle(member)||entryDone)){
     director.fleetGuides[fleet]=prepareBattleFleet(member,prior,u.clock.y);return;
   }
   var g=prior.ship;
@@ -81,11 +105,29 @@ fn prepareVisualFleets(@builtin(global_invocation_id) gid:vec3<u32>){
   let nominal=max(.001,limits.x*.8);let dt=u.clock.y;
   // Reset only the guide on new intent/lifetime. Ships retain their own poses
   // and recover toward the new target through visualTrack.
-  if(changed){g=moveShipPosition(member,-visualSlot(member));g.v=vec4<f32>(member.v.xyz,length(member.v.xyz));g.memory=vec4<f32>(0.0,info.w,-1.0,0.0);g.aux=vec4<f32>(0.0);}
+  if(changed){
+    g=moveShipPosition(member,-visualSlot(member));g.v=vec4<f32>(member.v.xyz,length(member.v.xyz));g.memory=vec4<f32>(0.0,info.w,-1.0,0.0);g.aux=vec4<f32>(0.0);
+    // Arrival changes intent, not the cloud's orientation. A new lifetime has
+    // no retained frame and starts with the admission cloud's +Z direction.
+    g.aim=vec4<f32>(select(vec3<f32>(0.0,0.0,1.0),prior.ship.aim.xyz,!fresh&&dot(prior.ship.aim.xyz,prior.ship.aim.xyz)>.5),0.0);
+    g.origin=select(prior.ship.origin,vec4<f32>(0.0),fresh);
+  }
   g.identity=member.identity;g.flight=member.flight;
   let holding=g.memory.z==-2.0&&member.flight.w==-1.0;
   var factor=1.0;
-  if(head.x>=2.0&&!holding){
+  let authoritative=journeyFor(member).exit.w==1.0&&member.flight.w==-3.0;
+  if(authoritative&&acceptedOrbitActive(member)){
+    g=acceptedOrbitGuide(g,member);factor=max(1.0,g.v.w/nominal);
+  }else if(head.x>=2.0&&authoritative){
+    let j=journeyFor(member);let duration=max(.001,j.mode.w-j.mode.z);
+    let progress=clamp((u.clock.x-j.mode.z)/duration,0.0,1.0);
+    let arc=info.x*progress;let sample=visualRouteSample(fleet,arc,g.aim.xyz);
+    let speed=select(info.x/duration,0.0,progress>=1.0||u.clock.x<j.mode.z);
+    g=moveShipPosition(g,visualDelta(sample.point,g));g.v=vec4<f32>(sample.tangent*speed,speed);
+    g.origin=vec4<f32>(visualSide(sample.tangent,g.origin.xyz),0.0);
+    g.aim=vec4<f32>(sample.tangent,speed);g.memory=vec4<f32>(arc,info.w,-1.0,select(0.0,1.0,progress>=1.0));
+    factor=max(1.0,speed/nominal);
+  }else if(head.x>=2.0&&!holding){
     if(!changed&&g.memory.y!=info.w){
       // Route revisions preserve correspondence when possible. Only the fleet
       // guide searches geometry; ships never race to a nearest segment.
@@ -105,7 +147,7 @@ fn prepareVisualFleets(@builtin(global_invocation_id) gid:vec3<u32>){
     var nextArc=select(min(info.x,g.memory.x+speed*dt),g.memory.x+speed*dt,looped);
     let cycle=max(.000001,info.x+info.y+1.0);
     if(looped&&nextArc>=info.x+cycle){nextArc=info.x+(nextArc-info.x)-floor((nextArc-info.x)/cycle)*cycle;}
-    let sample=visualRouteSample(fleet,nextArc);
+    let sample=visualRouteSample(fleet,nextArc,g.aim.xyz);
     let delta=visualDelta(sample.point,g);let velocity=sample.tangent*speed;
     g=moveShipPosition(g,delta);g.v=vec4<f32>(velocity,select(speed,0.0,!looped&&nextArc>=info.x));
     g.origin=vec4<f32>(visualSide(sample.tangent,g.origin.xyz),0.0);
@@ -117,7 +159,7 @@ fn prepareVisualFleets(@builtin(global_invocation_id) gid:vec3<u32>){
     // A pending route is a hold, never permission to steer through the sun.
     if(member.flight.w==-1.0&&head.w!=-1.0&&head.x<2.0){g.memory.z=-2.0;g.aux.z=1.0;}
   }
-  if(g.memory.z==-2.0&&member.flight.w==-1.0&&journeyFor(member).range.z>0.0){
+  if(g.memory.z==-2.0&&(member.flight.w==-1.0||acceptedOrbitActive(member))&&journeyFor(member).range.z>0.0){
     // One wrapped clock for the whole fleet. Slot offsets do not depend on
     // admission count, storage location or the runtime's rebased wall clock.
     let ring=destinationRing(shipType(member),radius);
@@ -142,7 +184,8 @@ fn visualTrack(initial:Ship,goal:Ship,velocity:vec3<f32>,frequency:f32,dt:f32)->
   return s;
 }
 fn visualRouteHome(s:Ship,guide:FleetGuide)->Ship{
-  let fleet=s.identity.y;let slot=visualSlot(s);let head=director.sceneRoutes[fleet].head;
+  let fleet=s.identity.y;var slot=visualSlot(s);let head=director.sceneRoutes[fleet].head;
+  if(journeyFor(s).exit.w==1.0){slot=capped(slot,max(.001,head.y*.45));}
   if(head.x<2.0){return moveShipPosition(guide.ship,slot);}
   // Rows traverse bends in order. Beyond an open end, extend its tangent by
   // the unused offset: clamping every row to the end cap flattens the cloud.
@@ -151,7 +194,7 @@ fn visualRouteHome(s:Ship,guide:FleetGuide)->Ship{
   let looped=director.sceneRoutes[fleet].info.y<0.0;
   let requested=arc+slot.z;
   let extension=select(requested-clamp(requested,0.0,length),0.0,looped);
-  let sample=visualRouteSample(fleet,requested);
+  let sample=visualRouteSample(fleet,requested,guide.ship.aim.xyz);
   let side=visualSide(sample.tangent,guide.ship.origin.xyz);
   let up=unit(cross(sample.tangent,side));
   return moveShipPosition(sample.point,side*slot.x+up*slot.y+sample.tangent*extension);
@@ -190,7 +233,7 @@ fn visualRing(s:Ship,clock:vec2<f32>,dt:f32)->Ship{
     let index=form.head.z+ordinal;
     if(index<u32(u.clock.z)){
       let anchor=old[index];
-      if(anchor.identity.z>0u&&anchor.identity.y==s.identity.y&&anchor.flight.w==-1.0){
+      if(anchor.identity.z>0u&&anchor.identity.y==s.identity.y&&(anchor.flight.w==-1.0||acceptedOrbitActive(anchor))){
         let radius=max(.04,repelScale(shipType(anchor))*2.0+repelScale(shipType(s))*2.0);
         let speed=min(sceneLimits(shipType(s),journeyBodyRadius(s)).x*.2,radius*.5);
         let tilt=orbitTilt(shipType(s));let axis=vec3<f32>(0.0,sin(tilt),cos(tilt));let normal=vec3<f32>(0.0,cos(tilt),-sin(tilt));
@@ -222,7 +265,7 @@ fn visualShipStep(initial:Ship,dt:f32)->Ship{
   let guide=director.fleetGuides[fleet];
   let before=s;let matching=guide.status.z>0.0&&guide.ship.flight.x==s.flight.x&&guide.ship.flight.w==s.flight.w;
   if(visualInBattle(s)){s=visualBattleStep(s,dt);}
-  else if(matching&&guide.ship.memory.z==-2.0&&s.flight.w==-1.0&&journeyFor(s).range.z>0.0){
+  else if(matching&&guide.ship.memory.z==-2.0&&(s.flight.w==-1.0||acceptedOrbitActive(s))&&journeyFor(s).range.z>0.0){
     s=visualRing(s,guide.ship.aux.xy,dt);
   }else if(matching){
     let goal=visualRouteHome(s,guide);
@@ -247,7 +290,7 @@ fn visualShipStep(initial:Ship,dt:f32)->Ship{
   if(speed>.000001){let turn=headingError(s.q,s.v.xyz);s.q=angularRotation(s.q,turn.xyz*turn.w);}
   s.tactic.x=VISUAL_TAG;s.origin=vec4<f32>(0.0);
   s.fx.w=clamp(speed/nominal,0.0,1.0);s.v.w=nominal;
-  return s;
+  return acceptedBattleLoss(s,dt);
 }
 `;
 

@@ -5,21 +5,8 @@
  * then discrete class → Blue Marble–ish palette. Not a full GCM.
  */
 import { fbm3 } from "./noise.js";
-/**
- * Hard biome class after FBM partition (intermediate debug — no soft blend).
- * Order is display/legend only; classification uses priority in softBiomeColor.
- */
-export const PureBiome = {
-    Ocean: 0,
-    Beach: 1,
-    Grass: 2,
-    Forest: 3,
-    Deep: 4,
-    Desert: 5,
-    Gray: 6,
-    Tundra: 7,
-    Snow: 8,
-};
+import { PureBiome, PURE_BIOME_DEBUG_RGB } from "./biome-palette.js";
+export { PureBiome, PURE_BIOME_DEBUG_RGB, PURE_BIOME_LABELS } from "./biome-palette.js";
 /** Köppen-inspired class ids used in material B channel encoding. */
 export const ClimateClass = {
     Af: 0, // tropical rainforest
@@ -589,29 +576,6 @@ poleIceScale = 1) {
         pureClass,
     };
 }
-/** Diagnostic flat colors for pure biome split map (not product albedo). */
-export const PURE_BIOME_DEBUG_RGB = {
-    [PureBiome.Ocean]: { r: 0.08, g: 0.22, b: 0.55 },
-    [PureBiome.Beach]: { r: 0.92, g: 0.82, b: 0.45 },
-    [PureBiome.Grass]: { r: 0.35, g: 0.85, b: 0.25 },
-    [PureBiome.Forest]: { r: 0.12, g: 0.52, b: 0.18 },
-    [PureBiome.Deep]: { r: 0.04, g: 0.22, b: 0.1 },
-    [PureBiome.Desert]: { r: 0.78, g: 0.62, b: 0.4 },
-    [PureBiome.Gray]: { r: 0.55, g: 0.55, b: 0.58 },
-    [PureBiome.Tundra]: { r: 0.55, g: 0.62, b: 0.7 },
-    [PureBiome.Snow]: { r: 0.95, g: 0.97, b: 1.0 },
-};
-export const PURE_BIOME_LABELS = {
-    [PureBiome.Ocean]: "ocean",
-    [PureBiome.Beach]: "beach",
-    [PureBiome.Grass]: "grass / lowland",
-    [PureBiome.Forest]: "forest",
-    [PureBiome.Deep]: "forest deep",
-    [PureBiome.Desert]: "desert",
-    [PureBiome.Gray]: "gray / rock",
-    [PureBiome.Tundra]: "tundra",
-    [PureBiome.Snow]: "snow",
-};
 /**
  * Land-height heat map for intermediate debug: ocean dark blue, land elev as
  * blue→cyan→green→yellow→red→white (peaks). Elev = (h−sea)/(1−sea) on land.
@@ -713,16 +677,16 @@ function heightHeatRgb(t) {
 }
 /**
  * Pure biome class map after FBM/domain-warp partition — hard class colors only
- * (no soft blend, grain, stamps, clouds). For intermediate debug UI.
+ * (no soft blend, grain, stamps, clouds). Shared numeric and diagnostic output.
  *
  * @param heightRgba equirect height as grayscale R (A unused)
  * @param maxWidth cap output width (default 1024) for interactive speed
  */
-export function renderPureBiomeSplitMap(heightRgba, width, height, seaLevel, seed, poleIceScale = 1, maxWidth = 1024) {
+export function generatePureBiomeMap(heightRgba, width, height, seaLevel, seed, poleIceScale = 1, maxWidth = 1024) {
     const scale = width > maxWidth ? maxWidth / width : 1;
     const W = Math.max(1, Math.floor(width * scale));
     const H = Math.max(1, Math.floor(height * scale));
-    const rgba = new Uint8ClampedArray(W * H * 4);
+    const values = new Uint8Array(W * H);
     const sea = Math.max(0, Math.min(1, seaLevel));
     const counts = {};
     // Dummy palette — only pureClass is used
@@ -767,15 +731,23 @@ export function renderPureBiomeSplitMap(heightRgba, width, height, seaLevel, see
                 cls = soft.pureClass;
             }
             counts[cls] = (counts[cls] ?? 0) + 1;
-            const c = PURE_BIOME_DEBUG_RGB[cls];
-            const o = (y * W + x) * 4;
-            rgba[o] = Math.round(c.r * 255);
-            rgba[o + 1] = Math.round(c.g * 255);
-            rgba[o + 2] = Math.round(c.b * 255);
-            rgba[o + 3] = 255;
+            values[y * W + x] = cls;
         }
     }
-    return { width: W, height: H, rgba, counts };
+    return { width: W, height: H, values, counts };
+}
+/** Color the same classification used by published numeric biome pages. */
+export function renderPureBiomeSplitMap(heightRgba, width, height, seaLevel, seed, poleIceScale = 1, maxWidth = 1024) {
+    const map = generatePureBiomeMap(heightRgba, width, height, seaLevel, seed, poleIceScale, maxWidth);
+    const rgba = new Uint8ClampedArray(map.values.length * 4);
+    for (let i = 0; i < map.values.length; i++) {
+        const c = PURE_BIOME_DEBUG_RGB[map.values[i]], offset = i * 4;
+        rgba[offset] = Math.round(c.r * 255);
+        rgba[offset + 1] = Math.round(c.g * 255);
+        rgba[offset + 2] = Math.round(c.b * 255);
+        rgba[offset + 3] = 255;
+    }
+    return { width: map.width, height: map.height, rgba, counts: map.counts };
 }
 /**
  * Material id-ish for liquid mask B from climate class.

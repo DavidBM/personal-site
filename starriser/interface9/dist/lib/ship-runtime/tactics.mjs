@@ -26,6 +26,7 @@ export function authorTactic(options={}) {
 export function validateJourney(journey) {
   if(!['local','approach','warp','escape','transit','orbit','departure','route'].includes(journey.mode))throw new Error('Unknown journey mode');
   if(!Number.isFinite(journey.at)||!Number.isFinite(journey.end)||journey.end<journey.at)throw new Error('Invalid journey clock');
+  if (journey.linearProgress !== undefined && (typeof journey.linearProgress !== 'boolean' || journey.mode !== 'route')) throw new Error('Invalid analytic route flag');
   validateExit(journey.exit);
   validateNavigation(journey);
   integer(journey.revision,1,16777215,'journey revision');

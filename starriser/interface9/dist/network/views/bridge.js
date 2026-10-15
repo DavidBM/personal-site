@@ -12,17 +12,21 @@ const slots = { overview: 1, owned: 2, detail: 3 };
 const names = ['overview', 'owned', 'detail'];
 export function createPlayerViewBridge(options) {
     const interests = createViewInterests(options.world, options.player, options.interests);
-    let autoDetail = interests.snapshot().slots.detail === undefined;
+    let autoDetail = !options.viewportNavigation && interests.snapshot().slots.detail === undefined;
     const publishInterests = () => void options.emit({ type: 'viewInterests', generation: options.generation, interests: interests.snapshot() });
     const selectors = new Map();
     let installed, pending, closed = false, projecting = false;
+    let recoveringTargets = false;
+    let detailNode;
+    let projected;
     let deferred = [];
     let deferredBytes = 0;
     const detail = createDetailProjection(options.generation, options.player, options.subscriptionId);
     const overview = createViewOverview(options.world, options.generation);
-    function fence() { options.output.reset(); detail.invalidate(); projecting = false; deferred = []; deferredBytes = 0; }
-    const cache = createPlayerViewCache(opaqueIdBytes(options.world), options.connection, slot => { void options.emit({ type: 'viewChanged', status: status(names[slot - 1], false) }); }, epoch => {
+    function fence(preserveTargets = false, preserveJourney = false) { recoveringTargets = preserveTargets; options.output.reset({ preserveTargets, preserveJourney }); detail.invalidate(); projected = undefined; projecting = false; deferred = []; deferredBytes = 0; }
+    const cache = createPlayerViewCache(opaqueIdBytes(options.world), options.connection, slot => { void options.emit({ type: 'viewChanged', status: status(names[slot - 1], names[slot - 1] === 'detail') }); }, epoch => {
         fence();
+        detailNode = undefined;
         installed = undefined;
         pending = undefined;
         overview.clear();
@@ -31,7 +35,7 @@ export function createPlayerViewBridge(options) {
     });
     function status(slot, requested = true) {
         const f = cache.frontier(slots[slot]), b = f.displayed;
-        return { slot, requested: requested ? selectors.get(slot) : undefined, requestedGeneration: f.requestGeneration, state: f.status, stale: f.stale,
+        return { slot, requested: requested ? selectors.get(slot) : undefined, requestedGeneration: f.requestGeneration, state: f.status, stale: f.stale, recovering: f.recovering,
             displayed: b && { connection: options.generation, request: b.requestGeneration, baseline: b.baselineGeneration, epoch: b.visibilityEpoch, sequence: b.sequence } };
     }
     async function replace(slot, selector) {
@@ -43,10 +47,10 @@ export function createPlayerViewBridge(options) {
             selector = normalizedSelector(selector);
         if (slot === 'detail') {
             autoDetail = false;
-            fence();
+            detailNode = undefined;
+            fence(false, true);
         }
         if (slot === 'overview') {
-            fence();
             installed = undefined;
             pending = undefined;
         }
@@ -65,13 +69,14 @@ export function createPlayerViewBridge(options) {
         const baseline = cache.snapshot(1).displayed;
         if (!baseline)
             return;
-        fence();
         installed = undefined;
         const view = overview.install(baseline);
+        // Overview and detail have independent lifetimes. Replacing nearby map
+        // coverage must not retire selected fleets still present in that coverage.
         pending = { connection: options.generation, request: baseline.requestGeneration, baseline: baseline.baselineGeneration, epoch: baseline.visibilityEpoch, sequence: baseline.sequence };
         const requested = selectors.get('detail');
         const desired = requested?.kind === 'detail' ? requested.systemId : options.preferred;
-        const systemId = desired && overview.node(desired) ? desired : overview.first() ?? '';
+        const systemId = desired && (overview.node(desired) || detailNode?.systemId === desired) ? desired : options.viewportNavigation ? '' : overview.first() ?? '';
         void options.emit({ type: 'topology', generation: options.generation, topology: view, subscription: { worldId: options.world, systemId, subscriptionId: options.subscriptionId }, viewToken: { ...pending } });
         aggregateChanged();
     }
@@ -79,14 +84,11 @@ export function createPlayerViewBridge(options) {
     async function topologyInstalled(token) {
         if (closed || !pending || !same(token, pending))
             return;
+        overview.installHandles(token.nodes);
         installed = pending;
         pending = undefined;
         const requested = selectors.get('detail');
         if (requested?.kind === 'detail') {
-            if (!overview.node(requested.systemId)) {
-                await replace('detail');
-                return;
-            }
             projectDetail();
             return;
         }
@@ -122,17 +124,24 @@ export function createPlayerViewBridge(options) {
         return { baseline, systemId: systemId.systemId };
     }
     function projectDetail() {
-        if (!installed || pending || closed)
+        if (closed)
             return;
         const current = currentDetail();
         if (!current)
             return;
         const { baseline, systemId } = current;
-        const node = overview.node(systemId);
+        const node = installed && !pending ? overview.node(systemId) ?? (detailNode?.systemId === systemId ? detailNode.node : undefined) : (detailNode?.systemId === systemId ? detailNode.node : undefined);
         if (!node)
             return;
-        fence();
-        options.output.reset({ identity: { worldId: options.world, systemId, subscriptionId: options.subscriptionId }, node });
+        detailNode = { systemId, node };
+        const key = `${baseline.id}:${baseline.baselineGeneration}:${baseline.requestGeneration}:${baseline.visibilityEpoch}:${node.clusterId}:${node.solarSystemId}`;
+        if (projected?.key === key)
+            return;
+        const preserveTargets = recoveringTargets;
+        fence(preserveTargets, true);
+        options.output.reset({ preserveJourney: true, identity: { worldId: options.world, systemId, subscriptionId: options.subscriptionId }, node, preserveTargets });
+        recoveringTargets = false;
+        projected = { key, systemId };
         projecting = true;
         const source = detail.snapshot(baseline);
         function* pages() { for (const batch of source) {
@@ -158,11 +167,10 @@ export function createPlayerViewBridge(options) {
         const result = value.result;
         recordInterest(value);
         if (result.case === 'invalidated' && value.slot === 3) {
-            fence();
+            fence(result.value.reason === 4, result.value.reason === 4);
             return;
         }
         if (result.case === 'invalidated' && value.slot === 1) {
-            fence();
             installed = undefined;
             pending = undefined;
             overview.clear();
@@ -210,7 +218,7 @@ export function createPlayerViewBridge(options) {
         owned: (query) => cache.ownedPage(options.generation, query),
         async start() {
             const initial = interests.snapshot().slots;
-            await replace('overview', initial.overview === null ? undefined : initial.overview ?? { kind: 'overview', scope: { kind: 'galaxy' } });
+            await replace('overview', initial.overview === null ? undefined : initial.overview ?? (options.viewportNavigation ? undefined : { kind: 'overview', scope: options.preferred ? { kind: 'systems', ids: [options.preferred] } : { kind: 'galaxy' } }));
             await replace('owned', initial.owned === null ? undefined : initial.owned ?? { kind: 'owned' });
             if (initial.detail !== undefined)
                 await replace('detail', initial.detail ?? undefined);

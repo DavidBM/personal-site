@@ -16,6 +16,7 @@
  *
  * Policies match bake.ts / completeBakeFromHeight (metric parity for parallel hydro).
  */
+import { retainBakedPlanetSurface } from "./biome-fields.js";
 import { MAX_RESOLUTION, MIN_RESOLUTION } from "./types.js";
 import { cloneParams } from "./presets.js";
 import { carveLavaRiverHeight, liquidKindForClass, paintSurface, paletteForParams, softOceanAlbedo, } from "./materials.js";
@@ -561,7 +562,7 @@ export function formatStageReport(stageMs, totalMs) {
 /**
  * Full multi-pass GPU bake for non-gas planets. No intermediate height readback.
  */
-export async function gpuBakeFull(device, input, onProgress, signal) {
+export async function gpuBakeFull(device, input, onProgress, signal, onNumericSurface) {
     const params = clampParams(input);
     if (params.planetClass === "gas") {
         throw new Error("gpuBakeFull is for non-gas; use gas CPU path");
@@ -1010,6 +1011,7 @@ export async function gpuBakeFull(device, input, onProgress, signal) {
             },
         };
         report(`done ${totalMs}ms · ${formatStageMs(meter.stageMs, 4)}`, 1);
+        onNumericSurface?.(retainBakedPlanetSurface(heightMap, set));
         return set;
     }
     catch (e) {
@@ -1032,7 +1034,7 @@ export async function bakePlanetTexturesGpu(device, input, onProgress) {
     throwIfBakeAborted(signal);
     if (!device) {
         // Explicit Node/test path only — not the browser product default
-        return bakePlanetTexturesGpuCpuRef(params, report);
+        return bakePlanetTexturesGpuCpuRef(params, report, opts.onNumericSurface);
     }
     // Gas: sequential gas field (no dual GPU gas solver)
     if (params.planetClass === "gas") {
@@ -1045,9 +1047,9 @@ export async function bakePlanetTexturesGpu(device, input, onProgress) {
         if (gas.storms)
             sealEquirectSeam(gas.storms, 2);
         throwIfBakeAborted(signal);
-        return completeBakeFromHeight(gas.flow, params, gas.storms, report, true);
+        return completeBakeFromHeight(gas.flow, params, gas.storms, report, true, undefined, opts.onNumericSurface);
     }
-    return gpuBakeFull(device, params, report, signal);
+    return gpuBakeFull(device, params, report, signal, opts.onNumericSurface);
 }
 /** True when stageMs came from fenced GPU multi-pass. */
 export function isGpuStageTiming(stats) {
@@ -1069,7 +1071,7 @@ export async function bakePlanetTexturesAuto(input, onProgress, device) {
     const signal = opts.signal ?? null;
     throwIfBakeAborted(signal);
     if (device === null) {
-        const set = bakePlanetTexturesGpuCpuRef(input, report);
+        const set = bakePlanetTexturesGpuCpuRef(input, report, opts.onNumericSurface);
         return { set, backend: "gpu-cpu-ref" };
     }
     if (device || isWebGpuBakeAvailable()) {
@@ -1081,6 +1083,7 @@ export async function bakePlanetTexturesAuto(input, onProgress, device) {
                 onProgress: report,
                 signal,
                 skipReadback: opts.skipReadback,
+                onNumericSurface: opts.onNumericSurface,
             });
             return { set, backend: "webgpu-full" };
         }

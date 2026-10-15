@@ -1,6 +1,6 @@
 import { ScalarType } from "@bufbuild/protobuf";
 import { BinaryReader, WireType } from "@bufbuild/protobuf/wire";
-import { MAX_MESSAGE_BYTES, MAX_TOPOLOGY_CLUSTERS, MAX_TOPOLOGY_SYSTEMS, MAX_TOPOLOGY_CONNECTIONS } from './limits.js';
+import { MAX_MESSAGE_BYTES } from './limits.js';
 const fields = new WeakMap();
 const MAX_FIELDS = 8192;
 const MAX_MESSAGES = 2048;
@@ -22,10 +22,10 @@ function descriptorFields(schema) {
 /** Inspect wire structure before allocating generated message objects. Unknown
  * length-delimited fields remain opaque. No payload cloning or JSON conversion. */
 export function checkDecodeBudget(schema, bytes) {
-    const budget = { fields: MAX_FIELDS, messages: MAX_MESSAGES, bytes: bytes.length, strategicRows: 0, viewRows: 0, repeated: new Map() };
+    const budget = { fields: MAX_FIELDS, messages: MAX_MESSAGES, bytes: bytes.length, viewRows: 0, repeated: new Map() };
     scan(new BinaryReader(bytes), schema, bytes.length, 0, budget);
-    if (bytes.length > MAX_MESSAGE_BYTES && !budget.topology)
-        throw new Error('Protocol ordinary message size exceeded');
+    if (bytes.length > MAX_MESSAGE_BYTES)
+        throw new Error('Protocol message size exceeded');
 }
 function scan(reader, schema, end, depth, budget) {
     budget = messageBudget(schema, budget);
@@ -38,7 +38,6 @@ function scan(reader, schema, end, depth, budget) {
             throw new Error("Protocol field budget exceeded");
         const [number, wire] = reader.tag();
         const field = known.get(number);
-        serverBodyBudget(schema, number, budget.bytes);
         if (field)
             countField(field, wire, budget);
         scanValue(reader, field, wire, end, depth, budget);
@@ -48,28 +47,12 @@ function scan(reader, schema, end, depth, budget) {
 }
 function messageBudget(schema, budget) {
     if (schema.typeName === 'galaxy.v1.ViewEvent' || schema.typeName === 'galaxy.v1.ViewRequest')
-        return budget.views ?? (budget.views = { fields: 12 * 1024, messages: MAX_MESSAGES, bytes: budget.bytes, strategicRows: 0, viewRows: 0, repeated: new Map() });
-    if (schema.typeName !== 'galaxy.v1.WorldTopology')
-        return budget;
-    // One separate allowance spans every occurrence, including discarded oneofs.
-    return budget.topology ?? (budget.topology = { fields: 128 * 1024, messages: 32 * 1024,
-        bytes: budget.bytes, strategicRows: 0, viewRows: 0, repeated: new Map() });
-}
-function serverBodyBudget(schema, number, bytes) {
-    if (schema.typeName !== 'galaxy.v1.ServerMessage' || number === 15)
-        return;
-    if (number >= 10 && number <= 19 && bytes > MAX_MESSAGE_BYTES)
-        throw new Error('Protocol ordinary server message size exceeded');
+        return budget.views ?? (budget.views = { fields: 12 * 1024, messages: MAX_MESSAGES, bytes: budget.bytes, viewRows: 0, repeated: new Map() });
+    return budget;
 }
 function enclosingBudget(name, bytes) {
     if (['galaxy.v1.ViewRequest', 'galaxy.v1.ViewEvent'].includes(name) && bytes > 128 * 1024)
         throw new Error('View enclosing byte budget exceeded');
-    if ((name === 'galaxy.v1.SubscribeStrategic' || name === 'galaxy.v1.StrategicSystems') && bytes > 8192) {
-        throw new Error('Protocol strategic enclosing message budget exceeded');
-    }
-    if ((name === 'galaxy.v1.PlaybackClockCorrection' || name === 'galaxy.v1.PlaybackClockRequest') && bytes + 4 > 1200) {
-        throw new Error('Playback correction exceeds 1200 framed bytes');
-    }
 }
 function countField(field, wire, budget) {
     validateWire(field, wire);
@@ -85,15 +68,7 @@ function countRepeated(field, budget) {
         throw new Error("Protocol repeated field expansion budget exceeded");
     budget.repeated.set(field, count);
 }
-function strategicRowLimit(budget) {
-    // Different descriptors share one physical budget across discarded oneofs.
-    if (++budget.strategicRows > 32)
-        throw new Error('Protocol strategic row expansion budget exceeded');
-    return 32;
-}
 function repeatedLimit(field, budget) {
-    if (field.parent.typeName === 'galaxy.v1.WorldTopology')
-        return topologyLimit(field.number);
     if (['galaxy.v1.OverviewRows', 'galaxy.v1.OwnedRows', 'galaxy.v1.DetailRows'].includes(field.parent.typeName)) {
         if (field.parent.typeName === 'galaxy.v1.OwnedRows' && field.number === 3)
             return 4096;
@@ -105,19 +80,8 @@ function repeatedLimit(field, budget) {
         return field.number === 2 ? 4096 : 256;
     switch (field.parent.typeName) {
         case 'galaxy.v1.DiagnosticBatch': return 16; // Its only list is diagnostic spans.
-        case 'galaxy.v1.SubscribeStrategic': return 32; // Its only list is system IDs.
-        case 'galaxy.v1.StrategicSystemView': return strategicRowLimit(budget);
-        case 'galaxy.v1.CompactStrategicView': return 32; // Its only list is authority groups.
-        case 'galaxy.v1.StrategicAuthorityGroup': return strategicRowLimit(budget);
         default: return MAX_REPEATED;
     }
-}
-function topologyLimit(number) {
-    if (number === 3)
-        return MAX_TOPOLOGY_CLUSTERS;
-    if (number === 5)
-        return MAX_TOPOLOGY_CONNECTIONS;
-    return MAX_TOPOLOGY_SYSTEMS;
 }
 function scanValue(reader, field, wire, end, depth, budget) {
     if (wire === WireType.StartGroup || wire === WireType.EndGroup) {

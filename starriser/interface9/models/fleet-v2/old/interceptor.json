@@ -1,0 +1,83 @@
+{
+  "classId": 0,
+  "key": "interceptor",
+  "name": "Interceptor",
+  "visualScale": 1,
+  "triangles": {
+    "high": 4613,
+    "low": 984,
+    "far": 294,
+    "dart": 12
+  },
+  "high": "interceptor-high.glb",
+  "low": "interceptor-low.glb",
+  "far": "interceptor-far.glb",
+  "normalizedSize": [
+    1.71361,
+    0.724997,
+    1.721593
+  ],
+  "dart": "interceptor-dart.glb",
+  "lod": {
+    "full": [
+      710,
+      null
+    ],
+    "mid": [
+      200,
+      900
+    ],
+    "low": [
+      17,
+      250
+    ],
+    "dart": [
+      2.7,
+      22
+    ],
+    "point": [
+      0,
+      3.4
+    ]
+  },
+  "trails": [
+    {
+      "at": [
+        0.1909,
+        0.0775,
+        -0.7593
+      ],
+      "width": 0.08,
+      "style": "ribbon-1"
+    },
+    {
+      "at": [
+        -0.195,
+        0.0718,
+        -0.7586
+      ],
+      "width": 0.08,
+      "style": "ribbon-1"
+    }
+  ],
+  "glows": [
+    {
+      "at": [
+        0.1859,
+        0.0731,
+        -0.8634
+      ],
+      "size": 0.621,
+      "style": "glow-1"
+    },
+    {
+      "at": [
+        -0.195,
+        0.0729,
+        -0.8643
+      ],
+      "size": 0.621,
+      "style": "glow-1"
+    }
+  ]
+}

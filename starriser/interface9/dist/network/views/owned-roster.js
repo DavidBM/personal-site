@@ -10,7 +10,7 @@ function productRow(row) {
         throw new Error('Invalid owned roster row');
     const location = row.state === 3 ? { kind: 'transit', sourceSystemId: opaqueIdAt(row.departureSystemId), destinationSystemId: opaqueIdAt(row.destinationSystemId), arrivalMs: row.arrivalServerMs }
         : { kind: 'resident', systemId: opaqueIdAt(row.systemId), moving: row.state === 2, ...(row.arrivalServerMs === undefined ? {} : { arrivalMs: row.arrivalServerMs }) };
-    return { id: opaqueIdAt(row.fleetId), revision: row.fleetRevision, location, sourceRevision: row.source.revision, committedMs: row.source.committedServerMs, availability: row.source.availability };
+    return { id: opaqueIdAt(row.fleetId), revision: row.fleetRevision, location, sourceRevision: row.source.revision, committedMs: row.source.committedServerMs, availability: row.source.availability, memberCount: row.memberCount };
 }
 function validateQuery(baseline, query, token, total) {
     if (!baseline.complete || baseline.selector.kind.case !== 'owned')

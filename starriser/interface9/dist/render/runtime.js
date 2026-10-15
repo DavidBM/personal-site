@@ -1,3 +1,6 @@
+import { createMapRoutes } from './map-routes.js';
+import { createSelectedTravel } from './selected-travel.js';
+import { composeCompactBodyWorld } from '../gpu/solar-system-lod.js';
 import { configureRenderBudget, compactRenderBudget } from '../gpu/render-budget.js';
 import { createSnapshotWriter } from "./snapshot-writer.js";
 import { configureMapQuality } from '../gpu/map-msaa.js';
@@ -14,7 +17,7 @@ import { WebGpuCameraController } from "../gpu/camera-controller-core.js";
 import { createRenderFleetQueue } from "./fleet-queue.js";
 import { renderSnapshot } from "./runtime-state.js";
 import { queryRenderRuntime } from "./runtime-queries.js";
-import { applyRenderCommand } from "./runtime-commands.js";
+import { tickPlanetDevelopment, applyRenderCommand } from "./runtime-commands.js";
 import { createRuntimeProjection } from './remote/runtime-projection.js';
 import { isProjectionQuery } from './remote/protocol.js';
 /** Leave headroom for camera, scene maintenance and GPU submission at 120 Hz. */
@@ -44,6 +47,13 @@ export async function createRenderRuntime(options) {
     }
 }
 function wireRuntime(view, options) {
+    view.survey.reducedMotion = options.reducedMotion;
+    view.survey.planetBodies = () => { const s = view.solarBodies; if (s.systemId == null)
+        return; const rec = view.survey.system(s.systemId); return { system: s.systemId, ids: s.catalogIds, mock: !(rec && view.survey.cluster(rec.clusterId)?.publicAtlas) }; };
+    view.survey.incomingBody = index => {
+        const p = composeCompactBodyWorld(view.solarBodies, index, view.getSceneTimeSec());
+        return p ? [p.x - view.solarBodies.systemX, p.y, p.z - view.solarBodies.systemZ] : undefined;
+    };
     let state;
     const camera = new WebGpuCameraController(view, {
         controls: { isEditModeActive: () => state.editMode },
@@ -51,8 +61,8 @@ function wireRuntime(view, options) {
         setCursor: (cursor) => { if (state)
             state.cursor = cursor; },
     });
-    const galaxy = new Galaxy(createWebGpuViewHooks(view, () => galaxy), new GalaxyMetrics());
-    view.setFleetPositionProvider((node) => galaxy.getSolarSystemById(node.clusterId, node.solarSystemId)?.position ?? null);
+    const galaxy = new Galaxy(createWebGpuViewHooks(view, () => galaxy, () => state?.topologyConnections !== false), new GalaxyMetrics());
+    view.setFleetPositionProvider((node) => state?.travel?.lookup(node) ?? galaxy.getSolarSystemById(node.clusterId, node.solarSystemId)?.position ?? null);
     const fleets = createRenderFleetQueue((fleet) => {
         view.addFleet(fleet.id, fleet.counts, fleet.state, fleet.relationship);
         state.fleetIds.add(fleet.id);
@@ -63,6 +73,9 @@ function wireRuntime(view, options) {
         sequence: 0, frame: 0, running: false, cursor: "grab", edit: null, editMode: false,
         sceneFleetIds: new Set(), sceneFleetRenderIds: new Map(), selectedFleetId: null,
     };
+    state.travel = createSelectedTravel(state);
+    state.mapRoutes = createMapRoutes(state);
+    view.survey.selectedPin = state.travel.sample;
     const focus = createSystemFocusController({
         view, camera,
         toBufferPx: (x, y) => {
@@ -75,9 +88,14 @@ function wireRuntime(view, options) {
         state.camera.setFollowShip(null, 'projection-retired');
         state.view.setFollowShipIndex(null, 'projection-retired');
         state.camera.setSystemOrbitFree();
-        state.selectedFleetId = null;
+        // Camera retirement does not deselect the independent command fleet.
+    }, (id, renderId, mode) => {
+        state.sceneFleetRenderIds.set(id, renderId);
+        applyRenderCommand(context, { type: mode === 'focus' ? 'selectFleet' : 'followFleet', id });
     });
     let disposed = false;
+    state.remoteTracking = remote.tracking;
+    state.remoteFleetVisual = remote.visual;
     let lastObservation = 0;
     const snapshots = createSnapshotWriter();
     const observe = () => {
@@ -93,6 +111,9 @@ function wireRuntime(view, options) {
     };
     view.setBeforeFrame((dtMs) => {
         fleets.drain(FLEET_PACK_BUDGET_MS, FLEET_PACK_MAX_PER_FRAME);
+        tickPlanetDevelopment(context);
+        state.travel?.tick();
+        state.mapRoutes?.tick();
         if (state.director.isPlaying()) {
             state.director.tick(performance.now());
         }
@@ -133,7 +154,7 @@ function wireRuntime(view, options) {
                 return Promise.reject(new Error("Render runtime is disposed"));
             if (isProjectionQuery(query))
                 return remote.query(query);
-            const refs = query.type === "snapshot" ? remote.sceneFleets(256) : remote.sceneFleets();
+            const refs = query.type === "pickClusterRibbon" ? [] : query.type === "snapshot" ? remote.sceneFleets(256) : remote.sceneFleets();
             return queryRenderRuntime(state, query, refs);
         },
         recycleObservation: buffer => snapshots.recycle(buffer),

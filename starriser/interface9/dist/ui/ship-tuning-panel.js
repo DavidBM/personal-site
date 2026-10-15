@@ -1,3 +1,4 @@
+import { markTester } from './tester-badge.js';
 import { SHIP_SPEED_MULTIPLIER } from '../lib/ship-runtime/scene-scale.mjs';
 // @ts-expect-error declarations live in class-tuning.mjs.d.ts
 import { CLASS_NAMES, defaultClassTuning } from "../lib/ship-runtime/class-tuning.mjs";
@@ -63,6 +64,8 @@ export function buildShipTuningPanel(ctx, actions) {
     panel.content.appendChild(bar);
     const sheet = document.createElement("div");
     sheet.className = "micro-sheet";
+    // Reserve the badge in the label column once; keep class names on one line.
+    sheet.style.gridTemplateColumns = '42px repeat(5,minmax(0,1fr))';
     sheet.appendChild(document.createElement("span"));
     for (const column of COLUMNS) {
         const head = document.createElement("span");
@@ -76,6 +79,7 @@ export function buildShipTuningPanel(ctx, actions) {
     CLASS_NAMES.forEach((name, index) => {
         const label = document.createElement("span");
         label.className = "micro-name";
+        label.style.whiteSpace = 'nowrap';
         label.textContent = SHORT[index] ?? name.slice(0, 3);
         label.title = name;
         sheet.appendChild(label);
@@ -113,6 +117,8 @@ export function buildShipTuningPanel(ctx, actions) {
                 row[column.field]?.dispose();
         destroy();
     };
+    for (const control of panel.content.querySelectorAll('button,.micro-name'))
+        markTester(control);
     return { panel };
 }
 //# sourceMappingURL=ship-tuning-panel.js.map

@@ -1,3 +1,5 @@
+import { readFleetOrbit } from '../../contracts/fleet-orbit.js';
+import { readHullAppearance } from '../../contracts/hull-appearance.js';
 import { isOpaqueId, opaqueIdAt } from "../../contracts/opaque-id.js";
 import { bufferBytes, MAX_SNAPSHOT_BYTES, MAX_SNAPSHOT_ENTITIES, projectionBuffers } from "./contracts.js";
 export function copyWatermark(value) {
@@ -45,16 +47,32 @@ export function readProjectionChanges(batch) {
     return { upserts, removed };
 }
 function readFleet(batch, i) {
+    const stride = batch.layoutVersion >= 2 ? 3 : 2, offset = i * stride;
     const row = { id: opaqueIdAt(batch.ids, i * 16), revision: batch.revisions[i],
-        x: batch.positions[i * 2], z: batch.positions[i * 2 + 1],
-        targetX: batch.targets[i * 2], targetZ: batch.targets[i * 2 + 1],
-        departureMs: batch.times[i * 2], arrivalMs: batch.times[i * 2 + 1], moving: batch.moving[i] === 1 };
-    if (!u64(row.revision) || batch.moving[i] > 1
-        || ![row.x, row.z, row.targetX, row.targetZ].every(Number.isFinite))
+        x: batch.positions[offset], y: stride === 3 ? batch.positions[offset + 1] : 0, z: batch.positions[offset + stride - 1],
+        targetX: batch.targets[offset], targetY: stride === 3 ? batch.targets[offset + 1] : 0, targetZ: batch.targets[offset + stride - 1],
+        departureMs: batch.times[i * 2], arrivalMs: batch.times[i * 2 + 1], moving: (batch.moving[i] & 1) !== 0 };
+    if (!u64(row.revision) || batch.moving[i] > (batch.layoutVersion >= 4 ? 3 : 1)
+        || ![row.x, row.y, row.z, row.targetX, row.targetY, row.targetZ].every(Number.isFinite))
         throw new Error("Invalid projection fleet");
     if (row.moving && row.arrivalMs <= row.departureMs)
         throw new Error("Invalid projection movement interval");
-    return row;
+    return presentationMetadata(batch, i, row);
+}
+function presentationMetadata(batch, i, row) {
+    if (batch.layoutVersion >= 6)
+        row = { ...row, orbit: readFleetOrbit(batch.orbitBytes.subarray(batch.orbitOffsets[i], batch.orbitOffsets[i + 1])) };
+    const appearance = batch.layoutVersion >= 3 ? readHullAppearance(batch.appearance, i * 7) : undefined;
+    if (batch.layoutVersion >= 4)
+        return { ...row, appearance, via: batch.layoutVersion >= 5 ? readPath(batch, i) : undefined, relationship: (batch.moving[i] & 2) ? 'own' : 'neutral' };
+    return appearance ? { ...row, appearance } : row;
+}
+function readPath(batch, i) {
+    const result = [];
+    for (let j = batch.pathOffsets[i]; j < batch.pathOffsets[i + 1]; j++) {
+        result.push({ x: batch.pathPoints[j * 3], y: batch.pathPoints[j * 3 + 1], z: batch.pathPoints[j * 3 + 2] });
+    }
+    return result;
 }
 export function appendSnapshot(current, batch) {
     const chunk = batch.snapshot;

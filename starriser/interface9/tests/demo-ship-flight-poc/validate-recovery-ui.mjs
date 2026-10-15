@@ -1,9 +1,10 @@
+import { repositoryArtifactPath } from '../../scripts/temp-directory.mjs';
 import assert from 'node:assert/strict';
 import {mkdir,writeFile} from 'node:fs/promises';
 import path from 'node:path';
 import {startServer} from '../scripts/serve.mjs';
 import {connectCdp,getPageWebSocketUrl,launchChromium} from '../scripts/cdp.mjs';
-const output=path.resolve(process.argv[2]??'/tmp/galaxy-recovery-ui');await mkdir(output,{recursive:true});
+const output=path.resolve(process.argv[2]??repositoryArtifactPath('galaxy-recovery-ui'));await mkdir(output,{recursive:true});
 const server=await startServer(0,{distDir:process.argv[3]});let chrome,cdp;
 async function state() {
   return cdp.evaluate(`({time:window.flightLab.time,simulated:window.flightLab.engine.now,solar:window.flightLab.engine.solar.time,

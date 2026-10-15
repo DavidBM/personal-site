@@ -9,7 +9,7 @@ import { SolarBodyStore } from "../solar-body-store.js";
 import { catalogIdFromSystemId } from "../solar-catalog-id.js";
 import { buildCompactKepler } from "../compact-kepler.js";
 import { fillSceneCandidatesForCluster, oneSceneWithHysteresis, pickLookAtClusterId } from "../solar-system-lod.js";
-import { SURVEY_GALAXY_POINT_LOD_POLICY, SYSTEM_POINT_DIAMETER_PX, billboardScaleForDiameterPx, clusterImpostorWithHysteresis } from "../galaxy-point-lod.js";
+import { SYSTEM_POINT_DIAMETER_PX, billboardScaleForDiameterPx, clusterImpostorWithHysteresis } from "../galaxy-point-lod.js";
 import { buildModelTopologyContext, parseInterClusterConnectionKey } from "../fleet-lod.js";
 import { solarConnectionClusterId } from "../../contracts/connection-key.js";
 const EMPTY_SYSTEM_IDS = [];
@@ -24,6 +24,7 @@ export class MapTopologyPresentation {
         this.solarBodies = new SolarBodyStore();
         this.sceneSystems = new Map();
         this.clusterLodMeta = new Map();
+        this.onlineJumpKeys = new Set();
         this.jumpEdgesByKey = new Map();
         this.sceneHysteresis = { sceneId: null, holdStartMs: 0 };
         this.lastSceneSpanPx = 0;
@@ -36,7 +37,9 @@ export class MapTopologyPresentation {
         this.lastPointLodViewportH = -1;
         this.lastPointLodFovy = -1;
         this.clusterLodPending = true;
-        this.surveyPanelClusters = new Set();
+        this.surveyCollapsedClusters = new Set();
+        /** Online line patches can precede their cluster's topology replay. */
+        this.pendingSolarLines = new Map();
         this.lastSceneLookAtX = Number.NaN;
         this.lastSceneLookAtZ = Number.NaN;
         this.lastSceneBufferH = -1;
@@ -78,6 +81,30 @@ export class MapTopologyPresentation {
         // Bodies have already been rebuilt: fleet scene flags consume that identity.
         this.onSceneChanged(this.sceneIds);
     }
+    addCluster(cluster) {
+        this.ensureClusterLodMeta(cluster, cluster.color || 0xffffff);
+        this.surveyRevision++;
+        this.modelClusterCentersDirty = true;
+        this.lastPointLodD = -1;
+    }
+    removeCluster(cluster) {
+        const meta = this.clusterLodMeta.get(cluster.id);
+        if (meta)
+            this.impostorStore.remove(meta.impostorIndex);
+        this.clusterLodMeta.delete(cluster.id);
+        this.impostorStoreDirty = true;
+        this.surveyRevision++;
+        this.modelClusterCentersDirty = true;
+    }
+    setSystemCatalog(system) {
+        const rec = this.sceneSystems.get(system.id);
+        if (!rec)
+            return;
+        rec.catalogId = system.catalogId;
+        this.prefetchedDestination = null;
+        if (this.solarBodies.systemId === system.id)
+            this.loadCompactScene(rec);
+    }
     addSolarSystem(cluster, solarSystem) {
         this.modelClusterCentersDirty = true;
         this.surveyRevision++;
@@ -94,6 +121,7 @@ export class MapTopologyPresentation {
         this.storeDirty = true;
         this.sceneSystems.set(solarSystem.id, {
             id: solarSystem.id,
+            catalogId: solarSystem.catalogId,
             name: solarSystem.name || `SYSTEM ${solarSystem.id}`,
             isJumpGate: solarSystem.isJumpGate,
             bufferIndex: idx,
@@ -122,7 +150,8 @@ export class MapTopologyPresentation {
         const idx = solarSystem._bufferIndex;
         if (typeof idx !== "number")
             return;
-        this.store.hide(idx);
+        delete solarSystem._bufferIndex;
+        this.store.remove(idx);
         this.storeDirty = true;
         this.sceneSystems.delete(solarSystem.id);
         if (this.sceneHiddenBufferIndex === idx) {
@@ -142,7 +171,6 @@ export class MapTopologyPresentation {
             this.impostorStore.hide(meta.impostorIndex);
             meta.wasImpostor = false;
             this.impostorStoreDirty = true;
-            this.clusterLodMeta.delete(cluster.id);
         }
         else if (meta.wasImpostor) {
             this.writeImpostorPoint(meta, true);
@@ -195,6 +223,8 @@ export class MapTopologyPresentation {
         if (!this.lineStore.add(key, a, b, color))
             return;
         this.linesDirty = true;
+        if (key.startsWith('online:jump:'))
+            this.onlineJumpKeys.add(key);
         // Inter-cluster jump edges feed model topology LOD.
         const jump = parseInterClusterConnectionKey(key);
         if (jump) {
@@ -207,8 +237,12 @@ export class MapTopologyPresentation {
         if (clusterId == null)
             return;
         const meta = this.clusterLodMeta.get(clusterId);
-        if (!meta)
+        if (!meta) {
+            const pending = this.pendingSolarLines.get(clusterId) ?? [];
+            pending.push(key);
+            this.pendingSolarLines.set(clusterId, pending);
             return;
+        }
         meta.lineKeys.push(key);
         meta.lineIndices.push(this.lineStore.keyToIndex.get(key));
         if (meta.wasImpostor) {
@@ -223,6 +257,7 @@ export class MapTopologyPresentation {
     }
     removeConnection(key) {
         this.lineStore.remove(key);
+        this.onlineJumpKeys.delete(key);
         this.linesDirty = true;
         if (this.jumpEdgesByKey.delete(key))
             this.modelTopologyContext = null;
@@ -230,8 +265,12 @@ export class MapTopologyPresentation {
         if (clusterId == null)
             return;
         const meta = this.clusterLodMeta.get(clusterId);
-        if (!meta)
+        if (!meta) {
+            const pending = this.pendingSolarLines.get(clusterId);
+            if (pending)
+                this.pendingSolarLines.set(clusterId, pending.filter(value => value !== key));
             return;
+        }
         const i = meta.lineKeys.indexOf(key);
         if (i !== -1) {
             meta.lineKeys.splice(i, 1);
@@ -299,6 +338,7 @@ export class MapTopologyPresentation {
                     continue;
                 this.sceneSystems.set(solarSystem.id, {
                     id: solarSystem.id,
+                    catalogId: solarSystem.catalogId,
                     name: solarSystem.name || `SYSTEM ${solarSystem.id}`,
                     isJumpGate: solarSystem.isJumpGate,
                     bufferIndex: idx,
@@ -328,7 +368,9 @@ export class MapTopologyPresentation {
     }
     clearLines() {
         this.lineStore.clear();
+        this.pendingSolarLines.clear();
         this.jumpEdgesByKey.clear();
+        this.onlineJumpKeys.clear();
         this.modelTopologyContext = null;
         for (const meta of this.clusterLodMeta.values()) {
             meta.lineKeys.length = 0;
@@ -339,6 +381,7 @@ export class MapTopologyPresentation {
     ensureClusterLodMeta(cluster, clusterColor) {
         let meta = this.clusterLodMeta.get(cluster.id);
         if (meta) {
+            meta.publicAtlas = cluster.publicAtlas;
             meta.name = cluster.name || `CLUSTER ${cluster.id}`;
             meta.color = clusterColor;
             meta.radius = cluster.radius || meta.radius;
@@ -356,6 +399,7 @@ export class MapTopologyPresentation {
         this.impostorStoreDirty = true;
         meta = {
             clusterId: cluster.id,
+            publicAtlas: cluster.publicAtlas,
             name: cluster.name || `CLUSTER ${cluster.id}`,
             radius: cluster.radius || 250,
             x: cluster.position.x,
@@ -369,6 +413,14 @@ export class MapTopologyPresentation {
             wasImpostor: false,
         };
         this.clusterLodMeta.set(cluster.id, meta);
+        for (const key of this.pendingSolarLines.get(cluster.id) ?? []) {
+            const index = this.lineStore.keyToIndex.get(key);
+            if (index !== undefined) {
+                meta.lineKeys.push(key);
+                meta.lineIndices.push(index);
+            }
+        }
+        this.pendingSolarLines.delete(cluster.id);
         return meta;
     }
     /** Write impostor center/color; show or LOD-hide without zeroing colors. */
@@ -381,20 +433,20 @@ export class MapTopologyPresentation {
         if (!show)
             this.impostorStore.setLodHidden(meta.impostorIndex, true);
     }
-    /** Only admitted cluster panels defer internal topology. Changes invalidate a
-     * stationary camera too (fleet removal or label collision can hide a panel). */
-    setSurveyPanelClusters(ids) {
-        let unchanged = ids.size === this.surveyPanelClusters.size;
+    /** Survey semantic zoom owns internal topology while a cluster has a hexagon.
+     * Labels and their collision admission do not change the detail tier. */
+    setSurveyCollapsedClusters(ids) {
+        let unchanged = ids.size === this.surveyCollapsedClusters.size;
         for (const id of ids)
-            if (!this.surveyPanelClusters.has(id)) {
+            if (!this.surveyCollapsedClusters.has(id)) {
                 unchanged = false;
                 break;
             }
         if (unchanged)
             return;
-        this.surveyPanelClusters.clear();
+        this.surveyCollapsedClusters.clear();
         for (const id of ids)
-            this.surveyPanelClusters.add(id);
+            this.surveyCollapsedClusters.add(id);
         this.clusterLodPending = true;
     }
     updateClusterLod(d, fovy, viewportH) {
@@ -413,10 +465,10 @@ export class MapTopologyPresentation {
     applyClusterLodBudget(d, fovy, viewportH) {
         let processedRecords = 0;
         for (const meta of this.clusterLodMeta.values()) {
-            if (meta.systemIndices.length === 0)
+            if (meta.systemIndices.length === 0 && meta.lineIndices.length === 0)
                 continue;
-            const policy = this.surveyPanelClusters.has(meta.clusterId) ? SURVEY_GALAXY_POINT_LOD_POLICY : undefined;
-            const want = clusterImpostorWithHysteresis(d, meta.radius, meta.wasImpostor, fovy, viewportH, policy);
+            const want = this.surveyCollapsedClusters.has(meta.clusterId)
+                || clusterImpostorWithHysteresis(d, meta.radius, meta.wasImpostor, fovy, viewportH);
             if (want === meta.wasImpostor)
                 continue;
             const records = meta.systemIndices.length + meta.lineIndices.length + 1;
@@ -486,7 +538,7 @@ export class MapTopologyPresentation {
             return;
         this.prefetchedDestination = id;
         const rec = id == null ? null : this.sceneSystems.get(id);
-        this.retainedPreviewIds = rec ? new Set(buildCompactKepler(catalogIdFromSystemId(rec.id)).planets.map(p => p.id)) : EMPTY_PREVIEW_KEEP;
+        this.retainedPreviewIds = rec && rec.catalogId !== null ? new Set(buildCompactKepler(rec.catalogId ?? catalogIdFromSystemId(rec.id)).planets.map(p => p.id)) : EMPTY_PREVIEW_KEEP;
         // Only the empty transit interval prefetches the next bounded preview set.
         // High-detail textures still belong to the single active catalog/focus.
         this.previews.retainPreviews(this.retainedPreviewIds);
@@ -571,9 +623,13 @@ export class MapTopologyPresentation {
         const sceneId = rec.id;
         // Rebuild Kepler *before* setSystemScene so fleetLocMatchesKepler
         // sees the new systemId when re-OR-ing bit 7 (not the previous jewel).
-        if (this.solarBodies.systemId !== sceneId) {
-            const catalogId = catalogIdFromSystemId(sceneId);
+        const catalogId = rec.catalogId === undefined ? catalogIdFromSystemId(sceneId) : rec.catalogId ?? '';
+        if (this.solarBodies.systemId !== sceneId || this.solarBodies.catalogId !== catalogId) {
             const kepler = buildCompactKepler(catalogId);
+            if (rec.catalogId === null) {
+                kepler.planets = [];
+                kepler.bodies = [kepler.sun];
+            }
             this.solarBodies.rebuild(kepler, sceneId, rec.x, rec.z);
             const keep = new Set();
             for (let i = 0; i < kepler.planets.length; i++) {

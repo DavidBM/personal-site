@@ -51,33 +51,36 @@ export function createRoutePreview(rules) {
             }
             return { kind: 'topology', token: { ...value.token } };
         },
-        preview(state, playerId, input) {
+        preview(state, playerId, input, policy) {
             validateToken(input.topology);
             if (!routes || !current || !sameTopologyToken(current.token, input.topology)
                 || input.token.connectionGeneration !== current.token.connectionGeneration || input.token.watermark.scope.worldId !== current.token.worldId) {
                 throw new Error('Stale or missing route topology');
             }
-            return preview(rules, routes, state, playerId, input);
+            if (!policy)
+                throw new Error('Missing source-authority transfer policy');
+            return preview(rules, routes, state, playerId, input, policy);
         },
         dispose() { routes?.free(); routes = null; current = null; },
     };
 }
-function preview(rules, routes, state, playerId, input) {
+function preview(rules, routes, state, playerId, input, policy) {
     const base = { kind: 'route-preview', token: copyToken(input.token), topology: { ...input.topology } };
     const rejected = (code) => ({ ...base, code, path: new Uint8Array(), totalTravelMs: 0n, arrivalMs: 0n, firstLeg: null, proposal: null });
     try {
-        if (!Number.isFinite(input.targetX) || !Number.isFinite(input.targetZ))
+        if (!Number.isFinite(input.targetX) || !Number.isFinite(input.targetZ) || !Number.isFinite(input.targetY ?? 0))
             return rejected(2);
         const path = routes.select(opaqueIdBytes(input.token.watermark.scope.systemId), opaqueIdBytes(input.destinationSystemId));
         const legs = path.length / 16 - 1;
-        const arrivalMs = rules.route_arrival_ms(input.nowMs, legs);
-        const firstLeg = { destinationSystemId: opaqueIdAt(path, 16), targetX: legs === 1 ? input.targetX : 0,
-            targetZ: legs === 1 ? input.targetZ : 0, arrivalMs: rules.route_arrival_ms(input.nowMs, 1) };
-        const code = state.stage_export(opaqueIdBytes(playerId), opaqueIdBytes(input.fleetId), opaqueIdBytes(firstLeg.destinationSystemId), firstLeg.targetX, firstLeg.targetZ, input.nowMs, firstLeg.arrivalMs, input.expectedSystemRevision);
+        const arrival = (count) => rules.route_arrival_with_policy(input.nowMs, count, policy.jumpMs, policy.cooldownMs, policy.configurationRevision, policy.modifierRevision);
+        const arrivalMs = arrival(legs);
+        const firstLeg = nextLeg(input, path, arrival(1));
+        const code = state.stage_export_with_policy(opaqueIdBytes(playerId), opaqueIdBytes(input.fleetId), opaqueIdBytes(firstLeg.destinationSystemId), firstLeg.targetX, firstLeg.targetY, firstLeg.targetZ, input.nowMs, policy.jumpMs, policy.cooldownMs, policy.configurationRevision, policy.modifierRevision, input.expectedSystemRevision);
         if (code !== 0)
             return rejected(code);
+        const positions = state.pending_transfer_positions();
         return { ...base, code, path, totalTravelMs: arrivalMs - input.nowMs, arrivalMs, firstLeg,
-            proposal: { ids: state.pending_transfer_ids(), meta: state.pending_transfer_meta(), positions: state.pending_transfer_positions() } };
+            proposal: { positionDimensions: positions.length === 6 ? 3 : 2, ids: state.pending_transfer_ids(), meta: state.pending_transfer_meta(), timing: state.pending_transfer_timing(), positions } };
     }
     catch (error) {
         if (typeof error === 'number')
@@ -88,10 +91,17 @@ function preview(rules, routes, state, playerId, input) {
         state.discard();
     }
 }
+/** A direct leg uses the selected final point; intermediate jumps use the
+ * system origin until the player accepts that authority's next leg. */
+function nextLeg(input, path, arrivalMs) {
+    const final = path.length === 32;
+    return { destinationSystemId: opaqueIdAt(path, 16), targetX: final ? input.targetX : 0,
+        targetY: final ? (input.targetY ?? 0) : 0, targetZ: final ? input.targetZ : 0, arrivalMs };
+}
 export function routePreviewBuffers(result) {
     const buffers = [result.path.buffer];
     if (result.proposal)
-        buffers.push(result.proposal.ids.buffer, result.proposal.meta.buffer, result.proposal.positions.buffer);
+        buffers.push(result.proposal.ids.buffer, result.proposal.meta.buffer, result.proposal.timing.buffer, result.proposal.positions.buffer);
     return buffers;
 }
 //# sourceMappingURL=routes.js.map

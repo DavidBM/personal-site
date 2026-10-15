@@ -5,6 +5,9 @@
  *
  * Look: ISS-like dark oceans, land-locked coasts, regional biomes, polar ice.
  */
+export { planetMapCapabilities, supportsPlanetMap } from "./map-capabilities.js";
+export { retainPlanetSurface, derivePlanetSurface } from "./surface-fields.js";
+export { CANONICAL_PLANET_WIDTH, CANONICAL_PLANET_HEIGHT, canonicalPlanetParams, bakeCanonicalPlanetMaster, deriveCanonicalPlanetSurface, } from "./canonical-surface.js";
 // PlanetClass re-export for UI bank pickers
 export { RESOLUTION_OPTIONS, MAX_RESOLUTION, MIN_RESOLUTION, } from "./types.js";
 export { bakePlanetTextures, completeBakeFromHeight, hashRgba, hashTextureSet, scaledHydraulicDrops, } from "./bake.js";

@@ -218,7 +218,7 @@ export function buildSystemPlanetPanel(ctx, actions, opts) {
             }
         }
     }
-    function syncBodies(bodies, fleets, focus) {
+    function syncBodies(bodies, fleets, focus, readiness) {
         bodyVersion++;
         stationedByPlanet(fleets, stationed);
         let cursor = bodiesHost.firstChild;
@@ -230,18 +230,22 @@ export function buildSystemPlanetPanel(ctx, actions, opts) {
                 cursor = cursor.nextSibling;
             const row = currentBodyRow(body);
             const element = row.component.element;
-            setText(row.name, body.name);
-            const parked = formatStationed(stationed.get(body.name));
-            setText(row.kind, parked ? `${body.kind} · ${parked}` : body.kind);
-            const title = body.isSun ? "Orbit sun" : `Lock ${body.name}`;
-            if (element.title !== title)
-                element.title = title;
+            paintBody(row, body, readiness);
             element.classList.toggle("selected", focus != null && body.index === focus);
             if (cursor !== element)
                 bodiesHost.insertBefore(element, cursor);
             cursor = element.nextSibling;
         }
         pruneBodies();
+    }
+    function paintBody(row, body, readiness) {
+        setText(row.name, body.name);
+        const ready = bodyReadiness(body, readiness), parked = formatStationed(stationed.get(body.name));
+        const detail = ready ?? parked;
+        setText(row.kind, detail ? `${body.kind} · ${detail}` : body.kind);
+        const title = body.isSun ? 'Orbit sun' : `Lock ${body.name}${ready ? ` · ${ready}. Map readiness does not grant ownership or construction.` : ''}`;
+        if (row.component.element.title !== title)
+            row.component.element.title = title;
     }
     function syncFleets(fleets, selected) {
         fleetVersion++;
@@ -295,7 +299,7 @@ export function buildSystemPlanetPanel(ctx, actions, opts) {
             lastVisible = true;
         }
         const fleets = next.fleets ?? [], total = next.fleetTotal ?? fleets.length;
-        syncBodies(next.bodies, fleets, next.focusIndex);
+        syncBodies(next.bodies, fleets, next.focusIndex, next.planetReadiness);
         syncFleets(fleets, next.selectedFleetId ?? null);
         setText(headingText, `Fleets · ${total}`);
         setHidden(empty, fleets.length > 0);
@@ -311,5 +315,10 @@ export function buildSystemPlanetPanel(ctx, actions, opts) {
             setText(drawText, `${next.sceneDraw.fleets} fleets · ${next.sceneDraw.ships} ships`);
     };
     return { panel, sync };
+}
+function bodyReadiness(body, readiness) {
+    if (body.isSun || !readiness)
+        return undefined;
+    return readiness[body.catalogId] ?? 'Visual only';
 }
 //# sourceMappingURL=system-planet-panel.js.map

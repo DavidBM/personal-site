@@ -79,6 +79,8 @@ export function defaultParams(widthPx = 512, heightPx = 128) {
             freqV: 9,
         },
         exposure: 1,
+        edgeFade: 0.3,
+        edgeClearPx: 3,
         gamma: 0.9,
     };
 }

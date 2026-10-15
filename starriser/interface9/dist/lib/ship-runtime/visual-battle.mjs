@@ -12,6 +12,10 @@ struct BattleProfile { motion:vec4<f32>, shipNoise:vec4<f32>, squadNoise:vec4<f3
 `;
 export const battleFields=n=>`,battleOrders:array<VisualBattle,${n}>,battleSquads:array<BattleSquad,${n*BATTLE_SQUADS}>,battleProfiles:array<BattleProfile,6>,battleStrategies:array<vec4<u32>,24>`;
 
+// acceptedBattleLoss: a ship its class row does not count yet (an order written
+// before the ship's admission chunk, e.g. a large fleet joining mid-battle) is
+// never a casualty. Death is permanent, so only counted ships may die; the
+// unsigned ordinal - range.x also catches ordinals below the row.
 export const VISUAL_BATTLE_WGSL=/* wgsl */`
 fn visualBattleConfigured(s:Ship)->bool {
   let b=director.battleOrders[s.identity.y];
@@ -67,8 +71,8 @@ fn battleSquadOpponent(b:VisualBattle,kind:u32,k:u32,strategy:u32)->Ship {
   var start=select(b.opponent.z,b.reserve.x,bomber);var count=select(b.opponent.w,b.reserve.y,bomber);
   // Interceptors screen against bomber squads when present. Fighters still
   // engage their authority-assigned light targets, including bomber escorts.
-  if(b.reserve.w==1u&&kind==0u&&other.classes[2].y>0u){start=other.classes[2].x;count=max(1u,other.classes[2].z);}
-  let chosen=u32(director.battleProfiles[kind].attack.z);
+  if((b.reserve.w&1u)==1u&&kind==0u&&other.classes[2].y>0u){start=other.classes[2].x;count=max(1u,other.classes[2].z);}
+  let chosen=select(u32(director.battleProfiles[kind].attack.z),(b.classes[kind].w>>24u)&15u,(b.reserve.w&2u)!=0u);
   if(chosen>0u&&other.classes[chosen-1u].y>0u){start=other.classes[chosen-1u].x;count=max(1u,other.classes[chosen-1u].z);}
   var squads=1u;
   for(var targetKind=0u;targetKind<6u;targetKind++){
@@ -150,6 +154,7 @@ fn battleGuideTarget(b:VisualBattle,p:BattleProfile,clock:vec3<f32>,seed:u32,kin
   let noise=battleNoise(seed,clock.yz,1.0/max(30.0,p.squadNoise.y),p.squadNoise.z,dt);
   let amplitude=r*.16*p.squadNoise.x*p.squadNoise.w;
   goal.p+=noise.p*amplitude;goal.v+=noise.v*amplitude;
+  if(b.clock.w>0.0){goal.p=forward*(b.axis.w*r*.48)+wave*r*.08;goal.v=waveV*r*.08;}
   return battleConstrain(goal,b,r*.30);
 }
 fn prepareBattleFleet(member:Ship,prior:FleetGuide,dt:f32)->FleetGuide {
@@ -203,6 +208,18 @@ fn battleShipGoal(s:Ship,p:BattleProfile,squad:BattleSquad,clock:vec2<f32>,rate:
   let noise=battleShipNoise(s.identity.w,clock,rate,p.shipNoise.z,dt);
   let amplitude=width*.40*p.shipNoise.x*p.shipNoise.w;
   return BattleGoal(squad.offset.xyz+offsetSeat+noise.p*amplitude,squad.velocity.xyz+noise.v*amplitude);
+}
+fn acceptedBattleLoss(initial:Ship,dt:f32)->Ship {
+  var s=initial;let b=director.battleOrders[s.identity.y];
+  if(!visualBattleConfigured(s)||(b.reserve.w&2u)==0u){return s;}
+  let range=b.classes[classIndex(shipType(s))];let ordinal=sceneOrdinal(s.identity.x);
+  if(range.y==0u||(range.z==range.y&&ordinal-range.x>=range.y)){s.tactic.y=0.0;return s;}
+  let rank=select(battleHash(ordinal)%max(1u,range.y),ordinal-range.x,range.z==range.y);
+  if(rank<(range.w&1048575u)){s.tactic.y=0.0;return s;}
+  // Give the bounded FX pass time to read the final pose; death is monotone and
+  // uses a relative counter, so an epoch rebase cannot resurrect a casualty.
+  s.tactic.y+=dt;if(s.tactic.y>.45){s.identity.z=0u;}
+  return s;
 }
 fn visualBattleStep(s:Ship,dt:f32)->Ship {
   let fleet=s.identity.y;let b=director.battleOrders[fleet];let kind=classIndex(shipType(s));

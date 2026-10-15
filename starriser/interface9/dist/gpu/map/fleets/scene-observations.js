@@ -1,5 +1,11 @@
 import { SHIP_SIM_STRIDE } from '../../ship-sim-layout.js';
 import { SHIP_BYTES } from '../../../lib/ship-runtime/ship-layout.mjs';
+import { SCENE_SCALE_TAG_STEP } from '../../../lib/fleet-sim/gpu/model-ship-pose.wgsl.js';
+/** Draw scale packed in targetKind bits 16-31 by present (0 = unscaled), as the hull shader decodes it. */
+function sceneTagScale(targetKind) {
+    const tag = targetKind >>> 16;
+    return tag ? tag * SCENE_SCALE_TAG_STEP : 1;
+}
 function canReadPose(slot, currentMap, handle) {
     return slot.poseValid && slot.handle != null && slot.handle === handle && (currentMap || slot.retainedPose);
 }
@@ -180,7 +186,7 @@ export class SceneObservations {
         const warp = observed?.warp, attitude = observed?.attitude ?? readAttitude(f);
         const velocity = observedVelocity(previous, slot, f, observed !== null);
         this.pose = { x: f[0], y: f[1], z: f[2], posX: f[0], posY: f[1], posZ: f[2], speed: f[3], heading: f[11], shipIndex: slot.handle, observedMs: slot.timeMs,
-            attitude, previousAttitude: velocity.dt ? previous.attitude : attitude, attitudeDt: velocity.dt, classScale: Math.max(1, w[16] >>> 16) * 0.1, warp,
+            attitude, previousAttitude: velocity.dt ? previous.attitude : attitude, attitudeDt: velocity.dt, classScale: sceneTagScale(w[16]), warp,
             vx: velocity.vx, vy: velocity.vy, vz: velocity.vz };
     }
     center(slot) {

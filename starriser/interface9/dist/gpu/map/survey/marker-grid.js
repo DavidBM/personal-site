@@ -21,9 +21,9 @@ export class SurveyMarkerGrid {
         }
     }
     overlaps(anchor, width, height) {
-        // Ring radius is bounded to 11px; reserve an additional 3px breathing room.
-        const left = anchor.left - 14, right = anchor.left + width + 14;
-        const top = anchor.top - 14, bottom = anchor.top + height + 14;
+        // Hexagon radius is bounded to 26px; reserve 3px breathing room.
+        const left = anchor.left - 29, right = anchor.left + width + 29;
+        const top = anchor.top - 29, bottom = anchor.top + height + 29;
         const x0 = Math.max(0, Math.floor(left / CELL)), x1 = Math.min(this.columns - 1, Math.floor(right / CELL));
         const y0 = Math.max(0, Math.floor(top / CELL)), y1 = Math.min(this.rows - 1, Math.floor(bottom / CELL));
         for (let y = y0; y <= y1; y++)

@@ -26,7 +26,7 @@ export function applyFollowDragLook(lookYaw, lookPitch, mdx, mdy, opts) {
     const pitchSens = opts?.pitchSens ?? FOLLOW_DRAG_PITCH_SENS;
     const maxPitch = opts?.maxPitch ?? FOLLOW_DRAG_MAX_PITCH;
     let yaw = lookYaw - mdx * yawSens;
-    let pitch = lookPitch - mdy * pitchSens;
+    let pitch = lookPitch + mdy * pitchSens;
     pitch = Math.max(-maxPitch, Math.min(maxPitch, pitch));
     return { lookYaw: yaw, lookPitch: pitch };
 }

@@ -31,6 +31,10 @@ export function makeSolarConnectionKey(clusterId, solarSystemId1, solarSystemId2
  * keys (underscores only) or malformed strings.
  */
 export function solarConnectionClusterId(key) {
+    if (key.startsWith('online:system:')) {
+        const handle = Number(key.split(':', 4)[2]);
+        return Number.isSafeInteger(handle) && handle > 0 && handle <= 0xffffff ? handle : null;
+    }
     const parsed = parseSolarConnectionKey(key);
     return parsed ? parsed.clusterId : null;
 }

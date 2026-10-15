@@ -29,8 +29,8 @@ export function lerpJumpPosition(start, end, startTime, durationMs, now) {
  */
 export function resolveFleetVisualPosition(state, now, lookup) {
     if (state.state === "jumping") {
-        const start = lookup(state.startNode);
-        const end = lookup(state.endNode);
+        const start = state.startPosition ?? lookup(state.startNode);
+        const end = state.endPosition ?? lookup(state.endNode);
         if (!start || !end)
             return null;
         return lerpJumpPosition(start, end, state.startTime, state.durationMs, now);

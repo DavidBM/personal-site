@@ -16,7 +16,8 @@ export function createOrbitState(partial) {
 const PITCH_MIN = -1.45;
 const PITCH_MAX = 1.45;
 const RADIUS_MIN = 0.35;
-const RADIUS_MAX = 80;
+/** Far enough that a unit-radius hull shrinks to a fraction of a pixel (the point level). */
+const RADIUS_MAX = 12000;
 /**
  * Apply drag deltas (pixels → radians via sensitivity).
  * dx > 0 → yaw increases (orbit right).
@@ -38,11 +39,12 @@ export function orbitApplyZoom(state, deltaY, factor = 1.0015) {
     // Wheel up (negative) → closer
     const mul = Math.pow(factor, deltaY);
     let radius = state.radius * mul;
-    if (radius < RADIUS_MIN)
-        radius = RADIUS_MIN;
-    if (radius > RADIUS_MAX)
-        radius = RADIUS_MAX;
+    radius = Math.min(Math.max(radius, state.minRadius ?? RADIUS_MIN), RADIUS_MAX);
     return { ...state, radius };
+}
+/** Set the eye distance directly (LOD timeline scrubbing), within the zoom limits. */
+export function orbitSetRadius(state, radius) {
+    return { ...state, radius: Math.min(Math.max(radius, state.minRadius ?? RADIUS_MIN), RADIUS_MAX) };
 }
 /** Eye position from spherical orbit (Y-up). */
 export function orbitEye(state) {

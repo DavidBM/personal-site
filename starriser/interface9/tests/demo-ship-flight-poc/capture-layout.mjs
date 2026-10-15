@@ -1,8 +1,9 @@
+import { repositoryArtifactPath } from '../../scripts/temp-directory.mjs';
 import {mkdir,writeFile} from 'node:fs/promises';
 import path from 'node:path';
 import {startServer} from '../scripts/serve.mjs';
 import {connectCdp,getPageWebSocketUrl,launchChromium} from '../scripts/cdp.mjs';
-const output=path.resolve(process.argv[2]??'/tmp/galaxy-flight-layout');
+const output=path.resolve(process.argv[2]??repositoryArtifactPath('galaxy-flight-layout'));
 await mkdir(output,{recursive:true});
 const server=await startServer(0,{distDir:process.argv[4]});let chrome,cdp;
 try {

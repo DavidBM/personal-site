@@ -133,6 +133,7 @@ function acceptJourney(intent, report) {
     revision: j.revision,
     planet: j.planet,
     planeShift: j.planeShift,
+    linearProgress: j.linearProgress,
   };
 }
 

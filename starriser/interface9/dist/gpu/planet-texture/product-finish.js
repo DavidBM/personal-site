@@ -16,6 +16,7 @@ import { renderLandHeightHeatmap, renderPureBiomeSplitMap } from "./climate.js";
 import { generateGasVelocityField, advectAlbedoByGasVelocity, } from "./gas-flow.js";
 import { generateClouds } from "./materials.js";
 import { poleIceExtentScale, rasterizeCloudPoleCaps, rasterizePoleCap, } from "./pole-cap.js";
+import { planetMapCapabilities } from "./map-capabilities.js";
 function patchBankCeiling(kind, family) {
     const catalog = AI_PATCH_CATALOG[family] ?? 14;
     return kind === "colorized-normals" && family === "geology"
@@ -604,10 +605,13 @@ export function attachBiomeIntermediates(set, maxWidth = 1024) {
     const cap = maxWidth != null && Number.isFinite(maxWidth) && maxWidth > 0
         ? Math.floor(maxWidth)
         : 1024;
-    // Gas / non-earth: skip (biome split is for ocean/temperate land paint)
-    const cls = set.params.planetClass;
+    const capability = planetMapCapabilities(set.params.planetClass);
+    if (!capability.surfaceHeight) {
+        set.intermediates = {};
+        return;
+    }
     const heightHeat = renderLandHeightHeatmap(set.height.rgba, set.height.width, set.height.height, set.params.liquidLevel, cap);
-    if (cls === "gas" || cls === "rocky" || cls === "exotic") {
+    if (!capability.biome) {
         set.intermediates = {
             pureBiomeSplit: undefined,
             pureBiomeCounts: undefined,
@@ -639,6 +643,19 @@ export function attachBiomeIntermediates(set, maxWidth = 1024) {
             rgba: heightHeat.rgba,
         },
     };
+}
+/** Class-correct diagnostics shared by the catalog writer and capability tests. */
+export function planetDiagnosticMaps(set) {
+    const capability = planetMapCapabilities(set.params.planetClass);
+    const maps = {};
+    if (capability.surfaceHeight) {
+        maps.height = set.height;
+        if (set.intermediates?.heightHeat)
+            maps.height_diagnostic = set.intermediates.heightHeat;
+    }
+    if (capability.biome && set.intermediates?.pureBiomeSplit)
+        maps.biome = set.intermediates.pureBiomeSplit;
+    return maps;
 }
 /** Rasterize extra pole products for catalog (normal + night). */
 export function rasterizeExtraPoleProducts(set, nightRgba) {

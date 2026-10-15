@@ -2,7 +2,7 @@ import { BattleTopics, MAX_BATTLES } from './contracts.js';
 import { publishFeatureTopic, subscribeFeatureTopic } from '../../worker/protocol/feature-topics.js';
 /** One outstanding fleet-only query, round-robin at four probes/second TOTAL.
  * This timer does no work while idle and never enumerates ships or the galaxy. */
-export function createBattleClient(bus, probe, notice) {
+export function createBattleClient(bus, probe, notice, changed) {
     const rows = new Map();
     let timer = null;
     let closed = false, cursor = 0, busy = false;
@@ -35,6 +35,7 @@ export function createBattleClient(bus, probe, notice) {
             rows.delete(e.id);
         else if (rows.has(e.id) || rows.size < MAX_BATTLES)
             rows.set(e.id, e);
+        changed?.(e);
         notice(e.stage === 'ended' ? e.reason ?? 'Battle ended' : e.stage === 'pursuit' ? 'Intercepting fleet' : `Battle · ${e.phase}`);
         schedule();
     });

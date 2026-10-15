@@ -4,6 +4,7 @@ import { FX_FLEETS, FX_SOURCE_WORDS, FX_RECORD_BYTES, fxBudget, fxLayout } from 
 import { fxTuningState, FX_PROFILE_FLOATS } from '../../../features/battles/fx-tuning.js';
 import { sceneCameraBuffer } from '../../scene-camera.js';
 import { MAP_MSAA_SAMPLES } from '../../map-msaa.js';
+import { readGpuBuffer } from '../../buffer-readback.js';
 /** Owns only cosmetic resources; ship positions are immutable inputs. */
 export class BattleFxRenderer {
     constructor(device, format) {
@@ -86,7 +87,7 @@ export class BattleFxRenderer {
         this.dispatches.set([b.emitters, Math.max(b.torpedoes, b.beams), l.explosions, b.explosions].map(n => Math.ceil(n / 64)));
         this.records = d.createBuffer({ label: 'battle-fx-records', size: (l.count + this.budget.explosions) * FX_RECORD_BYTES, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST });
         this.list = d.createBuffer({ label: 'battle-fx-visible', size: (l.draws + this.budget.lenses) * 8, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
-        this.history = d.createBuffer({ label: 'battle-fx-torpedo-history', size: this.budget.torpedoes * 4 * 16, usage: GPUBufferUsage.STORAGE });
+        this.history = d.createBuffer({ label: 'battle-fx-torpedo-history', size: (this.budget.torpedoes * 4 + 128 * 2) * 16, usage: GPUBufferUsage.STORAGE });
         this.computeGroup = null;
         this.drawGroup = null;
         this.previousTime = NaN;
@@ -109,7 +110,7 @@ export class BattleFxRenderer {
             for (let k = 0; k < 6; k++)
                 members += input.orders[start + 25 + k * 4];
             data.set([range.start, Math.min(range.cap, members), 0, 0], 128 + slot * FX_SOURCE_WORDS + 48);
-            if (members > 0 && input.orders[start + 1] && input.orders[start + 22] === 1 && input.orders[start + 4] < 128) {
+            if (members > 0 && input.orders[start + 1] && input.orders[start + 22] === 1 && (input.orders[start + 4] < 128 || (input.orders[start + 23] & 2) !== 0)) {
                 data[this.active++] = slot;
                 this.maxMembers = Math.max(this.maxMembers, Math.min(range.cap, members));
             }
@@ -228,6 +229,8 @@ export class BattleFxRenderer {
         pass.drawIndirect(this.args, kind === 2 ? 16 : 0);
     }
     get activeFrame() { return this.running; }
+    /** Effect parts the last update listed for drawing (word 1 of the indirect args): shots, beams and bursts on screen. */
+    async visibleParts() { return this.running ? new Uint32Array(await readGpuBuffer(this.device, this.args, 0, 8))[1] : 0; }
     diagnostics() { return { ready: this.ready, error: this.failure ? String(this.failure) : null, budget: this.budget, activeFleets: this.active, recordBytes: this.records?.size ?? 0, shaderBytes: FX_COMPUTE.length + FX_DRAW.length }; }
     dispose() { this.disposed = true; this.releasePool(); this.uniform.destroy(); this.sources.destroy(); this.args.destroy(); }
 }

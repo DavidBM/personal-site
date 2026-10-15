@@ -18,5 +18,5 @@ export const SPLIT_TRAIL_WGSL = GLOW_DEPTH_WGSL + '\noverride glowMode:u32=1u;\n
   }
   if(splitWeight<=.001&&u.widthMode>=.5){discard;}
   // Strategic 2D (screen widthMode)`)
-    .replace('return vec4<f32>(rgb * alpha, alpha);', 'return vec4<f32>(rgb * alpha * splitWeight, alpha * splitWeight);');
+    .replace('return vec4<f32>(emit, alpha);', 'return vec4<f32>(emit * splitWeight, alpha * splitWeight);');
 //# sourceMappingURL=trail-glow.wgsl.js.map

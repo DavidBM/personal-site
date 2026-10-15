@@ -1,3 +1,4 @@
+import { createGameplayChannel } from './gameplay.js';
 import { create } from '@bufbuild/protobuf';
 import { MoveCommandSchema, TransferCommandSchema, CommandUnknownReason } from '../generated/galaxy/v1/galaxy_pb.js';
 import { openPlayerHome } from './home.js';
@@ -6,10 +7,11 @@ import { createPlayerViewBridge } from './bridge.js';
 import { createProjectionOutput } from '../projection-output.js';
 import { createSessionClock } from '../session-clock.js';
 import { createCommandTracker } from '../command-tracker.js';
+import { requireCommandCapabilities } from '../command-capabilities.js';
+import { withTravelPolicy } from '../travel-policy.js';
 import { decodeServerMessage, encodeClientMessage } from '../codec.js';
 import { clientMessage, moveCommand, transferCommand } from '../messages.js';
 import { opaqueIdAt } from '../../contracts/opaque-id.js';
-import { emptyTraces } from '../../debug/worker-traces.js';
 export function createPlayerSession(options) {
     const { bootstrap, emit } = options, controller = new AbortController();
     const now = options.now ?? (() => performance.now()), clock = createSessionClock(now, options.timeOriginMs ?? performance.timeOrigin);
@@ -19,11 +21,13 @@ export function createPlayerSession(options) {
     const ready = new Promise((yes, no) => { resolveReady = yes; rejectReady = no; });
     void ready.catch(() => { });
     const output = createProjectionOutput(bootstrap.renderPort, bootstrap.generation, fail);
+    const gameplay = createGameplayChannel(bootstrap.gameplayPort, value => send({ case: 'gameplayRequest', value }));
     const deadline = setTimeout(() => fail(new Error('Player home handshake timed out')), 15000);
     function dispose(error = new Error('Network session disposed')) {
         if (closed)
             return;
         closed = true;
+        gameplay.dispose();
         clearTimeout(deadline);
         controller.abort();
         transport?.close();
@@ -41,7 +45,7 @@ export function createPlayerSession(options) {
     async function start() {
         void emit({ type: 'state', generation: bootstrap.generation, state: 'connecting' });
         const sentAt = now();
-        const home = await openPlayerHome({ endpoints: bootstrap.endpoints, credential: bootstrap.credential, expected: bootstrap.playerViews, signal: controller.signal, factory: options.transportFactory });
+        const home = await openPlayerHome({ endpoints: bootstrap.endpoints, credential: bootstrap.credential, expected: bootstrap.playerViews, gameplay: !!bootstrap.gameplayPort, signal: controller.signal, factory: options.transportFactory });
         if (closed) {
             home.transport.close();
             return;
@@ -50,12 +54,13 @@ export function createPlayerSession(options) {
         welcome = home.welcome;
         clearTimeout(deadline);
         const world = opaqueIdAt(welcome.worldId), player = opaqueIdAt(welcome.playerId);
-        void emit({ type: 'welcome', generation: bootstrap.generation, worldId: world, playerId: player, connectionGeneration: welcome.connectionGeneration, clock: clock.sample(welcome.serverTimeMs, sentAt) });
+        void emit({ type: 'welcome', generation: bootstrap.generation, worldId: world, playerId: player, connectionGeneration: welcome.connectionGeneration, contentEndpoint: home.contentEndpoint, clock: clock.sample(welcome.serverTimeMs, sentAt) });
         admissions = createViewAdmissions({ world, serverNow: clock.serverNow, send: value => send({ case: 'renewAdmission', value }) });
         const subscription = bootstrap.discovery?.subscriptionId ?? bootstrap.subscription.subscriptionId;
-        views = createPlayerViewBridge({ interests: bootstrap.viewInterests, world, player, connection: welcome.connectionGeneration, generation: bootstrap.generation, subscriptionId: subscription, preferred: bootstrap.discovery?.preferredSystemId ?? bootstrap.subscription?.systemId,
-            send: value => send({ case: 'viewRequest', value }), emit, output, clock: clock.anchor, policy: () => admissions.invalidate() });
+        views = createPlayerViewBridge({ viewportNavigation: bootstrap.playerViews?.viewportNavigation, interests: bootstrap.viewInterests, world, player, connection: welcome.connectionGeneration, generation: bootstrap.generation, subscriptionId: subscription, preferred: bootstrap.discovery?.preferredSystemId ?? bootstrap.subscription?.systemId,
+            send: value => send({ case: 'viewRequest', value }), emit, output, clock: clock.anchor, policy: () => { admissions.invalidate(); gameplay.barrier(); } });
         await views.start();
+        gameplay.ready();
         resolveReady();
         void emit({ type: 'state', generation: bootstrap.generation, state: 'ready', transport: transport.kind });
         await readMessages();
@@ -71,6 +76,12 @@ export function createPlayerSession(options) {
             if (message.connectionGeneration !== welcome.connectionGeneration)
                 continue;
             switch (message.body.case) {
+                case 'gameplayReply':
+                    gameplay.reply(message.body.value);
+                    break;
+                case 'gameplayChanged':
+                    gameplay.changed(message.body.value.topics, message.body.value.fleetIds);
+                    break;
                 case 'viewEvent':
                     views.receive(message.body.value, bytes.byteLength);
                     break;
@@ -81,7 +92,7 @@ export function createPlayerSession(options) {
                     receipt(message.body.value);
                     break;
                 case 'failure': throw new Error(`Player protocol failure ${message.body.value.code}`);
-                default: throw new Error('Legacy observation is not valid on a player-view session');
+                default: throw new Error('Unexpected player-session message');
             }
         }
     }
@@ -102,6 +113,7 @@ export function createPlayerSession(options) {
         else {
             command = await freshCommand(message);
         }
+        requireCommandCapabilities(command, welcome.capabilities);
         const body = command.$typeName === 'galaxy.v1.TransferCommand' ? { case: 'transfer', value: command } : { case: 'move', value: command };
         const bytes = encodeClientMessage(clientMessage(welcome.connectionGeneration, body));
         await tracker.beforeSend(message.requestId, command);
@@ -129,8 +141,6 @@ export function createPlayerSession(options) {
         }
         if (closed || !welcome)
             throw new Error('Player session unavailable');
-        if (message.type === 'refreshPlayback')
-            return;
         if (message.type === 'strategicInterest') {
             await replaceStrategic(message.interest);
             return;
@@ -143,16 +153,38 @@ export function createPlayerSession(options) {
     }
     async function replaceStrategic(value) { if (!views || value.connectionGeneration !== bootstrap.generation)
         throw new Error('View owner changed'); views.overview.interest(value.systemIds, value.interestGeneration); void emit({ type: 'strategic', frontier: views.overview.frontier() }); }
+    async function policyPage(query) {
+        if (closed || !views || !admissions)
+            throw new Error('Detail seed unavailable');
+        const before = views.detail.current();
+        if (!before)
+            throw new Error('Complete authorized detail required');
+        const admitted = await admissions.ensure(opaqueIdAt(before.scope.systemId), query.travelPolicy === true);
+        const current = views.detail.current();
+        if (closed || !current || current.generation !== before.generation || current.request !== before.request)
+            throw new Error('Travel preview detail was superseded');
+        requireSameAuthority(admitted.scope, current.scope);
+        let page = views.detail.page(query, clock.serverNow());
+        if (query.travelPolicy)
+            page = withTravelPolicy(page, admitted.grant);
+        if (query.movementContext) {
+            if (!admitted.movementContext)
+                throw new Error('Source authority does not support planet-avoiding movement');
+            page = { ...page, seed: { ...page.seed, movementContext: admitted.movementContext } };
+        }
+        return page;
+    }
     void start().catch(fail);
     return { ready, control, dispose: () => dispose(), get views() { return views; }, replaceStrategic,
         strategicSnapshot() { if (!views)
             throw new Error('Overview unavailable'); return views.overview.snapshot(); },
         ownedFleets(query) { if (!views)
-            throw new Error('Detail seed unavailable'); return views.detail.page(query, clock.serverNow()); },
-        takeDiagnostics: () => emptyTraces(), inspect: () => ({ closed, connectionGeneration: welcome?.connectionGeneration, pendingCommands: tracker.inspect(), projection: output.inspect(), views: views?.inspect() }) };
+            throw new Error('Detail seed unavailable'); return query.travelPolicy || query.movementContext ? policyPage(query) : views.detail.page(query, clock.serverNow()); },
+        inspect: () => ({ closed, connectionGeneration: welcome?.connectionGeneration, pendingCommands: tracker.inspect(), projection: output.inspect(), views: views?.inspect() }) };
 }
 function requireSameAuthority(a, b) {
-    if (a.ownerEpoch !== b.ownerEpoch || a.recoveryGeneration !== b.recoveryGeneration || opaqueIdAt(a.shardId) !== opaqueIdAt(b.shardId))
+    if (a.ownerEpoch !== b.ownerEpoch || a.recoveryGeneration !== b.recoveryGeneration || opaqueIdAt(a.shardId) !== opaqueIdAt(b.shardId)
+        || opaqueIdAt(a.worldId) !== opaqueIdAt(b.worldId) || opaqueIdAt(a.systemId) !== opaqueIdAt(b.systemId))
         throw new Error('Command source authority changed');
 }
 //# sourceMappingURL=session.js.map

@@ -12,10 +12,15 @@ export function createSceneBattles(capacity,ports){
   const orders=new Uint32Array(capacity*BATTLE_ORDER_WORDS);let version=0,activeCount=0;
   function upload(slot){activeCount-=Number(orders[slot*BATTLE_ORDER_WORDS+22]===1);activeCount+=Number(w[22]===1);orders.set(w,slot*BATTLE_ORDER_WORDS);version++;ports.upload(slot,data);}
   const lives=new Uint32Array(capacity),sizes=new Uint32Array(capacity),own=new Uint32Array(capacity);
-  const ownSizes=new Uint32Array(capacity);
+  const ownSizes=new Uint32Array(capacity),ownAdmitted=new Uint32Array(capacity),opponentAdmitted=new Uint32Array(capacity);
+  // Ships whose class rows exist so far. A large fleet joins the scene in chunks
+  // (small classes first); its class rows grow without any battle change, and an
+  // order written from the first chunk alone would count every later ship lost.
+  const admitted=id=>{let n=0;for(const row of ports.types(id))n+=row.count;return n;};
   const data=new ArrayBuffer(BATTLE_ORDER_WORDS*4),f=new Float32Array(data),w=new Uint32Array(data);
-  function unchanged(slot,b,opponent,serial,count){
+  function unchanged(slot,b,opponent,serial,count,mine,theirs){
     if(previous[slot]!==b||own[slot]!==serial||ownSizes[slot]!==count)return false;
+    if(ownAdmitted[slot]!==mine||opponentAdmitted[slot]!==theirs)return false;
     const life=opponent?.serialBase??0,size=opponent?.shipCount??0;
     return targets[slot]===opponent&&lives[slot]===life&&sizes[slot]===size;
   }
@@ -29,15 +34,21 @@ export function createSceneBattles(capacity,ports){
     const range=row=>row ? [row.ordinal,row.lastOrdinal==null?row.count:1] : [0,opponent.shipCount];
     w.set([opponent.slot,opponent.serialBase,...range(heavy)],4);w.set(range(light),20);
   }
+  function writeClass(row,b){
+    const accepted=b.authoritative,plan=accepted?.strategies[row.kind]??0;
+    const fraction=accepted?.fractions[row.kind]??0;
+    const alive=accepted?Math.ceil(row.count*Math.max(0,Math.min(1,fraction))):0;
+    w.set([row.ordinal,row.count,row.lastOrdinal==null?row.count:1,alive|(visualStrategy(plan,accepted?.retreat)<<20)|((plan>=3?plan-2:0)<<24)],24+row.kind*4);
+  }
   function writeOrder(fleet,b,opponent){
     const tactic=b.tactics[b.side];
-    for(const row of ports.types(fleet.id))w.set([row.ordinal,row.count,row.lastOrdinal==null?row.count:1,0],24+row.kind*4);
+    for(const row of ports.types(fleet.id))writeClass(row,b);
     w.set([fleet.serialBase,b.id,b.revision,PHASE[tactic.manoeuvre]],0);writeOpponent(opponent,tactic);
     w[22]=Number(b.stage==='engaged');
-    w[23]=Number(tactic.coordination==='combined');
+    w[23]=Number(tactic.coordination==='combined')|(b.authoritative?2:0);f[19]=b.authoritative?.retreat?1:0;
     f.set([b.center.x*SCENE_LAB,b.center.y*SCENE_LAB,b.center.z*SCENE_LAB,b.radius*SCENE_LAB],8);
     f.set([b.axis.x,b.axis.y,b.axis.z,b.side===0?1:-1],12);
-    f.set([Math.max(0,(fleet.nowMs-b.phaseAt)/1000),b.phaseDuration/1000,(b.pursuitSpeed??0)*SCENE_LAB,0],16);
+    f.set([Math.max(0,(fleet.nowMs-b.phaseAt)/1000),b.phaseDuration/1000,(b.pursuitSpeed??0)*SCENE_LAB,b.authoritative?.retreat?1:0],16);
   }
   function remember(slot,b,opponent,serial){
     previous[slot]=b;targets[slot]=opponent;lives[slot]=opponent?.serialBase??0;
@@ -47,14 +58,14 @@ export function createSceneBattles(capacity,ports){
     const slot=fleet.slot??0,b=fleet.state?.battle;
     if(!b&&!previous[slot])return;
     const opponent=b?.stage==='engaged'?ports.fleet(b.opponent):null;
-    const count=fleet.shipCount??0;
-    if(unchanged(slot,b,opponent,fleet.serialBase,count))return;
-    ownSizes[slot]=count;
+    const count=fleet.shipCount??0,mine=b?admitted(fleet.id):0,theirs=opponent?admitted(opponent.id):0;
+    if(unchanged(slot,b,opponent,fleet.serialBase,count,mine,theirs))return;
+    ownSizes[slot]=count;ownAdmitted[slot]=mine;opponentAdmitted[slot]=theirs;
     remember(slot,b,opponent,fleet.serialBase);w.fill(0);
     if(b)writeOrder(fleet,b,opponent);
     upload(slot);
   }
-  return {sync,orders,get version(){return version;},get activeCount(){return activeCount;},reset(){activeCount=0;orders.fill(0);version++;previous.fill(undefined);targets.fill(undefined);lives.fill(0);sizes.fill(0);own.fill(0);ownSizes.fill(0);},
+  return {sync,orders,get version(){return version;},get activeCount(){return activeCount;},reset(){activeCount=0;orders.fill(0);version++;previous.fill(undefined);targets.fill(undefined);lives.fill(0);sizes.fill(0);own.fill(0);ownSizes.fill(0);ownAdmitted.fill(0);opponentAdmitted.fill(0);},
     remove(slot){previous[slot]=undefined;targets[slot]=undefined;w.fill(0);upload(slot);}};
 }
 
@@ -77,3 +88,5 @@ export function battleSphereRoutes(fleet){
   }
   sphereCache.set(b,rows);return rows;
 }
+
+function visualStrategy(plan,retreat){if(retreat)return 6;if(plan===1)return 9;if(plan===2)return 2;return plan>=3?5:0;}

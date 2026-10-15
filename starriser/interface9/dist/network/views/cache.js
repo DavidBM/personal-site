@@ -40,6 +40,7 @@ export function createPlayerViewCache(world, connection, changed = () => { }, ba
             s.baselineGeneration = 0n;
             s.baselineId = '';
             s.retired = 0n;
+            s.recovering = false;
             s.status = selector ? 'loading' : 'closed';
             s.stale = !!s.displayed;
             if (!selector) {
@@ -57,6 +58,7 @@ export function createPlayerViewCache(world, connection, changed = () => { }, ba
             s.staged = undefined;
             s.stale = false;
             s.status = s.requested ? status : 'closed';
+            s.recovering = false;
         }
         // Complete the user-wide mutation before any reentrant observer can read it.
         barrier(next);
@@ -121,6 +123,7 @@ export function createPlayerViewCache(world, connection, changed = () => { }, ba
         s.staged = undefined;
         s.status = 'ready';
         s.stale = false;
+        s.recovering = false;
         return true;
     }
     function delta(s, v) {
@@ -168,6 +171,7 @@ export function createPlayerViewCache(world, connection, changed = () => { }, ba
         advanceEpoch(m.visibilityEpoch);
         s.retired = retired;
         s.baselineGeneration = retired;
+        s.recovering = m.result.value.reason === 4;
         s.displayed = undefined;
         s.staged = undefined;
         s.stale = false;
@@ -231,7 +235,7 @@ export function createPlayerViewCache(world, connection, changed = () => { }, ba
     return { request, receive: admittedReceive,
         frontier(slot) {
             const s = get(slot), b = s.displayed;
-            return { slot, status: s.status, stale: s.stale, requestGeneration: s.requestedGeneration, visibilityEpoch: epoch,
+            return { slot, status: s.status, recovering: s.recovering === true, stale: s.stale, requestGeneration: s.requestedGeneration, visibilityEpoch: epoch,
                 displayed: b && { id: b.id, topologyRevision: b.topologyRevision, requestGeneration: b.requestGeneration, baselineGeneration: b.baselineGeneration, visibilityEpoch: b.visibilityEpoch, sequence: b.sequence } };
         },
         ownedPage(localConnection, query) { const s = get(2); if (!s.displayed || s.staged || s.stale)

@@ -23,19 +23,26 @@ fn inspect(i:u32){
   let s=ships[i];if(s.identity.z==0u||s.identity.w==0u){previous[i]=vec4<u32>(0u);return;}
   bump(0u);
   let flags=sims[i*88u+16u];
-  let tier=select(select(1u,2u,(flags&1024u)!=0u),0u,(flags&8192u)!=0u);
+  // Tier 0 dart and point, 1 mid and low, 2 full (hull-lod.ts bits). Slots
+  // 19/20 split the low level out of tier 1 and 21/22 the point out of tier 0.
+  let tier=select(select(1u,2u,(flags&1024u)!=0u),0u,(flags&40960u)!=0u);
+  let far=(flags&16384u)!=0u;
+  let point=(flags&32768u)!=0u;
   bump(1u+tier);
+  if(far){bump(19u);}
+  if(point){bump(21u);}
   let p=vec3<f32>(bitcast<f32>(sims[i*88u]),bitcast<f32>(sims[i*88u+1u]),bitcast<f32>(sims[i*88u+2u]));
   let clip=u.vp*vec4<f32>(p-u.origin.xyz,1.0);
-  if(clip.w>0.0&&all(abs(clip.xy)<=vec2<f32>(clip.w))&&clip.z>=0.0&&clip.z<=clip.w){bump(4u+tier);}
+  if(clip.w>0.0&&all(abs(clip.xy)<=vec2<f32>(clip.w))&&clip.z>=0.0&&clip.z<=clip.w){bump(4u+tier);if(far){bump(20u);}if(point){bump(22u);}}
   let a=u.info.y+i*${PILOT_ADVICE_BYTES / 4}u;let serial=control[a];let tick=control[a+2u];let period=control[a+3u];
   let old=previous[i];
+  let level=select(select(tier,3u,far),4u,point);
   if(old.x==s.identity.w){
-    if(old.y!=tier){bump(7u);}
+    if(old.y!=level){bump(7u);}
     if(old.z!=period){bump(8u);}
     if(old.w!=tick){bump(9u);}
   }
-  previous[i]=vec4<u32>(s.identity.w,tier,period,tick);
+  previous[i]=vec4<u32>(s.identity.w,level,period,tick);
   let mode=s.flight.w;
   let order=orders[identityGroup(s.identity.x)*2u];
   let guide=u.info.z+s.identity.y*64u;

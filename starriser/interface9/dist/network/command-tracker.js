@@ -28,9 +28,18 @@ export function createCommandTracker(emit) {
             const timer = setTimeout(() => unknown(identity), SESSION_LIMITS.receiptMs);
             const item = { requestId, key, timer };
             pending.set(identity, item);
-            await emit({ type: 'pending', requestId, command: structuredClone(command) });
-            if (pending.get(identity) !== item)
-                throw new Error('Command preparation expired before submission');
+            try {
+                await emit({ type: 'pending', requestId, command: structuredClone(command) });
+                if (pending.get(identity) !== item)
+                    throw new Error('Command preparation expired before submission');
+            }
+            catch (error) {
+                // Ownership rejection must release this preparation immediately. An old
+                // ACK must never cancel a newer attempt that reused the same identity.
+                if (pending.get(identity) === item)
+                    unknown(identity);
+                throw error;
+            }
         },
         receipt(receipt) {
             const identity = commandIdentity(receipt.key);

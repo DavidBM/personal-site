@@ -38,7 +38,7 @@ export function createOnlineInspector(app) {
         if (!session || !renderer)
             return;
         const results = await Promise.allSettled([
-            session.takeDiagnostics(), renderer.query({ type: 'projectionDiagnostics' }),
+            renderer.query({ type: 'projectionDiagnostics' }),
         ]);
         if (closed || app.online !== session)
             return;

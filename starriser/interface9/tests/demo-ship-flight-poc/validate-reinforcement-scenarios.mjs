@@ -1,9 +1,10 @@
+import { repositoryArtifactPath } from '../../scripts/temp-directory.mjs';
 import assert from 'node:assert/strict';
 import {mkdir,writeFile} from 'node:fs/promises';
 import path from 'node:path';
 import {startServer} from '../scripts/serve.mjs';
 import {connectCdp,getPageWebSocketUrl,launchChromium} from '../scripts/cdp.mjs';
-const output=path.resolve(process.argv[2]??'/tmp/galaxy-reinforcement-scenarios');await mkdir(output,{recursive:true});
+const output=path.resolve(process.argv[2]??repositoryArtifactPath('galaxy-reinforcement-scenarios'));await mkdir(output,{recursive:true});
 const server=await startServer(0,{distDir:process.argv[3]}),results=[];
 try {
   for(const scenario of [0,1,2,3,4,5]) {

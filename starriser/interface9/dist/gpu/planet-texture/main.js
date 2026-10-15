@@ -747,7 +747,7 @@ function showSet(set) {
         }
     }
     // Intermediate: pure biome class + land height heat
-    if (!set.intermediates?.heightHeat) {
+    if (!set.intermediates) {
         fillPureBiomeIntermediate(set);
     }
     const pure = set.intermediates?.pureBiomeSplit ?? null;

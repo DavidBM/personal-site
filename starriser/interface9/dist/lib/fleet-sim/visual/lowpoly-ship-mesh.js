@@ -4,6 +4,7 @@
  * (matches ShipSim). Interleaved pos3 + nrm3 + uv2 like gltf-static-mesh.
  */
 import { GLTF_FLOATS_PER_VERTEX, } from "./gltf-static-mesh.js";
+import { HULL_POINT_CORNERS } from "./hull-lod.js";
 function pushVert(out, p, n, u, v) {
     const nl = Math.hypot(n[0], n[1], n[2]) || 1;
     out.push(p[0], p[1], p[2], n[0] / nl, n[1] / nl, n[2] / nl, u, v);
@@ -65,6 +66,31 @@ export function createLowPolyShipMesh() {
     };
 }
 /** Four flat-shaded faces, +Z nose. No authored textures or class geometry. */
+/**
+ * Six-triangle dart for hulls below a few pixels: an arrowhead with a dorsal
+ * ridge and a notched tail, flat underside. Nose +Z, up +Y, radius 1. Drawn
+ * with flat team colour (no textures), so only the silhouette matters.
+ */
+export function createDartShipMesh() {
+    const verts = [], indices = [];
+    const N = [0, 0, 1], L = [-0.62, 0, -0.62], R = [0.62, 0, -0.62], K = [0, 0, -0.36], T = [0, 0.2, -0.3];
+    const faces = [[N, T, L], [N, R, T], [L, T, K], [T, R, K], [N, L, K], [N, K, R]];
+    for (const [a, b, c] of faces)
+        tri(verts, indices, a, b, c, [[0, 0], [0, 0], [0, 0]]);
+    return { ...createLowPolyShipMesh(), interleaved: new Float32Array(verts), indices: new Uint32Array(indices),
+        vertexCount: 18, indexCount: 18, materialName: 'tiny-dart' };
+}
+/**
+ * Point level: one triangle whose vertices are billboard corners, not hull
+ * geometry. The scene hull shader faces it to the camera at HULL_POINT_PX.
+ */
+export function createPointShipMesh() {
+    const verts = [], indices = [];
+    const c = HULL_POINT_CORNERS;
+    tri(verts, indices, [c[0], c[1], 0], [c[2], c[3], 0], [c[4], c[5], 0], [[0, 0], [0, 0], [0, 0]]);
+    return { ...createLowPolyShipMesh(), interleaved: new Float32Array(verts), indices: new Uint32Array(indices),
+        vertexCount: 3, indexCount: 3, materialName: 'point-billboard' };
+}
 export function createPyramidShipMesh() {
     const verts = [], indices = [];
     const points = [[0, 0, 1], [-.45, -.25, -.6], [.45, -.25, -.6], [0, .4, -.6]];

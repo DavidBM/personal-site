@@ -6,7 +6,8 @@
  *   → material/liquid paint → normals → clouds → pole caps → stats
  *
  * Resolution: equirect width = resolution, height = resolution/2.
- * 8K (8192) supported; expensive passes scale with area (ok ≤~30s).
+ * 8K (8192) accepted; expensive passes scale with area. Qualify authoring cost
+ * with measured hardware/resolution before selecting production bake budgets.
  *
  * Look: NASA-colorized Blue Marble / EVE-style multi-biome (not minimap).
  * Height is a hierarchical PLANET stack (plates→continents→orogenies→dense
@@ -15,6 +16,7 @@
  * EVE vs this tool: EVE Dominion runtime height→normal dual-UV; we batch
  * offline equirect + N/S pole α-caps.
  */
+import { retainBakedPlanetSurface } from "./biome-fields.js";
 import { MAX_RESOLUTION, MIN_RESOLUTION } from "./types.js";
 import { cloneParams } from "./presets.js";
 import { flattenLiquidNormals, generateBaseHeight, heightToGrayRgba, heightToNormalMap, reinjectPeakDetail, sampleTectonicControls, sealEquirectSeam, enforceStructureLandMask, pullCoastHeightsTowardSea, softCoastFilter, } from "./heightfield.js";
@@ -110,7 +112,7 @@ export function completeBakeFromHeight(height, input, storms = null, onProgress,
 /** If true, height is already post-generateBaseHeight (normalized/coast); skip re-gen. */
 heightIsFinalBase = true, 
 /** Optional prior stage times (e.g. height field) merged into stats.stageMs. */
-priorStageMs) {
+priorStageMs, onNumericSurface) {
     const params = clampParams(input);
     const W = height.width;
     const H = height.height;
@@ -226,13 +228,14 @@ priorStageMs) {
         },
     };
     report(`done ${totalMs}ms`, 1);
+    onNumericSurface?.(retainBakedPlanetSurface(height, set));
     return set;
 }
 /**
  * Sequential pure-JS bake for Node smoke / gpu-cpu-ref when WebGPU is unavailable.
  * Not the product UI path — browser uses bakePlanetTexturesAuto → WebGPU.
  */
-export function bakePlanetTextures(input, onProgress) {
+export function bakePlanetTextures(input, onProgress, onNumericSurface) {
     const params = clampParams(input);
     const W = params.resolution;
     const H = Math.max(1, Math.floor(W / 2));
@@ -256,7 +259,7 @@ export function bakePlanetTextures(input, onProgress) {
     const heightMs = Math.round((performance.now() - tH) * 10) / 10;
     priorStageMs.height = heightMs;
     report(`height ${heightMs}ms`, 0.18);
-    return completeBakeFromHeight(height, params, storms, report, true, priorStageMs);
+    return completeBakeFromHeight(height, params, storms, report, true, priorStageMs, onNumericSurface);
 }
 /**
  * FNV-1a 32-bit hash of RGBA bytes — for determinism tests.

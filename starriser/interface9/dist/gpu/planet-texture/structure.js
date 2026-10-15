@@ -1110,7 +1110,6 @@ export function buildPlanetStructure(params, width, height) {
     blurPass(mountain, mtnBlur);
     mountain.set(mtnBlur);
     // Distance fields
-    const distToOcean = equirectDistanceField(landMask, W, H, false); // 0 on land? wait
     // sourceMask land=1 → dist 0 on land, increases into ocean when inverted
     // We want:
     //   inlandDist: 0 at coast land, increases inland

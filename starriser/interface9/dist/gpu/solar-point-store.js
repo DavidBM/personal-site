@@ -19,6 +19,8 @@ function resolveRgb(source) {
 }
 export class SolarPointStore {
     constructor() {
+        this.freeSlots = [];
+        this.released = new Set();
         this.positions = new Float64Array(0);
         this.colors = new Float32Array(0);
         this.visibility = new Uint8Array(0);
@@ -39,6 +41,8 @@ export class SolarPointStore {
         this.colorDirty = markDirtyFull();
     }
     initialize(maxSolarSystems) {
+        this.freeSlots.length = 0;
+        this.released.clear();
         this.positions = new Float64Array(maxSolarSystems * 3);
         this.colors = new Float32Array(maxSolarSystems * 3);
         this.visibility = new Uint8Array(maxSolarSystems);
@@ -80,11 +84,13 @@ export class SolarPointStore {
         return true;
     }
     /**
-     * Append one point. Returns buffer index.
+     * Reuse a released point slot or append. Returns a presentation buffer index.
      */
     add(write) {
-        this.ensureCapacity(this.currentCount + 1);
-        const idx = this.currentCount++;
+        const free = this.freeSlots.pop();
+        const idx = free ?? this.currentCount++;
+        this.released.delete(idx);
+        this.ensureCapacity(this.currentCount);
         this.writeAt(idx, write);
         return idx;
     }
@@ -194,7 +200,15 @@ export class SolarPointStore {
             this.positionDirty = expandDirtyRange(this.positionDirty, dirtyStart, dirtyEnd - dirtyStart);
         }
     }
-    /** Soft-delete: hide far off-camera (no compact). Zeros colors permanently. */
+    /** Release a removed entity. Surviving identities retain their own slots. */
+    remove(idx) {
+        if (idx < 0 || idx >= this.currentCount || this.released.has(idx))
+            return;
+        this.hide(idx);
+        this.released.add(idx);
+        this.freeSlots.push(idx);
+    }
+    /** Hide without releasing: reserved impostor slots may be written again. */
     hide(idx) {
         if (idx < 0 || idx >= this.maxCount)
             return;
@@ -216,6 +230,8 @@ export class SolarPointStore {
      */
     rebuild(writes) {
         const n = writes.length;
+        this.freeSlots.length = 0;
+        this.released.clear();
         this.positions = new Float64Array(n * 3);
         this.colors = new Float32Array(n * 3);
         this.visibility = new Uint8Array(n);

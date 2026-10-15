@@ -6,7 +6,6 @@ export async function connectWebTransport(endpoints, signal) {
     const serverCertificateHashes = endpoints.certificateHashes?.map((hash) => ({ algorithm: hash.algorithm, value: new Uint8Array(hash.value) }));
     const session = new WebTransport(endpoints.webTransportUrl, { serverCertificateHashes });
     let reader;
-    let datagrams;
     let writer;
     let stopped = false;
     let rejectAbort;
@@ -19,8 +18,6 @@ export async function connectWebTransport(endpoints, signal) {
         stopped = true;
         signal.removeEventListener('abort', onAbort);
         rejectAbort(new Error('WebTransport connection aborted'));
-        if (datagrams)
-            void datagrams.cancel().catch(() => { }).finally(() => datagrams?.releaseLock());
         if (reader)
             void reader.cancel().catch(() => { }).finally(() => reader?.releaseLock());
         if (writer)
@@ -45,11 +42,7 @@ export async function connectWebTransport(endpoints, signal) {
         }
         reader = stream.readable.getReader();
         writer = stream.writable.getWriter();
-        session.datagrams.incomingHighWaterMark = 1;
-        session.datagrams.incomingMaxAge = 2000;
-        datagrams = session.datagrams.readable.getReader();
-        return { ...createConnectedTransport(reader, writer, close, () => stopped),
-            async receiveDatagram() { const item = await datagrams.read(); return item.done ? null : item.value; } };
+        return { ...createConnectedTransport(reader, writer, close, () => stopped) };
     }
     catch (error) {
         close();

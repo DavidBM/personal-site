@@ -5,8 +5,9 @@ import { copyPosition3D } from "./math/position3d.js";
  * Edit-handle interaction lives on main input (edit-handle-pointer), not here.
  */
 export class Cluster {
-    constructor({ id, name, position, color, radius, maxSystemDistance, }) {
+    constructor({ id, publicAtlas, name, position, color, radius, maxSystemDistance, }) {
         this.id = id;
+        this.publicAtlas = publicAtlas;
         this.name = name;
         this.position = copyPosition3D(position);
         this.color = color;

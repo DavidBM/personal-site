@@ -150,7 +150,7 @@ export function createSystemFocusController(opts) {
         view.catalogResidency.promoteHi(id);
         lastHiId = id;
     };
-    const lockBody = (index) => {
+    const lockBody = (index, options) => {
         const store = view.solarBodies;
         if (index < 0 || index >= store.currentCount)
             return;
@@ -166,14 +166,22 @@ export function createSystemFocusController(opts) {
         applyHi(index);
         // F1 still owns the live camera; the controller retains this orbit target
         // so it can resume the current selection when follow ends.
+        if (options?.moveCamera === false)
+            return;
         const st = view.getCameraState();
         const world = composeCompactBodyWorld(store, index, view.getSceneTimeSec());
         if (!world)
             return;
-        const boom = boomDistanceForLimbFill(store.radius[index] + compactOrbitPad(4), st.bufferW, st.bufferH, st.fovyDeg, 0.9, st.near);
+        const boom = boomDistanceForLimbFill(store.radius[index] + (options?.development ? 0 : compactOrbitPad(4)), st.bufferW, st.bufferH, st.fovyDeg, options?.development ? .30 : 0.9, st.near);
         const cam = opts.camera;
         if (cam && typeof cam.setSystemOrbitFocus === "function") {
             cam.setSystemOrbitFocus({
+                // Eye sits beyond the planet, looking inward toward its sun. A slight
+                // elevation leaves the star visible behind it instead of a flat eclipse.
+                yaw: options?.development ? Math.atan2(world.x - store.systemX, world.z - store.systemZ) : undefined,
+                pitch: options?.development ? .18 : undefined,
+                durationMs: options?.development ? 1000 : undefined,
+                screenX: options?.development && st.viewportW > 850 ? .60 : .5,
                 bodyIndex: index,
                 x: world.x,
                 y: world.y,

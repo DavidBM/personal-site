@@ -81,6 +81,8 @@ function readFormIntoParams() {
     params.trailLength = Math.max(0.05, num("trailLength", 1));
     params.exposure = Math.max(0.05, num("exposure", 1));
     params.gamma = Math.max(0.2, num("gamma", 0.9));
+    params.edgeFade = Math.max(0, num("edgeFade", 0.3));
+    params.edgeClearPx = Math.max(0, Math.floor(num("edgeClearPx", 3)));
     const layers = [
         { key: "core", prefix: "core" },
         { key: "midGlow", prefix: "mid" },
@@ -137,6 +139,8 @@ function writeParamsToForm(p) {
     set("trailLength", p.trailLength);
     set("exposure", p.exposure);
     set("gamma", p.gamma);
+    set("edgeFade", p.edgeFade);
+    set("edgeClearPx", p.edgeClearPx);
     const map = [
         ["core", p.core],
         ["mid", p.midGlow],

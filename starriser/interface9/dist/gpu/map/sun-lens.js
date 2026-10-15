@@ -26,7 +26,8 @@ export class SunLens {
         this.pipeline = pipeline;
         this.uniform = device.createBuffer({ label: 'sun-lens-view', size: 96, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     }
-    encode(encoder, target, depth, frame, width, height, radius) {
+    /** `drawExtra` adds other depth-reading lens effects (engine glows) to this pass. */
+    encode(encoder, target, depth, frame, width, height, radius, drawExtra) {
         if (!this.pipeline || !this.uniform)
             return;
         const device = this.bootstrap.device, eye = this.coordinates.system.eye, data = this.data;
@@ -50,6 +51,7 @@ export class SunLens {
         pass.setBindGroup(0, this.bind);
         bindSceneCamera(device, pass, this.pipeline);
         pass.draw(6, 4);
+        drawExtra?.(pass);
         pass.end();
     }
     dispose() { this.disposed = true; this.uniform?.destroy(); this.uniform = null; this.pipeline = null; this.bind = null; this.depth = null; }

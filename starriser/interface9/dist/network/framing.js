@@ -1,4 +1,4 @@
-import { MAX_MESSAGE_BYTES, MAX_TOPOLOGY_BYTES } from './limits.js';
+import { MAX_MESSAGE_BYTES } from './limits.js';
 export function frameMessage(payload) {
     if (payload.byteLength < 1 || payload.byteLength > MAX_MESSAGE_BYTES)
         throw new RangeError('Invalid network frame length');
@@ -8,7 +8,7 @@ export function frameMessage(payload) {
     return frame;
 }
 export function unframeMessage(frame) {
-    if (frame.byteLength < 5 || frame.byteLength > MAX_TOPOLOGY_BYTES + 4)
+    if (frame.byteLength < 5 || frame.byteLength > MAX_MESSAGE_BYTES + 4)
         throw new RangeError('Invalid network frame length');
     const size = new DataView(frame).getUint32(0, true);
     if (size !== frame.byteLength - 4)
@@ -58,7 +58,7 @@ export function createFrameReader(reader, maxChunkBytes) {
             if (!header)
                 return null;
             const size = new DataView(header.buffer, header.byteOffset, 4).getUint32(0, true);
-            if (size < 1 || size > MAX_TOPOLOGY_BYTES)
+            if (size < 1 || size > MAX_MESSAGE_BYTES)
                 throw new RangeError('Invalid network frame length');
             return exact(size, false);
         },

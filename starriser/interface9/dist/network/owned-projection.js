@@ -1,15 +1,19 @@
+import { packFleetOrbits, readFleetOrbit } from '../contracts/fleet-orbit.js';
 import { copyWatermark, sameScope } from '../render/remote/projection-state.js';
 import { MAX_SNAPSHOT_ENTITIES } from '../render/remote/contracts.js';
 import { opaqueIdAt, opaqueIdBytes } from '../contracts/opaque-id.js';
 import { MAX_RULE_SEED_FLEETS } from '../features/fleets/domain/contracts.js';
+import { summarizeComposition, copyCompositionSummary } from './fleet-composition.js';
 function row(fleet) {
     const move = fleet.movement;
-    const base = { id: opaqueIdAt(fleet.fleetId), revision: fleet.revision, x: fleet.position.x, z: fleet.position.z };
+    const composition = summarizeComposition(fleet.composition);
+    const base = { orbitBody: fleet.orbit?.length ? fleet.orbit[1] : undefined, orbitRecord: readFleetOrbit(fleet.orbit ?? new Uint8Array())?.record, id: opaqueIdAt(fleet.fleetId), revision: fleet.revision, x: fleet.position.x, y: fleet.position.y, z: fleet.position.z,
+        composition, memberCount: composition?.reduce((sum, group) => sum + group.count, 0) };
     if (!move)
-        return { ...base, targetX: base.x, targetZ: base.z, moving: false, departureMs: 0n, arrivalMs: 0n, transferReadyMs: fleet.transferReadyServerMs };
+        return { ...base, targetX: base.x, targetY: base.y, targetZ: base.z, moving: false, departureMs: 0n, arrivalMs: 0n, transferReadyMs: fleet.transferReadyServerMs };
     const orderId = opaqueIdAt(move.orderId);
     opaqueIdBytes(orderId);
-    return { ...base, targetX: move.to.x, targetZ: move.to.z, moving: true, orderId,
+    return { ...base, targetX: move.to.x, targetY: move.to.y, targetZ: move.to.z, moving: true, orderId, via: move.via?.map(p => ({ x: p.x, y: p.y, z: p.z })),
         departureMs: move.departureServerMs, arrivalMs: move.arrivalServerMs, transferReadyMs: fleet.transferReadyServerMs };
 }
 function change(rows, fleets, removed) {
@@ -69,7 +73,8 @@ export function createOwnedProjection(connectionGeneration, playerId) {
             }
             const { rows, nextOffset } = select(current.rows, query);
             const seed = pack(rows, current, connectionGeneration, playerId);
-            return { seed, fleets: rows.map(({ id, revision, x, z, targetX, targetZ, moving }) => ({ id, revision, x, z, targetX, targetZ, moving })),
+            return { seed, fleets: rows.map(({ id, revision, x, y, z, targetX, targetY, targetZ, moving, orbitBody, memberCount, composition }) => ({ id, revision, x, y, z, targetX, targetY, targetZ, moving, orbitBody, memberCount,
+                    ...(query.fleetId ? { composition: copyCompositionSummary(composition) } : {}) })),
                 nextOffset, total: current.rows.size, serverNowMs };
         },
         dispose() { current = undefined; staged = undefined; },
@@ -111,11 +116,16 @@ function pageBounds(offset, limit, total) {
 }
 function pack(rows, state, generation, playerId) {
     const n = rows.length;
-    const bytes = new ArrayBuffer(n * 112);
+    const bytes = new ArrayBuffer(n * 128);
     const identities = new Uint8Array(bytes, 0, n * 48);
     const revisions = new BigUint64Array(bytes, n * 48, n);
-    const positions = new Float64Array(bytes, n * 56, n * 4);
-    const times = new BigUint64Array(bytes, n * 88, n * 3);
+    const positions = new Float64Array(bytes, n * 56, n * 6);
+    const times = new BigUint64Array(bytes, n * 104, n * 3);
+    const pathOffsets = new Uint32Array(n + 1);
+    rows.forEach((fleet, i) => { if ((fleet.via?.length ?? 0) > 14)
+        throw new Error('Owned path exceeds bound'); pathOffsets[i + 1] = pathOffsets[i] + (fleet.via?.length ?? 0); });
+    const pathPoints = new Float64Array(pathOffsets[n] * 3);
+    rows.forEach((fleet, i) => fleet.via?.forEach((p, j) => pathPoints.set([p.x, p.y, p.z], (pathOffsets[i] + j) * 3)));
     const owner = opaqueIdBytes(playerId);
     rows.forEach((fleet, i) => {
         identities.set(opaqueIdBytes(fleet.id), i * 48);
@@ -124,10 +134,10 @@ function pack(rows, state, generation, playerId) {
             identities.set(opaqueIdBytes(fleet.orderId), i * 48 + 32);
         revisions[i] = fleet.revision;
         // Rust's scalar ABI uses zero order/target/deadline columns for idle fleets.
-        positions.set([fleet.x, fleet.z, fleet.moving ? fleet.targetX : 0, fleet.moving ? fleet.targetZ : 0], i * 4);
+        positions.set([fleet.x, fleet.y, fleet.z, fleet.moving ? fleet.targetX : 0, fleet.moving ? fleet.targetY : 0, fleet.moving ? fleet.targetZ : 0], i * 6);
         times.set([fleet.departureMs, fleet.arrivalMs, fleet.transferReadyMs], i * 3);
     });
     return { token: { connectionGeneration: generation, watermark: copyWatermark(state.watermark) }, playerId,
-        ruleVersion: 1, committedTimeMs: state.committedTimeMs, identities, revisions, positions, times };
+        ruleVersion: 1, positionDimensions: 3, pathOffsets, pathPoints, ...packFleetOrbits(rows.map(r => r.orbitRecord)), committedTimeMs: state.committedTimeMs, identities, revisions, positions, times };
 }
 //# sourceMappingURL=owned-projection.js.map

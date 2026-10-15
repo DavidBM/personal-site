@@ -7,10 +7,12 @@
  * localY − origin.y, never forced 0). Planets carry hashed inclination.
  */
 import { DIRTY_CLEAN, expandDirtyRange, markDirtyFull, } from "../math/dirty-range.js";
+import { SOLAR_ORBIT_SPEED_SCALE } from "./planet-lib/solar-bodies.js";
 import { MAX_COMPACT_PLANETS } from "./compact-kepler.js";
 export const SOLAR_BODY_MAX = 1 + MAX_COMPACT_PLANETS;
 export class SolarBodyStore {
     constructor() {
+        this.epochOffsetSeconds = 0;
         this.maxCount = SOLAR_BODY_MAX;
         this.phase0 = new Float32Array(SOLAR_BODY_MAX);
         this.orbitRadius = new Float32Array(SOLAR_BODY_MAX);
@@ -29,6 +31,20 @@ export class SolarBodyStore {
         this.systemX = 0;
         this.systemZ = 0;
         this.catalogId = null;
+    }
+    /** Rebase canonical epoch-zero orbits into the renderer's small local clock. */
+    setEpochOffset(seconds) {
+        if (!Number.isFinite(seconds) || this.epochOffsetSeconds === seconds)
+            return;
+        this.epochOffsetSeconds = seconds;
+        for (let i = 0; i < this.currentCount; i++)
+            this.rebasePhase(i);
+        this.markFullDirty();
+    }
+    rebasePhase(i) {
+        const period = this.orbitPeriod[i] / SOLAR_ORBIT_SPEED_SCALE;
+        const base = Math.fround(this.defs[i].orbitPhase0);
+        this.phase0[i] = period > 0 ? (base + ((this.epochOffsetSeconds % period + period) % period) / period * Math.PI * 2) % (Math.PI * 2) : base;
     }
     clearDirty() {
         this.dirty = DIRTY_CLEAN;
@@ -86,6 +102,7 @@ export class SolarBodyStore {
             this.isSun[i] = d.kind === "sun" ? 1 : 0;
             this.catalogIds[i] = d.id;
             this.defs[i] = d;
+            this.rebasePhase(i);
         }
         this.markFullDirty();
     }

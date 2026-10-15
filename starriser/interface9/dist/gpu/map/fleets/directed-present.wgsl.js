@@ -5,18 +5,23 @@ import { DEFAULT_TRAIL_LAYOUT } from "../../../lib/fleet-sim/visual/fleet-trail-
 import { BASE_SHIP_SIZE, TRIANGLE_SCREEN_PX } from "../../../lib/fleet-sim/visual/fleet-lod.js";
 import { SCENE_AGENT_SCALE, SCENE_SHIP_VISUAL_MUL } from "../../../lib/fleet-sim/visual/ship-motion-config.js";
 import { CLASS_BY_TYPE } from "../../../lib/ship-runtime/classes.mjs";
+import { HULL_DETAIL_MASK, hullLodWgsl } from "../../../lib/fleet-sim/visual/hull-lod.js";
+import { SCENE_SCALE_TAG_STEP } from "../../../lib/fleet-sim/gpu/model-ship-pose.wgsl.js";
 import { MAX_SCENE_FLEETS } from "./directed-map.mjs";
 import { PRODUCTION_TRAIL_RING, TRAIL_BREAK_COMPACT, } from "./directed-map.mjs";
 export { DIRECTED_PRESENT_WORKGROUP, MAX_SCENE_FLEETS, MAX_GROUP_VISUAL, SCENE_KERNEL_COUNT, SCENE_VISUAL_CAP, WARP_ENTER_SEC, WARP_PLANET_ARRIVAL_SECONDS, WARP_FAR_SPAN_MUL, WARP_OUT_SEC, sceneOutboundDurationMs, STAGE_LEAD_MS, SCENE_RIM_SPAN_MUL, sceneMotionPlan, mixCompact, PRESENTATION_FREEZE, DIRECTED_SHIP_STRIDE, DIRECTED_SHIP_FLOATS, directedTickDecision, sceneFleetFingerprint, buildInstanceMap, seedDirectedShips, drainDirectedEncodeTick, labToCompact, compactToLab, compactOrbitPad, occupancyForScene, allocateSceneVisuals, occupancyVisuals, SCENE_HULL_ZOOM, sceneMembershipKey, sceneHullsOn, sceneDrawBand, fleetModelLodHigh, fleetModelLodBits, hullDrawRanges, FLEET_MODEL_LOD_LOW, FLEET_MODEL_LOD_HIGH, labOrbitExit, labApproach, labClassRing, labWarpOrigin, labWarpGate, warpEnterCommand, stageCommand, orbitCommand, pressurePlanetCommand, sceneFleetCentroid, densityFieldReach, densityFieldCovers, pickDensityFields, allocateKernelRanges, droppedInstanceIndices, holesFromRanges, lowestHole, pickCompactMove, rangesOverlap, SCENE_SHIP_CHUNK, SCENE_CHUNK_BUDGET_MS, SCENE_CLASS_TYPES, SCENE_LAB_SCALE, COMPACT_SYSTEM_SPAN, JEWEL_RADIUS, trailRadialBrightness, kernelSlotForId, resolveLocalShowAttack, presentKernelHistoryToTrailRing, KERNEL_TRAIL_RING, KERNEL_TRAIL_EMITTERS, KERNEL_TRAIL_CENTER, PRODUCTION_TRAIL_RING, TRAIL_COPY_SAMPLES, TRAIL_LAB_LIMIT, TRAIL_BREAK_COMPACT, trailViewIntensity, } from "./directed-map.mjs";
 export const SCENE_HULL_SIZE = BASE_SHIP_SIZE * SCENE_AGENT_SCALE * SCENE_SHIP_VISUAL_MUL;
 /** 3D mesh vs triangle: user-facing hulls were overlapping planets. */
 export const SCENE_MODEL_SIZE_MUL = 0.1;
+/** Engine glows: off below the first trail length (in LOD hull diameters), full from the second. */
+export const ENGINE_TRAIL_HULLS = [0.05, 0.25];
 /** Map mesh origin-radius onto the triangle world size, then 1/10 for SCENE. */
 export function sceneModelScale(meshRadius, hull = SCENE_HULL_SIZE) {
     const r = Number.isFinite(meshRadius) && meshRadius > 0 ? meshRadius : 1;
     return (hull * SCENE_MODEL_SIZE_MUL) / Math.max(r, 1e-6);
 }
 export const DIRECTED_PRESENT_WGSL = /* wgsl */ `
+${hullLodWgsl(0, 10)}
 ${SHIP_WGSL}
 struct ShipHeader {
   posX: f32, posY: f32, posZ: f32, speed: f32,
@@ -31,7 +36,7 @@ struct ShipSim {
   knots: array<vec4<f32>, 8>,
   knotAnchors: array<vec4<f32>, 8>,
 }
-struct Uniforms { count: u32, presentationFlags: u32, nowMs: f32, poseScale: f32, selected: u32, alpha: f32, hovered: u32, projectionY: f32, viewProj: mat4x4<f32>, origin: vec3<f32>, viewportH: f32, highEnterPx: f32, highExitPx: f32, warpTime: f32, tickTime: f32 }
+struct Uniforms { count: u32, presentationFlags: u32, nowMs: f32, poseScale: f32, selected: u32, alpha: f32, hovered: u32, projectionY: f32, viewProj: mat4x4<f32>, origin: vec3<f32>, viewportH: f32, _detail0: f32, _detail1: f32, warpTime: f32, tickTime: f32 }
 @group(0) @binding(0) var<uniform> u: Uniforms;
 @group(0) @binding(1) var<storage, read> ships: array<Ship>;
 @group(0) @binding(2) var<storage, read_write> instances: array<vec4<f32>>;
@@ -111,6 +116,23 @@ fn appendCompactTrail(i:u32,p: vec3<f32>, warpSpeed: f32, sim: ptr<function, Shi
   writeKnot(i,head,anchor,local,u.nowMs);
   (*sim).trailWrite=(head+1u)&mask;
   (*sim).sinceSample=max(total-f32(count)*cadence,0.0);
+}
+/**
+ * Engine level for the catalog glows, 0 (stopped) to 1, kept in knot anchor 2
+ * .w with its time in anchor 3 .w: glows follow the trail. trailHulls is the
+ * trail's length in hull sizes (speed × its displayed lifetime, over the LOD
+ * hull diameter); off below ENGINE_TRAIL_HULLS[0], full from [1]. Every ship
+ * that leaves a visible trail glows: in flight 14–466 hull sizes in the
+ * fixture, parked in a planet orbit 0.45 (battleships) to 37 (interceptors),
+ * since parked ships circle; a fleet halted in open space or coasting to rest
+ * fades out with its trail. Eased over ENGINE_FADE_MS so glows never pop.
+ */
+const ENGINE_FADE_MS: f32 = 250.0;
+fn engineLevel(trailHulls: f32, sameOwner: bool, previous: vec2<f32>) -> vec2<f32> {
+  let wanted = smoothstep(${ENGINE_TRAIL_HULLS[0]}, ${ENGINE_TRAIL_HULLS[1]}, trailHulls);
+  let dt = clamp(u.nowMs - previous.y, 0.0, 1000.0);
+  let level = select(wanted, mix(previous.x, wanted, 1.0 - exp(-dt / ENGINE_FADE_MS)), sameOwner && previous.y > 0.0);
+  return vec2<f32>(level, u.nowMs);
 }
 fn inWarp(s: Ship) -> bool { return s.flight.w >= 2.0 && s.origin.w != -2.0 && s.flight.z > s.flight.y; }
 fn mixAttitude(a: vec4<f32>, b: vec4<f32>, alpha: f32) -> vec4<f32> {
@@ -221,25 +243,27 @@ fn presentDirected(@builtin(global_invocation_id) gid: vec3<u32>) {
     sim.qz = s.q.z;
     sim.qw = s.q.w;
     sim.heading = yaw;
-    // High half of targetKind carries the draw scale in tenths (4 = 0.4, 200 = 20).
-    let tag = u32(vscale * 10.0 + 0.5);
+    // High half of targetKind carries the draw scale in SCENE_SCALE_TAG_STEP units (5899 = 58.99).
+    let tag = min(u32(vscale / ${SCENE_SCALE_TAG_STEP} + 0.5), 65535u);
     let sameOwner = sim.trailOwner == owner;
     let turbo=turboTrail(s,sim,i,sameOwner);
-    var high = (sim.targetKind & 1024u) != 0u && sameOwner;
-    var tiny = (sim.targetKind & 8192u) != 0u && sameOwner;
+    // Read before the knot append below can clear the anchors' w.
+    let trailHulls=sim.speed*turbo.y*0.001/max(${SCENE_HULL_SIZE * SCENE_MODEL_SIZE_MUL}*vscale,1e-9);
+    let engine=engineLevel(trailHulls,sameOwner,vec2<f32>(shipSims[i].knotAnchors[2].w,shipSims[i].knotAnchors[3].w));
+    // Previous detail bits carry hysteresis only for the same logical ship.
+    var detail = select(0u, sim.targetKind & ${HULL_DETAIL_MASK}u, sameOwner);
+    let meshClasses = array<u32, 32>(${CLASS_BY_TYPE.map(kind => `${kind}u`).join(",")});
+    let meshClass = meshClasses[(s.identity.x >> 8u) & 31u];
     // Bit 0 defers automatic LOD until the same-frame GPU follow camera is
     // available. Keep hysteresis from the last drawn frame, not a stale camera.
     if ((u.presentationFlags & 1u) == 0u) {
       let clip = u.viewProj * vec4<f32>(world - u.origin, 1.0);
       let diameterPx = u.projectionY * ${SCENE_HULL_SIZE * SCENE_MODEL_SIZE_MUL} * vscale * u.viewportH / max(abs(clip.w), 1e-6);
-      high = diameterPx >= select(u.highEnterPx, u.highExitPx, high);
-      tiny = diameterPx < select(3.0, 3.5, tiny);
-    }
+      detail = hullDetailBits(diameterPx, detail, meshClass);
+    } else if (detail == 0u) { detail = 512u; }
     let control = controls[i];
-    if (control.x == owner && control.y != 0u) { high = control.y == 2u; tiny = false; }
-    let meshClasses = array<u32, 32>(${CLASS_BY_TYPE.map(kind => `${kind}u`).join(",")});
-    let meshClass = meshClasses[(s.identity.x >> 8u) & 31u];
-    sim.targetKind = meshClass | 4096u | select(select(512u, 1024u, high), 8192u, tiny) | select(0u, 256u, picked) | select(0u, 2048u, hovered) | (tag << 16u);
+    if (control.x == owner && control.y != 0u) { detail = select(512u, 1024u, control.y == 2u); }
+    sim.targetKind = meshClass | 4096u | detail | select(0u, 256u, picked) | select(0u, 2048u, hovered) | (tag << 16u);
 
     // Scene ribbons read slot as RGB. Formation lives on the directed ship.
     let burn=mix(show,vec3<f32>(1.0,.78,.3),turbo.x*.85);
@@ -264,6 +288,8 @@ fn presentDirected(@builtin(global_invocation_id) gid: vec3<u32>) {
     // Knot append owns xyz and clears w; restore metadata only after it finishes.
     shipSims[i].knotAnchors[0].w=turbo.x;
     shipSims[i].knotAnchors[1].w=turbo.y;
+    shipSims[i].knotAnchors[2].w=engine.x;
+    shipSims[i].knotAnchors[3].w=engine.y;
     shipSims[i].header = sim;
   }
 }

@@ -1,5 +1,6 @@
 import { FX_SHARED } from './shared.wgsl.js';
 import { SCENE_CAMERA_WGSL } from '../../scene-camera.js';
+import { SCENE_SCALE_TAG_STEP } from '../../../lib/fleet-sim/gpu/model-ship-pose.wgsl.js';
 export const FX_COMPUTE = /*wgsl*/ `${FX_SHARED}${SCENE_CAMERA_WGSL}
 fn unit(v:vec3<f32>)->vec3<f32>{return v*inverseSqrt(max(dot(v,v),1e-12));}
 fn profile(k:u32,i:u32)->vec4<f32>{return u.profiles[min(k,5u)*8u+i];}
@@ -19,7 +20,7 @@ fn pose(slot:u32,serial:u32)->Pose{
  if(b.w!=serial||sims[i*22u+3u].z==0u){return p;}
  let q=bitcast<vec4<f32>>(sims[i*22u+1u]);let f=vec3<f32>(0,0,1);
  p.anchor=bitcast<vec3<f32>>(vec3<u32>(a.y,b.y,b.z));p.p=bitcast<vec3<f32>>(vec3<u32>(a.z,a.w,b.x));
- p.forward=f+2.0*cross(q.xyz,cross(q.xyz,f)+q.w*f);p.radius=max(.001,f32(a.x>>16u)*.0004);
+ p.forward=f+2.0*cross(q.xyz,cross(q.xyz,f)+q.w*f);p.radius=max(.001,f32(a.x>>16u)*${SCENE_SCALE_TAG_STEP}*.004);
  p.velocity=p.forward*bitcast<f32>(sims[i*22u].w)*560.0;
  p.serial=serial;p.kind=a.x&7u;p.valid=1u;return p;
 }
@@ -82,6 +83,7 @@ fn crossed(period:f32,phase:f32)->bool{
 @compute @workgroup_size(64) fn emit(@builtin(global_invocation_id) tid:vec3<u32>){
  let id=tid.x;if(id==0u){atomicStore(&args[0],6u);atomicStore(&args[4],6u);atomicStore(&args[8],3u);}
  if(u.clock.y<=0.0||id>=u.counts.x){return;}
+ if(id<u.limits.x){casualties(sources[id/4u][id%4u]);}
  let emission=emitter(id);if(emission.x>=128u){return;}let p=pose(emission.x,emission.y);if(p.valid==0u){return;}
  let seed=hash(p.serial);let a=profile(p.kind,0u);let count=u32(a.x);
  let page=u.counts.y/u.counts.x;let slots=max(1u,page/max(count,1u));
@@ -91,6 +93,31 @@ fn crossed(period:f32,phase:f32)->bool{
   if(crossed(1.0/a.w,phase)&&available(at)){fx[at]=shot(0u,emission.x,p,seed+gun*31u+cycle,gun);}
  }
 }
+
+// Six aggregate counters per fleet, independent of ship population. At most one
+// representative burst per changed class; dense losses never flood effect slots.
+fn casualties(slot:u32){
+ let own=source(slot,0u);if((source(slot,5u).w&2u)==0u){return;}
+ let at=u.counts.z*4u+slot*2u;let previous=bitcast<vec4<u32>>(history[at]);let tail=bitcast<vec4<u32>>(history[at+1u]);
+ let fresh=previous.x!=own.x||previous.y!=own.y;
+ var counts:array<u32,6>;
+ for(var k=0u;k<6u;k++){
+  let range=source(slot,6u+k);let alive=range.w&1048575u;counts[k]=alive;
+  var before=tail[min(k,3u)];if(k<2u){before=previous[k+2u];}else{before=tail[k-2u];}
+  if(!fresh&&alive<before){
+   let p=pose(slot,own.x+range.x+alive);if(p.valid==0u){continue;}
+   let n=atomicAdd(&args[12],1u);if(n>=u.limits.y){continue;}
+   var e:Effect;e.anchor=vec4<f32>(p.anchor,u.clock.x);e.head=vec4<f32>(p.p,1.1);
+   e.motion=vec4<f32>(4,24,0,0);e.color=vec4<f32>(1,.55,.2,3);
+   e.owner=vec4<u32>(p.serial,slot,0,0);
+   e.extra=vec4<f32>(f32((hash(p.serial+own.z))%u.limits.y),max(.06,p.radius*2.5),2,1);
+   fx[u.offsets.w+n]=e;
+  }
+ }
+ history[at]=bitcast<vec4<f32>>(vec4<u32>(own.xy,counts[0],counts[1]));
+ history[at+1u]=bitcast<vec4<f32>>(vec4<u32>(counts[2],counts[3],counts[4],counts[5]));
+}
+
 // Fixed mount pages keep cost bounded. Small fights can display every mount;
 // dense fights sample mounts/ships within the same global effect budget.
 fn launchBeam(id:u32)->Effect{

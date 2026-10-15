@@ -1,8 +1,10 @@
 import { sceneCameraBuffer } from '../../scene-camera.js';
 import { mat4Identity, mat4Invert } from '../../math/mat4.js';
-import { MODEL_SHIP_TYPES_WGSL } from '../../../lib/fleet-sim/gpu/model-ship-pose.wgsl.js';
+import { MODEL_SHIP_TYPES_WGSL, SCENE_SCALE_TAG_STEP } from '../../../lib/fleet-sim/gpu/model-ship-pose.wgsl.js';
+import { HULL_DETAIL_MASK, hullLodWgsl } from '../../../lib/fleet-sim/visual/hull-lod.js';
 export const SCENE_CAMERA_COMPUTE_WGSL = /* wgsl */ `
 ${MODEL_SHIP_TYPES_WGSL}
+${hullLodWgsl(0, 4)}
 struct Input { projection:mat4x4<f32>, inverseProjection:mat4x4<f32>, view:mat4x4<f32>,
   targetHigh:vec4<f32>, targetLow:vec4<f32>, attitude:vec4<f32>, boom:vec4<f32>, owner:vec4<u32>, detail:vec4<f32> }
 struct Output { clip:mat4x4<f32>, world:mat4x4<f32>, relativeViewProj:mat4x4<f32>, cameraHigh:vec4<f32>, cameraLow:vec4<f32> }
@@ -47,13 +49,12 @@ fn mul(a:vec4<f32>,b:vec4<f32>)->vec4<f32>{return vec4<f32>(a.w*b.xyz+b.w*a.xyz+
       +(vec3<f32>(s.accel,s.cruiseV,s.orbitR)/560.0-frame.cameraLow.xyz);
     clip=frame.relativeViewProj*vec4<f32>(center,1.0);
   }
-  let scale=f32(s.targetKind>>16u)*0.1;
+  let scale=f32(s.targetKind>>16u)*${SCENE_SCALE_TAG_STEP};
   let pixels=u.detail.x*scale/max(abs(clip.w),1e-9);
-  var high=pixels>=select(u.detail.y,u.detail.z,(s.targetKind&1024u)!=0u);
-  var tiny=pixels<select(3.0,3.5,(s.targetKind&8192u)!=0u);
+  var detail=hullDetailBits(pixels,s.targetKind,s.targetKind&255u);
   let control=controls[i];
-  if(control.x==s.trailOwner && control.y!=0u){high=control.y==2u;tiny=false;}
-  ships[i].targetKind=(s.targetKind&~9728u)|select(select(512u,1024u,high),8192u,tiny);
+  if(control.x==s.trailOwner && control.y!=0u){detail=select(512u,1024u,control.y==2u);}
+  ships[i].targetKind=(s.targetKind&~${HULL_DETAIL_MASK}u)|detail;
 }
 
 `;
@@ -70,6 +71,7 @@ export class SceneCameraGpu {
         this.data = new Float32Array(72);
         this.detailGroup = null;
         this.detailControls = null;
+        this.detailLod = null;
         this.words = new Uint32Array(this.data.buffer);
         this.inverse = mat4Identity();
         this.source = null;
@@ -116,14 +118,9 @@ export class SceneCameraGpu {
             w[66] = 1;
         }
         if (detail) {
-            f.set([detail.pixelGain, detail.enter, detail.exit, detail.count], 68);
-            if (!this.detailGroup || this.detailControls !== detail.controls) {
-                this.detailControls = detail.controls;
-                this.detailGroup = this.device.createBindGroup({ layout: this.detailPipeline.getBindGroupLayout(0), entries: [
-                        { binding: 0, resource: { buffer: this.input } }, { binding: 1, resource: { buffer: source } },
-                        { binding: 2, resource: { buffer: sceneCameraBuffer(this.device) } }, { binding: 3, resource: { buffer: detail.controls } }
-                    ] });
-            }
+            f[68] = detail.pixelGain;
+            f[71] = detail.count;
+            this.bindDetail(source, detail.controls, detail.hullLod);
         }
         this.device.queue.writeBuffer(this.input, 0, f);
         const pass = encoder.beginComputePass({ label: 'scene-camera-from-presented-pose' });
@@ -137,6 +134,17 @@ export class SceneCameraGpu {
         }
         pass.end();
     }
-    destroy() { this.input.destroy(); this.group = null; this.source = null; this.detailGroup = null; this.detailControls = null; }
+    bindDetail(source, controls, hullLod) {
+        if (this.detailGroup && this.detailControls === controls && this.detailLod === hullLod)
+            return;
+        this.detailControls = controls;
+        this.detailLod = hullLod;
+        this.detailGroup = this.device.createBindGroup({ layout: this.detailPipeline.getBindGroupLayout(0), entries: [
+                { binding: 0, resource: { buffer: this.input } }, { binding: 1, resource: { buffer: source } },
+                { binding: 2, resource: { buffer: sceneCameraBuffer(this.device) } }, { binding: 3, resource: { buffer: controls } },
+                { binding: 4, resource: { buffer: hullLod } }
+            ] });
+    }
+    destroy() { this.input.destroy(); this.group = null; this.source = null; this.detailGroup = null; this.detailControls = null; this.detailLod = null; }
 }
 //# sourceMappingURL=scene-camera-gpu.js.map

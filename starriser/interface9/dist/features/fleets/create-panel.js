@@ -1,7 +1,9 @@
 import { bindText, setText } from '../../ui/dom-bindings.js';
 import { menuBottomInset } from '../../ui/mobile-layout.js';
+import { createOwnerPicker } from './create-owner-picker.js';
+import { markTester } from '../../ui/tester-badge.js';
 /** Retained local-authoring form. Six counts cross the worker boundary once. */
-export function createFleetCreationMenu(parent, submit) {
+export function createFleetCreationMenu(parent, submit, online = false, loadOwners) {
     const menu = document.createElement('div');
     menu.id = 'fleet-create-menu';
     menu.hidden = true;
@@ -34,13 +36,15 @@ export function createFleetCreationMenu(parent, submit) {
     relationship.style.font = 'inherit';
     relationship.name = 'relationship';
     relationship.setAttribute('aria-label', 'Fleet relationship');
-    for (const name of ['own', 'enemy', 'ally', 'neutral']) {
+    for (const name of online ? ['own'] : ['own', 'enemy', 'ally', 'neutral']) {
         const o = document.createElement('option');
         o.value = name;
         o.textContent = name;
         relationship.append(o);
     }
-    form.append(relationship);
+    if (!online)
+        form.append(relationship);
+    const owner = online && loadOwners ? createOwnerPicker(form, loadOwners) : undefined;
     const status = document.createElement('div'), text = bindText(status, { width: '224px', height: '36px', wrap: true });
     form.append(status);
     const create = document.createElement('button');
@@ -53,19 +57,23 @@ export function createFleetCreationMenu(parent, submit) {
     cancel.type = 'button';
     cancel.textContent = 'Cancel';
     form.append(cancel);
+    markTester(start);
+    markTester(create);
+    for (const label of form.querySelectorAll('label'))
+        markTester(label);
     menu.append(start, form);
     parent.append(menu);
     let request = null;
-    const hide = () => { menu.hidden = true; request = null; };
+    const hide = () => { menu.hidden = true; request = null; owner?.close(); };
     const counts = () => inputs.map(i => Number(i.value));
     function validate() {
         const values = counts(), total = values.reduce((a, b) => a + b, 0);
-        const valid = inputs.every(i => i.value !== '' && i.validity.valid) && values.every(n => Number.isSafeInteger(n) && n >= 0) && Number.isSafeInteger(total) && total > 0;
+        const valid = inputs.every(i => i.value !== '' && i.validity.valid) && values.every(n => Number.isSafeInteger(n) && n >= 0) && Number.isSafeInteger(total) && total > 0 && (!online || total <= 1000000);
         create.disabled = !valid;
-        setText(text, valid ? `${total.toLocaleString()} ships · visible ships share the scene budget` : `Enter whole, nonnegative counts with a positive safe-integer total`);
+        setText(text, valid ? `${total.toLocaleString()} ships · visible ships share the scene budget` : `Enter whole, nonnegative counts with a positive total${online ? ' of at most 1,000,000' : ''}`);
         return valid;
     }
-    function place(x, y) { const r = menu.getBoundingClientRect(); menu.style.left = `${Math.max(4, Math.min(x, innerWidth - r.width - 4))}px`; menu.style.top = `${Math.max(4, Math.min(y, innerHeight - r.height - menuBottomInset()))}px`; }
+    function place(x, y) { menu.style.left = `${Math.max(4, Math.min(x, innerWidth - 262))}px`; menu.style.top = `${Math.max(4, Math.min(y, innerHeight - (form.hidden ? 48 : online ? 440 : 340) - menuBottomInset()))}px`; }
     let x = 0, y = 0;
     start.onclick = () => { start.hidden = true; form.hidden = false; validate(); place(x, y); inputs[0].focus(); };
     form.oninput = validate;
@@ -74,7 +82,7 @@ export function createFleetCreationMenu(parent, submit) {
         e.preventDefault();
         if (!request || !validate())
             return;
-        const value = { ...request, classes: counts(), relationship: relationship.value };
+        const value = { ...request, classes: counts(), relationship: relationship.value, ownerId: owner?.value() };
         hide();
         submit(value);
     };
@@ -84,7 +92,8 @@ export function createFleetCreationMenu(parent, submit) {
         hide(); };
     document.addEventListener('pointerdown', outside, true);
     document.addEventListener('keydown', key);
-    return { open(atX, atY, value) { request = value; x = atX; y = atY; start.hidden = false; form.hidden = true; menu.hidden = false; place(x, y); start.focus(); }, hide,
+    return { open(atX, atY, value) { request = value; x = atX; y = atY; start.hidden = false; form.hidden = true; menu.hidden = false; if (value.at)
+            owner?.open(value.at); place(x, y); start.focus(); }, hide,
         dispose() { hide(); menu.remove(); document.removeEventListener('pointerdown', outside, true); document.removeEventListener('keydown', key); } };
 }
 //# sourceMappingURL=create-panel.js.map

@@ -1,0 +1,697 @@
+{
+  "version": 1,
+  "family": "Fleet v2 (Tripo H3.1)",
+  "forward": "+Z",
+  "up": "+Y",
+  "originRadius": 1,
+  "sharedMaterial": false,
+  "ships": [
+    {
+      "classId": 0,
+      "key": "interceptor",
+      "name": "Interceptor",
+      "visualScale": 1,
+      "triangles": {
+        "high": 3957,
+        "low": 993,
+        "far": 283,
+        "dart": 12,
+        "veryHigh": 14964
+      },
+      "high": "interceptor-high.glb",
+      "low": "interceptor-low.glb",
+      "far": "interceptor-far.glb",
+      "normalizedSize": [
+        1.678399,
+        0.672853,
+        1.721593
+      ],
+      "dart": "interceptor-dart.glb",
+      "lod": {
+        "full": [
+          710,
+          null
+        ],
+        "mid": [
+          200,
+          900
+        ],
+        "low": [
+          17,
+          250
+        ],
+        "dart": [
+          2.7,
+          22
+        ],
+        "point": [
+          0,
+          3.4
+        ]
+      },
+      "trails": [
+        {
+          "at": [
+            0.179,
+            0.0537,
+            -0.7593
+          ],
+          "width": 0.08,
+          "style": "ribbon-1"
+        },
+        {
+          "at": [
+            -0.1848,
+            0.052,
+            -0.7586
+          ],
+          "width": 0.08,
+          "style": "ribbon-1"
+        }
+      ],
+      "glows": [
+        {
+          "at": [
+            0.1823,
+            0.051,
+            -0.8616
+          ],
+          "size": 0.621,
+          "style": "glow-1"
+        },
+        {
+          "at": [
+            -0.1863,
+            0.0477,
+            -0.8552
+          ],
+          "size": 0.621,
+          "style": "glow-1"
+        }
+      ],
+      "veryHigh": "interceptor-very-high.glb"
+    },
+    {
+      "classId": 1,
+      "key": "fighter",
+      "name": "Fighter",
+      "visualScale": 1.25,
+      "triangles": {
+        "high": 3988,
+        "low": 988,
+        "far": 282,
+        "dart": 14,
+        "veryHigh": 14918
+      },
+      "high": "fighter-high.glb",
+      "low": "fighter-low.glb",
+      "far": "fighter-far.glb",
+      "normalizedSize": [
+        1.65294,
+        0.526912,
+        1.795149
+      ],
+      "dart": "fighter-dart.glb",
+      "lod": {
+        "full": [
+          705,
+          null
+        ],
+        "mid": [
+          230,
+          820
+        ],
+        "low": [
+          14,
+          300
+        ],
+        "dart": [
+          2.7,
+          19
+        ],
+        "point": [
+          0,
+          4.2
+        ]
+      },
+      "trails": [
+        {
+          "at": [
+            0.4771,
+            0.0065,
+            -0.7684
+          ],
+          "width": 0.201,
+          "style": "ribbon-1"
+        },
+        {
+          "at": [
+            -0.4771,
+            0.0065,
+            -0.7684
+          ],
+          "width": 0.201,
+          "style": "ribbon-1"
+        }
+      ],
+      "glows": [
+        {
+          "at": [
+            0.4772,
+            0.007,
+            -0.827
+          ],
+          "size": 0.876,
+          "style": "glow-1"
+        },
+        {
+          "at": [
+            -0.4772,
+            0.007,
+            -0.827
+          ],
+          "size": 0.876,
+          "style": "glow-1"
+        }
+      ],
+      "veryHigh": "fighter-very-high.glb"
+    },
+    {
+      "classId": 2,
+      "key": "bomber",
+      "name": "Bomber",
+      "visualScale": 2.13,
+      "triangles": {
+        "high": 3971,
+        "low": 976,
+        "far": 285,
+        "dart": 10,
+        "veryHigh": 14965
+      },
+      "high": "bomber-high.glb",
+      "low": "bomber-low.glb",
+      "far": "bomber-far.glb",
+      "normalizedSize": [
+        1.675574,
+        0.586398,
+        1.612502
+      ],
+      "dart": "bomber-dart.glb",
+      "lod": {
+        "full": [
+          540,
+          null
+        ],
+        "mid": [
+          120,
+          660
+        ],
+        "low": [
+          13,
+          145
+        ],
+        "dart": [
+          1.6,
+          18
+        ],
+        "point": [
+          0,
+          2
+        ]
+      },
+      "trails": [
+        {
+          "at": [
+            -0.538,
+            0.0661,
+            -0.7341
+          ],
+          "width": 0.25,
+          "style": "ribbon-3"
+        },
+        {
+          "at": [
+            0.5535,
+            0.0684,
+            -0.7144
+          ],
+          "width": 0.25,
+          "style": "ribbon-3"
+        }
+      ],
+      "glows": [
+        {
+          "at": [
+            -0.5395,
+            0.0665,
+            -0.7908
+          ],
+          "size": 0.876,
+          "style": "glow-1"
+        },
+        {
+          "at": [
+            0.5552,
+            0.068,
+            -0.7877
+          ],
+          "size": 0.621,
+          "style": "glow-1"
+        }
+      ],
+      "veryHigh": "bomber-very-high.glb"
+    },
+    {
+      "classId": 3,
+      "key": "frigate",
+      "name": "Frigate",
+      "visualScale": 8.12,
+      "triangles": {
+        "high": 3968,
+        "low": 981,
+        "far": 296,
+        "dart": 16,
+        "veryHigh": 14932
+      },
+      "high": "frigate-high.glb",
+      "low": "frigate-low.glb",
+      "far": "frigate-far.glb",
+      "normalizedSize": [
+        0.649026,
+        0.488436,
+        1.904458
+      ],
+      "dart": "frigate-dart.glb",
+      "lod": {
+        "full": [
+          345,
+          null
+        ],
+        "mid": [
+          115,
+          445
+        ],
+        "low": [
+          15,
+          130
+        ],
+        "dart": [
+          1.7,
+          18
+        ],
+        "point": [
+          0,
+          2.5
+        ]
+      },
+      "trails": [
+        {
+          "at": [
+            -0.2405,
+            0.0284,
+            -0.8991
+          ],
+          "width": 0.09,
+          "style": "ribbon-1"
+        },
+        {
+          "at": [
+            -0.0974,
+            0.035,
+            -0.8991
+          ],
+          "width": 0.09,
+          "style": "ribbon-1"
+        },
+        {
+          "at": [
+            0.1109,
+            0.036,
+            -0.8988
+          ],
+          "width": 0.09,
+          "style": "ribbon-1"
+        },
+        {
+          "at": [
+            0.2462,
+            0.0376,
+            -0.8979
+          ],
+          "width": 0.09,
+          "style": "ribbon-1"
+        }
+      ],
+      "glows": [
+        {
+          "at": [
+            0.2449,
+            0.0366,
+            -0.9224
+          ],
+          "size": 0.5,
+          "style": "glow-3"
+        },
+        {
+          "at": [
+            0.1104,
+            0.0353,
+            -0.9121
+          ],
+          "size": 0.5,
+          "style": "glow-3"
+        },
+        {
+          "at": [
+            -0.0974,
+            0.0391,
+            -0.9189
+          ],
+          "size": 0.5,
+          "style": "glow-3"
+        },
+        {
+          "at": [
+            -0.2389,
+            0.0323,
+            -0.9176
+          ],
+          "size": 0.5,
+          "style": "glow-3"
+        }
+      ],
+      "veryHigh": "frigate-very-high.glb"
+    },
+    {
+      "classId": 4,
+      "key": "battleship",
+      "name": "Battleship",
+      "visualScale": 17.86,
+      "triangles": {
+        "high": 3988,
+        "low": 993,
+        "far": 297,
+        "dart": 10,
+        "veryHigh": 14983
+      },
+      "high": "battleship-high.glb",
+      "low": "battleship-low.glb",
+      "far": "battleship-far.glb",
+      "normalizedSize": [
+        0.782279,
+        0.501094,
+        1.926456
+      ],
+      "dart": "battleship-dart.glb",
+      "lod": {
+        "full": [
+          485,
+          null
+        ],
+        "mid": [
+          130,
+          585
+        ],
+        "low": [
+          16,
+          150
+        ],
+        "dart": [
+          2.5,
+          24
+        ],
+        "point": [
+          0,
+          3.9
+        ]
+      },
+      "trails": [
+        {
+          "at": [
+            0.0032,
+            -0.0096,
+            -0.9163
+          ],
+          "width": 0.301,
+          "style": "ribbon-4"
+        },
+        {
+          "at": [
+            -0.2123,
+            -0.017,
+            -0.9182
+          ],
+          "width": 0.08,
+          "style": "ribbon-3"
+        },
+        {
+          "at": [
+            0.2157,
+            -0.0127,
+            -0.9183
+          ],
+          "width": 0.08,
+          "style": "ribbon-3"
+        }
+      ],
+      "glows": [
+        {
+          "at": [
+            0.2179,
+            -0.0142,
+            -0.9414
+          ],
+          "size": 0.5,
+          "style": "glow-3"
+        },
+        {
+          "at": [
+            -0.2118,
+            -0.0132,
+            -0.9415
+          ],
+          "size": 0.5,
+          "style": "glow-3"
+        },
+        {
+          "at": [
+            0.0019,
+            -0.0175,
+            -0.9387
+          ],
+          "size": 0.686,
+          "style": "glow-4"
+        }
+      ],
+      "veryHigh": "battleship-very-high.glb"
+    },
+    {
+      "classId": 5,
+      "key": "colossus",
+      "name": "Colossus",
+      "visualScale": 58.99,
+      "triangles": {
+        "high": 3991,
+        "low": 991,
+        "far": 293,
+        "dart": 12,
+        "veryHigh": 14988
+      },
+      "high": "colossus-high.glb",
+      "low": "colossus-low.glb",
+      "far": "colossus-far.glb",
+      "normalizedSize": [
+        0.783128,
+        0.447252,
+        1.945024
+      ],
+      "dart": "colossus-dart.glb",
+      "lod": {
+        "full": [
+          550,
+          null
+        ],
+        "mid": [
+          150,
+          665
+        ],
+        "low": [
+          17,
+          170
+        ],
+        "dart": [
+          2.5,
+          24
+        ],
+        "point": [
+          0,
+          3.3
+        ]
+      },
+      "trails": [
+        {
+          "at": [
+            -0.154,
+            -0.005,
+            -0.8423
+          ],
+          "width": 0.3,
+          "style": "ribbon-4"
+        },
+        {
+          "at": [
+            0.1616,
+            -0.0082,
+            -0.9048
+          ],
+          "width": 0.3,
+          "style": "ribbon-4"
+        },
+        {
+          "at": [
+            -0.0026,
+            0.0979,
+            -0.9152
+          ],
+          "width": 0.08,
+          "style": "ribbon-3"
+        },
+        {
+          "at": [
+            0.0057,
+            -0.1034,
+            -0.9167
+          ],
+          "width": 0.08,
+          "style": "ribbon-3"
+        },
+        {
+          "at": [
+            -0.1515,
+            0.077,
+            -0.9371
+          ],
+          "width": 0.04,
+          "style": "ribbon-3"
+        },
+        {
+          "at": [
+            -0.1502,
+            -0.0866,
+            -0.9331
+          ],
+          "width": 0.04,
+          "style": "ribbon-3"
+        },
+        {
+          "at": [
+            0.159,
+            -0.087,
+            -0.9344
+          ],
+          "width": 0.04,
+          "style": "ribbon-3"
+        },
+        {
+          "at": [
+            0.16,
+            0.0777,
+            -0.936
+          ],
+          "width": 0.04,
+          "style": "ribbon-3"
+        }
+      ],
+      "glows": [
+        {
+          "at": [
+            0.1636,
+            -0.0067,
+            -0.9524
+          ],
+          "size": 0.686,
+          "style": "glow-4"
+        },
+        {
+          "at": [
+            -0.15,
+            -0.0081,
+            -0.9551
+          ],
+          "size": 0.686,
+          "style": "glow-4"
+        },
+        {
+          "at": [
+            -0.0012,
+            0.097,
+            -0.9479
+          ],
+          "size": 0.686,
+          "style": "glow-1"
+        },
+        {
+          "at": [
+            0.0072,
+            -0.1043,
+            -0.9519
+          ],
+          "size": 0.686,
+          "style": "glow-1"
+        }
+      ],
+      "veryHigh": "colossus-very-high.glb"
+    }
+  ],
+  "trailUnit": "trail emitters and glows per class in catalog hull space (bounding radius 1, +Z forward, +Y up); an emitter's width is its ribbon's full width at the emitter and its style a trailTextures.ribbons id, a glow's size is the sprite's full diameter and its style a trailTextures.glows id; glows draw without depth testing, scaled by the share of their centre visible in the scene depth (tested 0.3 of their radius toward the camera) and by their style's facing (aft = -Z)",
+  "trailStyles": {
+    "ribbons": [
+      {
+        "id": "ribbon-1",
+        "name": "Engine trail",
+        "image": "fx/trail-ribbon-ribbon-1.png"
+      },
+      {
+        "id": "ribbon-2",
+        "name": "Engine trail short 2",
+        "image": "fx/trail-ribbon-ribbon-2.png"
+      },
+      {
+        "id": "ribbon-3",
+        "name": "Engine trail short",
+        "image": "fx/trail-ribbon-ribbon-3.png"
+      },
+      {
+        "id": "ribbon-4",
+        "name": "Engine trail biig",
+        "image": "fx/trail-ribbon-ribbon-4.png"
+      }
+    ],
+    "glows": [
+      {
+        "id": "glow-1",
+        "name": "Engine glow B",
+        "image": "fx/trail-glow-glow-1.png",
+        "facing": 1
+      },
+      {
+        "id": "glow-2",
+        "name": " Engine glow A",
+        "image": "fx/trail-glow-glow-2.png",
+        "facing": 1
+      },
+      {
+        "id": "glow-3",
+        "name": "Engine glow C",
+        "image": "fx/trail-glow-glow-3.png",
+        "facing": 1
+      },
+      {
+        "id": "glow-4",
+        "name": "Engine glow C big",
+        "image": "fx/trail-glow-glow-4.png",
+        "facing": 1
+      }
+    ]
+  }
+}

@@ -1,12 +1,11 @@
 import { validateViewRequest } from './views/validate.js';
-import { check, cursor, id, key, position, scope, token } from "./validate-fields.js";
-import { validateSubscribeStrategic } from './validate-strategic.js';
+import { check, id, key, position, scope, token } from "./validate-fields.js";
 function hello(value) {
     check(value.minimumProtocolVersion > 0 && value.minimumProtocolVersion <= 1 && value.maximumProtocolVersion >= 1, "protocol version range");
     check(value.supportedRuleVersions.length <= 16 && value.supportedRuleVersions.includes(1), "rule versions");
     check(value.requiredCapabilities.length <= 16, "capabilities length");
     for (const capability of value.requiredCapabilities)
-        check(capability >= 1 && capability <= 11, "required capability");
+        check([1, 4, 5, 7, 11, 12, 13, 14, 15].includes(capability), "required capability");
     token(value.sessionCredential);
 }
 function move(value) {
@@ -18,15 +17,12 @@ function move(value) {
     if (value.expectedSystemRevision !== undefined) {
         check(value.expectedSystemRevision >= 0n && value.expectedSystemRevision <= 0xffffffffffffffffn, "expected revision");
     }
-}
-function subscribe(value) {
-    id(value.worldId);
-    id(value.systemId);
-    id(value.subscriptionId);
-    if (!value.resumeAfter)
-        return;
-    cursor(value.resumeAfter);
-    check(value.subscriptionId.every((byte, index) => value.resumeAfter?.subscriptionId[index] === byte), "resume subscription");
+    if (value.orbitBody !== undefined)
+        check(Number.isInteger(value.orbitBody) && value.orbitBody >= 1 && value.orbitBody <= 15 && value.expectedFleetRevision !== undefined, "orbit body/revision");
+    if (value.expectedFleetRevision !== undefined) {
+        check(value.expectedSystemRevision === undefined, "mutually exclusive move revisions");
+        check(value.expectedFleetRevision > 0n && value.expectedFleetRevision <= 0xffffffffffffffffn, "expected fleet revision");
+    }
 }
 function transfer(value) {
     key(value.key);
@@ -48,6 +44,9 @@ export function validateClientMessage(message) {
     }
     check(message.protocolVersion === 1 && message.connectionGeneration > 0n, "session envelope");
     switch (body.case) {
+        case "gameplayRequest":
+            check(body.value.requestId > 0n && body.value.operation >= 1 && body.value.operation <= 12 && body.value.payload.length > 0 && body.value.payload.length <= 4096, "gameplay request");
+            break;
         case "viewRequest":
             validateViewRequest(body.value);
             break;
@@ -62,24 +61,8 @@ export function validateClientMessage(message) {
             key(body.value.key);
             break;
         case "renewAdmission":
-            if (body.value.systemId.length) {
-                id(body.value.systemId);
-                check(!body.value.receiptHomeShardId.length, "renewal selector");
-            }
-            else
-                id(body.value.receiptHomeShardId);
+            id(body.value.systemId);
             check(body.value.requestId > 0n, "renewal request identity");
-            break;
-        case "playbackClock":
-            scope(body.value.scope);
-            cursor(body.value.baseline);
-            check(body.value.requestId > 0n && body.value.systemRevision > 0n, "playback request");
-            break;
-        case "subscribe":
-            subscribe(body.value);
-            break;
-        case "subscribeStrategic":
-            validateSubscribeStrategic(body.value);
             break;
         default: throw new Error("Client message has no supported operation");
     }

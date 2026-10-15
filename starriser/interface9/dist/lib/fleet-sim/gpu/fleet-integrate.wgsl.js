@@ -55,6 +55,8 @@ import { DEFAULT_TRAIL_LAYOUT, TRAIL_ALPHA_POWER, TRAIL_ALONG_POWER, TRAIL_LINE_
 import { TRAIL_TEMPLATE_INDEX_COUNT } from "./fleet-trails.wgsl.js";
 import { MODEL_TRAIL_EMITTER_COUNT, MODEL_TRAIL_EMITTERS, modelTrailExpandAlphaMul, } from "../visual/model-trail-config.js";
 import { SHIP_APPROACH_BRAKE_POWER, SHIP_BRAKE_DIST_MARGIN, SHIP_DEFAULT_BRAKE_DIST, SHIP_LAUNCH_ACCEL_MIN, SHIP_LAUNCH_SPEED_FRAC, SHIP_MAX_ACCEL, SHIP_MAX_SPEED, SHIP_MID_CRUISE_BOOST, SHIP_MIN_ALIGN, SHIP_MODE_JUMP, SHIP_MODE_ORBIT, SHIP_MODE_PAUSED, SHIP_MODE_SETTLE, SHIP_NOSE_OFFSET, CRUISE_ACCEL_SCALE, CRUISE_BRAKE_MULT, JUMP_BRAKE_MULT, V_OPEN_UNCAP, HOP_OPEN_SPEED_MUL, HOP_OPEN_SPEED_MIN, RESIDUAL_HIGH_MUL, RESIDUAL_CLEAR_MUL, RESIDUAL_FREEZE_OUT_K, } from "../visual/ship-flight-ref.js";
+import { ENGINE_RECORD_SHARE, SHIP_ENGINE_SHIP_CAPACITY, SHIP_ENGINE_SHIP_VEC4, SHIP_FX_MAX_CLASSES, SHIP_FX_MAX_EMITTERS, SHIP_FX_MAX_GLOWS, SHIP_FX_WGSL, SHIP_GLOW_SHIP_CAPACITY, SHIP_GLOW_SHIP_VEC4, } from "../visual/ship-fx.js";
+import { SCENE_SCALE_TAG_STEP } from "./model-ship-pose.wgsl.js";
 import { ORBIT_CAPTURE_K, ORBIT_CAPTURE_OUT_K, ORBIT_DEFAULT_ACCEL, ORBIT_DEFAULT_OMEGA_MAX, ORBIT_ENTRANCE_EPS_TINY, ORBIT_ENTRANCE_REM_K, ORBIT_LEAD_RAD, ORBIT_NEAR_SPEED_SCALE, ORBIT_OMEGA_TURN_FRAC, ORBIT_R_EPS, ORBIT_R_MIN, SCENE_AGENT_SCALE, SCENE_ORBIT_SPEED_MUL, SCENE_SHIP_VISUAL_MUL, SCENE_TRAIL_WIDTH_MUL, SCENE_SPEED_SCALE, ORBIT_SPRING_K, ORBIT_V_RAD_MAX_FRAC, ORBIT_V_RAD_MAX_R_MUL, ORBIT_RESIDUAL_V_MUL, ORBIT_RESIDUAL_V_ADD, ORBIT_SINGULARITY_R_MUL, ORBIT_ESCAPE_V_RAD, ORBIT_SETTLED_R_FRAC, ORBIT_SETTLED_HEADING_RAD, ORBIT_HEIGHT_MAX, ORBIT_HEIGHT_BLEND_REM_K, ORBIT_HEIGHT_APPROACH_TAU_S, ORBIT_HEIGHT_CLIMB_SLOPE, ORBIT_HEIGHT_MAX_FRAME_FRAC, ORBIT_HEIGHT_MIN_RATE, V_TURN_ALLOW_R_FRAC, } from "../visual/ship-orbit-ref.js";
 import { SHIP_SIM_STRIDE } from "../visual/ship-sim-layout.js";
 import { TRAIL_META_WORD as META } from "../visual/trail-indirect-table.js";
@@ -361,6 +363,16 @@ struct ShipSim {
 @group(0) @binding(7) var<storage, read_write> trailIndirect: array<u32>;
 // Model-owned ship mask (1 = textured model draws this simIdx). Used when expandTrails==2.
 @group(0) @binding(8) var<storage, read> modelHide: array<u32>;
+${SHIP_FX_WGSL(9)}
+// Engine list (ship-fx.ts): indirect args for engine ribbon copies and glows,
+// then glow ships. The host resets the header each frame. Binding 10 is left to probes.
+struct EngineList {
+  ribbons: array<atomic<u32>, 8>, // DrawIndexedIndirect: template, ${SHIP_FX_MAX_EMITTERS} instances per engine segment; [5] engine ships; [6] engine-capable ships
+  glows: array<atomic<u32>, 4>,   // [1]: ${SHIP_FX_MAX_GLOWS} × glow ships; [2]: glow demand before the capacity check
+  pad: array<u32, 52>,
+  ships: array<vec4<f32>>,        // from byte 256: glow ships (3 vec4), then engine ships (attitude; hull scale, class)
+};
+@group(0) @binding(11) var<storage, read_write> engines: EngineList;
 
 /** True when this ship may append/expand trails under current expandTrails mode. */
 fn trailAllowedForShip(simIdx: u32) -> bool {
@@ -1671,7 +1683,7 @@ fn tryAppendTrail(
   let stableScene = (flags & FLEET_FLAG_SYSTEM_SCENE) != 0u;
   // Triangle aft for strategic ribbons only (not model thruster pot).
   var aft = vec2<f32>(0.0, 0.0);
-  if (u.expandTrails != 2u || (ship.targetKind & 8192u)!=0u) {
+  if (u.expandTrails != 2u || (ship.targetKind & 40960u)!=0u) { // dart 8192 | point 32768
     let sz = select(BASE_SHIP_SIZE, shipWorldSize, shipWorldSize > 1e-6);
     aft = triangleAftWorldOffset(ship.heading, sz);
   }
@@ -1764,6 +1776,72 @@ fn clippedShipTrailSample(ship:ShipSim,idx:u32,ringBase:u32,baseY:f32,worldOff:v
   let next=expandedShipTrailSample(ship,nextIdx,ringBase,baseY,worldOff,pathEnd,stableScene);
   return mix(point,next,clamp((cutoff-birth)/max(nextBirth-birth,0.000001),0.0,1.0));
 }
+// --- Engine trails and glows from the hull catalog (ship-fx.ts) ---
+// Detail bits (hull-lod.ts): low 16384, mid 512, full 1024; dart 8192, point 32768.
+const SHIP_DETAIL_ENGINES: u32 = 1536u; // mid | full: a textured ribbon from each engine, and the glows
+const SHIP_DETAIL_ENGINE_LINES: u32 = 16384u; // low: a 1px line from each engine
+const SHIP_DETAIL_SIMPLE_TRAIL: u32 = 57344u; // low | dart | point: 1px lines (dart and point: one, from the centre)
+/** Ships whose trails come from catalog engines (copied per engine at draw time): low, mid and full. */
+fn shipHasEngineTrails(ship: ShipSim) -> bool {
+  let cls = ship.targetKind & 255u;
+  return (ship.targetKind & 4096u) != 0u && (ship.targetKind & (SHIP_DETAIL_ENGINES | SHIP_DETAIL_ENGINE_LINES)) != 0u
+    && cls < ${SHIP_FX_MAX_CLASSES}u && shipFx.counts[cls].x > 0u;
+}
+/** World size of hull radius 1 for this ship; present packs its draw scale in targetKind bits 16-31. */
+fn shipFxHullScale(ship: ShipSim) -> f32 {
+  let tag = ship.targetKind >> 16u;
+  return shipFx.header.x * select(f32(tag) * ${SCENE_SCALE_TAG_STEP}, 1.0, tag == 0u);
+}
+fn shipFxAttitude(ship: ShipSim) -> vec4<f32> {
+  let q = vec4<f32>(ship.qx, ship.qy, ship.qz, ship.qw);
+  if (dot(q, q) < 1e-12) { return quatFromYaw(ship.heading); }
+  return quatNormalize4(q);
+}
+/**
+ * A mid or full-detail engine ship (not paused) with catalog glows, so one
+ * drawing textured engine ribbons, joins this frame's glow draw while it is on
+ * screen (its glows lie within two hull radii) and at least the host's
+ * diameter floor (header.z, raised only while more qualify than the list
+ * holds; demand counts them). Hull detail ignores the frustum, so without the
+ * test ships beside and behind the camera filled the list and the GPU's thread
+ * order chose who glowed. Called from the engine branch, so other ships pay
+ * nothing.
+ */
+fn emitGlowShip(ship: ShipSim, simIdx: u32) {
+  let cls = ship.targetKind & 255u;
+  // Present's engine level (knot anchor 2 .w): glows follow the trail and fade as the ship comes to rest.
+  let engine = clamp(ship.knotAnchors[2].w, 0.0, 1.0);
+  if ((ship.targetKind & SHIP_DETAIL_ENGINES) == 0u || ship.mode == SHIP_MODE_PAUSED || shipFx.counts[cls].y == 0u || engine < 0.01) { return; }
+  let scale = shipFxHullScale(ship);
+  let centre = trailPositionRelative(vec3<f32>(ship.orbitPhase, ship.orbitOmega, ship.omegaMax), vec3<f32>(ship.accel, ship.cruiseV, ship.orbitR));
+  for (var i = 0u; i < 6u; i++) {
+    let plane = trailClipPlane(i);
+    if (dot(plane.xyz, centre) + plane.w < -2.0 * scale * length(plane.xyz)) { return; }
+  }
+  // Eye plane: view depth (its sign differs between camera paths).
+  let eye = trailEyePlane();
+  if (shipFx.header.w * scale < shipFx.header.z * abs(dot(eye.xyz, centre) + eye.w)) { return; }
+  atomicAdd(&engines.glows[2], 1u);
+  let slot = atomicAdd(&engines.glows[1], ${SHIP_FX_MAX_GLOWS}u) / ${SHIP_FX_MAX_GLOWS}u;
+  if (slot >= ${SHIP_GLOW_SHIP_CAPACITY}u) { atomicSub(&engines.glows[1], ${SHIP_FX_MAX_GLOWS}u); return; }
+  engines.ships[slot * 3u] = vec4<f32>(centre, scale);
+  engines.ships[slot * 3u + 1u] = shipFxAttitude(ship);
+  engines.ships[slot * 3u + 2u] = vec4<f32>(f32(cls), bitcast<f32>(simIdx), engine, 0.0);
+}
+/**
+ * Index of this ship's engine record (attitude, hull scale, class) for the
+ * engine ribbon draw; -1 when the list is full (it keeps a centre trail).
+ * Taken only once its trail passed the visibility test, so ships out of view
+ * never fill the list.
+ */
+fn emitEngineShip(ship: ShipSim) -> f32 {
+  let slot = atomicAdd(&engines.ribbons[5], 1u);
+  if (slot >= ${SHIP_ENGINE_SHIP_CAPACITY}u) { atomicSub(&engines.ribbons[5], 1u); return -1.0; }
+  let at = ${SHIP_ENGINE_SHIP_VEC4 - SHIP_GLOW_SHIP_VEC4}u + slot * 2u;
+  engines.ships[at] = shipFxAttitude(ship);
+  engines.ships[at + 1u] = vec4<f32>(shipFxHullScale(ship), f32(ship.targetKind & 255u), 0.0, 0.0);
+  return f32(slot);
+}
 fn expandTrailLines(
   simIdx: u32,
   ringBase: u32,
@@ -1780,6 +1858,7 @@ fn expandTrailLines(
   pathEndY: f32,
   stableScene: bool,
   ship: ShipSim,
+  engineTrails: bool,
 ) {
   let mask = TRAIL_RING_SIZE - 1u;
   let useKnots = stableScene;
@@ -1809,7 +1888,8 @@ fn expandTrailLines(
   // emitter ribbon is rejected; hull visibility never controls this decision.
   if (useKnots && !shipTrailVisible(ship,ringBase,write,nLive,baseY,worldOff,pathEnd)) { return; }
   if (!useKnots && !trailRibbonVisible(ringBase, write, nLive, baseY, worldOff, pathEnd, stableScene)) { return; }
-  let thin=timedTail && (ship.targetKind & 8192u)!=0u;
+  // Low, dart and point hulls draw one simple 1px line; textured ribbons need mid or full detail.
+  let thin=timedTail && (ship.targetKind & SHIP_DETAIL_SIMPLE_TRAIL)!=0u;
   var segmentCount=min(TRAIL_SEGS,max(nLive,1u)-1u);
   // The fixed-time window can expire older pairs before the storage ring does.
   while(segmentCount>0u){
@@ -1821,13 +1901,38 @@ fn expandTrailLines(
   segmentCount=select(segmentCount,1u,thin);
   // Reserve only live segments. Tiny trails cost one quad, never five dead ones.
   // Capacity remains expressed in max-size ribbons for host allocation compatibility.
-  let capacity=min(maxDrawSlots*TRAIL_SEGS,arrayLength(&trailLines)/TRAIL_SEGMENT_FLOATS);
-  let first=atomicAdd(&trailDrawMeta[${META.SEGMENT_COUNT}u],segmentCount);
-  if(first>=capacity){return;}
-  segmentCount=min(segmentCount,capacity-first);
-  if(!thin){atomicAdd(&trailDrawMeta[${META.GLOW_COUNT}u],segmentCount);}
+  // Engine ships write their one centre ribbon from the end of the records
+  // (top 1/${ENGINE_RECORD_SHARE}); the draw copies it to every catalog engine.
+  let records=arrayLength(&trailLines)/TRAIL_SEGMENT_FLOATS;
+  let engineRecords=records/${ENGINE_RECORD_SHARE}u;
+  // Low ships copy their one thin line to every engine; dart and point never get here.
+  var engineShip=-1.0;
+  if(engineTrails){
+    // The CPU reads this count of engine ships in view and turns engine copies on
+    // (header.y) only while there are some; until then they keep one centre trail.
+    atomicAdd(&engines.ribbons[6],1u);
+    if(shipFx.header.y>0.5){engineShip=emitEngineShip(ship);}
+  }
+  var isEngine=engineShip>=0.0;
+  let capacity=min(maxDrawSlots*TRAIL_SEGS,records-engineRecords);
+  var first=0u;
+  if(isEngine){
+    first=atomicAdd(&engines.ribbons[1],segmentCount*${SHIP_FX_MAX_EMITTERS}u)/${SHIP_FX_MAX_EMITTERS}u;
+    // Out of engine records: this ship keeps its centre ribbon.
+    if(first+segmentCount>engineRecords){atomicSub(&engines.ribbons[1],segmentCount*${SHIP_FX_MAX_EMITTERS}u);isEngine=false;}
+  }
+  if(!isEngine){
+    first=atomicAdd(&trailDrawMeta[${META.SEGMENT_COUNT}u],segmentCount);
+    if(first>=capacity){return;}
+    segmentCount=min(segmentCount,capacity-first);
+  }
+  // Engine ribbons (baked styles) draw whole at full resolution: only other
+  // textured ribbons need the half-resolution glow pass and its upsample.
+  if(!thin&&!isEngine){atomicAdd(&trailDrawMeta[${META.GLOW_COUNT}u],segmentCount);}
   atomicAdd(&trailDrawMeta[${META.EXPAND_COUNT}u],1u);
   let lineBase=first*TRAIL_SEGMENT_FLOATS;
+  // Engine segments carry their engine-ship record index in the colour slots.
+  let segmentColor=select(vec3<f32>(colorR,colorG,colorB),vec3<f32>(engineShip,0.0,0.0),isEngine);
 
   if(thin){
     // One straight segment across the same continuously clipped time window.
@@ -1838,16 +1943,19 @@ fn expandTrailLines(
     }
     let p0=clippedShipTrailSample(ship,tail,ringBase,baseY,worldOff,pathEnd,true,cutoff);
     let p1=expandedShipTrailSample(ship,(write-1u)&mask,ringBase,baseY,worldOff,pathEnd,true);
-    trailLines[lineBase]=p0.x;trailLines[lineBase+1u]=p0.y;trailLines[lineBase+2u]=p0.z;
-    trailLines[lineBase+3u]=colorR;trailLines[lineBase+4u]=colorG;trailLines[lineBase+5u]=colorB;
+    // A low engine ship's line goes to the engine records (copied to each engine);
+    // its start colour holds the engine-ship index, its end colour the ship's.
+    let at=select(lineBase,(records-1u-first)*TRAIL_SEGMENT_FLOATS,isEngine);
+    trailLines[at]=p0.x;trailLines[at+1u]=p0.y;trailLines[at+2u]=p0.z;
+    trailLines[at+3u]=segmentColor.x;trailLines[at+4u]=segmentColor.y;trailLines[at+5u]=segmentColor.z;
     // Negative alpha tags the solid segment and carries its pixel width.
     // Ordinary tiny trails stay 1px; actual turbo effort grows up to 2.5px.
-    trailLines[lineBase+6u]=-(1.0+1.5*clamp(ship.knotAnchors[0].w,0.0,1.0));
-    trailLines[lineBase+7u]=p1.x;trailLines[lineBase+8u]=p1.y;trailLines[lineBase+9u]=p1.z;
-    trailLines[lineBase+10u]=colorR;trailLines[lineBase+11u]=colorG;trailLines[lineBase+12u]=colorB;
-    trailLines[lineBase+13u]=aMul;
-    trailLines[lineBase+14u]=p0.x;trailLines[lineBase+15u]=p0.y;trailLines[lineBase+16u]=p0.z;
-    trailLines[lineBase+17u]=p1.x;trailLines[lineBase+18u]=p1.y;trailLines[lineBase+19u]=p1.z;
+    trailLines[at+6u]=-(1.0+1.5*clamp(ship.knotAnchors[0].w,0.0,1.0));
+    trailLines[at+7u]=p1.x;trailLines[at+8u]=p1.y;trailLines[at+9u]=p1.z;
+    trailLines[at+10u]=colorR;trailLines[at+11u]=colorG;trailLines[at+12u]=colorB;
+    trailLines[at+13u]=aMul;
+    trailLines[at+14u]=p0.x;trailLines[at+15u]=p0.y;trailLines[at+16u]=p0.z;
+    trailLines[at+17u]=p1.x;trailLines[at+18u]=p1.y;trailLines[at+19u]=p1.z;
     return;
   }
 
@@ -1860,7 +1968,7 @@ fn expandTrailLines(
     let sampB = trailSample4(ship, ringBase, idxB, useKnots);
     let ageA = sampleAge01(sampA.z, u.nowRel);
     let ageB = sampleAge01(sampB.z, u.nowRel);
-    let vo = lineBase + seg * TRAIL_SEGMENT_FLOATS;
+    let vo = select(lineBase + seg * TRAIL_SEGMENT_FLOATS, (records - 1u - first - seg) * TRAIL_SEGMENT_FLOATS, isEngine);
 
     let p0 = clippedShipTrailSample(ship,idxA,ringBase,baseY,worldOff,pathEnd,stableScene,cutoff);
     let p1 = expandedShipTrailSample(ship,idxB,ringBase,baseY,worldOff,pathEnd,stableScene);
@@ -1869,8 +1977,9 @@ fn expandTrailLines(
     // along: 0 at newest sample, 1 at oldest expand tip
     let alongB = select(f32(seg)/segsF,clamp((headBirth-sampB.z)/span,0.0,1.0),timedTail);
     let alongA = select(f32(seg+1u)/segsF,clamp((headBirth-sampA.z)/span,0.0,1.0),timedTail);
-    let a0 = trailDrawAlpha(ageA, alongA) * aMul;
-    let a1 = trailDrawAlpha(ageB, alongB) * aMul;
+    // Engine ribbons take their taper from the style texture: alpha = 1 - along is its u.
+    let a0 = select(trailDrawAlpha(ageA, alongA) * aMul, 1.0 - alongA, isEngine);
+    let a1 = select(trailDrawAlpha(ageB, alongB) * aMul, 1.0 - alongB, isEngine);
 
     // Neighbor samples for continuous miter (default = endpoint = no neighbor).
     // prev only if live chain has depth seg+2 (tip-contiguous); never ring-wrap stale.
@@ -1895,16 +2004,16 @@ fn expandTrailLines(
     trailLines[vo] = x0;
     trailLines[vo + 1u] = y0;
     trailLines[vo + 2u] = z0;
-    trailLines[vo + 3u] = colorR;
-    trailLines[vo + 4u] = colorG;
-    trailLines[vo + 5u] = colorB;
+    trailLines[vo + 3u] = segmentColor.x;
+    trailLines[vo + 4u] = segmentColor.y;
+    trailLines[vo + 5u] = segmentColor.z;
     trailLines[vo + 6u] = a0;
     trailLines[vo + 7u] = x1;
     trailLines[vo + 8u] = y1;
     trailLines[vo + 9u] = z1;
-    trailLines[vo + 10u] = colorR;
-    trailLines[vo + 11u] = colorG;
-    trailLines[vo + 12u] = colorB;
+    trailLines[vo + 10u] = segmentColor.x;
+    trailLines[vo + 11u] = segmentColor.y;
+    trailLines[vo + 12u] = segmentColor.z;
     trailLines[vo + 13u] = a1;
     trailLines[vo + 14u] = px;
     trailLines[vo + 15u] = py;
@@ -1944,9 +2053,11 @@ fn expandShipTrails(
   let stableScene = (ship.targetKind & 4096u) != 0u || (ship.fleetIndex < arrayLength(&fleets) &&
     (fleets[ship.fleetIndex].flags & FLEET_FLAG_SYSTEM_SCENE) != 0u);
   if (u.expandTrails != 2u) {
+    let engineTrails = shipHasEngineTrails(ship);
+    if (engineTrails) { emitGlowShip(ship, simIdx); }
     expandTrailLines(
       simIdx, ringBase, write, colorR, colorG, colorB, baseY,
-      zeroOff, 1.0, maxSlots, pathEndX, pathEndZ, pathEndY, stableScene, ship,
+      zeroOff, 1.0, maxSlots, pathEndX, pathEndZ, pathEndY, stableScene, ship, engineTrails,
     );
     return;
   }
@@ -1965,17 +2076,17 @@ fn expandShipTrails(
   let o2 = quatRotateVec3(q, MODEL_TRAIL_E2_LOCAL * emitScale);
   expandTrailLines(
     simIdx, ringBase, write, colorR, colorG, colorB, baseY,
-    o0, MODEL_TRAIL_E0_ALPHA, maxSlots, pathEndX, pathEndZ, pathEndY, stableScene, ship,
+    o0, MODEL_TRAIL_E0_ALPHA, maxSlots, pathEndX, pathEndZ, pathEndY, stableScene, ship, false,
   );
   // Mid-detail hulls need one ribbon; full detail keeps all three emitters.
   if((ship.targetKind & 4096u)!=0u && (ship.targetKind & 1024u)==0u){return;}
   expandTrailLines(
     simIdx, ringBase, write, colorR, colorG, colorB, baseY,
-    o1, MODEL_TRAIL_E1_ALPHA, maxSlots, pathEndX, pathEndZ, pathEndY, stableScene, ship,
+    o1, MODEL_TRAIL_E1_ALPHA, maxSlots, pathEndX, pathEndZ, pathEndY, stableScene, ship, false,
   );
   expandTrailLines(
     simIdx, ringBase, write, colorR, colorG, colorB, baseY,
-    o2, MODEL_TRAIL_E2_ALPHA, maxSlots, pathEndX, pathEndZ, pathEndY, stableScene, ship,
+    o2, MODEL_TRAIL_E2_ALPHA, maxSlots, pathEndX, pathEndZ, pathEndY, stableScene, ship, false,
   );
 }
 

@@ -5,6 +5,7 @@
  * for every planet and upgrades the focused body to 4K + pole caps.
  */
 import { assetUrl } from "../asset-url.js";
+import { supportsPlanetMap } from "../planet-texture/map-capabilities.js";
 export const CATALOG_ASSET_ROOT = "assets/solar/catalog";
 export const CATALOG_MANIFEST_URL = "assets/solar/catalog/manifest.json";
 /** Known baker map keys (others are ignored). */
@@ -15,6 +16,7 @@ export const CATALOG_MAP_KEYS = [
     "night",
     "clouds",
     "height",
+    "height_diagnostic",
     "biome",
     "pole_n",
     "pole_s",
@@ -50,10 +52,11 @@ export function catalogMapRelpath(id, key) {
     }
     return `${CATALOG_ASSET_ROOT}/${id}/4k/${key}.png`;
 }
-export function catalogMapsRecord(id) {
+export function catalogMapsRecord(id, planetClass = "") {
     const maps = {};
     for (const key of CATALOG_MAP_KEYS) {
-        maps[key] = catalogMapRelpath(id, key);
+        if (supportsPlanetMap(planetClass, key))
+            maps[key] = catalogMapRelpath(id, key);
     }
     return maps;
 }
@@ -76,6 +79,7 @@ export function sanitizeCatalogRelpath(rel) {
 export function emptyCatalogManifest(resolution, previewResolution) {
     return {
         version: 1,
+        purpose: "visual-showcase",
         resolution,
         previewResolution,
         planets: [],
@@ -93,6 +97,19 @@ function asStringMap(v) {
             out[k] = val.trim();
     }
     return out;
+}
+function classMaps(v, planetClass) {
+    const maps = asStringMap(v);
+    // Older rocky/exotic exports named the height heatmap biome.png. Preserve the
+    // existing file under its honest diagnostic name without inventing a new path.
+    if (["rocky", "exotic"].includes(planetClass) && maps.biome && !maps.height_diagnostic) {
+        maps.height_diagnostic = maps.biome;
+    }
+    for (const key of Object.keys(maps)) {
+        if (!supportsPlanetMap(planetClass, key))
+            delete maps[key];
+    }
+    return maps;
 }
 /** Validate a JSON payload; returns null when unusable. */
 export function parseCatalogManifest(raw) {
@@ -127,7 +144,7 @@ export function parseCatalogManifest(raw) {
             planetClass,
             seed: Number.isFinite(seedN) ? seedN : 0,
             orbitT: Number.isFinite(orbitN) ? orbitN : 0,
-            maps: asStringMap(p.maps),
+            maps: classMaps(p.maps, planetClass),
         });
     }
     if (planets.length === 0)
@@ -135,6 +152,7 @@ export function parseCatalogManifest(raw) {
     const bakedAt = typeof raw.bakedAt === "string" ? raw.bakedAt : undefined;
     return {
         version: 1,
+        purpose: "visual-showcase",
         resolution,
         previewResolution,
         bakedAt,

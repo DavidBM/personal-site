@@ -1,3 +1,5 @@
+import { LEGACY_HULL_APPEARANCE } from '../../../contracts/hull-appearance.js';
+import { fleetRelationship } from '../../../contracts/fleet-relationship.js';
 import { FLEET_FLAG_ALIVE, FLEET_GPU_STRIDE, FleetGpuFields } from '../../fleet-layout.js';
 import { initializeRemoteShipPose, setRemoteFleetAlive, writeRemoteFleetPath } from './remote-path.js';
 /** Hidden slots use the same allocator/buffers as live fleets. They are absent
@@ -50,7 +52,8 @@ export function createRemoteFleetSlots(fleets, onFollowRetired) {
     }
     return {
         create(id, path) {
-            fleets.addFleet(id, { red: 1, blue: 0, green: 0 }, { state: 'awaiting', node: path.node }, path);
+            path = explicitAppearance(path);
+            fleets.addFleet(id, remoteCounts(path), { state: 'awaiting', node: path.node }, path, path.relationship);
             const visual = fleets.records.get(id);
             if (!visual)
                 throw new Error('Remote fleet capacity exhausted');
@@ -100,7 +103,15 @@ export function createRemoteFleetSlots(fleets, onFollowRetired) {
                 fleets.warmingFleetIds.add(visual.id);
         },
         update(visual, path) {
-            visual.remote = path;
+            const relationship = fleetRelationship(path.relationship);
+            if (visual.relationship !== relationship) {
+                fleets.scene.unindexVisual(visual);
+                visual.relationship = relationship;
+                fleets.scene.indexVisual(visual);
+            }
+            if (visual.pendingMove && (path.revision ?? 0n) > visual.pendingMove.baseRevision)
+                visual.pendingMove = undefined;
+            visual.remote = explicitAppearance(path);
             writeRemoteFleetPath(fleets.storage, visual, fleets.scene.fleetLocMatchesKepler(visual.state), fleets.positionLookup, fleets.timeline.elapsedMs);
         },
         hide, release,
@@ -128,5 +139,16 @@ function snapshotRanges(previous, next) {
             ranges.push({ start: slot, count: 1 });
     }
     return ranges;
+}
+/** Unsupported/missing assets draw one fixed interceptor placeholder, never a
+ * role-derived or seeded mixture. Logical total remains in remote.appearance. */
+function remoteCounts(path) {
+    const value = path.appearance;
+    if (!value || value.placeholder)
+        return { red: 1, blue: 0, green: 0, classes: [1, 0, 0, 0, 0, 0] };
+    return { red: value.totalShips, blue: 0, green: 0, classes: [...value.hullCounts] };
+}
+function explicitAppearance(path) {
+    return path.appearance ? path : { ...path, appearance: LEGACY_HULL_APPEARANCE };
 }
 //# sourceMappingURL=remote-presentation.js.map

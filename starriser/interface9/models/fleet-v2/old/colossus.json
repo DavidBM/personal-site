@@ -1,0 +1,155 @@
+{
+  "classId": 5,
+  "key": "colossus",
+  "name": "Colossus",
+  "visualScale": 58.99,
+  "triangles": {
+    "high": 4602,
+    "low": 995,
+    "far": 300,
+    "dart": 12
+  },
+  "high": "colossus-high.glb",
+  "low": "colossus-low.glb",
+  "far": "colossus-far.glb",
+  "normalizedSize": [
+    0.759811,
+    0.424792,
+    1.94565
+  ],
+  "dart": "colossus-dart.glb",
+  "lod": {
+    "full": [
+      550,
+      null
+    ],
+    "mid": [
+      150,
+      665
+    ],
+    "low": [
+      17,
+      170
+    ],
+    "dart": [
+      2.5,
+      24
+    ],
+    "point": [
+      0,
+      3.3
+    ]
+  },
+  "trails": [
+    {
+      "at": [
+        -0.154,
+        -0.005,
+        -0.8423
+      ],
+      "width": 0.3,
+      "style": "ribbon-4"
+    },
+    {
+      "at": [
+        0.1616,
+        -0.0082,
+        -0.9048
+      ],
+      "width": 0.3,
+      "style": "ribbon-4"
+    },
+    {
+      "at": [
+        -0.0026,
+        0.0979,
+        -0.9152
+      ],
+      "width": 0.08,
+      "style": "ribbon-3"
+    },
+    {
+      "at": [
+        0.0057,
+        -0.1034,
+        -0.9167
+      ],
+      "width": 0.08,
+      "style": "ribbon-3"
+    },
+    {
+      "at": [
+        -0.1515,
+        0.077,
+        -0.9371
+      ],
+      "width": 0.04,
+      "style": "ribbon-3"
+    },
+    {
+      "at": [
+        -0.1502,
+        -0.0866,
+        -0.9331
+      ],
+      "width": 0.04,
+      "style": "ribbon-3"
+    },
+    {
+      "at": [
+        0.159,
+        -0.087,
+        -0.9344
+      ],
+      "width": 0.04,
+      "style": "ribbon-3"
+    },
+    {
+      "at": [
+        0.16,
+        0.0777,
+        -0.936
+      ],
+      "width": 0.04,
+      "style": "ribbon-3"
+    }
+  ],
+  "glows": [
+    {
+      "at": [
+        0.1636,
+        -0.0067,
+        -0.9524
+      ],
+      "size": 0.686,
+      "style": "glow-4"
+    },
+    {
+      "at": [
+        -0.15,
+        -0.0081,
+        -0.9551
+      ],
+      "size": 0.686,
+      "style": "glow-4"
+    },
+    {
+      "at": [
+        -0.0012,
+        0.097,
+        -0.9479
+      ],
+      "size": 0.686,
+      "style": "glow-1"
+    },
+    {
+      "at": [
+        0.0072,
+        -0.1043,
+        -0.9519
+      ],
+      "size": 0.686,
+      "style": "glow-1"
+    }
+  ]
+}

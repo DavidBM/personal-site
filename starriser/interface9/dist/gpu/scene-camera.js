@@ -1,3 +1,4 @@
+import { HULL_LEVEL_BITS, HULL_POINT_PX, HULL_POINT_WGSL } from '../lib/fleet-sim/visual/hull-lod.js';
 /** Per-device render correction. Identity in standalone viewers and free camera.
  * The owner dispatches one invocation after presentation; draw passes only read.
  */
@@ -69,14 +70,24 @@ export function sceneHullShader(source) {
       if(sceneCamera.cameraHigh.w>0.0 && (ship.targetKind & 4096u)!=0u){
         let center=(vec3<f32>(ship.orbitPhase,ship.orbitOmega,ship.omegaMax)-sceneCamera.cameraHigh.xyz)/560.0
           +(vec3<f32>(ship.accel,ship.cruiseV,ship.orbitR)/560.0-sceneCamera.cameraLow.xyz);
-        if((ship.targetKind & 8192u)!=0u && u.pixelGain>0.0){
+        if(u.pixelGain>0.0 && u.lodMask==${HULL_LEVEL_BITS.point}u){
+          // Point level: one triangle facing the camera, the hull's size but at least ${HULL_POINT_PX} px across.
+          worldOff=hullPointOffset(center,input.meshPos,u.pixelGain,pose.hullScale);
+        }else if((ship.targetKind & ${HULL_LEVEL_BITS.dart}u)!=0u && u.pixelGain>0.0){
           let depth=abs((sceneCamera.relativeViewProj*vec4<f32>(center,1.0)).w);
           let pixels=u.pixelGain*pose.hullScale/max(depth,1e-9);
           worldOff*=max(1.0,1.5/max(pixels,1e-9));
         }
         rel=center+worldOff;
         out.clip=sceneCamera.relativeViewProj*vec4<f32>(rel,1.0);
-      }else{out.clip=sceneCamera.clip*u.viewProj*vec4<f32>(rel,1.0);}`)
+      }else{
+        if(u.pixelGain>0.0 && u.lodMask==${HULL_LEVEL_BITS.point}u){
+          rel=pose.centerRel+hullPointOffset(pose.centerRel-(u.eyeWorld-u.origin),input.meshPos,u.pixelGain,pose.hullScale);
+        }
+        out.clip=sceneCamera.clip*u.viewProj*vec4<f32>(rel,1.0);
+      }`)
+        .replace('@vertex', `${HULL_POINT_WGSL}
+@vertex`)
         .replace('let eyeRel = u.eyeWorld - u.origin;', 'let eyeRel = select(u.eyeWorld-u.origin,vec3<f32>(0.0),sceneCamera.cameraHigh.w>0.0);');
 }
 /** Selection corners read the same split pose and camera as the hull. */

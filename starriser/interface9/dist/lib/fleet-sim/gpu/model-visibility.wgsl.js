@@ -3,8 +3,10 @@ import { MODEL_SHIP_TYPES_WGSL, MODEL_SHIP_POSE_WGSL } from './model-ship-pose.w
 import { MODEL_CATALOG_MAX_BATCHES } from '../visual/ship-model-catalog.js';
 import { MODEL_VISIBILITY_EPSILON } from '../visual/model-visibility.js';
 export const MODEL_VISIBILITY_GROUP_SIZE = 64;
-export const MODEL_VISIBILITY_MAX_BATCHES = MODEL_CATALOG_MAX_BATCHES * 3;
-export const MODEL_VISIBILITY_UNIFORM_BYTES = 144 + MODEL_VISIBILITY_MAX_BATCHES * 16 + 3 * 32;
+/** Shared LOD partitions, one per hull detail level: full, mid, low, dart and point. */
+export const MODEL_VISIBILITY_PARTITIONS = 5;
+export const MODEL_VISIBILITY_MAX_BATCHES = MODEL_CATALOG_MAX_BATCHES * MODEL_VISIBILITY_PARTITIONS;
+export const MODEL_VISIBILITY_UNIFORM_BYTES = 144 + MODEL_VISIBILITY_MAX_BATCHES * 16 + MODEL_VISIBILITY_PARTITIONS * 32;
 export function buildModelVisibilityWgsl(capacity, indirectOffsetWords, batchCount = 1, partitions = false) {
     const packs = Array.from({ length: Math.ceil(batchCount / 8) }, (_, i) => i);
     return /* wgsl */ `
@@ -14,12 +16,12 @@ struct VisibilityUniforms {
   origin: vec3<f32>, modelScale: f32,
   meshRadius: f32, candidateCount: u32, indexCount: u32, groupCount: u32,
   lodMask: u32,
-  _padA: u32,
-  _padB: u32,
-  _padC: u32,
+  selectedIndex: u32,
+  selectedOwner: u32,
+  classCount: u32,
   ranges: array<vec4<u32>, ${MODEL_VISIBILITY_MAX_BATCHES}>,
-  partitions: array<vec4<u32>,3>,
-  bounds: array<vec4<f32>,3>,
+  partitions: array<vec4<u32>,${MODEL_VISIBILITY_PARTITIONS}>,
+  bounds: array<vec4<f32>,${MODEL_VISIBILITY_PARTITIONS}>,
 };
 @group(0) @binding(0) var<uniform> u: VisibilityUniforms;
 @group(0) @binding(1) var<storage, read> ships: array<ShipSim>;
@@ -50,6 +52,14 @@ fn sphereVisible(center: vec3<f32>, radius: f32) -> bool {
   }
   return true;
 }
+fn meshBin(ship: ShipSim, shipIdx: u32, first: u32, classes: u32) -> u32 {
+  let batch = min(ship.targetKind & 255u, classes - 1u);
+  let selected = u.ranges[first + batch].z;
+  if (selected > 0u && modelShipIsSelected(ship, shipIdx, u.selectedIndex, u.selectedOwner)) {
+    return first + selected - 1u;
+  }
+  return first + batch;
+}
 // Return a bin or sentinel; scatter reuses this decision, not another ship read.
 fn candidateBin(index:u32)->u32 {
   if(index>=u.candidateCount){return 0xffffffffu;}
@@ -60,17 +70,17 @@ fn candidateBin(index:u32)->u32 {
   var bin=0u;var scale=u.modelScale;var radius=u.meshRadius;
   ${partitions ? `
   var found=false;
-  for(var p=0u;p<3u;p++){
+  for(var p=0u;p<${MODEL_VISIBILITY_PARTITIONS}u;p++){
     let part=u.partitions[p];
     if(part.y>0u && modelShipLodMatches(ship,part.z)){
-      bin=part.x+min(ship.targetKind&255u,part.y-1u);
+      bin=meshBin(ship,shipIdx,part.x,part.w);
       scale=u.bounds[p].x;radius=u.bounds[p].y;found=true;break;
     }
   }
   if(!found){return 0xffffffffu;}
   ` : `
   if(!modelShipLodMatches(ship,u.lodMask)){return 0xffffffffu;}
-  bin=min(ship.targetKind&255u,BATCHES-1u);
+  bin=meshBin(ship,shipIdx,0u,u.classCount);
   `}
   let pose=modelShipPose(ship,u.origin,scale);
   if(!sphereVisible(pose.centerRel,radius*abs(pose.hullScale))){return 0xffffffffu;}

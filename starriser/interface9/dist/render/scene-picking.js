@@ -66,24 +66,38 @@ export function pickRuntimeFleetHalo(state, x, y) {
     const hit = pickFleetHalo(ray, state.view.haloMarkers(), minR);
     return hit ? { kind: "fleet", id: hit.id, slot: hit.slot } : null;
 }
+function fleetIdentity(state, refs, renderId) {
+    const id = refs.find(row => row.visual.id === renderId)?.id ?? renderId;
+    state.sceneFleetRenderIds.set(id, renderId);
+    return id;
+}
 export async function pickRuntimeSceneTarget(state, remote, x, y) {
+    // HUD targets take precedence over the planet sphere and share one identity path.
+    const selected = state.view.survey?.pickSelectedPin?.(x, y);
+    if (selected)
+        return selected;
+    const label = state.view.survey?.planetMarkers.pick(x, y);
+    if (label?.kind === 'body')
+        return label;
     const { camera, ray } = rayFor(state, x, y);
     // At most 128 cached centers, no per-ship readback on mouse movement.
     // Match the icon rectangle rather than a ground-plane ray or an old CPU slot.
     const refs = sceneRefs(state, remote);
+    if (label?.kind === 'fleet') {
+        return { kind: 'fleet', id: fleetIdentity(state, refs, label.id) };
+    }
+    return pickSceneFleetBadge(state, refs, x, y) ?? pickBodies(state, camera, ray).result;
+}
+function pickSceneFleetBadge(state, refs, x, y) {
     let best = null;
     for (const marker of state.view.sceneFleetMarkers()) {
         if (Math.abs(x - marker.x) > marker.width / 2 + 3 || Math.abs(y - marker.y) > marker.height / 2 + 3)
             continue;
         if (best && marker.depth >= best.depth)
             continue;
-        const ref = refs.find(row => row.visual.id === marker.id);
-        const id = ref?.id ?? marker.id;
-        state.sceneFleetRenderIds.set(id, marker.id);
+        const id = fleetIdentity(state, refs, marker.id);
         best = { id, depth: marker.depth };
     }
-    if (best)
-        return { kind: 'fleet', id: best.id };
-    return pickBodies(state, camera, ray).result;
+    return best ? { kind: 'fleet', id: best.id } : null;
 }
 //# sourceMappingURL=scene-picking.js.map

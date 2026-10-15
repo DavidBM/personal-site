@@ -166,4 +166,15 @@ export function writeRenderScale(scale) {
     }
     catch { /* Session applies. */ }
 }
+/** Live planet presentation is independent of ship-count/High FX budgets. */
+export function readPlanetScene() { try {
+    return localStorage.getItem('galaxy.planetScene') !== 'false';
+}
+catch {
+    return true;
+} }
+export function writePlanetScene(on) { try {
+    localStorage.setItem('galaxy.planetScene', String(on));
+}
+catch { /* Session still applies. */ } }
 //# sourceMappingURL=graphics-settings.js.map

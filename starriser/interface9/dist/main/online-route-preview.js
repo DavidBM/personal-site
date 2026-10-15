@@ -17,17 +17,22 @@ export function ruleTopology(view, connectionGeneration) {
 export async function previewOnlineRoute(session, worker, topology, selection) {
     const graph = ruleTopology(topology, session.generation);
     await worker.request({ type: 'seedTopology', topology: graph });
-    const page = await session.ownedFleets({ fleetId: selection.fleetId });
+    const page = await session.ownedFleets({ fleetId: selection.fleetId, travelPolicy: true });
     const token = page.seed.token;
+    const row = page.fleets.findIndex(fleet => fleet.id === selection.fleetId);
+    if (row < 0)
+        throw new Error('Fleet is no longer in this system');
+    const ready = page.seed.times[row * 3 + 2];
+    const departure = ready > page.serverNowMs ? ready : page.serverNowMs;
     await worker.request({ type: 'seed', seed: page.seed });
     const result = await worker.request({ type: 'previewRoute', route: {
             token, topology: graph.token, fleetId: selection.fleetId, destinationSystemId: selection.destinationSystemId,
-            targetX: selection.target.x, targetZ: selection.target.z, nowMs: page.serverNowMs,
+            targetX: selection.target.x, targetZ: selection.target.z, nowMs: departure,
             expectedSystemRevision: token.watermark.systemRevision,
         } });
     if (!('kind' in result) || result.kind !== 'route-preview')
         throw new Error('Shared rules returned an unexpected route result');
-    return result;
+    return { ...result, totalTravelMs: result.totalTravelMs + departure - page.serverNowMs };
 }
 export function routeStillCurrent(session, result, topology) {
     const watermark = session.received();

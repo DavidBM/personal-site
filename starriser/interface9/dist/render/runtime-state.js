@@ -61,14 +61,17 @@ function observeSceneFleet(state, id, visual) {
     const wallMs = state.view.getSceneWallMs();
     const types = state.view.sceneShipTypes?.(visual.id) ?? [];
     return {
+        controllable: visual.remote?.relationship === 'own',
         id, shipIndex: state.view.getSceneShipHandle(visual.id, 0) ?? -1,
         ...position,
         shipCount: visual.counts.red + visual.counts.blue + visual.counts.green,
         types, visualCount: types.reduce((sum, row) => sum + row.count, 0),
         ...state.view.sceneFleetActivity?.(visual.id),
         state: visual.state.state,
-        remainingSec: sceneFleetRemainingSec(visual.state, wallMs),
-        planetName: sceneParkPlanetName(hashFleetId(visual.id), state.view.solarBodies, visual.state),
+        remainingSec: (visual.pendingMove?.path ?? visual.remote)?.moving
+            ? Math.max(0, Math.ceil((visual.pendingMove?.path ?? visual.remote).arrivalGpuMs / 1000 - state.view.getSceneTimeSec()))
+            : sceneFleetRemainingSec(visual.state, wallMs),
+        planetName: visual.remote ? null : sceneParkPlanetName(hashFleetId(visual.id), state.view.solarBodies, visual.state),
     };
 }
 export function sceneFleetPage(state, remote, offset, limit) {
@@ -125,6 +128,7 @@ export function renderSnapshot(state, remote = [], remoteTotal = remote.length) 
 export function renderSnapshotHeader(state, remoteTotal) {
     const { view, camera } = state;
     return {
+        incomingDestinations: view.survey.incoming?.length ?? 0,
         sequence: state.sequence, camera: view.getCameraState(), origin: view.getFrameOrigin(),
         scenePreparation: view.scenePreparationStatus?.() ?? null,
         ...graphicsStatus(view),
@@ -172,6 +176,7 @@ export function sceneDiagnostics(state) {
     }
     return {
         snapshot: renderSnapshot(state), points, fleets,
+        connections: connectionCounts(view),
         topologyEncoded: view.getLastGalaxyTopologyEncoded(), passSetHash: view.getLastPassSetHash(),
         orbitRingSegments: view.getLastOrbitRingSegments(), jumpRaySegments: view.getLastJumpRaySegments(),
         resolveDepthAttached: view.wasPassResolveDepthAttached(), focusAtmosphere: view.getLastFocusAtmMode(),
@@ -179,5 +184,15 @@ export function sceneDiagnostics(state) {
         modelSelectedCount: view.modelLayer.getLastShipIndices().length,
         modelSubmittedCandidates: view.modelLayer.getLastInstanceCount(), modelInstanceLimit: view.modelLayer.getMaxInstances(),
     };
+}
+function connectionCounts(view) {
+    let atlas = 0, systems = 0;
+    for (const key of view.lineStore?.keyToIndex.keys() ?? []) {
+        if (key.startsWith('online:jump:'))
+            atlas++;
+        if (key.startsWith('online:system:'))
+            systems++;
+    }
+    return { total: view.lineStore?.keyToIndex.size ?? 0, atlas, systems };
 }
 //# sourceMappingURL=runtime-state.js.map

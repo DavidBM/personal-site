@@ -17,13 +17,12 @@ import { MODEL_SHIP_TYPES_WGSL, MODEL_SHIP_POSE_WGSL } from "./model-ship-pose.w
 export const FLEET_MODEL_VERTEX_STRIDE = 32; // 8 × f32
 /**
  * mat4 viewProjRel + origin.xyz + modelScale + fallbackLight.xyz + ambient +
- * eyeWorld.xyz + meshYawHalf + thrusterPulse + WGSL vec3 pad = **144 B**.
- * (thrusterPulse @112; next vec3 aligns to 128 → struct rounds to 144.)
+ * eyeWorld.xyz + meshYawHalf + draw/batch/selection fields = **160 B**.
  * Primary diffuse = per-ship pathEnd; fallbackLight only when |center−ship|≈0.
  * eyeWorld is **camera eye in world** for rim only (not the key light).
  * thrusterPulse gently modulates the aft hard thruster light.
  */
-export const FLEET_MODEL_UNIFORM_SIZE = 144;
+export const FLEET_MODEL_UNIFORM_SIZE = 160;
 export { MODEL_LOD_MAX_INSTANCES };
 /** Must match ShipSim stride used by integrate. */
 export const FLEET_MODEL_SHIP_SIM_STRIDE = SHIP_SIM_STRIDE;
@@ -64,6 +63,10 @@ struct ModelUniforms {
   batchClass : u32,
   catalog : u32,
   pixelGain : f32,
+  /** 0 ordinary; 1 ordinary with selected replacement; 2 selected-only. */
+  selectionMode : u32,
+  selectedIndex : u32,
+  selectedOwner : u32,
 };
 
 ${MODEL_SHIP_TYPES_WGSL}
@@ -142,9 +145,11 @@ fn vs_main(input : VSIn) -> VSOut {
     return out;
   }
   let ship = ships[shipIdx];
+  let selectedShip = modelShipIsSelected(ship, shipIdx, u.selectedIndex, u.selectedOwner);
+  let selectionMatches = u.selectionMode == 0u || selectedShip == (u.selectionMode == 2u);
   out.team = vec3<f32>(ship.slotX, ship.slotY, ship.slotZ);
   out.selected = select(select(0.0, 0.4, (ship.targetKind & 2048u) != 0u), 1.0, (ship.targetKind & 256u) != 0u);
-  if (!modelShipLodMatches(ship, u.lodMask) || (u.catalog != 0u && (ship.targetKind & 255u) != u.batchClass)) {
+  if (!selectionMatches || !modelShipLodMatches(ship, u.lodMask) || (u.catalog != 0u && (ship.targetKind & 255u) != u.batchClass)) {
     out.clip = vec4<f32>(0.0, 0.0, 2.0, 1.0);
     out.uv = input.meshUv;
     out.worldNrm = vec3<f32>(0.0, 1.0, 0.0);
@@ -190,20 +195,21 @@ fn vs_main(input : VSIn) -> VSOut {
 @fragment
 fn fs_main(input : VSOut) -> @location(0) vec4<f32> {
   if(u.lodMask==8192u){
-    // Flat faction-colored facets, no texture, normal-map or specular reads.
+    // Dart: flat faction-colored facets, no texture, normal-map or specular reads.
     let light=.65+.35*max(dot(normalize(input.worldNrm),normalize(u.fallbackLight)),0.0);
     return vec4<f32>(input.team*light,1.0);
   }
+  // Point: one camera-facing triangle in faction color.
+  if(u.lodMask==32768u){ return vec4<f32>(input.team*.9,1.0); }
   let baseSample = textureSample(baseColorTex, texSampler, input.uv);
   let specSample = textureSample(specularDiffuseTex, texSampler, input.uv);
   let cool = vec3<f32>(0.35, 0.72, 0.95);
   let hot = vec3<f32>(1.0, 0.45, 0.15);
   var albedo = mix(cool, baseSample.rgb, 0.55) * mix(vec3<f32>(1.0), specSample.rgb, 0.2);
   if (u.catalog != 0u) {
-    // The shared palette carries armor, machinery, glazing and restricted paint.
-    // Team color only tints the ochre paint swatch, preserving the hull material.
-    let paint = baseSample.r > 0.3 && baseSample.g > 0.15 && baseSample.b < baseSample.r * 0.55;
-    albedo = mix(baseSample.rgb, baseSample.rgb * 0.55 + input.team * 0.45, select(0.0, 0.65, paint));
+    // Catalog hulls keep their authored colours: no faction tint. Faction still
+    // reads from trails, markers and the flat dart/point levels.
+    albedo = baseSample.rgb;
   }
   let nMap = textureSample(normalTex, texSampler, input.uv).xyz * 2.0 - 1.0;
   var n = normalize(input.worldNrm);
@@ -239,7 +245,14 @@ fn fs_main(input : VSOut) -> @location(0) vec4<f32> {
     let halfway = halfVector * inverseSqrt(max(dot(halfVector, halfVector), 1e-12));
     let specular = pow(max(dot(n, halfway), 0.0), mix(72.0, 8.0, roughness)) * (0.06 + specSample.b * 0.14) * NdotL;
     let engine = baseSample.b > baseSample.r * 1.35 && baseSample.b > 0.55;
-    let lit = albedo * (0.24 + NdotL * 0.76) + vec3<f32>(specular) + albedo * select(0.0, 0.6, engine);
+    // Light in linear space (textures hold sRGB values) so mid-tones keep their
+    // brightness; a sky-to-ground fill keeps the unlit side readable and a mild
+    // vibrance lift makes the authored paint pop without shifting its hue.
+    let luma = dot(albedo, vec3<f32>(0.2126, 0.7152, 0.0722));
+    let vivid = pow(max(mix(vec3<f32>(luma), albedo, 1.35), vec3<f32>(0.0)), vec3<f32>(2.2));
+    let fill = mix(0.22, 0.4, n.y * 0.5 + 0.5);
+    let radiance = vivid * (fill + NdotL * 1.05) + vec3<f32>(specular) + vivid * select(0.0, 0.8, engine);
+    let lit = pow(radiance, vec3<f32>(1.0 / 2.2));
     // A chase camera sees much of the roof at grazing angles; keep even the
     // maximum rim below the material lighting instead of washing the hull cyan.
     let mark = vec3<f32>(0.12, 0.85, 0.92) * input.selected * (0.025 + rim * 0.20);

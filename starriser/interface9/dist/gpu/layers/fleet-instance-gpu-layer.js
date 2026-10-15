@@ -27,10 +27,12 @@ import { buildFleetIntegrateWgsl, buildFleetIntegrateFastWgsl, FLEET_INTEGRATE_U
 import { DEFAULT_TRAIL_TEXTURE_URL, FLEET_TRAILS_WGSL, TRAIL_TEMPLATE_INDEX_COUNT, TRAIL_TEMPLATE_INDICES, TRAIL_TEMPLATE_STRIDE, TRAIL_UNIFORM_FLOATS, TRAIL_UNIFORM_SIZE, TRAIL_WIDTH_HEAD_PX, TRAIL_WIDTH_TAIL_PX, TRAIL_MITER_LIMIT, TRAIL_WORLD_MIN_PX, TRAIL_WORLD_WIDTH_HEAD, TRAIL_WORLD_WIDTH_TAIL, buildTrailTemplateInterleaved, resolveTrailDrawWidths, writeTrailJewelRadius, writeTrailUniforms, writeTrailWidthMode, writeTrailExposure, TRAIL_EXPOSURE_DEFAULT, } from "../shaders/fleet-trails.wgsl.js";
 import { computeTrailScreenWidthCoefficient, writeTrailVisibilityUniform, TRAIL_VISIBILITY_UNIFORM_BYTES } from "../../lib/fleet-sim/visual/trail-visibility.js";
 import { SCENE_TRAIL_WIDTH_MUL } from "../ship-motion-config.js";
-import { TRAIL_SAMPLE_FLOATS, resolveTrailLayout, } from "../fleet-trail-ref.js";
+import { TRAIL_SAMPLE_FLOATS, TRAIL_SEGMENT_FLOATS, TRAIL_SEGMENT_STRIDE, resolveTrailLayout, } from "../fleet-trail-ref.js";
 import { FLEET_FLAG_SYSTEM_SCENE, FLEET_GPU_STRIDE, FleetGpuFields, TRAIL_SAMPLE_STRIDE, } from "../fleet-layout.js";
 import { TRAIL_INDIRECT_DISPATCH_BYTE, TRAIL_INDIRECT_META_BYTE, TRAIL_INDIRECT_WORKLIST_BYTE, TRAIL_DRAW_ARGUMENT_BYTES, trailIndirectTableBytes, writeDispatchIndirectArgs, } from "../../lib/fleet-sim/visual/trail-indirect-table.js";
 import { readGpuBuffer } from "../buffer-readback.js";
+import { EngineFxGpu } from "./engine-fx-gpu.js";
+import { SHIP_ENGINE_HEADER_BYTES, SHIP_FX_MAX_EMITTERS, SHIP_FX_MAX_GLOWS, SHIP_GLOW_SHIP_CAPACITY, SHIP_GLOW_SHIP_STRIDE } from "../../lib/fleet-sim/visual/ship-fx.js";
 import { GLOBAL_MAX_INSTANCES, GPU_FLEET_CAPACITY_MIN, GPU_SHIP_CAPACITY_MIN, LOD_FAR_Y, LOD_MID_DIST, LOD_NEAR_DIST, LOD_NEAR_Y, nextGrowCapacity, } from "../fleet-lod.js";
 import { ShipSimFields } from "../ship-sim-layout.js";
 import { FLEET_TRIANGLE_VERTICES } from "../fleet-mesh.js";
@@ -63,6 +65,11 @@ export class FleetInstanceGpuLayer {
          */
         this.splitTrailPipelines = [];
         this.splitTrailGroups = [];
+        /** Catalog engine trails and glows (table, engine list, style textures, glow draw). */
+        this.engineFx = null;
+        /** Trail pipeline with vs_engine: catalog engine copies of engine-ship ribbons (depth-tested, full resolution only). */
+        this.engineTrailPipelineDepth = null;
+        this.engineTrailGroup = null;
         this.trailPipelineDepth = null;
         /** R2 Pass A: ease FleetGpu.pos (cs_fleets). */
         this.computeFleetPipeline = null;
@@ -299,6 +306,7 @@ export class FleetInstanceGpuLayer {
     prepareTrailVisibility(viewProj, view, enabled, sceneTrailScale = true, projection, resolutionH) {
         const modelPot = this.modelTrailPotActive();
         const widths = this.trailDrawWidths(modelPot, sceneTrailScale, modelPot);
+        this.engineFx?.setScreenScale((projection?.[5] ?? NaN) * (resolutionH ?? NaN));
         if (!modelPot) {
             this.prepareScreenTrailVisibility(viewProj, view, enabled, widths, projection, resolutionH);
             return;
@@ -338,6 +346,31 @@ export class FleetInstanceGpuLayer {
      * [indexCount, instanceCount, firstIndex, baseVertex, firstInstance]
      * instanceCount should be denseExpandCount * segsPerShip.
      */
+    /**
+     * Test/diagnostic: this frame's engine list — engine-ribbon centre segments
+     * and glow ships (each drawn as SHIP_FX_MAX_EMITTERS / SHIP_FX_MAX_GLOWS
+     * instances), glow demand before the capacity check, the glow ships' kernel
+     * slots, the host's glow diameter floor (render px, 0 = none) and how many
+     * engine segments are thin lines (low detail) rather than textured ribbons.
+     */
+    async readbackEngineList() {
+        if (!this.engineFx)
+            return { ribbonInstances: 0, glowInstances: 0, glowDemand: 0, glowShipSlots: [], glowFloorPx: 0, engineLines: 0 };
+        const device = this.bootstrap.device;
+        const words = new Uint32Array(await readGpuBuffer(device, this.engineFx.glowList, 0, SHIP_ENGINE_HEADER_BYTES + SHIP_GLOW_SHIP_CAPACITY * SHIP_GLOW_SHIP_STRIDE));
+        const ships = Math.min(words[9] / SHIP_FX_MAX_GLOWS, SHIP_GLOW_SHIP_CAPACITY);
+        const glowShipSlots = Array.from({ length: ships }, (_, i) => words[SHIP_ENGINE_HEADER_BYTES / 4 + i * 12 + 9]);
+        // Engine segments fill the trail records from the end; a thin one has negative alpha.
+        const segments = words[1] / SHIP_FX_MAX_EMITTERS, records = Math.floor((this.trailLineBuffer?.size ?? 0) / TRAIL_SEGMENT_STRIDE);
+        let engineLines = 0;
+        if (segments > 0 && segments <= records && this.trailLineBuffer) {
+            const floats = new Float32Array(await readGpuBuffer(device, this.trailLineBuffer, (records - segments) * TRAIL_SEGMENT_STRIDE, segments * TRAIL_SEGMENT_STRIDE));
+            for (let i = 0; i < segments; i++)
+                if (floats[i * TRAIL_SEGMENT_FLOATS + 6] < 0)
+                    engineLines++;
+        }
+        return { ribbonInstances: words[1], glowInstances: words[9], glowDemand: words[10], glowShipSlots, glowFloorPx: this.engineFx.glowFloor, engineLines };
+    }
     async readbackTrailIndirectArgs() {
         if (!this.trailIndirectBuffer) {
             return new Uint32Array([0, 0, 0, 0, 0]);
@@ -632,16 +665,30 @@ export class FleetInstanceGpuLayer {
                 depthCompare: this.depth.transparentCompare,
             },
         });
+        this.engineFx = new EngineFxGpu(device, format, this.depth, () => {
+            this.splitTrailGroups = [];
+            this.engineTrailGroup = null;
+            this.rebuildTrailBindGroups();
+        });
+        // Engine copies use the template only; vs_engine reads the segment records itself.
+        this.engineTrailPipelineDepth = device.createRenderPipeline({
+            label: "fleet-engine-trails-depth", layout: "auto",
+            vertex: { module: trailModule, entryPoint: "vs_engine", constants: { analyticEdges: Number(sampleCount === 1) }, buffers: [trailVertexBuffers[0]] },
+            fragment: trailFragment, primitive: trailPrimitive, multisample: trailMultisample,
+            depthStencil: { format: this.depth.format, depthWriteEnabled: false, depthCompare: this.depth.transparentCompare },
+        });
         if (MAP_HALF_GLOW) {
             const splitModule = device.createShaderModule({ label: 'split-trail-emission', code: sceneTrailDrawShader(SPLIT_TRAIL_WGSL) });
             for (const glowMode of [1, 2]) {
                 const samples = glowMode === 1 ? sampleCount : 1;
-                this.splitTrailPipelines.push(device.createRenderPipeline({ label: glowMode === 1 ? 'trail-core-and-edge-fallback' : 'trail-half-glow', layout: 'auto',
-                    vertex: { module: splitModule, entryPoint: 'vs_main', buffers: trailVertexBuffers, constants: { analyticEdges: Number(samples === 1), glowMode } },
-                    fragment: { ...trailFragment, module: splitModule, constants: { analyticEdges: Number(samples === 1), glowMode },
+                const constants = { analyticEdges: Number(samples === 1), glowMode };
+                const split = { layout: 'auto',
+                    fragment: { ...trailFragment, module: splitModule, constants,
                         targets: [{ ...trailFragment.targets[0], format: glowMode === 2 ? 'rgba16float' : format }] },
                     primitive: trailPrimitive, multisample: { count: samples },
-                    depthStencil: glowMode === 1 ? { format: this.depth.format, depthWriteEnabled: false, depthCompare: this.depth.transparentCompare } : undefined, }));
+                    depthStencil: glowMode === 1 ? { format: this.depth.format, depthWriteEnabled: false, depthCompare: this.depth.transparentCompare } : undefined, };
+                this.splitTrailPipelines.push(device.createRenderPipeline({ ...split, label: glowMode === 1 ? 'trail-core-and-edge-fallback' : 'trail-half-glow',
+                    vertex: { module: splitModule, entryPoint: 'vs_main', buffers: trailVertexBuffers, constants } }));
             }
         }
         const computeModule = device.createShaderModule({
@@ -890,6 +937,7 @@ export class FleetInstanceGpuLayer {
                 { binding: 0, resource: { buffer: slot.buffer } },
                 { binding: 1, resource: texView },
                 { binding: 2, resource: sampler },
+                { binding: 3, resource: this.engineFx.ribbonView },
             ];
             const bindGroup = this.bootstrap.device.createBindGroup({
                 label: `fleet-trails-bind-${s}`,
@@ -992,8 +1040,8 @@ export class FleetInstanceGpuLayer {
                 ],
             });
         }
-        // cs_ships: 7 storage (bindings 1–6 + 8). Binding 6 = command table.
-        // Binding 7 is NOT on this group (would be an 8th storage slot).
+        // cs_expand_trails: 8 storage (bindings 1–6, 8, 11) + uniforms 0 and 9. Binding 6 = command table.
+        // Binding 7 is NOT on this group (it would be a 9th storage slot).
         if (this.computeShipPipeline &&
             this.integrateUniformBuffer &&
             this.fleetBuffer &&
@@ -1045,8 +1093,11 @@ export class FleetInstanceGpuLayer {
                         binding: 8,
                         resource: { buffer: hideBuf },
                     },
+                    // Catalog engines (uniform) and the glow list expansion writes (8th storage binding).
+                    { binding: 9, resource: { buffer: this.engineFx.table } },
+                    { binding: 11, resource: { buffer: this.engineFx.glowList } },
                 ];
-                this.lastShipStorageBindings = shipEntries.filter((e) => e.binding !== 0).length;
+                this.lastShipStorageBindings = shipEntries.filter((e) => e.binding !== 0 && e.binding !== 9).length;
                 this.computeShipBindGroup = this.bootstrap.device.createBindGroup({
                     label: "fleet-integrate-ships-bind",
                     layout: this.computeShipPipeline.getBindGroupLayout(0),
@@ -2594,6 +2645,7 @@ export class FleetInstanceGpuLayer {
         }
         if (!this.trailIndirectHandle)
             return groups;
+        this.engineFx?.resetFrame();
         const maxSlots = Math.max(this.trailLineSlotCapacity, this.trailShipCapacity, 1);
         this.trailMetaResetScratch[0] = 0;
         this.trailMetaResetScratch[1] = maxSlots >>> 0;
@@ -2630,6 +2682,7 @@ export class FleetInstanceGpuLayer {
         // as INDIRECT+STORAGE as a pass alias, so we do not dispatchWorkgroupsIndirect.
         pass.dispatchWorkgroups(groups);
         pass.end();
+        this.engineFx?.sampleCounts(encoder);
         if (!this.computeTrailIndirectPipeline || !this.computeTrailIndirectBindGroup)
             return;
         const p2 = encoder.beginComputePass({ label: "fleet-trail-indirect" });
@@ -2658,6 +2711,26 @@ export class FleetInstanceGpuLayer {
         return this.trailExpandedThisFrame ? this.trailIndirectBuffer : null;
     }
     /**
+     * Engine trails and glows from the hull catalog (ship-fx.ts). `base` is the
+     * catalog folder URL; `hullUnit` the world size of hull radius 1 at draw scale 1.
+     */
+    setShipFx(fx, base, hullUnit) {
+        return this.engineFx?.load(fx, base, hullUnit) ?? Promise.resolve();
+    }
+    /** True when a catalog with engine glows is installed. */
+    hasEngineGlows() {
+        return this.engineFx?.hasGlows ?? false;
+    }
+    /**
+     * Engine glows of this frame's full-detail hulls, after hulls and trails, in
+     * a pass without a depth attachment; `depth` is the single-sample scene depth.
+     */
+    encodeEngineGlows(pass, view, projection, width, height, depth) {
+        if (!this.trailExpandedThisFrame)
+            return;
+        this.engineFx?.encodeGlows(pass, view, projection, width, height, depth);
+    }
+    /**
      * L5b fat trail ribbons (Line2-style expand, GPU expand buffer, no host pack).
      * Width: wide at head (fresh α), thin at tail.
      *
@@ -2682,15 +2755,7 @@ export class FleetInstanceGpuLayer {
         let bg = this.trailDrawBindGroup(depthAware);
         let depthGroup;
         if (split && options?.opaqueDepth && pipeline) {
-            const atlas = this.trailTextureView, depth = options.opaqueDepth, uniform = this.trailUniformSlots[0].buffer;
-            let groups = this.splitTrailGroups[split - 1];
-            if (!groups || groups.atlas !== atlas || groups.depth !== depth || groups.uniform !== uniform) {
-                const device = this.bootstrap.device;
-                groups = { atlas, depth, uniform,
-                    color: device.createBindGroup({ layout: pipeline.getBindGroupLayout(0), entries: [{ binding: 0, resource: { buffer: uniform } }, { binding: 1, resource: atlas }, { binding: 2, resource: this.trailSampler }] }),
-                    z: device.createBindGroup({ layout: pipeline.getBindGroupLayout(3), entries: [{ binding: 0, resource: depth }] }) };
-                this.splitTrailGroups[split - 1] = groups;
-            }
+            const groups = this.splitTrailGroupsFor(pipeline, split, options.opaqueDepth);
             bg = groups.color;
             depthGroup = groups.z;
         }
@@ -2708,7 +2773,60 @@ export class FleetInstanceGpuLayer {
         if (depthGroup)
             pass.setBindGroup(3, depthGroup);
         this.drawTrailRibbons(pass, modelPot);
+        this.drawEngineRibbons(pass, split, depthAware);
         this.recordTrailVariants(modelPot);
+    }
+    disposeEngineFx() {
+        this.engineFx?.destroy();
+        this.engineFx = null;
+        this.engineTrailPipelineDepth = null;
+        this.engineTrailGroup = null;
+    }
+    /**
+     * Catalog engine ribbons of this frame: every engine-ship centre segment once
+     * per emitter of its class (vs_engine), GPU-counted, with the same uniforms and
+     * blend as the ribbons just drawn; hull-band passes only. Their styles are
+     * baked textures, so they draw whole at full resolution: in the core pass of a
+     * core/glow split and never in its half-resolution glow pass, whose upsampled
+     * edge stair-stepped along thin ribbons.
+     */
+    drawEngineRibbons(pass, split, depthAware) {
+        if (!this.engineFx?.hasRibbons || !this.trailExpandedThisFrame || !this.trailLineBuffer || split === 2)
+            return;
+        const pipeline = split || depthAware ? this.engineTrailPipelineDepth : null;
+        if (!pipeline)
+            return;
+        pass.setPipeline(pipeline);
+        bindSceneCamera(this.bootstrap.device, pass, pipeline);
+        pass.setBindGroup(0, this.engineTrailGroupFor(pipeline));
+        pass.drawIndexedIndirect(this.engineFx.glowList, 0);
+    }
+    engineTrailGroupFor(pipeline) {
+        const atlas = this.trailTextureView, ribbons = this.engineFx.ribbonView, lines = this.trailLineBuffer;
+        const cached = this.engineTrailGroup;
+        if (cached && cached.atlas === atlas && cached.ribbons === ribbons && cached.lines === lines)
+            return cached.group;
+        const group = this.bootstrap.device.createBindGroup({ label: "fleet-engine-trails", layout: pipeline.getBindGroupLayout(0), entries: [
+                { binding: 0, resource: { buffer: this.trailUniformSlots[0].buffer } }, { binding: 1, resource: atlas },
+                { binding: 2, resource: this.trailSampler }, { binding: 3, resource: ribbons },
+                { binding: 6, resource: { buffer: lines } }, { binding: 7, resource: { buffer: this.engineFx.table } },
+                { binding: 8, resource: { buffer: this.engineFx.glowList } }
+            ] });
+        this.engineTrailGroup = { atlas, ribbons, lines, group };
+        return group;
+    }
+    /** Split core/glow passes bind the scene depth too; rebuilt when any bound view changes. */
+    splitTrailGroupsFor(pipeline, split, depth) {
+        const atlas = this.trailTextureView, ribbons = this.engineFx.ribbonView, uniform = this.trailUniformSlots[0].buffer;
+        let groups = this.splitTrailGroups[split - 1];
+        if (!groups || groups.atlas !== atlas || groups.ribbons !== ribbons || groups.depth !== depth || groups.uniform !== uniform) {
+            const device = this.bootstrap.device;
+            groups = { atlas, ribbons, depth, uniform,
+                color: device.createBindGroup({ layout: pipeline.getBindGroupLayout(0), entries: [{ binding: 0, resource: { buffer: uniform } }, { binding: 1, resource: atlas }, { binding: 2, resource: this.trailSampler }, { binding: 3, resource: ribbons }] }),
+                z: device.createBindGroup({ layout: pipeline.getBindGroupLayout(3), entries: [{ binding: 0, resource: depth }] }) };
+            this.splitTrailGroups[split - 1] = groups;
+        }
+        return groups;
     }
     modelTrailPotActive() {
         return this.modelLodActive && (this.trailDrawShipIndices?.length ?? 0) > 0;
@@ -2848,6 +2966,7 @@ export class FleetInstanceGpuLayer {
         this.trailPipelineDepth = null;
         this.splitTrailPipelines = [];
         this.splitTrailGroups = [];
+        this.disposeEngineFx();
         this.computeFleetPipeline = null;
         this.computeShipPipeline = null;
         this.computeCompactPipeline = null;

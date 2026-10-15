@@ -1,8 +1,13 @@
+import { closeMobileDockPanels } from './ui/mobile-layout.js';
+import { createMapLayersPanel, loadMapLayers } from './ui/map-layers-panel.js';
+import { createSelectedFleet } from './ui/selected-fleet.js';
+import { createClusterSurveyPanel } from './ui/cluster-survey-panel.js';
+import { createClusterRibbonInput } from './main/cluster-ribbon-input.js';
 import { createFleetCreationMenu } from './features/fleets/create-panel.js';
 import { planetOrbitMenu, matchesPlanetOrbit } from './main/fleet-orbit-input.js';
 import { createBattleClient } from "./features/battles/client.js";
 import { createGpuErrorNotice } from './ui/gpu-error-notice.js';
-import { readStarField, writeStarField } from './main/graphics-settings.js';
+import { readPlanetScene, writePlanetScene, readStarField, writeStarField } from './main/graphics-settings.js';
 import { QualityDiagnosticsPanel } from './ui/quality-diagnostics.js';
 import { simulationRate } from './contracts/simulation-rate.js';
 import { fleetCardObservation } from './ui/fleet-card.js';
@@ -10,9 +15,12 @@ import { createFleetDebugLegend } from './ui/fleet-debug-legend.js';
 import { createRuntimePreparationNotice } from './ui/runtime-preparation-notice.js';
 import { mountBusMetricsPanel } from './ui/bus-metrics-panel.js';
 import { UIController } from "./ui-controller.js";
+import { runtimeForAuthority, snapshotRuntime } from './main/runtime-profile.js';
 import { createOnlineSession } from './main/online-session.js';
+import { surveyPlanetCatalog } from './main/online-planet-survey.js';
 import { followOnlineFleet } from './main/online-navigation.js';
-import { createOnlineTopology } from './main/online-topology.js';
+import { createOnlineMap } from './main/online-map.js';
+import { createOnlineMapConsumer } from './main/online-map-consumer.js';
 import { Galaxy } from "./galaxy.js";
 import { GalaxyMetrics } from "./galaxy-metrics.js";
 import { ControlsManager } from "./controls-manager.js";
@@ -54,8 +62,17 @@ import { assertWebGpuAvailable } from "./gpu/preferred-backend.js";
 import { directorFlyToSystem, fleetLocsFromState, pickRandomCluster, pickRandomSystem, pickSystemWithShips, arrivalShipsPresent, } from "./gpu/camera-director.js";
 import { SCENE_ENTER_PX, distanceForSpanPx, } from "./gpu/solar-system-lod.js";
 export class App {
+    setTesterPermission(value) { this.testerEnabled = value; if (!value)
+        this.fleetCreationMenu?.hide(); }
     constructor(options = {}) {
+        this.clusterSurvey = null;
+        this.clusterRibbonInput = createClusterRibbonInput(() => this.renderClient, hit => this.clusterSurvey?.open(hit));
+        this.pendingSurveyBody = null;
+        this.pendingSurveyFleet = null;
+        this.testerEnabled = false;
         this.qualityDiagnosticsPanel = null;
+        this.planetSceneLive = readPlanetScene();
+        this.planetDevelopmentOpen = false;
         this.starFieldEnabled = readStarField();
         this.highFxEnabled = readHighFx();
         this.simulationHz = readSimulationRate();
@@ -64,9 +81,13 @@ export class App {
         this.fleetDebugLegend = null;
         this.gpuErrorNotice = null;
         this.runtimePreparationNotice = null;
+        this.mapLayersSent = false;
+        this.mapLayerOptions = loadMapLayers();
         this.online = null;
         this.onlineAttempt = 0;
+        this.onlineFollow = null;
         this.onlineNode = null;
+        this.journeyNodes = new Map();
         this.onlineTopology = null;
         this.busMetricsPanel = null;
         this.battles = null;
@@ -76,6 +97,7 @@ export class App {
         this.scenePointerFeedback = null;
         this.fleetCreationMenu = null;
         this.fleetContextMenu = null;
+        this.selectedFleetCard = null;
         this.fleetMoveStatus = null;
         this.armedFleetMove = null;
         this.fleetMoveGesture = null;
@@ -94,8 +116,25 @@ export class App {
         this.startupAbort = new AbortController();
         this.pageLifetimeCleanup = null;
         this.subscriptionDispose = null;
+        this.onlinePlanetTargets = new Map();
+        this.onlinePlanetReadiness = {};
         this.followHullRotation = true;
-        this.authority = options.authority ?? 'offline';
+        this.runtime = snapshotRuntime(options.runtime ?? runtimeForAuthority(options.authority ?? 'offline'));
+        if (options.authority && options.authority !== this.runtime.authority)
+            throw new Error('Conflicting runtime authority');
+        this.authority = this.runtime.authority;
+        this.dockPanels = options.dockPanels ?? [];
+        this.onOnlineViewport = options.onOnlineViewport;
+        this.onOnlineSystemSelected = options.onOnlineSystemSelected;
+        this.onOnlinePlanetSelected = options.onOnlinePlanetSelected;
+        this.onOnlineFleetMove = options.onOnlineFleetMove;
+        this.onOnlineFleetOrbit = options.onOnlineFleetOrbit;
+        this.onOnlineFleetAttack = options.onOnlineFleetAttack;
+        this.onOnlineFleetCreate = options.onOnlineFleetCreate;
+        this.onOnlineFleetOwners = options.onOnlineFleetOwners;
+        this.onOnlineFleetSelected = options.onOnlineFleetSelected;
+        this.onOnlineFleetGo = options.onOnlineFleetGo;
+        this.onOnlineFleetDeselected = options.onOnlineFleetDeselected;
         this.statsPanels = [];
         this.uiRoot = createUIRoot();
         this.uiContext = createUIContext(this.uiRoot);
@@ -154,6 +193,7 @@ export class App {
         this.gpuErrorNotice = createGpuErrorNotice(document.body);
         const client = await RenderClient.create({
             container: document.body,
+            workerModule: this.runtime.workers.render,
             onState: (snapshot) => this.handleRenderState(snapshot),
             onGpuError: message => this.gpuErrorNotice?.update(message),
             onPreparation: status => this.runtimePreparationNotice?.update(status),
@@ -165,39 +205,41 @@ export class App {
             throw new Error("App disposed during renderer initialization");
         }
         this.renderClient = client;
+        this.mapLayersSent = false;
         client.send({ type: "simulationRate", hz: this.simulationHz });
         client.send({ type: "starField", on: this.starFieldEnabled });
         client.send({ type: "highFx", on: this.isHighFxEnabled() });
         client.send({ type: "fleetPaths", on: this.fleetPathsVisible });
         this.scenePointerFeedback = createScenePointerFeedback(document.body);
         this.fleetDebugLegend = createFleetDebugLegend(document.body);
+        this.selectedFleetCard = createSelectedFleet(document.body, () => this.goToSelectedFleet(), () => this.clearSceneSelection(), () => this.goToSelectedFleet('follow'));
         this.fleetMoveStatus = createFleetMoveStatus(document.body, () => this.cancelFleetMove());
-        this.fleetCreationMenu = createFleetCreationMenu(document.body, request => {
-            const snapshot = this.renderClient?.snapshot();
-            if (this.authority === 'online' || !snapshot?.sceneNode || snapshot.selectedFleetId)
-                return;
-            if (snapshot.sceneNode.clusterId !== request.at?.clusterId || snapshot.sceneNode.solarSystemId !== request.at?.solarSystemId)
-                return;
-            publishFeatureTopic(this.mainBus, FleetTopics.generateFleet, request);
+        this.fleetCreationMenu = createFleetCreationMenu(document.body, request => this.createSceneFleet(request), this.authority === 'online', async (at, after, signal) => {
+            const system = this.onlineTopology?.systemIdentity(at);
+            if (!system || !this.onOnlineFleetOwners)
+                throw new Error('Current system detail is required');
+            return this.onOnlineFleetOwners(system, after, signal);
         });
         this.fleetContextMenu = createFleetContextMenu(document.body, {
-            select: id => this.selectSceneFleet(id),
-            follow: (id, shipType) => {
-                this.cancelFleetMove();
-                this.sceneSelectionGeneration++;
-                this.renderClient?.send({ type: 'followFleet', id, shipType });
-            },
+            select: id => this.selectSceneFleet(id, true),
+            follow: (id, shipType) => this.followSceneFleet(id, shipType),
             stop: () => this.renderClient?.send({ type: 'followFleet', id: null }),
             followRotation: () => this.followHullRotation, setFollowRotation: on => this.setFollowRotation(on),
             attack: id => {
                 this.cancelFleetMove();
                 this.sceneSelectionGeneration++;
-                const selected = this.renderClient?.snapshot()?.selectedFleetId;
-                if (selected)
+                const selected = this.commandFleet()?.id;
+                if (this.authority === 'online') {
+                    const system = this.online?.subscription()?.systemId;
+                    if (selected && system)
+                        this.onOnlineFleetAttack?.(system, selected, id);
+                }
+                else if (selected)
                     void this.battles?.fight(selected, id);
             },
             move: id => this.armFleetMove(id),
             orbit: order => this.issuePlanetOrbit(order),
+            develop: planet => this.onOnlinePlanetSelected?.(planet.systemId, planet.bodyId),
             endBattle: id => {
                 const s = this.fleetStatus.byId.get(id)?.state;
                 if (s?.state === 'awaiting' && s.battle)
@@ -208,7 +250,7 @@ export class App {
             this.fleetContextMenu?.hide();
             this.sceneSelectionGeneration++;
             return this.cancelFleetMove();
-        });
+        }, (x, y) => this.openOnlineSystemAt(x, y));
         const bridge = createRenderViewHooks(client, () => this.galaxy);
         this.galaxy = new Galaxy(bridge.hooks, this.metrics);
         this.fleetStatus.dispose();
@@ -220,6 +262,7 @@ export class App {
                 removeFleet: (id) => client.send({ type: "fleetRemove", id }),
             },
             onListChanged: (byId) => {
+                this.refreshLocalSelection();
                 if (this.uiBindings.mode === "editor")
                     this.uiBindings.fleets.render(byId);
             },
@@ -236,6 +279,16 @@ export class App {
     handleRenderState(snapshot) {
         if (this.disposed)
             return;
+        this.finishSurveyBodyFocus(snapshot);
+        if (this.pendingSurveyFleet && !snapshot.director.playing && snapshot.systemId === this.pendingSurveyFleet.systemId) {
+            this.renderClient?.send({ type: 'selectFleet', id: this.pendingSurveyFleet.id });
+            this.pendingSurveyFleet = null;
+        }
+        if (!this.mapLayersSent) {
+            this.mapLayersSent = true;
+            this.renderClient?.send({ type: 'mapLayers', value: this.mapLayerOptions });
+        }
+        this.onOnlineViewport?.(snapshot.camera, !snapshot.director.playing && snapshot.sceneNode ? this.onlineTopology?.systemIdentity(snapshot.sceneNode) : undefined);
         if (typeof snapshot.superFxSupported === 'boolean') {
             paintSuperFx(snapshot.superFxSupported);
             if (!snapshot.superFxSupported && readSuperFx())
@@ -263,10 +316,104 @@ export class App {
         this.cursorStatsWidget?.refreshZoom();
         this.syncFleetMoveStatus();
     }
+    openOnlineSystemAt(x, y) {
+        if (!this.onOnlineSystemSelected || this.isSolarSceneActive())
+            return false;
+        const camera = this.renderClient?.snapshot()?.camera;
+        const id = camera && this.onlineTopology?.pickSystem(camera, x, y);
+        if (!id)
+            return false;
+        this.onOnlineSystemSelected(id);
+        return true;
+    }
     buildUIBindings(mode) {
+        this.clusterSurvey = createClusterSurveyPanel(this.uiContext, {
+            online: this.authority === 'online',
+            query: async (hit, offset) => await this.renderClient?.query({ type: 'clusterSurveyPage', ...hit, offset, limit: 32 }),
+            focus: (row, section) => this.focusSurveyRow(row, section),
+        });
+        this.mapLayerPanel?.dispose();
+        this.mapLayerPanel = createMapLayersPanel(this.uiContext, this.mapLayerOptions, value => { this.mapLayerOptions = value; this.renderClient?.send({ type: 'mapLayers', value }); this.online?.setMapLayers(value); });
+        const panels = [...this.dockPanels, this.clusterSurvey.dock, this.mapLayerPanel.dock];
         return mode === "play"
-            ? buildPlayUI(this.uiContext, this, this.authority === 'online')
-            : buildEditorUI(this.uiContext, this);
+            ? buildPlayUI(this.uiContext, this, this.authority === 'online', panels)
+            : buildEditorUI(this.uiContext, this, panels);
+    }
+    finishSurveyBodyFocus(snapshot) {
+        if (this.pendingSurveyBody && !snapshot.director.playing && snapshot.systemId === this.pendingSurveyBody.systemId) {
+            const body = snapshot.bodies.find(body => body.catalogId === this.pendingSurveyBody.catalogId);
+            if (body) {
+                this.pendingSurveyBody = null;
+                this.selectSceneBody(body.index);
+            }
+        }
+    }
+    updateSurveyPlanets(value) {
+        const readiness = {};
+        this.onlinePlanetTargets.clear();
+        for (const body of value?.bodies ?? [])
+            if (body.visualCatalogId && body.surface)
+                this.onlinePlanetTargets.set(body.visualCatalogId, { systemId: value.systemId, bodyId: body.bodyId });
+        for (const body of value?.bodies ?? [])
+            if (body.visualCatalogId)
+                readiness[body.visualCatalogId] = body.surface ? 'Map ready' : 'Map unprepared';
+        this.onlinePlanetReadiness = readiness;
+        this.lastPlanetPanelKey = '';
+        const node = value && this.onlineTopology?.node(value.systemId);
+        // Inspector turnover is not a discovery reset. The session owns permission invalidation.
+        if (value && node)
+            this.renderClient?.send({ type: 'surveyPlanets', value: surveyPlanetCatalog(value, node) });
+    }
+    focusSurveyRow(row, section) {
+        this.pendingSurveyBody = null;
+        if (section === 'planets') {
+            this.focusSurveyPlanet(row);
+            return;
+        }
+        this.navigateSurveyRow(row, section);
+    }
+    focusSurveyPlanet(row) {
+        if (this.authority === 'online') {
+            this.openSurveyPlanetMap(row);
+            // The development scene owns online detail loading and camera acquisition.
+            return;
+        }
+        const snapshot = this.renderClient?.snapshot();
+        const body = snapshot?.systemId === row.systemId ? snapshot.bodies.find(body => body.catalogId === row.catalogId) : undefined;
+        if (body) {
+            this.selectSceneBody(body.index);
+            return;
+        }
+        this.navigateSurveyRow(row, 'planets');
+        if (row.catalogId)
+            this.pendingSurveyBody = { catalogId: row.catalogId, systemId: row.systemId };
+    }
+    openSurveyPlanetMap(row) {
+        const id = row.onlineSystemId ?? this.onlineTopology?.systemIdentity({ clusterId: row.clusterId, solarSystemId: row.systemId });
+        if (id)
+            this.onOnlinePlanetSelected?.(id, row.id);
+    }
+    navigateSurveyRow(row, section) {
+        if (this.authority === 'online') {
+            const id = row.onlineSystemId ?? this.onlineTopology?.systemIdentity({ clusterId: row.clusterId, solarSystemId: row.systemId });
+            if (!id)
+                return;
+            if (['systems', 'planets', 'battles'].includes(section))
+                this.onOnlineSystemSelected?.(id);
+            else
+                this.onOnlineFleetSelected?.(id, row.id);
+            return;
+        }
+        if (!['systems', 'planets', 'battles'].includes(section)) {
+            this.selectSceneFleet(row.id);
+            return;
+        }
+        const system = this.galaxy.getSolarSystemById(row.clusterId, row.systemId);
+        if (!system)
+            return;
+        this.startDirectorFly({ clusterId: row.clusterId, solarSystemId: row.systemId,
+            x: system.position.x, z: system.position.z }, { durationMs: 800 });
+        this.pendingSurveyFleet = ['systems', 'planets', 'battles'].includes(section) ? null : { id: row.id, systemId: row.systemId };
     }
     createContextMenuController() {
         if (!this.contextMenu)
@@ -372,71 +519,187 @@ export class App {
     async connectOnline(options) {
         if (this.authority !== 'online' || !this.renderClient || this.disposed)
             throw new Error('Online App is not initialized');
+        this.cancelOnlineFollow();
         const attempt = ++this.onlineAttempt;
         await this.online?.dispose();
         if (this.disposed || attempt !== this.onlineAttempt)
             throw new Error('Online connection was superseded');
-        const session = createOnlineSession({ ...options, bus: this.mainBus, renderer: this.renderClient,
+        this.clearOnlineViews();
+        const map = createOnlineMap(patch => this.renderClient?.send({ type: 'mapConnections', patch }));
+        this.onlineTopology = map;
+        const content = createOnlineMapConsumer({ map, observer: options.content,
+            current: () => this.onlineTopology === map && !this.disposed,
+            apply: ops => this.applyOnlineOps(ops),
+            consumed: () => this.renderClient.query({ type: 'snapshot' }),
+        });
+        const session = createOnlineSession({ ...options, workerModule: this.runtime.workers.session, content, bus: this.mainBus, renderer: this.renderClient,
+            nodeHandles: () => map.handles(),
+            surveyNode: map.surveyNode,
             installTopology: (view, subscription) => this.installServerTopology(view, subscription),
-            clearViews: () => this.clearOnlineViews(),
-            selectSystem: id => this.selectOnlineNode(id) });
+            clearViews: (all, detailSystem) => this.clearOnlineViews(all, detailSystem),
+            selectSystem: (id, navigate) => this.selectOnlineNode(id, navigate) });
         this.online = session;
+        session.setMapLayers(this.mapLayerOptions);
         await session.ready;
         if (this.disposed || this.online !== session)
             throw new Error('Online connection was superseded');
         return session;
     }
+    async disconnectOnline(forgetContent = false) {
+        this.cancelOnlineFollow();
+        this.onlineAttempt++;
+        const session = this.online;
+        this.online = null;
+        this.clearOnlineViews();
+        await session?.dispose(forgetContent);
+    }
     installServerTopology(view, subscription) {
-        const topology = createOnlineTopology(view);
+        const topology = this.onlineTopology ?? (this.onlineTopology = createOnlineMap());
+        const ops = topology.replace(view, subscription.systemId);
         const node = subscription.systemId ? topology.node(subscription.systemId) : undefined;
-        this.onlineTopology = topology;
+        const moved = !this.isOnlineNode(node);
+        if (moved)
+            this.cancelOnlineFollow();
         this.onlineNode = node ?? null;
-        this.renderClient?.send({ type: 'clear', preserveProjection: true });
-        this.galaxy.clear();
-        this.maxSolarSystemId = 0;
-        this.fleetStatus.clear();
-        this.lastRenderFleetCount = 0;
-        this.lastDirectorTarget = null;
-        publishTopic(this.mainBus, Topics.clearGalaxy, {}, 0);
-        this.processOps(topology.ops);
-        publishTopic(this.mainBus, Topics.galaxyLocalOps, topology.ops, 0);
-        this.renderClient?.send({ type: 'finalize' });
-        if (node) {
-            const system = this.galaxy.getSolarSystemById(node.clusterId, node.solarSystemId);
-            this.startDirectorFly({ ...node, x: system.position.x, z: system.position.z }, { durationMs: 750 });
-        }
+        this.applyOnlineOps(ops);
+        // Installing viewport data must never move the player's camera.
         this.updateStats();
         return node;
     }
-    clearOnlineViews() {
+    clearOnlineViews(clearContent = true, retainedDetailSystem) {
+        this.clusterSurvey?.reset();
+        this.clusterRibbonInput.reset();
+        this.pendingSurveyBody = null;
+        if (!clearContent && retainedDetailSystem) {
+            this.applyOnlineOps(this.onlineTopology?.clearView(retainedDetailSystem) ?? []);
+            return;
+        }
+        this.cancelOnlineFollow();
+        if (clearContent)
+            this.setCommandFleet(undefined);
+        if (!clearContent) {
+            this.onlineNode = null;
+            this.onlineSceneFleets.clear();
+            this.fleetStatus.clear();
+            this.applyOnlineOps(this.onlineTopology?.clearView() ?? []);
+            return;
+        }
         this.onlineNode = null;
-        this.onlineTopology = null;
+        this.onlineTopology?.reset();
         this.onlineSceneFleets.clear();
         this.renderClient?.send({ type: 'clear', preserveProjection: true });
         this.galaxy.clear();
         this.fleetStatus.clear();
+        this.maxSolarSystemId = 0;
+        this.lastRenderFleetCount = 0;
+        this.lastDirectorTarget = null;
+        publishTopic(this.mainBus, Topics.clearGalaxy, {}, 0);
     }
-    selectOnlineNode(systemId) {
+    applyOnlineOps(ops) {
+        if (!ops.length)
+            return;
+        this.processOps(ops);
+        publishTopic(this.mainBus, Topics.galaxyLocalOps, ops, 0);
+        this.updateStats();
+    }
+    selectOnlineNode(systemId, navigate = true) {
+        this.cancelOnlineFollow();
         if (!this.onlineTopology)
             throw new Error('Overview is not installed');
         const node = this.onlineTopology.node(systemId);
         this.onlineNode = node;
         const system = this.galaxy.getSolarSystemById(node.clusterId, node.solarSystemId);
-        this.startDirectorFly({ ...node, x: system.position.x, z: system.position.z }, { durationMs: 500 });
+        if (navigate)
+            this.startDirectorFly({ ...node, x: system.position.x, z: system.position.z }, { durationMs: 500 });
     }
-    async followOnlineFleet(fleetId) {
+    updateIncomingJourneys(system, rows) {
+        let systemId = null;
+        try {
+            if (system)
+                systemId = this.onlineTopology?.node(system).solarSystemId ?? null;
+        }
+        catch { }
+        this.renderClient?.send({ type: 'incomingFleets', systemId, rows: rows.filter(row => row.finalSystem === system && row.finalPosition).map(row => ({
+                fleetId: row.fleetId, label: `INCOMING ${row.fleetId.slice(-6)}${row.orbitBody == null ? '' : ' ORBIT'}`,
+                position: row.finalPosition, orbitBody: row.orbitBody
+            })) });
+    }
+    updateOnlineJourneyPath(page, generation) {
+        if (this.online?.generation !== generation)
+            return;
+        if (!page) {
+            this.journeyNodes.clear();
+            this.renderClient?.send({ type: 'journeyPath' });
+            return;
+        }
+        if (page.fleetId !== this.commandFleet()?.id || !this.onlineTopology)
+            return;
+        if (page.offset === 0)
+            this.journeyNodes.clear();
+        const nodes = page.nodes.map(([id, cluster, x, z]) => { const node = this.onlineTopology.surveyNode(id, cluster); this.journeyNodes.set(id, node); return { ...node, x, y: 0, z }; });
+        this.renderClient?.send({ type: 'journeyPath', value: { fleetId: page.fleetId, journeyId: page.journeyId, offset: page.offset, nodes } });
+        if (this.lastJourney?.journeyId === page.journeyId)
+            void this.updateOnlineJourney(this.lastJourney, generation).catch(() => { });
+    }
+    frameSelectedJump() { this.renderClient?.send({ type: 'frameFleetJump' }); }
+    async updateOnlineJourney(value, generation) {
+        const session = this.online, renderer = this.renderClient;
+        if (!session || session.generation !== generation || !renderer)
+            return;
+        this.lastJourney = value;
+        const node = (id) => {
+            if (!id)
+                return undefined;
+            if (this.journeyNodes.has(id))
+                return this.journeyNodes.get(id);
+            try {
+                return this.onlineTopology?.node(id);
+            }
+            catch {
+                return undefined;
+            }
+        };
+        if (value)
+            session.observeJourney(value);
+        await renderer.query({ type: 'selectedJourney', generation, value: value && {
+                fleetId: value.fleetId, journeyId: value.journeyId, revision: value.revision, completedLegs: value.completedLegs,
+                serverNowMs: value.serverNowMs, phase: value.phase.phase, source: node(value.currentSystem), destination: node(value.destinationSystem),
+                destinationSystem: value.destinationSystem, arrivalPosition: value.arrivalPosition,
+                ...(value.phase.phase === 'transit' ? { departureMs: value.phase.departureMs, arrivalMs: value.phase.arrivalMs } : {})
+            } });
+        return undefined;
+    }
+    focusOnlineFleet(fleetId) { return this.followOnlineFleet(fleetId, 'focus'); }
+    async followOnlineFleet(fleetId, mode = 'follow') {
         const renderer = this.renderClient, session = this.online, node = this.onlineNode;
         if (!renderer || !session || !node)
             throw new Error('Connect to a server first');
+        this.cancelOnlineFollow();
+        const lifetime = new AbortController();
+        this.onlineFollow = lifetime;
         const system = this.galaxy.getSolarSystemById(node.clusterId, node.solarSystemId);
-        await followOnlineFleet({ renderer, session, node,
-            current: () => !this.disposed && this.online === session,
-            navigate: () => { this.startDirectorFly({ ...node, x: system.position.x, z: system.position.z }, { durationMs: 500 }); },
-        }, fleetId);
+        try {
+            await followOnlineFleet({ renderer, session, node, signal: lifetime.signal, mode,
+                current: () => !this.disposed && this.online === session && this.renderClient === renderer
+                    && this.isOnlineNode(node),
+                navigate: () => { this.startDirectorFly({ ...node, x: system.position.x, z: system.position.z }, { durationMs: 500 }); },
+            }, fleetId);
+        }
+        finally {
+            if (this.onlineFollow === lifetime)
+                this.onlineFollow = null;
+        }
+    }
+    cancelOnlineFollow() {
+        this.onlineFollow?.abort();
+        this.onlineFollow = null;
+    }
+    isOnlineNode(node) {
+        return !!node && this.onlineNode?.clusterId === node.clusterId && this.onlineNode?.solarSystemId === node.solarSystemId;
     }
     async initializeWorkers() {
         try {
-            await initializeAppWorkers(this.mainBus, this.authority);
+            await initializeAppWorkers(this.mainBus, this.runtime);
             if (this.disposed)
                 throw new Error("App disposed during worker initialization");
             this.subscriptionDispose = subscribeAppTopics(this.mainBus, {
@@ -517,7 +780,7 @@ export class App {
                 if (!client)
                     return null;
                 return await client.query({ type: 'battleProbe', attacker, defender });
-            }, text => this.fleetMoveStatus?.notice(text));
+            }, text => this.fleetMoveStatus?.notice(text), event => this.renderClient?.send({ type: 'surveyLocalBattle', event }));
             console.log("All workers initialized successfully");
             if (this.isSimPaused())
                 this.publishSimPause();
@@ -540,7 +803,9 @@ export class App {
     publishPointerEvent(payload, priority = 0) {
         if (!this.mainBus.isPubSubReady())
             return;
-        publishTopic(this.mainBus, Topics.pointerEvent, payload, priority);
+        const publish = () => publishTopic(this.mainBus, Topics.pointerEvent, payload, priority);
+        if (!this.clusterRibbonInput.route(payload, publish))
+            publish();
     }
     initEventListeners() {
         const statsContainer = this.uiBindings.mode === "editor"
@@ -563,6 +828,8 @@ export class App {
         // Edit-handle pointer path: hasEditHandles gates hit-test when gizmo is up.
         if (this.editHandlePointer) {
             this.pointerEventRouter?.dispose();
+            canvas.removeEventListener('dblclick', this.clusterRibbonInput.doubleClick, true);
+            canvas.addEventListener('dblclick', this.clusterRibbonInput.doubleClick, true);
             this.fleetMoveGesture = this.createFleetPlacementGesture(canvas);
             this.pointerEventRouter = createPointerEventRouter({
                 canvas,
@@ -705,7 +972,7 @@ export class App {
         regenerateClusters(this.regeneratorDeps(), ids);
     }
     processOps(ops) {
-        this.renderClient?.send({ type: "topology", ops });
+        this.renderClient?.send({ type: "topology", ops, connections: this.authority !== 'online' });
         const result = replayGalaxyOps(this.galaxy, ops, {
             maxSolarSystemId: this.maxSolarSystemId,
         });
@@ -756,9 +1023,9 @@ export class App {
         this.cancelFleetMove();
         this.sceneSelectionGeneration++;
         this.fleetContextMenu?.hide();
-        const id = this.renderClient?.snapshot()?.selectedFleetId;
+        const id = this.commandFleet()?.id;
         if (id)
-            this.renderClient?.send({ type: "followFleet", id });
+            this.followSceneFleet(id);
     }
     setDebugDensityVoxels(on) {
         this.renderClient?.send({ type: "debugDensityVoxels", on });
@@ -788,6 +1055,55 @@ export class App {
         this.simulationHz = simulationRate(hz);
         writeSimulationRate(this.simulationHz);
         this.renderClient?.send({ type: 'simulationRate', hz: this.simulationHz });
+    }
+    focusedPlanetCatalogId() {
+        const snapshot = this.renderClient?.snapshot();
+        return snapshot?.bodies.find(body => body.index === snapshot.focusIndex && !body.isSun)?.catalogId;
+    }
+    isPlanetSceneEnabled() { return this.planetSceneLive; }
+    setPlanetScene(on) { this.planetSceneLive = on; writePlanetScene(on); this.sendPlanetDevelopment(); }
+    setPlanetDevelopmentOpen(open) {
+        if (open && closeMobileDockPanels()) {
+            this.contextMenuController?.hide();
+            this.fleetContextMenu?.hide();
+            this.fleetCreationMenu?.hide();
+        }
+        if (this.planetDevelopmentOpen === open)
+            return;
+        this.planetDevelopmentOpen = open;
+        this.planetDevelopmentTarget = undefined;
+        this.cancelFleetMove();
+        this.sendPlanetDevelopment();
+    }
+    sendPlanetDevelopment() {
+        this.renderClient?.send({ type: 'planetDevelopment', open: this.planetDevelopmentOpen, live: this.planetSceneLive, ...this.planetDevelopmentTarget });
+    }
+    focusOnlinePlanet(systemId, catalogId) {
+        const node = this.onlineTopology?.node(systemId);
+        const system = node && this.galaxy.getSolarSystemById(node.clusterId, node.solarSystemId);
+        if (!node || !system)
+            return;
+        this.pendingSurveyFleet = null;
+        const body = this.renderClient?.snapshot()?.systemId === node.solarSystemId ? this.renderClient.snapshot().bodies.find(body => body.catalogId === catalogId) : undefined;
+        if (body) {
+            this.selectSceneBody(body.index);
+            return;
+        }
+        this.startDirectorFly({ ...node, x: system.position.x, z: system.position.z }, { durationMs: 800 });
+        this.pendingSurveyBody = { catalogId, systemId: node.solarSystemId };
+    }
+    focusPlanetDevelopment(systemId, catalogId) {
+        if (!this.planetDevelopmentOpen || !this.planetSceneLive || !this.onlineTopology)
+            return;
+        const node = this.onlineTopology.node(systemId), system = this.galaxy.getSolarSystemById(node.clusterId, node.solarSystemId);
+        if (!system)
+            return;
+        this.pendingSurveyBody = null;
+        this.pendingSurveyFleet = null;
+        if (this.renderClient?.snapshot()?.systemId !== node.solarSystemId)
+            this.startDirectorFly({ ...node, x: system.position.x, z: system.position.z }, { durationMs: 650 });
+        this.planetDevelopmentTarget = { systemId: node.solarSystemId, catalogId };
+        this.sendPlanetDevelopment();
     }
     isStarFieldEnabled() { return this.starFieldEnabled; }
     setStarField(on) {
@@ -850,16 +1166,81 @@ export class App {
             return;
         this.renderClient?.send({ type: "selectBody", index, systemId: snapshot.systemId, catalogId: body.catalogId });
     }
-    selectSceneFleet(id) {
+    selectSceneFleet(id, picked = false) {
         this.cancelFleetMove();
         this.sceneSelectionGeneration++;
         const snapshot = this.renderClient?.snapshot();
         const local = this.authority === "offline" && this.fleetStatus.byId.has(id);
-        if (!local && !snapshot?.sceneFleets.some((fleet) => fleet.id === id) && !this.onlineSceneFleets.has(id))
+        if (!picked && !local && !snapshot?.sceneFleets.some((fleet) => fleet.id === id) && !this.onlineSceneFleets.has(id))
             return;
-        this.renderClient?.send({ type: "selectFleet", id });
+        const row = snapshot?.sceneFleets.find(f => f.id === id) ?? this.onlineSceneFleets.get(id);
+        this.setCommandFleet({ id, name: `Fleet ${id.slice(-6)}`, ships: row?.shipCount ?? 0,
+            location: 'Current system', activity: row?.action ?? 'Selected', canOrder: local || row?.controllable === true, canGo: true });
+        if (this.authority === 'online') {
+            const system = snapshot?.sceneNode && this.onlineTopology?.systemIdentity(snapshot.sceneNode);
+            if (system)
+                this.onOnlineFleetSelected?.(system, id);
+        }
+        else
+            this.refreshLocalSelection();
+    }
+    followSceneFleet(id, shipType) {
+        this.selectSceneFleet(id, true);
+        this.renderClient?.send({ type: 'followFleet', id, shipType });
+    }
+    setCommandFleet(value) {
+        if (this.commandFleet()?.id !== value?.id) {
+            this.lastJourney = undefined;
+            this.journeyNodes.clear();
+        }
+        this.selectedFleetCard?.update(value);
+        this.renderClient?.send({ type: 'markFleet', id: value?.id ?? null });
+    }
+    commandFleet() { return this.selectedFleetCard?.value(); }
+    goToSelectedFleet(mode = 'focus') {
+        const id = this.commandFleet()?.id;
+        if (!id)
+            return;
+        if (this.authority === 'online') {
+            this.onOnlineFleetGo?.(id, mode);
+            return;
+        }
+        if (mode === 'follow') {
+            this.followSelectedFleet();
+            return;
+        }
+        const state = this.fleetStatus.byId.get(id)?.state;
+        if (!state)
+            return;
+        const node = state.state === 'jumping' ? state.endNode : state.node;
+        const system = this.galaxy.getSolarSystemById(node.clusterId, node.solarSystemId);
+        if (!system)
+            return;
+        this.startDirectorFly({ ...node, x: system.position.x, z: system.position.z }, { durationMs: 500 });
+        this.pendingSurveyFleet = { id, systemId: node.solarSystemId };
+    }
+    refreshLocalSelection() {
+        if (this.authority !== 'offline')
+            return;
+        const chosen = this.commandFleet();
+        if (!chosen)
+            return;
+        const value = this.fleetStatus.byId.get(chosen.id);
+        if (!value) {
+            this.setCommandFleet(undefined);
+            return;
+        }
+        const state = value.state, node = state.state === 'jumping' ? state.endNode : state.node;
+        const system = this.galaxy.getSolarSystemById(node.clusterId, node.solarSystemId);
+        this.selectedFleetCard?.update({ ...chosen, ships: value.counts.red + value.counts.blue + value.counts.green,
+            location: system?.name ?? `System ${node.solarSystemId}`, activity: state.state === 'jumping' ? 'Jumping to destination' : state.state,
+            timers: sceneFleetRemainingSec(state, this.renderClient?.snapshot()?.wallMs ?? performance.now()) != null ? [{ label: state.state === 'jumping' ? 'Jump arrival' : 'Action', endsAt: performance.now() + 1000 * sceneFleetRemainingSec(state, this.renderClient?.snapshot()?.wallMs ?? performance.now()) }] : [] });
     }
     clearSceneSelection() {
+        this.setCommandFleet(undefined);
+        this.onOnlineFleetDeselected?.();
+        this.pendingSurveyFleet = null;
+        this.pendingSurveyBody = null;
         this.cancelFleetMove();
         this.sceneSelectionGeneration++;
         this.fleetContextMenu?.hide();
@@ -895,6 +1276,9 @@ export class App {
         return true;
     }
     handleTouchTap(x, y) {
+        this.clusterRibbonInput.select(x, y, () => this.handleUnclaimedTouchTap(x, y));
+    }
+    handleUnclaimedTouchTap(x, y) {
         const client = this.renderClient, snapshot = client?.snapshot();
         if (!client || !snapshot)
             return;
@@ -929,14 +1313,14 @@ export class App {
         const snapshot = client?.snapshot();
         if (!client || !snapshot || snapshot.systemId == null)
             return false;
-        this.queueScenePick(x, y, true);
+        this.clusterRibbonInput.select(x, y, () => this.queueScenePick(x, y, true));
         return true;
     }
     createFleetPlacementGesture(canvas) {
         return createFleetMoveGesture({ parent: document.body, snapshot: () => this.renderClient?.snapshot() ?? null,
             rect: () => canvas.getBoundingClientRect(), capture: event => {
                 const snapshot = this.renderClient?.snapshot();
-                const id = this.armedFleetMove?.id ?? snapshot?.selectedFleetId;
+                const id = this.armedFleetMove?.id ?? this.commandFleet()?.id;
                 const move = this.captureFleetMove(event.clientX, event.clientY, id);
                 if (!move?.destination || !snapshot || event.detail > 1)
                     return null;
@@ -971,7 +1355,9 @@ export class App {
         move.close = true;
     }
     movableSceneFleet(id, snapshot = this.renderClient?.snapshot() ?? null) {
-        return this.authority === 'offline' && canMoveSceneFleet(snapshot, this.fleetStatus.byId.get(id)?.state);
+        return this.authority === 'offline' ? canMoveSceneFleet(snapshot, this.fleetStatus.byId.get(id)?.state)
+            : Boolean(this.onOnlineFleetMove && snapshot?.sceneNode && snapshot.systemId != null && !snapshot.director.playing
+                && (this.commandFleet()?.id === id ? this.commandFleet()?.canOrder : (snapshot.sceneFleets.find(fleet => fleet.id === id) ?? this.onlineSceneFleets.get(id))?.controllable));
     }
     armFleetMove(id) {
         const snapshot = this.renderClient?.snapshot();
@@ -1008,10 +1394,11 @@ export class App {
             this.armedFleetMove = null;
             this.sceneSelectionGeneration++;
         }
-        const id = this.armedFleetMove?.id ?? snapshot?.selectedFleetId;
+        const id = this.armedFleetMove?.id ?? this.commandFleet()?.id;
         const text = id && this.movableSceneFleet(id, snapshot)
             ? this.armedFleetMove ? 'Choose destination · Hold to set height · Esc cancels'
-                : 'Fleet selected · RMB move · Shift-click add point · Hold LMB height · Shift-click first point closes patrol'
+                : this.authority === 'online' ? 'Fleet selected · RMB move · Hold to set height'
+                    : 'Fleet selected · RMB move · Shift-click add point · Hold LMB height · Shift-click first point closes patrol'
             : '';
         this.fleetMoveStatus?.update(text, this.armedFleetMove != null);
     }
@@ -1033,6 +1420,17 @@ export class App {
             this.syncFleetMoveStatus();
             return;
         }
+        if (this.authority === 'online') {
+            const systemId = this.onlineTopology?.systemIdentity(move.node);
+            if (!systemId || !move.destination)
+                return;
+            this.onOnlineFleetMove?.(systemId, move.id, move.destination);
+            this.armedFleetMove = null;
+            this.sceneSelectionGeneration++;
+            this.fleetMoveStatus?.notice('Planning route around planets…');
+            this.syncFleetMoveStatus();
+            return;
+        }
         const command = { id: move.id, node: move.node, destination: move.destination, append: move.append, close: move.close };
         publishFeatureTopic(this.mainBus, FleetTopics.moveLocal, command);
         this.armedFleetMove = null;
@@ -1041,9 +1439,24 @@ export class App {
         this.fleetMoveStatus?.notice(fleetMoveNotice(move));
         this.syncFleetMoveStatus();
     }
+    createSceneFleet(request) {
+        const node = this.renderClient?.snapshot()?.sceneNode;
+        if (!node || node.clusterId !== request.at?.clusterId || node.solarSystemId !== request.at?.solarSystemId)
+            return;
+        if (this.authority === 'online') {
+            this.createOnlineSceneFleet(request, node);
+            return;
+        }
+        publishFeatureTopic(this.mainBus, FleetTopics.generateFleet, request);
+    }
+    createOnlineSceneFleet(request, node) {
+        const system = this.onlineTopology?.systemIdentity(node);
+        if (this.testerEnabled && system && request.position)
+            this.onOnlineFleetCreate?.(system, request.classes ?? [], request.position, request.ownerId);
+    }
     showFleetCreationMenu(client, x, y, rect) {
         const snapshot = client.snapshot();
-        if (this.authority === 'online' || !snapshot?.sceneNode || snapshot.selectedFleetId) {
+        if ((this.authority === 'online' && !this.testerEnabled) || !snapshot?.sceneNode || this.commandFleet()) {
             this.fleetCreationMenu?.hide();
             return false;
         }
@@ -1054,11 +1467,17 @@ export class App {
     }
     issuePlanetOrbit(order) {
         const snapshot = this.renderClient?.snapshot();
-        if (this.disposed || !matchesPlanetOrbit(snapshot, order) || !this.movableSceneFleet(order.id, snapshot))
+        if (this.disposed || !matchesPlanetOrbit(snapshot && { ...snapshot, selectedFleetId: this.commandFleet()?.id ?? null }, order) || !this.movableSceneFleet(order.id, snapshot))
             return;
         this.cancelFleetMove();
         this.sceneSelectionGeneration++;
         const { id, node, bodyIndex, catalogId } = order;
+        if (this.authority === 'online') {
+            const systemId = this.onlineTopology?.systemIdentity(order.node);
+            if (systemId)
+                this.onOnlineFleetOrbit?.(systemId, id, bodyIndex);
+            return;
+        }
         publishFeatureTopic(this.mainBus, FleetTopics.orbitPlanet, { id, node, bodyIndex, catalogId });
         this.fleetMoveStatus?.notice('Orbit order requested');
     }
@@ -1068,17 +1487,27 @@ export class App {
         if (!snapshot || !current())
             return null;
         const state = this.fleetStatus.byId.get(id)?.state;
+        const selected = this.commandFleet()?.id;
+        const localAttacker = selected && (this.authority === 'online'
+            ? (this.onlineSceneFleets.get(selected) ?? snapshot.sceneFleets.find(f => f.id === selected))?.controllable === true
+            : this.movableSceneFleet(selected, snapshot));
         return { id, types: result.types, following: snapshot.following,
             move: this.movableSceneFleet(id, snapshot),
             battle: state?.state === 'awaiting' && Boolean(state.battle),
-            attack: snapshot.selectedFleetId != null && snapshot.selectedFleetId !== id
-                && this.movableSceneFleet(snapshot.selectedFleetId, snapshot) && this.movableSceneFleet(id, snapshot) };
+            attack: Boolean(localAttacker) && selected !== id
+                && (this.authority === 'online' ? !snapshot.sceneFleets.find(f => f.id === id)?.controllable : this.movableSceneFleet(id, snapshot)) };
     }
     loadPlanetMenu(target) {
         const snapshot = this.renderClient?.snapshot();
-        if (!snapshot?.selectedFleetId || !this.movableSceneFleet(snapshot.selectedFleetId, snapshot))
+        const id = this.commandFleet()?.id;
+        if (!snapshot)
             return null;
-        return planetOrbitMenu(snapshot, target);
+        const menu = planetOrbitMenu({ ...snapshot, selectedFleetId: id && this.movableSceneFleet(id, snapshot) ? id : null }, target);
+        if (!menu)
+            return null;
+        const planet = this.onlinePlanetTargets.get(menu.catalogId);
+        const system = snapshot.sceneNode && this.onlineTopology?.systemIdentity(snapshot.sceneNode);
+        return { ...menu, development: planet?.systemId === system ? planet : undefined, developmentHint: this.authority === 'online' ? 'This planet has no available surface map.' : 'Planet development is available in the online game.' };
     }
     showFleetContextMenu(x, y) {
         const client = this.renderClient;
@@ -1086,10 +1515,8 @@ export class App {
         if (!client || systemId == null)
             return;
         const rect = client.canvas.getBoundingClientRect();
-        if (this.showFleetCreationMenu(client, x, y, rect))
-            return;
         const generation = ++this.sceneSelectionGeneration;
-        const move = this.captureFleetMove(x, y, this.armedFleetMove?.id ?? client.snapshot()?.selectedFleetId);
+        const move = this.captureFleetMove(x, y, this.armedFleetMove?.id ?? this.commandFleet()?.id);
         let empty = false;
         const current = () => !this.disposed && this.renderClient === client
             && client.snapshot()?.systemId === systemId && this.sceneSelectionGeneration === generation;
@@ -1101,10 +1528,13 @@ export class App {
             if (target?.kind === 'body')
                 return this.loadPlanetMenu(target);
             return target?.kind === 'fleet' ? this.loadFleetMenu(client, target.id, current) : null;
-        }, () => { if (empty && move && current())
+        }, () => { if (!empty || !current())
+            return; if (this.showFleetCreationMenu(client, x, y, rect))
+            return; if (move)
             this.issueFleetMove(move); });
     }
     updateSceneHover(x, y) {
+        this.clusterRibbonInput.hover(x, y);
         if (x < 0 || y < 0) {
             this.scenePickGeneration++;
             this.pendingScenePick = this.pendingScenePick?.select ? this.pendingScenePick : null;
@@ -1201,7 +1631,7 @@ export class App {
         // The worker already validated the fleet's scene and GPU-slot identity.
         // A picked online fleet may sit beyond the UI's currently loaded page.
         else if (target?.kind === "fleet")
-            this.renderClient?.send({ type: "selectFleet", id: target.id });
+            this.selectSceneFleet(target.id, true);
         else
             this.clearSceneSelection();
     }
@@ -1227,8 +1657,18 @@ export class App {
             return;
         this.nextPlanetPanelAt = wallNow + 200;
         const fleets = this.sceneFleetRows(snapshot);
+        if (this.authority === 'offline') {
+            const selected = this.commandFleet(), fleet = snapshot.sceneFleets.find(f => f.id === selected?.id);
+            if (selected && fleet?.types) {
+                const counts = [0, 0, 0, 0, 0, 0];
+                for (const type of fleet.types)
+                    if (type.kind >= 0 && type.kind < 6)
+                        counts[type.kind] += type.count;
+                this.selectedFleetCard?.update({ ...selected, counts, timers: fleet.remainingSec == null ? selected.timers : [{ label: fleet.action ?? fleet.state, endsAt: performance.now() + fleet.remainingSec * 1000 }] });
+            }
+        }
         this.lastPlanetPanelKey = key;
-        this.uiBindings.planetPanel.sync({ visible: true, bodies: snapshot.bodies, focusIndex: snapshot.focusIndex,
+        this.uiBindings.planetPanel.sync({ visible: true, planetReadiness: this.authority === 'online' ? this.onlinePlanetReadiness : undefined, bodies: snapshot.bodies, focusIndex: snapshot.focusIndex,
             fleets, fleetTotal: this.authority === "offline" ? fleets.length : snapshot.sceneFleetCount,
             selectedFleetId: snapshot.selectedFleetId, graphicsCap: snapshot.metrics.graphicsCap,
             sceneDraw: snapshot.metrics.sceneDraw });
@@ -1363,8 +1803,8 @@ export class App {
         };
     }
     /**
-     * Kepler-enter height from current viewport. Floor stays well above MIN_ZOOM
-     * so a fly is an ease, not a one-frame slam to the galaxy-pan floor.
+     * Readable solar overview from the current viewport. Target selection then
+     * acquires a closer body/fleet orbit through the shared camera controller.
      */
     directorFlyHeight(opts) {
         const h = opts?.height;
@@ -1373,14 +1813,15 @@ export class App {
         const camera = this.renderClient?.snapshot()?.camera;
         if (!camera)
             return 350;
-        // Land inside the enter band: an exact 50px boundary can round below it
-        // after the large-world camera transform, leaving the scene unloaded.
-        const sceneH = distanceForSpanPx(SCENE_ENTER_PX + 1, camera.bufferH, camera.fovyDeg);
-        if (Number.isFinite(sceneH) && sceneH > 0.05)
+        // A comfortable overview also stays safely inside the 50px scene-enter band.
+        const sceneH = distanceForSpanPx(Math.max(240, SCENE_ENTER_PX + 1), camera.bufferH, camera.fovyDeg);
+        if (Number.isFinite(sceneH) && sceneH > 0)
             return sceneH;
         return 350;
     }
     startDirectorFly(system, opts) {
+        this.pendingSurveyFleet = null;
+        this.pendingSurveyBody = null;
         if (!this.renderClient)
             return { ok: false, reason: "director not ready" };
         const durationMs = typeof opts?.durationMs === "number" && Number.isFinite(opts.durationMs)
@@ -1484,6 +1925,10 @@ export class App {
         if (this.authority === 'online')
             return;
         console.log("Clearing galaxy...");
+        this.clusterSurvey?.reset();
+        this.clusterRibbonInput.reset();
+        this.pendingSurveyBody = null;
+        this.pendingSurveyFleet = null;
         this.cancelFleetMove();
         this.sceneSelectionGeneration++;
         this.fleetMoveStatus?.update('');
@@ -1523,6 +1968,7 @@ export class App {
     }
     async disposeResources() {
         this.disposed = true;
+        this.cancelOnlineFollow();
         this.pageLifetimeCleanup?.();
         this.pageLifetimeCleanup = null;
         this.onlineAttempt++;
@@ -1534,6 +1980,8 @@ export class App {
         this.fleetCreationMenu = null;
         this.fleetContextMenu?.dispose();
         this.fleetContextMenu = null;
+        this.selectedFleetCard?.dispose();
+        this.selectedFleetCard = null;
         this.fleetMoveStatus?.dispose();
         this.fleetMoveStatus = null;
         this.scenePointerFeedback = null;
@@ -1544,6 +1992,7 @@ export class App {
         this.battles?.dispose();
         this.battles = null;
         this.fleetStatus.dispose();
+        this.mapLayerPanel?.dispose();
         for (const panel of this.statsPanels)
             panel.dispose();
         await this.online?.dispose();
@@ -1561,6 +2010,8 @@ export class App {
         this.gpuErrorNotice = null;
         this.uiRoot.clear();
         this.uiRoot.updates.dispose();
+        this.clusterRibbonInput.reset();
+        this.renderClient?.canvas.removeEventListener('dblclick', this.clusterRibbonInput.doubleClick, true);
     }
     updateStats(stats) {
         const resolvedStats = stats ?? this.galaxy.getStatistics();
@@ -1596,7 +2047,7 @@ function isPositiveFinite(value) {
     return typeof value === "number" && Number.isFinite(value) && value > 0;
 }
 function editorStatsContainer(bindings) {
-    return bindings.mode === "editor" ? bindings.stats.container ?? null : null;
+    return bindings.mode === "editor" ? bindings.stats.container ?? null : bindings.panels.performance?.content ?? null;
 }
 function ensureRenderPerfHost() {
     const existing = document.getElementById("ui-render-perf-host");

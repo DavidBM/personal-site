@@ -1,5 +1,5 @@
 /** Standalone worker shell; all game decisions are compiled shared Rust rules. */
-import { loadSharedRules } from '../shared-rules.js';
+import { loadSharedRules } from '../../../lib/shared-rules/loader.js';
 import { changeBuffers, createDomainHost } from './host.js';
 import { routePreviewBuffers } from './routes.js';
 const scope = self;

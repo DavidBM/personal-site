@@ -17,6 +17,7 @@ function resolveRgb(color) {
 }
 export class ConnectionLineStore {
     constructor(initialCapacity = 0) {
+        this.freeSlots = [];
         this.capacity = 0;
         this.count = 0;
         this.positions = new Float64Array(0);
@@ -64,8 +65,8 @@ export class ConnectionLineStore {
     add(key, a, b, color = 0x00ffff) {
         if (this.keyToIndex.has(key))
             return false;
-        this.ensureCapacity(this.count + 1);
-        const slot = this.count++;
+        const slot = this.freeSlots.pop() ?? this.count++;
+        this.ensureCapacity(this.count);
         this.writeSlot(slot, a, b, color);
         this.keyToIndex.set(key, slot);
         this.indexToKey.set(slot, key);
@@ -207,11 +208,13 @@ export class ConnectionLineStore {
         this.lodHidden[slot] = 0;
         this.keyToIndex.delete(key);
         this.indexToKey.delete(slot);
+        this.freeSlots.push(slot);
         this.positionDirty = expandDirtyRange(this.positionDirty, i, CONNECTION_FLOATS_PER_SLOT);
         this.colorDirty = expandDirtyRange(this.colorDirty, i, CONNECTION_FLOATS_PER_SLOT);
         return true;
     }
     clear() {
+        this.freeSlots.length = 0;
         this.positions = new Float64Array(0);
         this.colors = new Float32Array(0);
         this.lodHidden = new Uint8Array(0);
@@ -227,6 +230,7 @@ export class ConnectionLineStore {
      */
     rebuild(edges) {
         const n = edges.length;
+        this.freeSlots.length = 0;
         this.positions = new Float64Array(n * CONNECTION_FLOATS_PER_SLOT);
         this.colors = new Float32Array(n * CONNECTION_FLOATS_PER_SLOT);
         this.lodHidden = new Uint8Array(n);

@@ -4,8 +4,9 @@ import { copyPosition3D } from "./math/position3d.js";
  * `_bufferIndex` is a view-layer cache written by the point renderer.
  */
 export class SolarSystem {
-    constructor({ id, name, position, isJumpGate = false, connections = [], connectedToClusterId = null, }) {
+    constructor({ id, catalogId, name, position, isJumpGate = false, connections = [], connectedToClusterId = null, }) {
         this.id = id;
+        this.catalogId = catalogId;
         this.name = name;
         this.position = copyPosition3D(position);
         this.isJumpGate = isJumpGate;

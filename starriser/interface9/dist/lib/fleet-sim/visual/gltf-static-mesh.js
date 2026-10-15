@@ -219,9 +219,11 @@ function textureSourceIndex(json, textureIndex) {
     if (textureIndex == null || textureIndex < 0)
         return -1;
     const tex = json.textures?.[textureIndex];
-    if (!tex || tex.source == null)
+    // EXT_texture_webp stores the WebP image index in the extension.
+    const source = tex?.source ?? tex?.extensions?.EXT_texture_webp?.source;
+    if (source == null)
         return -1;
-    return tex.source | 0;
+    return source | 0;
 }
 function extractImages(json, bin) {
     const images = json.images ?? [];

@@ -18,7 +18,7 @@ export function createControl(director,pressure=null,solar=null,routes=null,cloc
   function writeJourney(offset,journey,range) {
     f.fill(0,offset,offset+12);if(!journey)return;
     f.set([MODE[journey.mode],journey.revision,local(journey.at),local(journey.end)],offset);
-    f.set([...range,journey.planet===undefined?0:journey.planet+1,journey.planeShift??0],offset+4);f.set([...journey.exit,0],offset+8);
+    f.set([...range,journey.planet===undefined?0:journey.planet+1,journey.planeShift??0],offset+4);f.set([...journey.exit,journey.linearProgress?1:0],offset+8);
   }
   function writeGroup(group) {
     const at=capacity.groupBase+group*GROUP_FLOATS,intent=director.intents[group];

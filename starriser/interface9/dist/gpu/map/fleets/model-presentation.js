@@ -7,7 +7,9 @@ export class FleetModelPresentation {
         const fleets = this.ports.ships.getFleetGpuBuffer();
         this.bindLayer(this.ports.models, sim, fleets);
         this.bindLayer(this.ports.modelsLow, sim, fleets);
+        this.bindLayer(this.ports.modelsFar, sim, fleets);
         this.bindLayer(this.ports.modelsTiny, sim, fleets);
+        this.bindLayer(this.ports.modelsPoint, sim, fleets);
     }
     /** Bind live sim/fleet buffers and switch exclusive zoom band. No ship index lists. */
     update(sceneOpen, distance, meshesReady = true) {
@@ -17,17 +19,13 @@ export class FleetModelPresentation {
         return hulls;
     }
     applyBand(hulls) {
-        const { models, modelsLow, modelsTiny, ships } = this.ports;
+        const { models, modelsLow, modelsFar, modelsTiny, modelsPoint, ships } = this.ports;
         ships.setModelLodActive(hulls);
-        models.setHullBand(hulls);
-        models.setActive(hulls && models.isReady());
-        if (modelsTiny) {
-            modelsTiny.setHullBand(hulls);
-            modelsTiny.setActive(hulls && modelsTiny.isReady());
-        }
-        if (modelsLow) {
-            modelsLow.setHullBand(hulls);
-            modelsLow.setActive(hulls && modelsLow.isReady());
+        for (const layer of [models, modelsTiny, modelsLow, modelsFar, modelsPoint]) {
+            if (!layer)
+                continue;
+            layer.setHullBand(hulls);
+            layer.setActive(hulls && layer.isReady());
         }
     }
     bindLayer(layer, sim, fleets) {

@@ -1,12 +1,16 @@
+import { composeCompactBodyWorld } from './solar-system-lod.js';
+import { TravelRoutes, isTravelRoute } from './map/travel-routes.js';
 import { FollowJourney } from './map/fleets/follow-journey.js';
 import { FollowEvents } from './map/fleets/follow-events.js';
 import { renderBudget, compactRenderBudget } from './render-budget.js';
 import { withGpuResourceDiagnostics } from './runtime-errors.js';
 import { FLEET_RELATIONSHIPS, RELATIONSHIP_COLORS } from "../contracts/fleet-relationship.js";
 import { GalaxySurveyLayer } from './map/survey/survey-layer.js';
-import { createPyramidShipMesh } from '../lib/fleet-sim/visual/lowpoly-ship-mesh.js';
+import { createDartShipMesh, createPointShipMesh } from '../lib/fleet-sim/visual/lowpoly-ship-mesh.js';
 import { refreshSceneVisualAllocation } from "./map/fleets/scene-visual-allocation.js";
-import { SHIP_MODEL_CATALOG_URL, parseShipModelCatalog } from '../lib/fleet-sim/visual/ship-model-catalog.js';
+import { SHIP_MODEL_CATALOG_URL, catalogHullLod, catalogModelFiles, parseShipModelCatalog } from '../lib/fleet-sim/visual/ship-model-catalog.js';
+import { parseShipFx } from '../lib/fleet-sim/visual/ship-fx.js';
+import { HULL_LEVEL_BITS } from '../lib/fleet-sim/visual/hull-lod.js';
 import { assetUrl } from "./asset-url.js";
 import { measureIsolatedFrame } from "./map/frame-measurement.js";
 import { createMapFrameState } from "./map/frame-state.js";
@@ -65,11 +69,40 @@ const OVERLAY_LINEWIDTH_PX = 2;
 /** Skip Kepler discs/schematics while orbit exit is almost done (fade < 1). */
 const KEPLER_ENCODE_FADE_MAX = 0.88;
 export class WebGpuMapView {
+    setPlanetDepthFocus(value) { this.planetDepthFocus = value; }
+    setSceneLabelsVisible(value) {
+        if (this.frameState.sceneLabelsVisible === value)
+            return;
+        this.frameState.sceneLabelsVisible = value;
+        // Refresh once even for a frozen background, without starting its loop.
+        this.renderOnce();
+    }
+    setPresentationFrozen(value) { this.presentationFrozen = value; if (value)
+        this.stopLoop(); }
+    updatePlanetLens() {
+        const target = this.planetDepthFocus, store = this.solarBodies;
+        const index = target ? store.catalogIds.indexOf(target.catalogId) : -1;
+        this.frameState.planetFocus = null;
+        if (!target || store.systemId !== target.systemId || index < 0 || index >= store.currentCount || store.isSun[index])
+            return;
+        const body = composeCompactBodyWorld(store, index, this.getSceneTimeSec());
+        if (!body)
+            return;
+        const sample = this.planetFocusSample;
+        sample.x = body.x - store.systemX;
+        sample.y = body.y;
+        sample.z = body.z - store.systemZ;
+        sample.radius = store.radius[index];
+        this.frameState.planetFocus = sample;
+    }
     constructor(canvas, bootstrap, fovyDeg, skipShipModel = false, clock) {
         this.surfaceCleanup = null;
         this.pixelRatio = 1;
         /** Band C focused compact-body slot (null = none). */
         this.focusedBodyIndex = null;
+        this.planetDepthFocus = null;
+        this.planetFocusSample = { x: 0, y: 0, z: 0, radius: 0 };
+        this.presentationFrozen = false;
         /** Last color-pass: topology Line2 was encoded (galaxyFade ≥ 1). */
         /** 1 = full galaxy; 0 = orbiting SCENE (topology replaced by local rays). */
         this.galaxyFade = 1;
@@ -135,6 +168,7 @@ export class WebGpuMapView {
         this.beforeFrame = null;
         this.afterFrame = null;
         this.loopRunning = false;
+        this.remoteMovementClearance = .0125;
         /** Last renderFrame wall time (ms) — independent of display vsync. */
         this.lastFrameCpuMs = 0;
         /** Last timestamp sum across real compute/render passes; zero until sampled. */
@@ -167,6 +201,7 @@ export class WebGpuMapView {
         this.solarBodies = this.topology.solarBodies;
         this.lineStore = this.topology.lineStore;
         this.lines = new ConnectionLineGpuLayer(bootstrap);
+        this.travelRoutes = new TravelRoutes(bootstrap);
         this.fleetsLayer = new FleetInstanceGpuLayer(bootstrap, { reverseDepth: MAP_REVERSE_DEPTH });
         this.fleetPresentation = new FleetPresentation(this.fleetsLayer, () => this.disposed || bootstrap.isLost, this.solarBodies, this.timeline, true);
         this.modelLayer = new FleetModelGpuLayer(bootstrap, {
@@ -181,12 +216,21 @@ export class WebGpuMapView {
             modelScale: MODEL_LOD_DEFAULT_SCALE,
             meshYawHalf: 0,
         });
+        this.modelFarLayer = new FleetModelGpuLayer(bootstrap, {
+            reverseDepth: MAP_REVERSE_DEPTH, maxInstances: Math.min(MODEL_LOD_MAX_INSTANCES, renderBudget().ships),
+            modelScale: MODEL_LOD_DEFAULT_SCALE, meshYawHalf: 0,
+        });
         this.modelTinyLayer = new FleetModelGpuLayer(bootstrap, {
+            reverseDepth: MAP_REVERSE_DEPTH, maxInstances: Math.min(MODEL_LOD_MAX_INSTANCES, renderBudget().ships),
+            modelScale: MODEL_LOD_DEFAULT_SCALE, meshYawHalf: 0,
+        });
+        this.modelPointLayer = new FleetModelGpuLayer(bootstrap, {
             reverseDepth: MAP_REVERSE_DEPTH, maxInstances: Math.min(MODEL_LOD_MAX_INSTANCES, renderBudget().ships),
             modelScale: MODEL_LOD_DEFAULT_SCALE, meshYawHalf: 0,
         });
         this.modelPresentation = new FleetModelPresentation({
             ships: this.fleetsLayer, models: this.modelLayer, modelsLow: this.modelLowLayer, modelsTiny: this.modelTinyLayer,
+            modelsFar: this.modelFarLayer, modelsPoint: this.modelPointLayer,
         });
         this.overlay = new MapOverlayGpuLayer(bootstrap);
         // MSAA supplies geometric coverage; blend faint opacity once.
@@ -208,7 +252,8 @@ export class WebGpuMapView {
         this.overlayPresentation = new MapOverlayPresentation(this.overlay, this.overlayLines, () => this.getViewProj(), () => this.hideGalaxySelectionRings(), MAP_REVERSE_DEPTH);
         this.schematics = new SceneSchematics(bootstrap, canvas, this.topology, this.coordinates, () => this.shouldEncodeKeplerScene());
         this.survey = new GalaxySurveyLayer(bootstrap, this.topology, this.coordinates, this.fleetPresentation.scene.surveyTotals, canvas);
-        this.galaxyEncoding = createGalaxyEncoding(this.topology, this.lines, this.points, this.coordinates, this.survey);
+        this.survey.planetFleets = () => this.collectSceneFleets();
+        this.galaxyEncoding = createGalaxyEncoding(this.topology, this.lines, this.points, this.coordinates, this.survey, this.travelRoutes);
         this.solarPresentation = createSolarScenePresentation(this.solarBodyLayer, this.solarBodies, this.catalogResidency, this.coordinates);
         this.frameEncoder = createMapFrameEncoder({
             bootstrap, surface: canvas, coordinates: this.coordinates, attachments: this.attachments,
@@ -227,9 +272,9 @@ export class WebGpuMapView {
                     this.directed?.encodeRepulsion?.(pass, viewProj, view);
                 },
                 encodeFleetAltitude: (pass, viewProj, width, height) => {
-                    this.directed?.encodeFleetAltitude?.(pass, viewProj, width, height);
+                    this.directed?.encodeFleetAltitude?.(pass, viewProj, width, height, this.survey.selectedPinRenderId, this.frameState.sceneLabelsVisible, this.survey.planetMarkers.mergedFleetIds);
                 },
-            }, this.modelLowLayer, this.modelTinyLayer),
+            }, this.modelLowLayer, this.modelTinyLayer, this.modelFarLayer, this.modelPointLayer),
             schematics: this.schematics, overlay: this.overlayPresentation,
             tickWarmFleets: () => this.fleetPresentation.tickWarmFleets(),
             encodeDirectedMaintenance: (encoder) => this.directed?.encodeMaintenance?.(encoder),
@@ -243,8 +288,11 @@ export class WebGpuMapView {
         this.fleetsLayer.configureScenePool(MAX_FLEET_SLOTS, renderBudget().ships);
         this.modelLayer.init({ sampleCount: MAP_HIGH_HULL_SAMPLES });
         this.modelLowLayer.init(msaa);
+        this.modelFarLayer.init(msaa);
         this.modelTinyLayer.init(msaa);
-        this.modelTinyLayer.loadMeshSync(createPyramidShipMesh(), { meshYawHalf: 0, originRadius: 1 });
+        this.modelTinyLayer.loadMeshSync(createDartShipMesh(), { meshYawHalf: 0, originRadius: 1 });
+        this.modelPointLayer.init(msaa);
+        this.modelPointLayer.loadMeshSync(createPointShipMesh(), { meshYawHalf: 0, originRadius: 1 });
         this.overlay.init(msaa);
         try {
             this.liveGpuProfiler = createFrameGpuProfiler(bootstrap.device);
@@ -276,8 +324,14 @@ export class WebGpuMapView {
             return parseShipModelCatalog(await response.json());
         });
         await Promise.all([
+            catalog.then(parsed => { this.assertModelLoadAvailable(); this.modelLayer.setHullLod(catalogHullLod(parsed)); }),
+            // Engine trails and glows: optional; a failure keeps one centre trail per ship.
+            catalog.then(parsed => this.fleetsLayer.setShipFx(parseShipFx(parsed), SHIP_MODEL_CATALOG_URL.slice(0, SHIP_MODEL_CATALOG_URL.lastIndexOf('/') + 1), SCENE_HULL_SIZE * SCENE_MODEL_SIZE_MUL))
+                .catch(() => { }),
             this.loadCatalogLod(this.modelLayer, catalog, 'high'),
             this.loadCatalogLod(this.modelLowLayer, catalog, 'low'),
+            this.loadCatalogLod(this.modelFarLayer, catalog, 'far'),
+            this.loadCatalogLod(this.modelTinyLayer, catalog, 'dart'),
         ]);
     }
     async loadCatalogLod(layer, pending, lod) {
@@ -285,17 +339,21 @@ export class WebGpuMapView {
         this.modelRequests.set(layer, request);
         const catalog = await pending;
         this.assertModelLoadAvailable();
+        // Without a dart for every class the procedural dart stays loaded.
+        if (lod === 'dart' && catalog.ships.some(ship => !ship.dart))
+            return;
         const directory = SHIP_MODEL_CATALOG_URL.slice(0, SHIP_MODEL_CATALOG_URL.lastIndexOf('/') + 1);
-        const buffers = await Promise.all(catalog.ships.map(async (ship) => {
-            const response = await fetch(assetUrl(directory + ship[lod]));
+        const { files, selectedClasses } = catalogModelFiles(catalog, lod);
+        const buffers = await Promise.all(files.map(async (file) => {
+            const response = await fetch(assetUrl(directory + file));
             if (!response.ok)
-                throw new Error(`Ship mesh ${ship[lod]} HTTP ${response.status}`);
+                throw new Error(`Ship mesh ${file} HTTP ${response.status}`);
             return response.arrayBuffer();
         }));
         if (this.modelRequests.get(layer) !== request)
             return;
         this.assertModelLoadAvailable();
-        await layer.loadCatalog(buffers, catalog.originRadius);
+        await layer.loadCatalog(buffers, catalog.originRadius, catalog.sharedMaterial !== false, selectedClasses);
         if (this.modelRequests.get(layer) !== request)
             return;
         this.assertModelLoadAvailable();
@@ -383,7 +441,7 @@ export class WebGpuMapView {
     }
     /** Start the map rAF loop (idempotent). Prefer after workers are online. */
     startRenderLoop() {
-        if (this.disposed || this.bootstrap.isLost)
+        if (this.disposed || this.bootstrap.isLost || this.presentationFrozen)
             return;
         if (this.raf)
             return;
@@ -628,6 +686,9 @@ export class WebGpuMapView {
         this.beforeFrame = fn;
     }
     setFleetPositionProvider(lookup) { return this.fleetPresentation.setFleetPositionProvider(lookup); }
+    addCluster(cluster) { this.topology.addCluster(cluster); }
+    removeCluster(cluster) { this.topology.removeCluster(cluster); }
+    setSystemCatalog(system) { this.topology.setSystemCatalog(system); }
     addSolarSystem(cluster, solarSystem) {
         this.topology.addSolarSystem(cluster, solarSystem);
     }
@@ -638,12 +699,20 @@ export class WebGpuMapView {
         this.topology.updateSolarSystemPositions(systems);
     }
     addConnection(key, a, b, color = 0x00ffff) {
+        if (isTravelRoute(key)) {
+            this.travelRoutes.store.add(key, a, b, color);
+            return;
+        }
         this.topology.addConnection(key, a, b, color);
     }
     updateConnectionEndpoints(key, a, b) {
         return this.topology.updateConnectionEndpoints(key, a, b);
     }
     removeConnection(key) {
+        if (isTravelRoute(key)) {
+            this.travelRoutes.store.remove(key);
+            return;
+        }
         this.topology.removeConnection(key);
     }
     markClusterConnectionsDirty(clusterId) {
@@ -670,6 +739,10 @@ export class WebGpuMapView {
         this.topology.clearLines();
     }
     clear() {
+        this.travelRoutes.store.clear();
+        this.survey.setColonies([]);
+        this.survey.signals.clear();
+        this.survey.fleetTotals().setRoster([]);
         this.clearPoints();
         this.clearLines();
         this.clearFleets();
@@ -729,6 +802,9 @@ export class WebGpuMapView {
         const p = 'x' in center ? center : { x: center.pathEndX, y: center.pathEndY, z: center.pathEndZ };
         return { posX: p.x + (this.followJourney?.origin.x ?? this.solarBodies.systemX), posY: p.y, posZ: p.z + (this.followJourney?.origin.z ?? this.solarBodies.systemZ), heading: 0, shipIndex, pending: true };
     }
+    followedFleetPose(id) {
+        return this.followJourney?.fleetId === id && this.sceneFollowHandle != null ? this.getLiveShipPose(this.sceneFollowHandle) : null;
+    }
     getFollowWarpState() {
         if (this.sceneFollowHandle == null || !this.liveSceneShipVisual(this.sceneFollowHandle))
             return null;
@@ -757,11 +833,15 @@ export class WebGpuMapView {
     sceneMarkerProjection() { return this.coordinates.system.viewProj; }
     sceneMarkerCenter(id) { return this.directed?.fleetCenter(id) ?? null; }
     sceneFleetMarkers() {
+        if (!this.frameState.sceneLabelsVisible)
+            return [];
         if (this.solarBodies.systemId == null)
             return [];
         const out = [];
         for (const fleet of this.collectSceneFleets()) {
             const id = fleet.id ?? '', center = this.directed?.fleetCenter(id);
+            if (id === this.survey.selectedPinRenderId || this.survey.planetMarkers.mergedFleetIds.has(id))
+                continue;
             const types = this.sceneShipTypes(id);
             if (!center || types.length === 0)
                 continue;
@@ -775,7 +855,7 @@ export class WebGpuMapView {
     scenePreparationStatus() { return this.directed?.preparationStatus() ?? null; }
     setFleetPathsVisible(on) { this.directed?.setFleetPathsVisible(on); }
     setFleetDebugVisible(on) { this.directed?.setFleetDebugVisible(on); }
-    setHoveredFleetId(id) { this.directed?.setHoveredFleet(id); }
+    setHoveredFleetId(id) { this.survey.hoveredFleetRenderId = id; this.directed?.setHoveredFleet(id); }
     sceneShipCentroid(id) {
         return this.fleetPresentation.sceneShipCentroid(id);
     }
@@ -854,6 +934,13 @@ export class WebGpuMapView {
     reserveFleetCapacity(fleetCount, shipsPerFleet) { return this.fleetPresentation.reserveFleetCapacity(fleetCount, shipsPerFleet); }
     addFleet(id, counts, state, relationship) { return this.fleetPresentation.addFleet(id, counts, state, undefined, relationship); }
     createRemoteFleetSlots(onFollowRetired) { return createRemoteFleetSlots(this.fleetPresentation, onFollowRetired); }
+    setRemoteMovementClearance(clearance) { this.remoteMovementClearance = clearance; }
+    setRemotePlanetClock(anchor) {
+        const reference = this.remoteClockReference();
+        const atFrameZero = Number(anchor.serverMs) + reference.monotonicEpochMs - anchor.timeOriginMs - anchor.monotonicMs
+            - reference.wallMs + reference.frameEpochMs;
+        this.solarBodies.setEpochOffset(atFrameZero / 1000);
+    }
     remoteClockReference() {
         return { ...this.timeline.observeClock(performance.timeOrigin), frameEpochMs: this.timeline.epochMs };
     }
@@ -865,7 +952,7 @@ export class WebGpuMapView {
         const d = Math.hypot(this.cameraX - this.targetX, this.cameraY, this.cameraZ - this.targetZ);
         const previousScene = this.solarBodies.systemId;
         this.survey.prepareLayout(this.cssWidth, this.cssHeight, Math.tan(this.fovyDeg * Math.PI / 360), !this.followJourney && this.galaxyFade >= 0.02);
-        this.topology.setSurveyPanelClusters(this.survey.layout.panelClusters);
+        this.topology.setSurveyCollapsedClusters(this.survey.layout.collapsedClusters);
         this.topology.updateLod(d, this.cssHeight, this.canvas.height, this.fovyDeg, this.targetX, this.targetZ, this.timeline.realWallMs);
         if (previousScene !== this.solarBodies.systemId)
             this.overlayPresentation.overlayDirty = true;
@@ -1046,7 +1133,7 @@ export class WebGpuMapView {
         if (!catchingUp && this.directed?.departurePending(pin.fleetId))
             return false;
         const lookup = this.fleetPresentation.scene.lookup();
-        const source = lookup?.(jump.startNode), destination = lookup?.(jump.endNode);
+        const source = jump.startPosition ?? lookup?.(jump.startNode), destination = jump.endPosition ?? lookup?.(jump.endNode);
         const center = this.directed?.fleetCenter(pin.fleetId);
         if (!source || !destination || !center)
             return false;
@@ -1061,7 +1148,7 @@ export class WebGpuMapView {
     updateFollowFrame(pin, now) {
         const jump = pin.jump;
         const lookup = this.fleetPresentation.scene.lookup();
-        const source = lookup?.(jump.startNode), destination = lookup?.(jump.endNode);
+        const source = jump.startPosition ?? lookup?.(jump.startNode), destination = jump.endPosition ?? lookup?.(jump.endNode);
         if (!source || !destination) {
             this.setFollowShipIndex(null, 'topology-missing');
             return false;
@@ -1115,7 +1202,9 @@ export class WebGpuMapView {
     }
     updateFrameState() {
         const frame = this.frameState;
+        this.updatePlanetLens();
         frame.warp = this.getFollowWarpState();
+        frame.systemId = this.followJourney?.systemId ?? this.solarBodies.systemId;
         frame.sceneOpen = this.solarBodies.systemId != null || this.followJourney != null;
         frame.anyScene = this.fleetPresentation.scene.systemSceneIds.size > 0;
         frame.following = this.sceneFollowHandle != null || this.fleetPresentation.follow.followShipIndex != null;
@@ -1133,6 +1222,7 @@ export class WebGpuMapView {
         frame.fovyDeg = this.fovyDeg;
         frame.galaxyFade = this.galaxyFade;
         frame.focusedBodyIndex = this.focusedBodyIndex;
+        frame.presentationMs = this.timeline.realWallMs;
         frame.nowMs = this.timeline.elapsedMs;
         frame.dtMs = this.timeline.simDtMs;
         frame.timeSec = this.timeline.seconds;
@@ -1155,32 +1245,44 @@ export class WebGpuMapView {
             frameDebugTime('scene synchronization', () => this.syncDirectedScene());
             this.modelLayer.setModelScale(sceneModelScale(this.modelLayer.getMeshOriginRadius()));
             this.modelLowLayer.setModelScale(sceneModelScale(this.modelLowLayer.getMeshOriginRadius()));
+            this.modelFarLayer.setModelScale(sceneModelScale(this.modelFarLayer.getMeshOriginRadius()));
             this.modelTinyLayer.setModelScale(sceneModelScale(1));
+            this.modelPointLayer.setModelScale(sceneModelScale(1));
         }
         else {
             this.modelLayer.setModelScale(MODEL_LOD_DEFAULT_SCALE);
             this.modelLowLayer.setModelScale(MODEL_LOD_DEFAULT_SCALE);
+            this.modelFarLayer.setModelScale(MODEL_LOD_DEFAULT_SCALE);
             this.releaseSceneSlots();
             this.lastOccupancy = null;
             this.occupancyKey = "";
             this.directed?.syncSceneFleets([], null);
         }
         const mapBuf = this.directed?.mapStorage?.() ?? null;
-        const meshesReady = this.modelLayer.isReady() && this.modelLowLayer.isReady() && !!mapBuf
+        this.syncSelectedModel();
+        const meshesReady = this.modelLayer.isReady() && this.modelLowLayer.isReady() && this.modelFarLayer.isReady() && !!mapBuf
             && (this.directed?.visualCap?.().shown ?? 0) > 0;
         const hullsOn = this.modelPresentation.update(frame.sceneOpen, frame.distance, meshesReady);
         this.modelLayer.setLodMask(FLEET_FLAG_MODEL_HIGH);
         this.modelLowLayer.setLodMask(FLEET_FLAG_MODEL_LOW);
-        this.modelTinyLayer.setLodMask(8192);
+        this.modelFarLayer.setLodMask(HULL_LEVEL_BITS.low);
+        this.modelTinyLayer.setLodMask(HULL_LEVEL_BITS.dart);
+        this.modelPointLayer.setLodMask(HULL_LEVEL_BITS.point);
         frame.sceneShipCapacity = this.directed?.kernelCapacity?.() ?? SCENE_KERNEL_COUNT;
         if (mapBuf) {
             this.modelLayer.setKernelIdentitySource(frame.sceneShipCapacity);
             this.modelLowLayer.setKernelIdentitySource(frame.sceneShipCapacity);
+            this.modelFarLayer.setKernelIdentitySource(frame.sceneShipCapacity);
             this.modelTinyLayer.setKernelIdentitySource(frame.sceneShipCapacity);
+            this.modelPointLayer.setKernelIdentitySource(frame.sceneShipCapacity);
         }
         frame.hullsOn = hullsOn;
         frame.hullHighOn = hullsOn;
         this.fleetPresentation.upload.flushFleetGpuDirt();
+    }
+    syncSelectedModel() {
+        const selected = this.sceneFollowHandle == null ? null : this.directed?.resolveShip(this.sceneFollowHandle);
+        this.modelLayer.setSelectedShip(selected?.kernelIndex ?? 0xffffffff, selected?.handle.id ?? 0);
     }
     allocSceneSlot(id) {
         const have = this.sceneSlots.get(id);
@@ -1290,8 +1392,8 @@ export class WebGpuMapView {
         const st = grown.state;
         // Lookups borrow stable world positions. Avoid two temporary coordinate
         // objects and a captured closure for every fleet on every rendered frame.
-        const from = st.state === "jumping" ? lookup?.(st.startNode) : null;
-        const to = st.state === "jumping" ? lookup?.(st.endNode)
+        const from = st.state === "jumping" ? st.startPosition ?? lookup?.(st.startNode) : null;
+        const to = st.state === "jumping" ? st.endPosition ?? lookup?.(st.endNode)
             : st.state === "cooldown" && st.nextNode ? lookup?.(st.nextNode) : null;
         const row = this.sceneFleetMetadata[slot] ?? {};
         // Releasing/reselecting follow inside the destination does not replace the
@@ -1305,6 +1407,7 @@ export class WebGpuMapView {
         row.groupId = slot;
         row.instanceStart = grown.instanceStart;
         row.shipCount = want;
+        row.domainShipCount = domain;
         row.classCounts = grown.counts.classes;
         row.marker = tint;
         row.paused = (flags & FLEET_FLAG_SIM_PAUSED) !== 0;
@@ -1323,6 +1426,9 @@ export class WebGpuMapView {
         row.toX = to ? to.x - sunX : 0;
         row.toZ = to ? to.z - sunZ : 0;
         row.state = st;
+        row.remote = grown.pendingMove?.path ?? grown.remote;
+        if (row.remote)
+            row.remote.clearance = this.remoteMovementClearance;
         this.sceneFleetMetadata[slot] = row;
         return row;
     }
@@ -1444,11 +1550,12 @@ export class WebGpuMapView {
         const counts = await this.directed?.sampleQuality();
         if (!counts || epoch !== this.qualityEpoch || scene !== this.solarBodies.systemId)
             return null;
-        const [emitters, args, tiny, low, high] = await Promise.all([this.fleetsLayer.readbackTrailDrawCount(), this.fleetsLayer.readbackTrailIndirectArgs(),
-            this.modelTinyLayer.readbackVisibleCount(), this.modelLowLayer.readbackVisibleCount(), this.modelLayer.readbackVisibleCount()]);
+        const [emitters, args, point, tiny, far, low, high] = await Promise.all([this.fleetsLayer.readbackTrailDrawCount(), this.fleetsLayer.readbackTrailIndirectArgs(),
+            this.modelPointLayer.readbackVisibleCount(), this.modelTinyLayer.readbackVisibleCount(), this.modelFarLayer.readbackVisibleCount(),
+            this.modelLowLayer.readbackVisibleCount(), this.modelLayer.readbackVisibleCount()]);
         if (epoch !== this.qualityEpoch || scene !== this.solarBodies.systemId)
             return null;
-        return { counts, visible: [tiny, low, high], emitters, segments: args[1] ?? 0, wallMs: Date.now(), width: this.canvas.width, height: this.canvas.height,
+        return { counts, visible: [point, tiny, far, low, high], emitters, segments: args[1] ?? 0, wallMs: Date.now(), width: this.canvas.width, height: this.canvas.height,
             msaa: MAP_HULL_MSAA ? 4 : MAP_MSAA_SAMPLES, selective: MAP_HULL_MSAA || MAP_BODY_SAMPLES !== MAP_MSAA_SAMPLES, halfGlow: MAP_HALF_GLOW, simulationHz: this.directed?.getSimulationRate() ?? 30 };
     }
     setStarField(on) { this.survey.stars.enabled = on; }
@@ -1459,7 +1566,9 @@ export class WebGpuMapView {
         this.frameState.highFx = on === true || this.isSuperFxEnabled();
         this.modelLayer.growCapacity(capacity);
         this.modelLowLayer.growCapacity(capacity);
+        this.modelFarLayer.growCapacity(capacity);
         this.modelTinyLayer.growCapacity(capacity);
+        this.modelPointLayer.growCapacity(capacity);
         const residentCapacity = this.directed?.kernelCapacity?.() ?? this.frameState.sceneShipCapacity;
         this.fleetsLayer.configureScenePool(MAX_FLEET_SLOTS, Math.max(capacity, residentCapacity));
         this.directed?.setVisualCapacity(capacity);
@@ -1502,6 +1611,7 @@ export class WebGpuMapView {
         this.disposed = true;
         this.stopLoop();
         this.survey.dispose();
+        this.travelRoutes.dispose();
         this.points.dispose();
         this.impostorPoints.dispose();
         this.solarBodyLayer.dispose();
@@ -1512,7 +1622,9 @@ export class WebGpuMapView {
         this.liveGpuProfiler = null;
         this.modelLayer.dispose();
         this.modelLowLayer.dispose();
+        this.modelFarLayer.dispose();
         this.modelTinyLayer.dispose();
+        this.modelPointLayer.dispose();
         this.directed?.destroy();
         this.directed = null;
         this.fleetsLayer.dispose();

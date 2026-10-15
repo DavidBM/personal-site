@@ -1,8 +1,6 @@
 /** Adapts the detail view to the existing packed renderer and owned rule seed.
  * OwnedFleetSummary never enters this adapter: its locations are not rule state. */
 import { copyObservation } from './copy.js';
-import { create } from '@bufbuild/protobuf';
-import { SystemSnapshotChunkSchema, SystemDeltaSchema } from '../generated/galaxy/v1/galaxy_pb.js';
 import { opaqueIdAt, opaqueIdBytes } from '../../contracts/opaque-id.js';
 import { createOwnedProjection } from '../owned-projection.js';
 import { packSnapshot, packDelta } from '../projection-pack.js';
@@ -28,8 +26,8 @@ export function createDetailProjection(connection, player, subscriptionId) {
             if (current !== state)
                 return;
             const fleets = takeFleets(iterator);
-            const chunk = create(SystemSnapshotChunkSchema, { scope: observation.scope, cursor: { subscriptionId: opaqueIdBytes(subscriptionId), generation: state.generation, sequence: 0n },
-                snapshotId: opaqueIdBytes(value.id), chunkIndex: index, chunkCount: count, systemRevision: observation.revision, committedTimeMs: observation.committedServerMs, fleets });
+            const chunk = { scope: observation.scope, cursor: { subscriptionId: opaqueIdBytes(subscriptionId), generation: state.generation, sequence: 0n },
+                snapshotId: opaqueIdBytes(value.id), chunkIndex: index, chunkCount: count, systemRevision: observation.revision, committedTimeMs: observation.committedServerMs, fleets };
             const batch = packSnapshot(chunk);
             owned.snapshot(chunk, watermark(batch));
             yield batch;
@@ -46,7 +44,7 @@ export function createDetailProjection(connection, player, subscriptionId) {
         const rows = value.rows.value;
         const observation = rows.observation;
         validateAdvance(observation, state);
-        const wire = create(SystemDeltaSchema, { scope: observation.scope, cursor: { subscriptionId: opaqueIdBytes(subscriptionId), generation: state.generation, sequence: state.sequence + 1n }, baseSystemRevision: state.revision, systemRevision: observation.revision, committedTimeMs: observation.committedServerMs, upserts: rows.upserts, removedFleetIds: rows.removedFleetIds });
+        const wire = { scope: observation.scope, cursor: { subscriptionId: opaqueIdBytes(subscriptionId), generation: state.generation, sequence: state.sequence + 1n }, baseSystemRevision: state.revision, systemRevision: observation.revision, committedTimeMs: observation.committedServerMs, upserts: rows.upserts, removedFleetIds: rows.removedFleetIds };
         const batch = packDelta(wire);
         owned.delta(wire, watermark(batch));
         state.sequence++;

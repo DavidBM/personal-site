@@ -2,7 +2,7 @@ import {battleRouteCapability,battleRouteProgram,battleCycleFits} from './battle
 import {automaticRouteKey, automaticRouteIntent, automaticRouteDeadline, arrivalPorts} from './automatic-route.mjs';
 import { createSceneRoutePlanner } from '../../../lib/ship-runtime/scene-route-planner.mjs';
 import { packSceneRoute } from '../../../lib/ship-runtime/scene-route.mjs';
-import { packSceneRouteSamples, unpackRoutePoints, writeRouteCorrespondences } from '../../../lib/ship-runtime/route-cache.mjs';
+import { packSceneRouteSamples, SCENE_ROUTE_ORBIT_OFFSET, unpackRoutePoints, writeRouteCorrespondences } from '../../../lib/ship-runtime/route-cache.mjs';
 import { routeCornerDeviation } from '../../../lib/ship-runtime/route-curve.mjs';
 import { packClassTuning } from '../../../lib/ship-runtime/class-tuning.mjs';
 import { SCENE_LAB, SCENE_TRAVEL_ADAPT } from '../../../lib/ship-runtime/flight-layout.mjs';
@@ -175,7 +175,32 @@ export function createSceneFleetRoutes({ center, install, changed = () => {}, cr
     }
     for (const [id, row] of rows) if (!live.has(id)) remove(id, row);
   }
+  function syncRemote(fleet) {
+    const path = fleet.remote, previous = rows.get(fleet.id);
+    const key = `${fleet.generation}:${path.revision}:${path.departureGpuMs}:${path.arrivalGpuMs}:${path.targetX}:${path.targetY}:${path.targetZ}:${path.clearance}:${path.orbit?.epochGpuMs}`;
+    if (previous?.remoteKey === key) { previous.fleet = fleet; return fleet.id; }
+    if (previous) remove(fleet.id, previous);
+    const from = [path.x, path.y, path.z], to = [path.targetX, path.targetY, path.targetZ];
+    const points = path.moving ? [from, ...(path.via ?? []).map(p => [p.x, p.y, p.z]), to] : [from, from];
+    const capability = routeCapability(fleet, formationFrame?.(fleet));
+    // Native/WASM already round and collision-check the accepted samples.
+    // Draw and follow that exact curve; do not round it a second time here.
+    const cache = packSceneRouteSamples(points.map(p => p.map(v => v * SCENE_LAB)), Math.max(.001, (path.clearance ?? .0125) * 2 * SCENE_LAB), capability.speed, nextToken++, { revision: nextRevision++ });
+    if(path.orbit) {
+      const o=path.orbit,b=o.body;
+      cache.set([b[0]*SCENE_LAB,b[2],b[3],o.periodMs/1000,
+        b[4],b[5],b[6],o.radius*SCENE_LAB,b[8],b[9],b[10],1+((o.ringPhase??b[3])%(2*Math.PI)+2*Math.PI)%(2*Math.PI)],SCENE_ROUTE_ORBIT_OFFSET);
+    }
+    const row = { fleet, id: fleet.id, slot: fleet.slot, remoteKey: key, remote: true, points,
+      corridorRadius: cache[1] / (2 * SCENE_LAB), capability, color: fleet.marker ?? [.45,.78,1],
+      status: path.moving ? 'Following accepted route' : 'Holding position', validUntil: Infinity, retryAt: Infinity, pending: false };
+    rows.set(fleet.id, row); install(fleet.slot, cache); changed(); return fleet.id;
+  }
   function syncFleet(fleet) {
+      // Native combat starts after its safe approach has arrived. Its bounded
+      // GPU squads already avoid bodies; a second cosmetic ingress is redundant.
+      if (fleet.state?.battle?.authoritative) { const row=rows.get(fleet.id); if(row)remove(fleet.id,row); return null; }
+      if (fleet.remote && !fleet.state?.battle && fleet.shipCount > 0) return syncRemote(fleet);
       const key=automaticRouteKey(fleet);
       const previousRow=rows.get(fleet.id);
       const move = fleet.state?.state === 'awaiting' && fleet.state.localMove

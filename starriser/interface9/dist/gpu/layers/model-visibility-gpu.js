@@ -1,7 +1,11 @@
 import { sceneCameraShader, bindSceneCamera } from '../scene-camera.js';
 import { readGpuBuffer } from '../buffer-readback.js';
 import { writeModelFrustumPlanes } from '../../lib/fleet-sim/visual/model-visibility.js';
-import { buildModelVisibilityWgsl, MODEL_VISIBILITY_GROUP_SIZE, MODEL_VISIBILITY_UNIFORM_BYTES, MODEL_VISIBILITY_MAX_BATCHES } from '../../lib/fleet-sim/gpu/model-visibility.wgsl.js';
+import { buildModelVisibilityWgsl, MODEL_VISIBILITY_GROUP_SIZE, MODEL_VISIBILITY_UNIFORM_BYTES, MODEL_VISIBILITY_MAX_BATCHES, MODEL_VISIBILITY_PARTITIONS } from '../../lib/fleet-sim/gpu/model-visibility.wgsl.js';
+function classCount(ranges) {
+    const firstVariant = ranges.findIndex(range => range.sourceClass != null);
+    return firstVariant < 0 ? Math.max(1, ranges.length) : firstVariant;
+}
 function createBuffers(device, capacity, outputBytes, batchCount) {
     const uniform = device.createBuffer({ label: 'model-visibility-uniform', size: MODEL_VISIBILITY_UNIFORM_BYTES, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     let workspace = null, output = null;
@@ -46,6 +50,7 @@ export class ModelVisibilityGpu {
         this.disposed = false;
         this.ranges = ranges;
         this.batchCount = Math.max(1, ranges.length);
+        this.setSelectedShip(0xffffffff, 0);
         if (this.batchCount > MODEL_VISIBILITY_MAX_BATCHES)
             throw new Error("Too many model visibility bins");
         this.bootstrap = bootstrap;
@@ -74,9 +79,13 @@ export class ModelVisibilityGpu {
         this.candidateBuffer = candidates;
     }
     clearFrame() { this.candidateCount = 0; }
+    setSelectedShip(index, owner) {
+        this.words[33] = index >>> 0;
+        this.words[34] = owner >>> 0;
+    }
     encode(encoder, viewProj, origin, modelScale, meshRadius, count, indexCount, lodMask = 0, partitions) {
         this.assertAvailable();
-        if (partitions && partitions.length > 3)
+        if (partitions && partitions.length > MODEL_VISIBILITY_PARTITIONS)
             throw new Error("Too many model visibility LOD partitions");
         this.candidateCount = Math.min(count, this.capacity);
         if (!this.bindGroup || this.candidateCount === 0)
@@ -98,17 +107,19 @@ export class ModelVisibilityGpu {
         this.words[30] = indexCount;
         this.words[31] = Math.ceil(this.candidateCount / MODEL_VISIBILITY_GROUP_SIZE);
         this.words[32] = lodMask >>> 0;
+        this.words[35] = classCount(this.ranges);
         for (let batch = 0; batch < this.ranges.length; batch++) {
             this.words[36 + batch * 4] = this.ranges[batch].indexCount;
             this.words[37 + batch * 4] = this.ranges[batch].firstIndex;
+            this.words[38 + batch * 4] = (this.ranges[batch].selectedVariant ?? -1) + 1;
         }
         const partBase = 36 + MODEL_VISIBILITY_MAX_BATCHES * 4;
         this.words.fill(0, partBase);
         let first = 0;
         partitions?.forEach((part, index) => {
             const count = Math.max(1, part.ranges.length), at = partBase + index * 4;
-            this.words.set([first, count, part.lodMask, 0], at);
-            this.floats.set([part.modelScale, part.meshRadius, 0, 0], partBase + 12 + index * 4);
+            this.words.set([first, count, part.lodMask, classCount(part.ranges)], at);
+            this.floats.set([part.modelScale, part.meshRadius, 0, 0], partBase + MODEL_VISIBILITY_PARTITIONS * 4 + index * 4);
             first += count;
         });
         this.bootstrap.device.queue.writeBuffer(this.buffers.uniform, 0, this.uniformData);

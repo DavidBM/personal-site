@@ -3,20 +3,28 @@ import { readGpuBudget, saveGpuBudget, gpuBudgetReloadUrl } from './gpu-budget-s
 import { readSuperFx, readSelectiveMsaa, readHalfGlow, readRenderScale } from './graphics-settings.js';
 import { createRenderConnection } from "./render-connection.js";
 import { readBrowserFrameDebug } from "./browser-frame-debug.js";
+import { MOCK_RUNTIME } from './runtime-profile.js';
 /** Main owns the DOM surface and messaging. The worker owns every GPU resource. */
 export class RenderClient {
     constructor(canvas, worker, options) {
         this.cleanup = [];
         this.state = null;
         this.lost = false;
+        this.scenePreparation = null;
+        this.preparationError = null;
+        this.preparationWaiters = new Set();
         this.gpuBudget = readGpuBudget();
         this.recoveringMemory = false;
         this.renderScale = readRenderScale();
         this.canvas = canvas;
         this.connection = createRenderConnection({
             endpoint: worker,
-            onPreparation: status => options.onPreparation?.(this.gpuBudget === 'compact'
-                ? { ...status, label: `${status.label} · Low memory: 2K ships / 32 fleets` } : status),
+            onPreparation: status => {
+                this.scenePreparation = status;
+                this.notifyPreparation();
+                options.onPreparation?.(this.gpuBudget === 'compact'
+                    ? { ...status, label: `${status.label} · Low memory: 2K ships / 32 fleets` } : status);
+            },
             onGpuError: message => {
                 if (!this.recoverGpuMemory(message, options.onGpuError))
                     options.onGpuError?.(message);
@@ -28,14 +36,14 @@ export class RenderClient {
             },
             onError: (error) => {
                 this.lost = true;
+                this.failPreparation(error);
                 if (!this.recoverGpuMemory(String(error), options.onGpuError))
                     options.onError(error);
             },
         });
     }
     static async create(options) {
-        if (options.signal?.aborted)
-            throw new Error("Render initialization cancelled");
+        assertInitializationActive(options.signal);
         const canvas = document.createElement("canvas");
         canvas.id = "galaxy-map";
         Object.assign(canvas.style, {
@@ -46,7 +54,7 @@ export class RenderClient {
         let client = null;
         const onAbort = () => { client?.terminate(); };
         try {
-            const worker = new Worker(new URL("../render/worker-entry.js", import.meta.url), {
+            const worker = new Worker(options.workerModule ?? MOCK_RUNTIME.workers.render, {
                 type: "module", name: "galaxy-render",
             });
             client = new RenderClient(canvas, worker, options);
@@ -61,8 +69,7 @@ export class RenderClient {
             };
             worker.postMessage(bootstrap, [offscreen]);
             await client.connection.ready;
-            if (options.signal?.aborted)
-                throw new Error("Render initialization cancelled");
+            assertInitializationActive(options.signal);
             client.observeViewport(motion);
             return client;
         }
@@ -138,6 +145,43 @@ export class RenderClient {
     }
     snapshot() { return this.state; }
     isDeviceLost() { return this.lost || (this.state?.metrics.deviceLost ?? true); }
+    /** Preparation is renderer-owned and may outlive a caller. Aborting only
+     * removes this waiter; it does not cancel shared shader compilation. */
+    waitForScenePreparation(signal) {
+        return new Promise((resolve, reject) => {
+            const finish = (error) => {
+                this.preparationWaiters.delete(update);
+                signal.removeEventListener('abort', update);
+                if (error)
+                    reject(error);
+                else
+                    resolve();
+            };
+            const update = () => {
+                if (signal.aborted)
+                    return finish(new Error('Online navigation was superseded'));
+                if (this.preparationError)
+                    return finish(this.preparationError);
+                const status = this.scenePreparation;
+                if (status?.phase === 'ready')
+                    finish();
+                else if (status?.phase === 'failed' || status?.phase === 'cancelled') {
+                    finish(new Error(status.error ?? status.label));
+                }
+            };
+            this.preparationWaiters.add(update);
+            signal.addEventListener('abort', update, { once: true });
+            update();
+        });
+    }
+    notifyPreparation() {
+        for (const update of this.preparationWaiters)
+            update();
+    }
+    failPreparation(error) {
+        this.preparationError = error;
+        this.notifyPreparation();
+    }
     send(command) { this.connection.send(command); }
     sendDirectorPacket(packet) { this.connection.sendDirectorPacket(packet); }
     query(query, options) { return this.connection.query(query, options); }
@@ -148,16 +192,22 @@ export class RenderClient {
         this.send({ type: "viewport", viewport: { width, height, dpr: this.effectivePixelRatio() } });
     }
     async dispose() {
+        this.failPreparation(new Error('Render worker disposed'));
         for (const clean of this.cleanup.splice(0))
             clean();
         await this.connection.dispose();
         this.canvas.remove();
     }
     terminate() {
+        this.failPreparation(new Error('Render worker terminated'));
         for (const clean of this.cleanup.splice(0))
             clean();
         this.connection.terminate();
         this.canvas.remove();
     }
+}
+function assertInitializationActive(signal) {
+    if (signal?.aborted)
+        throw new Error('Render initialization cancelled');
 }
 //# sourceMappingURL=render-client.js.map

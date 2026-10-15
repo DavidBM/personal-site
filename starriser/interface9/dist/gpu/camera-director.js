@@ -4,7 +4,7 @@
  * Live playback lives in {@link ../main/camera-director-host.ts}: the App
  * applies these samples each rAF. Tests import this module only.
  */
-import { smoothstep01 } from "./camera-zoom.js";
+import { smoothstep01, tiltAngleRad, tiltFactorForHeight } from "./camera-zoom.js";
 function clamp01(t) {
     if (!(t > 0))
         return 0;
@@ -120,7 +120,7 @@ export function directorFlyToSystem(from, system, height, durationMs) {
         to: {
             eyeX: system.x,
             eyeY: h,
-            eyeZ: system.z,
+            eyeZ: system.z + h * Math.tan(tiltAngleRad(tiltFactorForHeight(h))),
             targetX: system.x,
             targetY: 0,
             targetZ: system.z,

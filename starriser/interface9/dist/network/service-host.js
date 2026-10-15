@@ -1,13 +1,13 @@
 import { PlayerViews } from './views/service-contracts.js';
 import { FleetOrders, FleetProjection } from '../worker/protocol/services.js';
-import { NetworkEvents, OwnedFleets, RememberIntent, NetworkDiagnostics, NetworkPlayback, ViewTopologyInstalled } from './service-contracts.js';
+import { NetworkEvents, OwnedFleets, RememberIntent, ViewTopologyInstalled } from './service-contracts.js';
 import { createServiceRequests } from './service-requests.js';
 import { createStrategicService } from './strategic-service-host.js';
 export function createNetworkService(bus, scope, session) {
     const binding = bus.bind({ service: 'network', instance: 'network', scope, source: 'js/network/service-host.ts' }, {
         consumes: { rememberIntent: RememberIntent },
         provides: { replaceView: PlayerViews.replace, viewStatus: PlayerViews.status, ownedRoster: PlayerViews.owned, topologyInstalled: ViewTopologyInstalled, ...NetworkEvents, move: FleetOrders.move, transfer: FleetOrders.transfer, retry: FleetOrders.retry, queryReceipt: FleetOrders.receipt,
-            ownedFleets: OwnedFleets, diagnostics: NetworkDiagnostics, refreshPlayback: NetworkPlayback.refresh, projection: FleetProjection.batches },
+            ownedFleets: OwnedFleets, projection: FleetProjection.batches },
     });
     function viewOwner() { const owner = session().views; if (!owner)
         throw new Error('Player views unavailable'); return owner; }
@@ -26,8 +26,6 @@ export function createNetworkService(bus, scope, session) {
     binding.provides.retry.handle((command, context) => requests.submit(requestId => ({ type: 'retry', requestId, command }), command.key, context.causal));
     binding.provides.queryReceipt.handle((key, context) => requests.submit(requestId => ({ type: 'queryReceipt', requestId, key }), key, context.causal));
     binding.provides.ownedFleets.handle(query => session().ownedFleets(query));
-    binding.provides.refreshPlayback.handle(() => session().control({ type: 'refreshPlayback' }));
-    binding.provides.diagnostics.handle(() => session().takeDiagnostics());
     return {
         ready: () => binding.ready(),
         emit(event) {

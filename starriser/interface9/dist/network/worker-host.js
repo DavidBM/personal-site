@@ -1,7 +1,6 @@
 import { createNetworkSession } from './session.js';
 import { createNetworkService } from './service-host.js';
-/** One socket session and, in the app, one existing broker registration. The
- * standalone worker fixture uses the same host without a second registry. */
+/** One socket session, owned by the application broker registration. */
 export function createNetworkWorker(bus) {
     const worker = self;
     let session;
@@ -10,7 +9,7 @@ export function createNetworkWorker(bus) {
     let prepared = false;
     let failed = false;
     let disconnectStream;
-    const previousError = bus?._options.onError;
+    const previousError = bus._options.onError;
     function lifecycle(value) { worker.postMessage(value); }
     function fatal(error) {
         if (failed)
@@ -36,13 +35,12 @@ export function createNetworkWorker(bus) {
                 return;
             }
         }
-        worker.postMessage(event);
+        throw new Error("Network service is not prepared");
     }
     const busError = (error) => fatal(new Error(error.message));
-    if (bus)
-        bus._options.onError = busError;
+    bus._options.onError = busError;
     async function prepare(value) {
-        if (!bus || service || !Number.isSafeInteger(value.generation) || value.generation < 1)
+        if (service || !Number.isSafeInteger(value.generation) || value.generation < 1)
             throw new Error('Invalid network service bootstrap');
         generation = value.generation;
         service = createNetworkService(bus, value.scope, () => {
@@ -57,7 +55,7 @@ export function createNetworkWorker(bus) {
         lifecycle({ type: 'servicesReady', generation });
     }
     function connect(data) {
-        if (bus && (!prepared || data.generation !== generation)) {
+        if (!prepared || data.generation !== generation) {
             data.renderPort.close();
             throw new Error('Network service bootstrap is not ready');
         }
@@ -79,7 +77,7 @@ export function createNetworkWorker(bus) {
         disconnectStream?.();
         if (service)
             void service.dispose().catch(() => { });
-        if (bus?._options.onError === busError)
+        if (bus._options.onError === busError)
             bus._options.onError = previousError;
         worker.onmessage = null;
         worker.onmessageerror = null;
@@ -113,10 +111,7 @@ export function createNetworkWorker(bus) {
             receive(data);
         }
         catch (error) {
-            if (bus)
-                fatal(error);
-            else
-                emit({ type: 'error', message: String(error) });
+            fatal(error);
         }
     };
     worker.onmessageerror = () => { destroy(); worker.close(); };

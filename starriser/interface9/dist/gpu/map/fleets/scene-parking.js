@@ -1,3 +1,4 @@
+import { surveyFleetCounts } from '../survey/ship-totals.js';
 import { ClusterFleetTotals } from '../survey/fleet-totals.js';
 import { SYSTEM_LOCAL_SPAN, pickSceneParkBodyIndex } from "../../solar-system-lod.js";
 import { FLEET_SHIP_DRAW_FLOATS } from "../../fleet-ship-pack.js";
@@ -112,7 +113,7 @@ export class FleetSceneParking {
     /** Index both bounded presentation endpoints without changing topology loc. */
     indexVisual(visual) {
         this.unindexVisual(visual);
-        this.surveyTotals.set(visual.id, visual.state, visual.relationship);
+        this.surveyTotals.set(visual.id, visual.state, visual.relationship, surveyFleetCounts(visual), visual.remote?.persistentId ?? visual.persistentId);
         const id = fleetLocSystemId(visual.state);
         visual.locSystemId = id;
         if (id != null)
@@ -151,7 +152,7 @@ export class FleetSceneParking {
         }
     }
     rebuildLocIndex() {
-        this.surveyTotals.clear();
+        this.surveyTotals.clearVisuals();
         this.bySolarSystem.clear();
         this.departureSystems.clear();
         this.flaggedSystemId = null;
@@ -301,7 +302,7 @@ export class FleetSceneParking {
         if (!lookup)
             return null;
         if (state.state === "jumping") {
-            const end = lookup(state.endNode);
+            const end = state.endPosition ?? lookup(state.endNode);
             return end ? { x: end.x, z: end.z } : null;
         }
         if (state.state === "cooldown" || state.state === "awaiting") {
@@ -326,7 +327,7 @@ export class FleetSceneParking {
         let startX = pos.x;
         let startZ = pos.z;
         if (state.state === "jumping" && lookup) {
-            const start = lookup(state.startNode);
+            const start = state.startPosition ?? lookup(state.startNode);
             if (start) {
                 startX = start.x;
                 startZ = start.z;
@@ -426,8 +427,8 @@ export class FleetSceneParking {
         let dz = 0;
         if (visual.state.state === "jumping") {
             const lookup = this.lookup();
-            const start = lookup?.(visual.state.startNode);
-            const end = lookup?.(visual.state.endNode);
+            const start = visual.state.startPosition ?? lookup?.(visual.state.startNode);
+            const end = visual.state.endPosition ?? lookup?.(visual.state.endNode);
             if (start && end) {
                 dx = start.x - end.x;
                 dz = start.z - end.z;

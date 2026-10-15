@@ -13,7 +13,7 @@
  */
 import { bakePlanetTexturesAuto, requestPlanetBakeDevice, } from "../planet-texture/bake-gpu.js";
 import { buildNightEmissiveRgba } from "../planet-texture/authoring-planet-gpu.js";
-import { attachBiomeIntermediates, downsampleRgba, finishPlanetProduct, loadProductFinishBanks, rasterizeExtraPoleProducts, } from "../planet-texture/product-finish.js";
+import { attachBiomeIntermediates, planetDiagnosticMaps, downsampleRgba, finishPlanetProduct, loadProductFinishBanks, rasterizeExtraPoleProducts, } from "../planet-texture/product-finish.js";
 import { PLANET_CATALOG, paramsForCatalogPlanet, } from "./planet-catalog.js";
 import { CATALOG_MANIFEST_URL, catalogAlbedoRelpath, catalogMapRelpath, catalogMapsRecord, emptyCatalogManifest, parseCatalogManifest, sanitizeCatalogRelpath, } from "./catalog-assets.js";
 const EMPTY_CLOUD_W = 4;
@@ -47,7 +47,8 @@ function evenAtLeast(n, fallback, min, max) {
 export function parseCatalogBakeQuery(search) {
     const q = new URLSearchParams(search.startsWith("?") ? search.slice(1) : search);
     const resolution = evenAtLeast(Number(q.get("resolution") ?? 4096), 4096, 64, 8192);
-    const preview = evenAtLeast(Number(q.get("preview") ?? 1024), 1024, 4, 8192);
+    // Derive previews from this visual bake, never regenerate or upsample terrain.
+    const preview = Math.min(resolution, evenAtLeast(Number(q.get("preview") ?? 1024), 1024, 4, 8192));
     const fromRaw = Number(q.get("from") ?? 0);
     const countRaw = Number(q.get("count") ?? 30);
     const from = Number.isFinite(fromRaw) ? Math.max(0, Math.floor(fromRaw)) : 0;
@@ -234,7 +235,7 @@ function upsertPlanet(manifest, entry) {
         planetClass: entry.planetClass,
         seed: entry.seed,
         orbitT: entry.orbitT,
-        maps: catalogMapsRecord(entry.id),
+        maps: catalogMapsRecord(entry.id, entry.planetClass),
     };
     const i = manifest.planets.findIndex((p) => p.id === entry.id);
     if (i >= 0)
@@ -251,6 +252,15 @@ async function writeManifest(manifest) {
     manifest.bakedAt = new Date().toISOString();
     await writeCatalogFile(CATALOG_MANIFEST_URL, JSON.stringify(manifest, null, 2));
 }
+async function prepareDiagnosticFiles(id, planetClass, diagnostics) {
+    const expectedMaps = catalogMapsRecord(id, planetClass);
+    for (const key of ["height", "height_diagnostic", "biome"]) {
+        if (expectedMaps[key] && !diagnostics[key])
+            throw new Error(`${id}: missing ${key} diagnostic`);
+        if (!expectedMaps[key])
+            await deleteCatalogFile(catalogMapRelpath(id, key));
+    }
+}
 async function writePlanetMaps(entry, set, night, extraPoles, previewW, previewH, onStage) {
     const id = entry.id;
     const albedo = set.albedo;
@@ -262,13 +272,8 @@ async function writePlanetMaps(entry, set, night, extraPoles, previewW, previewH
         rgba: night,
     };
     const clouds = cloudsOrEmpty(set.clouds);
-    const height = set.height;
-    // Gas has no land biomes — skip the diagnostic biome plate.
-    const skipBiome = entry.planetClass === "gas";
-    const biomeSrc = set.intermediates?.pureBiomeSplit ?? set.intermediates?.heightHeat;
-    if (!skipBiome && !biomeSrc) {
-        throw new Error(`${id}: biome map missing after attachBiomeIntermediates`);
-    }
+    const diagnostics = planetDiagnosticMaps(set);
+    await prepareDiagnosticFiles(id, entry.planetClass, diagnostics);
     const poleN = set.poleNorth;
     const poleS = set.poleSouth;
     const cloudsPN = cloudsOrEmpty(set.cloudsPoleNorth ?? null);
@@ -278,14 +283,9 @@ async function writePlanetMaps(entry, set, night, extraPoles, previewW, previewH
         { key: "spec", buf: spec },
         { key: "night", buf: nightBuf },
         { key: "clouds", buf: clouds },
-        { key: "height", buf: height },
     ];
-    if (!skipBiome && biomeSrc) {
-        writes.push({ key: "biome", buf: biomeSrc });
-    }
-    else if (skipBiome) {
-        await deleteCatalogFile(catalogMapRelpath(id, "biome"));
-    }
+    for (const [key, buf] of Object.entries(diagnostics))
+        writes.push({ key, buf });
     writes.push({ key: "pole_n", buf: poleN }, { key: "pole_s", buf: poleS }, { key: "clouds_pole_n", buf: cloudsPN }, { key: "clouds_pole_s", buf: cloudsPS }, { key: "normal_pole_n", buf: extraPoles.normalPoleNorth }, { key: "normal_pole_s", buf: extraPoles.normalPoleSouth }, { key: "night_pole_n", buf: extraPoles.nightPoleNorth }, { key: "night_pole_s", buf: extraPoles.nightPoleSouth });
     const emptyCloud = clouds.width === EMPTY_CLOUD_W && clouds.height === EMPTY_CLOUD_H;
     const previewJobs = [
@@ -369,9 +369,15 @@ export async function runCatalogBake(search) {
             });
             const albedoRel = catalogAlbedoRelpath(entry.id);
             const exists = await catalogFileExists(albedoRel);
-            if (q.check || (exists && !q.force)) {
-                upsertPlanet(manifest, entry);
-                await writeManifest(manifest);
+            // Old sentinels do not prove the new class-correct diagnostic set exists.
+            const diagnosticsExist = exists && (await Promise.all(["height", "height_diagnostic", "biome"]
+                .filter((key) => catalogMapsRecord(entry.id, entry.planetClass)[key])
+                .map((key) => catalogFileExists(catalogMapRelpath(entry.id, key))))).every(Boolean);
+            if (q.check || (diagnosticsExist && !q.force)) {
+                if (!q.check) {
+                    upsertPlanet(manifest, entry);
+                    await writeManifest(manifest);
+                }
                 bakeState.finishedIds.push(entry.id);
                 paintUi();
                 await yieldBrowser();

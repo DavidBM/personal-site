@@ -1,0 +1,83 @@
+{
+  "classId": 2,
+  "key": "bomber",
+  "name": "Bomber",
+  "visualScale": 2.13,
+  "triangles": {
+    "high": 4588,
+    "low": 994,
+    "far": 292,
+    "dart": 10
+  },
+  "high": "bomber-high.glb",
+  "low": "bomber-low.glb",
+  "far": "bomber-far.glb",
+  "normalizedSize": [
+    1.648642,
+    0.64164,
+    1.615755
+  ],
+  "dart": "bomber-dart.glb",
+  "lod": {
+    "full": [
+      540,
+      null
+    ],
+    "mid": [
+      120,
+      660
+    ],
+    "low": [
+      13,
+      145
+    ],
+    "dart": [
+      1.6,
+      18
+    ],
+    "point": [
+      0,
+      2
+    ]
+  },
+  "trails": [
+    {
+      "at": [
+        -0.538,
+        0.0661,
+        -0.7341
+      ],
+      "width": 0.25,
+      "style": "ribbon-3"
+    },
+    {
+      "at": [
+        0.5535,
+        0.0684,
+        -0.7144
+      ],
+      "width": 0.25,
+      "style": "ribbon-3"
+    }
+  ],
+  "glows": [
+    {
+      "at": [
+        -0.5395,
+        0.0665,
+        -0.7908
+      ],
+      "size": 0.876,
+      "style": "glow-1"
+    },
+    {
+      "at": [
+        0.5552,
+        0.068,
+        -0.7877
+      ],
+      "size": 0.621,
+      "style": "glow-1"
+    }
+  ]
+}

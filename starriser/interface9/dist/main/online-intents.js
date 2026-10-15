@@ -9,7 +9,9 @@ function sameScope(a, b) {
         && sameBytes(a.systemId, b.systemId) && a.ownerEpoch === b.ownerEpoch && a.recoveryGeneration === b.recoveryGeneration;
 }
 function samePosition(a, b) {
-    return Object.is(a?.x, b?.x) && Object.is(a?.z, b?.z);
+    if (!a || !b)
+        return a === b;
+    return Object.is(a.x, b.x) && Object.is(a.y ?? 0, b.y ?? 0) && Object.is(a.z, b.z);
 }
 function sameTarget(a, b) {
     if (a.$typeName === 'galaxy.v1.TransferCommand' && b.$typeName === 'galaxy.v1.TransferCommand') {
@@ -17,7 +19,7 @@ function sameTarget(a, b) {
             && samePosition(a.destinationPosition, b.destinationPosition);
     }
     return a.$typeName === 'galaxy.v1.MoveCommand' && b.$typeName === 'galaxy.v1.MoveCommand'
-        && samePosition(a.target, b.target);
+        && a.expectedFleetRevision === b.expectedFleetRevision && samePosition(a.target, b.target);
 }
 function sameIntent(a, b) {
     return sameScope(a.scope, b.scope) && sameBytes(a.fleetId, b.fleetId) && sameBytes(a.admissionToken, b.admissionToken)

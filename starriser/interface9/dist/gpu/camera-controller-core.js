@@ -1,25 +1,28 @@
+import { DesktopWheel, wheelScaleRate } from './desktop-wheel.js';
+import { MapZoomAnchor } from './map-zoom-anchor.js';
 import { touchCameraPose } from './touch-camera-pose.js';
+import { targetFlightPose, targetFlightDuration } from './camera-target-flight.js';
 import { groundPickFromScreen, } from "./math/ground-pick.js";
 import { FOLLOW_ZOOM_MIN, FOLLOW_ZOOM_MAX, hullChaseCamera, FollowOrientation } from './ship-chase-camera.js';
-import { CHAIN_CURSOR_PX, CTRL_LOOK_RETURN_MS, DS_FRAME_MAX, TAU_S, TAU_TILT, TAU_XZ, chaseCameraFromShip, chaseCameraSceneBoom, clampLogHeight, clampZoomHeight, ctrlLookReturnFactor, lerpEyePose, dampTowardExp, eyeAfterHeightScale, heightToLog, isPoseSettled, logToHeight, lookAtFromEyeTilt, tiltAngleRad, orbitEyeAroundLookAt, pivotScreenForWheel, refineEyeForScreenGround, tiltFactorForHeight, wheelDeltaLogS, MIN_ZOOM, SCENE_MIN_ZOOM, ORBIT_MAX_PITCH, ORBIT_WHEEL_DS_MUL, FOLLOW_TRANSITION_MS, } from "./camera-zoom.js";
+import { CTRL_LOOK_RETURN_MS, TAU_S, TAU_TILT, TAU_XZ, chaseCameraFromShip, chaseCameraSceneBoom, clampLogHeight, clampZoomHeight, ctrlLookReturnFactor, lerpEyePose, dampTowardExp, heightToLog, isPoseSettled, logToHeight, lookAtFromEyeTilt, tiltAngleRad, orbitEyeAroundLookAt, tiltFactorForHeight, MIN_ZOOM, SCENE_MIN_ZOOM, ORBIT_MAX_PITCH, FOLLOW_TRANSITION_MS, } from "./camera-zoom.js";
 import { applyFollowDragLook, followTransitionT, lerpFollowCamEndpoints, mapRestPoseFromFollowExit, } from "./follow-cam-pose.js";
 import { composeCompactBodyWorld } from "./solar-system-lod.js";
-import { createSystemOrbitPose, defaultSystemOrbitRadius, systemOrbitApplyDrag, systemOrbitApplyWheel, systemOrbitAnglesFromView, systemOrbitDampRadius, systemOrbitExitHeight, systemOrbitEye, systemOrbitMaxRadius, systemOrbitMinRadius, systemOrbitSetFocus, SYSTEM_ORBIT_SELECT_MS, } from "./system-orbit-pose.js";
+import { createSystemOrbitPose, defaultSystemOrbitRadius, systemOrbitApplyDrag, systemOrbitApplyWheel, systemOrbitAnglesFromView, systemOrbitDampRadius, systemOrbitExitHeight, systemOrbitEye, systemOrbitMaxRadius, systemOrbitMinRadius, systemOrbitSetFocus, SYSTEM_ORBIT_SELECT_MS, SYSTEM_ORBIT_PITCH_MIN, SYSTEM_ORBIT_PITCH_MAX, } from "./system-orbit-pose.js";
 import { SCENE_AGENT_SCALE, SCENE_SHIP_VISUAL_MUL, } from "./ship-motion-config.js";
 export class WebGpuCameraController {
     constructor(view, environment) {
         this.isDragging = false;
         this.touchFree = false;
+        this.returnFlight = null;
         this.dragStartGround = null;
         this.disposed = false;
         /** Display pose (damped). */
         this.cur = { eyeX: 0, eyeY: 2000, eyeZ: 0, tilt: 0 };
         /** Animation targets (wheel/focus extend these). */
         this.tgt = { eyeX: 0, eyeY: 2000, eyeZ: 0, tilt: 0 };
-        this.lastWheelX = NaN;
-        this.lastWheelY = NaN;
-        /** Remaining |Δs| budget this frame (refilled in update). */
-        this.wheelBudgetS = DS_FRAME_MAX;
+        this.wheel = new DesktopWheel();
+        this.zoomAnchor = new MapZoomAnchor();
+        this.orbitZoomReference = 1;
         this.reducedMotion = false;
         /** Third-person follow: ship pose provider set by map/app. */
         this.followActive = false;
@@ -130,7 +133,7 @@ export class WebGpuCameraController {
                 this.onDoubleClick({ button: input.button, clientX: input.x, clientY: input.y });
                 break;
             case "wheel":
-                this.onMouseWheel({ clientX: input.x, clientY: input.y, deltaY: input.deltaY, deltaMode: input.deltaMode });
+                this.onMouseWheel({ clientX: input.x, clientY: input.y, deltaY: input.deltaY, deltaMode: input.deltaMode, timeStamp: input.timeStamp });
                 break;
             case "keyDown":
                 this.onKeyDown(input);
@@ -144,6 +147,7 @@ export class WebGpuCameraController {
         }
     }
     applyTouchGesture(input) {
+        this.resetWheel();
         if (this.followActive) {
             const look = applyFollowDragLook(this.lookYaw, this.lookPitch, input.dx, input.dy);
             this.lookYaw = look.lookYaw;
@@ -175,6 +179,7 @@ export class WebGpuCameraController {
         this.applyOrbitDrag(input.dx, input.dy);
     }
     resetOrientation() {
+        this.resetWheel();
         const st = this.view.getCameraState();
         const height = this.clampHeight(Math.max(st.eyeY - st.targetY, Math.hypot(st.eyeX - st.targetX, st.eyeY - st.targetY, st.eyeZ - st.targetZ) * 0.7));
         this.releaseFollow('reset-orientation');
@@ -191,6 +196,7 @@ export class WebGpuCameraController {
     dispose() {
         if (this.disposed)
             return;
+        this.returnFlight = null;
         this.releaseFollow('camera-disposed');
         this.disposed = true;
         this.unbind?.();
@@ -214,6 +220,7 @@ export class WebGpuCameraController {
      * Enter/exit ease over {@link FOLLOW_TRANSITION_MS} (~500ms).
      */
     setFollowShip(getPose, reason = 'follow-command') {
+        this.resetWheel();
         this.lookYaw = 0;
         this.lookPitch = 0;
         this.lookYawHeld = 0;
@@ -322,14 +329,15 @@ export class WebGpuCameraController {
     }
     /**
      * Galaxy topology / 5px fade while Kepler SCENE orbit eases.
-     * map (no orbit, no transition) → 1; enter t∈[0,1] → 1−t; orbit → 0; exit t → t.
+     * map → 1; target acquisition fades from its current opacity; orbit → 0;
+     * exit t → t. Switching targets inside SCENE must not reveal the galaxy.
      */
     getGalaxyFade() {
         const tr = this.orbitTransition;
         if (tr) {
             const t = followTransitionT(performance.now() - tr.t0Ms, tr.durationMs);
             if (tr.kind === "enter")
-                return 1 - t;
+                return (tr.galaxyFadeFrom ?? 1) * (1 - t);
             if (tr.kind === "exit")
                 return t;
             if (tr.kind === "free")
@@ -340,11 +348,58 @@ export class WebGpuCameraController {
     getOrbitPose() {
         return this.orbit ? { ...this.orbit } : null;
     }
+    /** A temporary inspection owns one bookmark; everything stays in this worker. */
+    captureView() {
+        const pose = { ...this.view.getCameraState() }, orbit = this.orbit && { ...this.orbit, radius: this.orbitRadiusCur }, target = this.orbitTarget;
+        const wasOrbiting = this.isOrbiting(), zoomReference = this.orbitZoomReference;
+        const tilt = this.cur.tilt;
+        // Cancel an interrupted return at its currently displayed pose.
+        this.returnFlight = null;
+        return (durationMs = 1000) => {
+            const from = { ...this.view.getCameraState() };
+            this.releaseFollow('planet-development-return');
+            this.disarmOrbit();
+            this.resetWheel();
+            this.followTransition = null;
+            this.touchFree = false;
+            this.returnFlight = { from, to: pose, t0: performance.now(), duration: this.reducedMotion ? 0 : durationMs, finish: () => {
+                    this.disarmOrbit();
+                    this.followTransition = null;
+                    this.touchFree = false;
+                    this.cur = { eyeX: pose.eyeX, eyeY: pose.eyeY, eyeZ: pose.eyeZ, tilt };
+                    this.tgt = { ...this.cur };
+                    // Restore orbit controls only if their target still exists. A departed
+                    // ship or a different system must not attach to a reused body slot.
+                    if (wasOrbiting && orbit && (!target || target.getPosition())) {
+                        this.orbit = orbit;
+                        this.orbitTarget = target;
+                        this.orbitActive = true;
+                        this.orbitRadiusCur = orbit.radius;
+                        this.orbitZoomReference = zoomReference;
+                    }
+                    else
+                        this.touchFree = true;
+                } };
+        };
+    }
+    updateReturnFlight() {
+        const flight = this.returnFlight;
+        if (!flight)
+            return false;
+        const t = followTransitionT(performance.now() - flight.t0, flight.duration);
+        this.applyOrbitLookAt(lerpFollowCamEndpoints(flight.from, flight.to, t));
+        if (t >= 1) {
+            this.returnFlight = null;
+            flight.finish();
+        }
+        return true;
+    }
     /**
      * Tests / Band C: copy the view's live eye into cur/tgt without applyPose
      * (tilt −Z look would undo a scripted setCameraLookAt).
      */
     adoptViewCamera() {
+        this.resetWheel();
         const st = this.view.getCameraState();
         this.cur = {
             eyeX: st.eyeX,
@@ -361,34 +416,67 @@ export class WebGpuCameraController {
      */
     setSystemOrbitFocus(opts) {
         const near = this.view.getCameraState().near;
+        const store = this.view.solarBodies, systemId = store.systemId, catalogId = store.catalogIds[opts.bodyIndex];
+        const st = this.view.getCameraState();
+        const yaw = opts.yaw ?? Math.atan2(st.eyeX - st.targetX, st.eyeZ - st.targetZ);
+        // Translate eye and target together so the planet sits in the dialog gap.
+        const shift = (2 * (opts.screenX ?? .5) - 1) * opts.radius * Math.tan(st.fovyDeg * Math.PI / 360) * st.bufferW / Math.max(1, st.bufferH);
         this.setSystemOrbitTarget({
             targetId: opts.bodyIndex,
-            getPosition: () => composeCompactBodyWorld(this.view.solarBodies, opts.bodyIndex, this.view.getSceneTimeSec()),
+            getPosition: () => {
+                if (store.systemId !== systemId || store.catalogIds[opts.bodyIndex] !== catalogId)
+                    return null;
+                const p = composeCompactBodyWorld(store, opts.bodyIndex, this.view.getSceneTimeSec());
+                if (p && shift) {
+                    p.x -= Math.cos(yaw) * shift;
+                    p.z += Math.sin(yaw) * shift;
+                }
+                return p;
+            },
+            durationMs: opts.durationMs, yaw: opts.yaw, pitch: opts.pitch,
             radius: opts.radius,
             minRadius: opts.minRadius ?? systemOrbitMinRadius(this.view.solarBodies.radius[opts.bodyIndex] ?? 0, near),
         });
     }
     /** Select any body/ship/fleet position provider using the current view angle. */
     setSystemOrbitTarget(target) {
+        this.returnFlight = null;
+        this.resetWheel();
         this.touchFree = false;
         const position = target.getPosition();
         if (!position)
             return;
+        const galaxyFadeFrom = this.getGalaxyFade();
         const st = this.view.getCameraState();
         const fallback = this.orbit ?? createSystemOrbitPose();
         const angles = systemOrbitAnglesFromView(st.eyeX, st.eyeY, st.eyeZ, st.targetX, st.targetY, st.targetZ, fallback.yaw, fallback.pitch);
         const minR = target.minRadius ?? systemOrbitMinRadius(0, st.near);
-        const maxR = target.maxRadius ?? systemOrbitMaxRadius(st.bufferH, st.fovyDeg);
+        const maxR = Math.min(target.maxRadius ?? Infinity, systemOrbitMaxRadius(st.bufferH, st.fovyDeg));
         const radius = Math.max(minR, Math.min(maxR, target.radius));
+        // A map/director pole is not a useful close orbit. Keep intentional orbit
+        // angles; acquire from a free map with a readable elevated perspective.
+        if (!this.orbit)
+            angles.pitch = Math.max(.25, Math.min(Math.PI / 3, angles.pitch));
+        if (target.yaw !== undefined && Number.isFinite(target.yaw))
+            angles.yaw = target.yaw;
+        if (target.pitch !== undefined && Number.isFinite(target.pitch))
+            angles.pitch = Math.max(SYSTEM_ORBIT_PITCH_MIN, Math.min(SYSTEM_ORBIT_PITCH_MAX, target.pitch));
+        if (!this.followActive) {
+            this.followTransition = null;
+            this.preFollowMap = null;
+            this.preFollowTarget = null;
+        }
         this.orbit = systemOrbitSetFocus(createSystemOrbitPose({ ...fallback, ...angles }), position.x, position.y, position.z, target.targetId, radius);
+        this.orbitZoomReference = radius;
         this.orbitTarget = target;
         this.orbitRadiusCur = radius;
         this.orbitActive = true;
         this.clearCtrlLookRestore();
         this.orbitTransition = {
             kind: "enter",
+            galaxyFadeFrom,
             t0Ms: performance.now(),
-            durationMs: this.reducedMotion ? 0 : SYSTEM_ORBIT_SELECT_MS,
+            durationMs: this.reducedMotion ? 0 : (target.durationMs ?? targetFlightDuration(st, systemOrbitEye(this.orbit), SYSTEM_ORBIT_SELECT_MS)),
             from: {
                 eyeX: st.eyeX, eyeY: st.eyeY, eyeZ: st.eyeZ,
                 targetX: st.targetX, targetY: st.targetY, targetZ: st.targetZ,
@@ -457,6 +545,7 @@ export class WebGpuCameraController {
         }
         if (this.ctrlDown)
             return;
+        this.resetWheel();
         this.ctrlDown = true;
         this.lookYawHeld = this.lookYaw;
         this.lookPitchHeld = this.lookPitch;
@@ -506,6 +595,7 @@ export class WebGpuCameraController {
     }
     /** Retarget height only (keeps XZ); animates via update. */
     setZoomTarget(height) {
+        this.resetWheel();
         if (this.orbitActive)
             this.disarmOrbit();
         const h = this.clampHeight(height);
@@ -522,7 +612,9 @@ export class WebGpuCameraController {
      * does not fight the fly. Disarms orbit; does not start follow.
      */
     applyDirectorPose(opts) {
+        this.returnFlight = null;
         this.touchFree = false;
+        this.resetWheel();
         // Director owns the eye even during F1 — leftover follow made every
         // sample a no-op (hatch shot stuck at origin/2000). Clear via isFollowing
         // so onMouseMove keeps the only followActive brace-block (mdx-before-write).
@@ -549,6 +641,7 @@ export class WebGpuCameraController {
     }
     /** Dive / pull back to a ground point at height (damped). */
     focusOnPoint(x, z, height) {
+        this.resetWheel();
         this.touchFree = false;
         if (this.orbitActive)
             this.disarmOrbit();
@@ -569,7 +662,8 @@ export class WebGpuCameraController {
     update(dtMs) {
         if (this.disposed)
             return false;
-        this.wheelBudgetS = DS_FRAME_MAX;
+        if (this.updateReturnFlight())
+            return true;
         if (this.touchFree)
             return false;
         if (this.updateControlReturn())
@@ -705,7 +799,10 @@ export class WebGpuCameraController {
         return mid;
     }
     updateMapPose(dtMs) {
+        if (this.zoomAnchor.active)
+            this.zoomAnchor.apply(this.tgt, this.view.getCameraState());
         if (isPoseSettled(this.cur, this.tgt)) {
+            this.zoomAnchor.active = false;
             if (this.cur.eyeX !== this.tgt.eyeX ||
                 this.cur.eyeY !== this.tgt.eyeY ||
                 this.cur.eyeZ !== this.tgt.eyeZ ||
@@ -727,9 +824,14 @@ export class WebGpuCameraController {
         const s1 = heightToLog(this.tgt.eyeY);
         const s = dampTowardExp(s0, s1, dtSec, TAU_S);
         this.cur.eyeY = logToHeight(s);
-        this.cur.eyeX = dampTowardExp(this.cur.eyeX, this.tgt.eyeX, dtSec, TAU_XZ);
-        this.cur.eyeZ = dampTowardExp(this.cur.eyeZ, this.tgt.eyeZ, dtSec, TAU_XZ);
         this.cur.tilt = dampTowardExp(this.cur.tilt, this.tgt.tilt, dtSec, TAU_TILT);
+        // Height and pitch are eased; XZ is solved from the retained screen constraint.
+        if (this.zoomAnchor.active)
+            this.zoomAnchor.apply(this.cur, this.view.getCameraState());
+        else {
+            this.cur.eyeX = dampTowardExp(this.cur.eyeX, this.tgt.eyeX, dtSec, TAU_XZ);
+            this.cur.eyeZ = dampTowardExp(this.cur.eyeZ, this.tgt.eyeZ, dtSec, TAU_XZ);
+        }
         if (isPoseSettled(this.cur, this.tgt)) {
             this.cur = { ...this.tgt };
         }
@@ -799,7 +901,10 @@ export class WebGpuCameraController {
             return false;
         const dest = systemOrbitEye(this.orbit);
         if (tr.kind === "enter") {
-            const mid = lerpFollowCamEndpoints(tr.from, dest, t);
+            const st = this.view.getCameraState();
+            const progress = tr.durationMs > 0 ? (performance.now() - tr.t0Ms) / tr.durationMs : 1;
+            const mid = { ...lerpFollowCamEndpoints(tr.from, dest, t),
+                ...targetFlightPose(tr.from, dest, progress, st.fovyDeg, st.bufferW / Math.max(1, st.bufferH)) };
             this.applyOrbitLookAt(mid);
             if (t >= 1) {
                 this.orbitTransition = null;
@@ -864,7 +969,22 @@ export class WebGpuCameraController {
         const tr = this.orbitTransition;
         if (!tr || tr.kind === "exit")
             return;
-        const live = this.liveOrbitRadiusFromView();
+        const st = this.view.getCameraState();
+        const live = Math.hypot(st.eyeX - st.targetX, st.eyeY - st.targetY, st.eyeZ - st.targetZ);
+        if (this.orbit) {
+            const position = { x: st.targetX, y: st.targetY, z: st.targetZ };
+            const angles = systemOrbitAnglesFromView(st.eyeX, st.eyeY, st.eyeZ, st.targetX, st.targetY, st.targetZ);
+            this.orbit = { ...this.orbit, ...angles, focusX: position.x, focusY: position.y, focusZ: position.z };
+            // Cancel the shot at the visible pivot, but retain its moving owner.
+            // A fixed world point would silently stop fleet/planet tracking forever
+            // when the player zooms or rotates during acquisition.
+            const target = this.orbitTarget, anchor = target?.getPosition();
+            const offset = anchor ? { x: position.x - anchor.x, y: position.y - anchor.y, z: position.z - anchor.z } : null;
+            this.orbitTarget = target && offset ? { ...target, getPosition: () => {
+                    const next = target.getPosition();
+                    return next ? { x: next.x + offset.x, y: next.y + offset.y, z: next.z + offset.z } : null;
+                } } : { targetId: -1, radius: live, getPosition: () => position };
+        }
         this.orbitTransition = null;
         this.orbitRadiusCur = live;
         if (this.orbit)
@@ -914,8 +1034,8 @@ export class WebGpuCameraController {
             return;
         const st = this.view.getCameraState();
         const store = this.view.solarBodies;
-        const sysX = store.systemX;
-        const sysZ = store.systemZ;
+        const sysX = store.systemId == null ? st.targetX : store.systemX;
+        const sysZ = store.systemId == null ? st.targetZ : store.systemZ;
         const h = systemOrbitExitHeight(st.bufferH, st.fovyDeg);
         const tilt = tiltFactorForHeight(h);
         const look = lookAtFromEyeTilt(sysX, h, sysZ, tilt);
@@ -960,7 +1080,7 @@ export class WebGpuCameraController {
         const bodyR = idx >= 0 && store.currentCount > idx ? store.radius[idx] : 0;
         return {
             minR: this.orbitTarget?.minRadius ?? systemOrbitMinRadius(bodyR, st.near),
-            maxR: this.orbitTarget?.maxRadius ?? systemOrbitMaxRadius(st.bufferH, st.fovyDeg),
+            maxR: Math.min(this.orbitTarget?.maxRadius ?? Infinity, systemOrbitMaxRadius(st.bufferH, st.fovyDeg)),
         };
     }
     pollSystemOrbit() {
@@ -1031,25 +1151,6 @@ export class WebGpuCameraController {
             this.lastPickViewportW === state.viewportW &&
             this.lastPickViewportH === state.viewportH;
     }
-    /** Ground hit for a hypothetical eye + tilt (not the live camera). */
-    pickAtPose(screenX, screenY, eyeX, eyeY, eyeZ, tilt) {
-        const look = lookAtFromEyeTilt(eyeX, eyeY, eyeZ, tilt);
-        const state = this.view.getCameraState();
-        return groundPickFromScreen({
-            screenX,
-            screenY,
-            viewportW: state.viewportW,
-            viewportH: state.viewportH,
-            eyeX,
-            eyeY,
-            eyeZ,
-            targetX: look.x,
-            targetZ: look.z,
-            fovyDeg: state.fovyDeg,
-            near: state.near,
-            far: state.far,
-        }, this.pickScratch);
-    }
     getGroundPointFromScreenPosition(x, y) {
         const hit = this.pickAt(x, y);
         return hit?.ground ?? null;
@@ -1077,6 +1178,7 @@ export class WebGpuCameraController {
         }
         if (event.button !== 0)
             return;
+        this.resetWheel();
         this.isDragging = true;
         this.lastPointerX = event.clientX;
         this.lastPointerY = event.clientY;
@@ -1145,7 +1247,7 @@ export class WebGpuCameraController {
         this.lastPointerY = event.clientY;
         if (mdx !== 0 || mdy !== 0) {
             this.lookYaw -= mdx * 0.005;
-            this.lookPitch -= mdy * 0.004;
+            this.lookPitch += (this.followActive ? mdy : -mdy) * 0.004;
             this.lookPitch = Math.max(-0.85, Math.min(0.85, this.lookPitch));
             this.lookYawHeld = this.lookYaw;
             this.lookPitchHeld = this.lookPitch;
@@ -1226,7 +1328,9 @@ export class WebGpuCameraController {
         if (this.controlsManager.isEditModeActive() || this.isDragging)
             return;
         if (this.followActive) {
-            const ds = this.takeWheelDelta(event, 1) * 0.35;
+            const ds = this.takeWheelDelta(event, this.followZoomTarget, 'follow');
+            if (this.wheel.reversed)
+                this.followZoomTarget = this.followZoom;
             this.followZoomTarget = Math.max(FOLLOW_ZOOM_MIN, Math.min(FOLLOW_ZOOM_MAX, this.followZoomTarget * Math.exp(ds)));
             return;
         }
@@ -1236,27 +1340,31 @@ export class WebGpuCameraController {
         }
         this.zoomMap(event);
     }
-    takeWheelDelta(event, height) {
+    resetWheel() {
+        this.wheel.reset();
+        this.zoomAnchor.active = false;
+    }
+    takeWheelDelta(event, distance, scale = 'map') {
         const state = this.view.getCameraState();
-        const delta = wheelDeltaLogS(event.deltaY, event.deltaMode, height, state.viewportH);
-        const capped = Math.max(-this.wheelBudgetS, Math.min(this.wheelBudgetS, delta));
-        this.wheelBudgetS -= Math.abs(capped);
-        return capped;
+        const reference = scale === 'orbit' ? this.orbitZoomReference : 1;
+        return this.wheel.step(event, state.viewportH, wheelScaleRate(scale, distance, reference), scale === 'orbit' ? 1.75 : 3);
     }
     zoomSystemOrbit(event) {
-        const ds = this.takeWheelDelta(event, this.orbit.radius) * ORBIT_WHEEL_DS_MUL;
+        const ds = this.takeWheelDelta(event, this.orbit.radius, 'orbit');
         if (ds === 0)
             return;
         if (this.orbitTransition?.kind === "exit")
             return;
         this.takeOverOrbitEase();
+        if (this.wheel.reversed)
+            this.orbit.radius = this.orbitRadiusCur;
         const { minR, maxR } = this.orbitMinMax();
         const next = systemOrbitApplyWheel(this.orbit, ds, minR, maxR);
         this.orbit = next.pose;
-        if (next.pastMax) {
-            this.beginOrbitExit();
-            return;
-        }
+        // Zoom cannot release a selected sun/planet/fleet. Stop at the overview
+        // limit and discard accumulated effort; explicit deselection restores pan.
+        if (next.pastMax)
+            this.wheel.reset();
         if (this.reducedMotion) {
             this.orbitRadiusCur = this.orbit.radius;
             this.recomposeOrbitFocus();
@@ -1268,49 +1376,14 @@ export class WebGpuCameraController {
         const ds = this.takeWheelDelta(event, this.tgt.eyeY);
         if (ds === 0)
             return;
-        const isZoomOut = ds > 0;
-        const pivot = pivotScreenForWheel(isZoomOut, event.clientX, event.clientY, state.viewportW, state.viewportH);
-        const animating = !isPoseSettled(this.cur, this.tgt);
-        const cursorStable = Number.isFinite(this.lastWheelX) &&
-            Math.hypot(event.clientX - this.lastWheelX, event.clientY - this.lastWheelY) <
-                CHAIN_CURSOR_PX;
-        // Chain zoom-in against target pose so more scroll digs deeper under same point.
-        const useTarget = !isZoomOut && animating && cursorStable;
-        const pickPose = useTarget ? this.tgt : this.cur;
-        let groundHit = this.pickAtPose(pivot.x, pivot.y, pickPose.eyeX, pickPose.eyeY, pickPose.eyeZ, pickPose.tilt);
-        if (!groundHit) {
-            // Fallback: live camera at pivot, then pure vertical height.
-            groundHit = this.pickAt(pivot.x, pivot.y);
-        }
-        if (!groundHit) {
-            // Last resort: height-only retarget.
-            const sNew = this.clampLog(heightToLog(this.tgt.eyeY) + ds);
-            this.tgt.eyeY = logToHeight(sNew);
-            this.tgt.tilt = tiltFactorForHeight(this.tgt.eyeY);
-            this.lastWheelX = event.clientX;
-            this.lastWheelY = event.clientY;
-            if (this.reducedMotion) {
-                this.cur = { ...this.tgt };
-                this.applyPose(this.cur);
-            }
-            return;
-        }
-        const G = groundHit.ground;
-        const sNew = this.clampLog(heightToLog(this.tgt.eyeY) + ds);
-        const hNew = logToHeight(sNew);
-        const tNew = tiltFactorForHeight(hNew);
-        let eye = eyeAfterHeightScale(this.tgt.eyeX, this.tgt.eyeY, this.tgt.eyeZ, G.x, G.z, hNew);
-        const hitAt = (sx, sy, ex, ey, ez, tilt) => {
-            const hit = this.pickAtPose(sx, sy, ex, ey, ez, tilt);
-            return hit ? { x: hit.ground.x, z: hit.ground.z } : null;
-        };
-        eye = refineEyeForScreenGround(pivot.x, pivot.y, G.x, G.z, eye.x, eye.y, eye.z, tNew, hitAt, 3);
-        this.tgt.eyeX = eye.x;
-        this.tgt.eyeY = eye.y;
-        this.tgt.eyeZ = eye.z;
-        this.tgt.tilt = tNew;
-        this.lastWheelX = event.clientX;
-        this.lastWheelY = event.clientY;
+        // Capture the displayed point, never the future pose. Repeated events at the
+        // same cursor naturally retain it; moving the pointer selects a new point.
+        this.zoomAnchor.capture(this.cur, event.clientX, event.clientY, state);
+        if (this.wheel.reversed)
+            this.tgt = { ...this.cur };
+        this.tgt.eyeY = logToHeight(this.clampLog(heightToLog(this.tgt.eyeY) + ds));
+        this.tgt.tilt = tiltFactorForHeight(this.tgt.eyeY);
+        this.zoomAnchor.apply(this.tgt, state);
         if (this.reducedMotion) {
             this.cur = { ...this.tgt };
             this.applyPose(this.cur);

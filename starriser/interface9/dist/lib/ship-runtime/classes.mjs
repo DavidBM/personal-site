@@ -24,8 +24,17 @@ export const TYPES=32;
 export const CLASS_BY_TYPE=Object.freeze([...Array(12).fill(0),...Array(10).fill(1),...Array(5).fill(2),3,3,3,4,5]);
 export const classOf=type=>CLASSES[CLASS_BY_TYPE[type]];
 export const radiusOf=type=>Math.hypot(...classOf(type).extent);
-/** Hull draw scale on the normalized mesh. The number is the size, not a factor on the class extent. */
-export const CLASS_VISUAL_SCALE=Object.freeze([1,1.3,2,9,20,20]);
+/** Design hull lengths in metres; the interceptor is the unit of every ratio. The Colossus is 1 km. */
+export const CLASS_LENGTH_M=Object.freeze([15,19.5,30,135,300,1000]);
+/**
+ * Hull draw scale on the radius-normalized mesh. The number is the size, not a
+ * factor on the class extent. Each fleet-v2 hull has its own normalized length
+ * (catalog normalizedSize z: 1.722, 1.796, 1.616, 1.907, 1.928, 1.946), so
+ * scale = (length / interceptor length) x (interceptor z / class z): drawn
+ * lengths keep CLASS_LENGTH_M's ratios (1 : 1.3 : 2 : 9 : 20 : 66.7) within
+ * 0.4%, and fleet-v2-catalog.test checks it against the catalog.
+ */
+export const CLASS_VISUAL_SCALE=Object.freeze([1,1.25,2.13,8.12,17.86,58.99]);
 export const visualScaleOf=type=>CLASS_VISUAL_SCALE[CLASS_BY_TYPE[type]??0]??1;
 /** Repulsion radius in sim units. The number is the bubble, not a factor on the hull. */
 export const CLASS_REPEL_SCALE=Object.freeze([0.015,0.02,0.03,0.04,0.125,0.3]);

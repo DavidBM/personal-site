@@ -1,24 +1,31 @@
 import { validateViewEvent } from './views/validate.js';
-import { check, cursor, id, key, scope, fleet, token } from "./validate-fields.js";
-import { validateTopology } from './topology.js';
-import { validateStrategicSystems } from './validate-strategic.js';
+import { check, id, key, scope, token } from "./validate-fields.js";
 function welcome(value, generation) {
     check(value.protocolVersion === 1 && value.ruleVersion === 1, "welcome version");
     check(value.connectionGeneration === generation, "welcome generation");
     id(value.playerId);
     id(value.worldId);
-    check(value.capabilities.length <= 16 && value.admissions.length <= 16, "welcome limits");
+    check(value.capabilities.length <= 16, "welcome limits");
     for (const capability of value.capabilities)
         check(capability > 0, "capability");
-    for (const grant of value.admissions)
-        admissionGrant(grant);
 }
 function admissionGrant(grant) {
     id(grant.receiptHomeShardId);
     check(grant.generation > 0n && grant.notAfterServerMs > 0n, "admission grant");
     token(grant.token);
+    const policy = grant.travelPolicy;
+    if (policy) {
+        check(policy.jumpMs > 0n && policy.jumpMs <= 86400000n, 'travel jump');
+        check(policy.cooldownMs <= 2592000000n, 'travel cooldown');
+        check(policy.configurationRevision > 0n && policy.modifierRevision > 0n, 'travel revisions');
+    }
 }
 function admissionRenewed(value) {
+    if (value.movementContext) {
+        const c = value.movementContext;
+        check(!!value.scope && !!value.grant && c.version === 3 && c.catalogId.length > 0 && c.catalogId.length <= 64, 'movement context identity');
+        check([c.speedPerSecond, c.clearance, c.extent, c.sunClearance].every(Number.isFinite) && c.speedPerSecond > 0 && c.clearance >= 0 && c.extent > 0 && c.sunClearance >= 0 && c.sunClearance <= 1, 'movement context policy');
+    }
     if (value.scope) {
         scope(value.scope);
         check(value.scope.shardId.every((b, i) => b === value.receiptHomeShardId[i]), "renewal scope home");
@@ -42,26 +49,6 @@ function receipt(value) {
     if (value.result.case !== "accepted")
         check(value.result.value.reason > 0, "receipt reason");
 }
-function snapshot(value) {
-    scope(value.scope);
-    cursor(value.cursor);
-    id(value.snapshotId);
-    check(value.chunkCount > 0 && value.chunkCount <= 4096, "snapshot chunks");
-    check(value.chunkIndex < value.chunkCount, "snapshot index");
-    check(value.fleets.length <= 256, "snapshot fleets");
-    for (const item of value.fleets)
-        fleet(item);
-}
-function delta(value) {
-    scope(value.scope);
-    cursor(value.cursor);
-    check(value.systemRevision > value.baseSystemRevision, "delta revision");
-    check(value.upserts.length + value.removedFleetIds.length <= 256, "delta changes");
-    for (const item of value.upserts)
-        fleet(item);
-    for (const removed of value.removedFleetIds)
-        id(removed);
-}
 function envelope(message) {
     if (message.protocolVersion === 0 && message.connectionGeneration === 0n && message.body.case === "failure")
         return;
@@ -82,6 +69,14 @@ export function validateServerMessage(message) {
             check(p.certificateSha256.length === 0 || p.certificateSha256.length === 32, "placement certificate");
             break;
         }
+        case "gameplayReply":
+            check(body.value.requestId > 0n && body.value.status >= 200 && body.value.status <= 599 && body.value.payload.length <= 8192, "gameplay reply");
+            break;
+        case "gameplayChanged":
+            check(body.value.topics > 0 && (body.value.topics & ~63) === 0 && body.value.fleetIds.length <= 32, "gameplay topics");
+            for (const v of body.value.fleetIds)
+                id(v);
+            break;
         case "viewEvent":
             validateViewEvent(body.value);
             break;
@@ -94,28 +89,17 @@ export function validateServerMessage(message) {
         case "admissionRenewed":
             admissionRenewed(body.value);
             break;
-        case "snapshot":
-            snapshot(body.value);
-            break;
-        case "delta":
-            delta(body.value);
-            break;
-        case "topology":
-            validateTopology(body.value);
-            break;
-        case "strategic":
-            validateStrategicSystems(body.value);
-            break;
-        case "playbackClock":
-            scope(body.value.scope);
-            cursor(body.value.baseline);
-            check(body.value.requestId > 0n && body.value.systemRevision > 0n && body.value.sequence > 0n && body.value.serverTimeMs > 0n, "playback correction");
-            break;
         case "failure":
             check(body.value.code > 0, "protocol failure");
             break;
         default: throw new Error("Server message has no supported operation");
     }
 }
-function placementUrl(value, protocol) { const url = new URL(value); check(value.length <= 2048 && url.protocol === protocol && url.pathname === "/session" && !url.username && !url.password && !url.search && !url.hash, "placement endpoint"); }
+function placementUrl(value, protocol) {
+    const url = new URL(value);
+    const path = value.slice(value.indexOf('/', value.indexOf('://') + 3));
+    check(value.length <= 2048 && url.protocol === protocol && path === url.pathname
+        && path.length <= 136 && /^(\/[A-Za-z0-9_-]+)*\/session$/.test(path)
+        && !url.username && !url.password && !url.search && !url.hash, 'placement endpoint');
+}
 //# sourceMappingURL=validate-server.js.map

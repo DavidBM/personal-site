@@ -8,8 +8,6 @@ export const NetworkEvents = {
     unknown: event('unknown'), received: event('received'), resync: event('resync'), error: event('error'),
 };
 export const OwnedFleets = defineQuery('fleetOrders.ownedFleets', { capacity: 4 });
-export const NetworkPlayback = { refresh: defineCommand('network.playback.refresh', { capacity: 1 }) };
-export const NetworkDiagnostics = defineQuery('network.diagnostics', { capacity: 1 });
 /** Acknowledgement means the UI owns the full original key/intent before send. */
 export const RememberIntent = defineCommand('fleetOrders.rememberIntent', { capacity: 128, ordered: 'networkIntents' });
 export const ViewTopologyInstalled = defineCommand('network.viewTopologyInstalled', { capacity: 4, ordered: 'playerViewControls' });

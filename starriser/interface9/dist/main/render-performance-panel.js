@@ -3,6 +3,7 @@ const CHART_W = 220;
 const CHART_H = 52;
 const CHART_N = 90;
 const SCALE_W = 34;
+const zoomFormat = new Intl.NumberFormat('en-US', { maximumSignificantDigits: 6 });
 /** Count worker frames, not the rate at which the DOM receives observations. */
 export function createRenderFrameRateSample() {
     let frame = -1;
@@ -32,10 +33,19 @@ export function createRenderPerformancePanel(container) {
     const draw = document.createElement("div");
     draw.style.color = "#7aa0b8";
     const drawText = bindText(draw, { height: '28px', wrap: true });
+    const zoom = document.createElement('div');
+    zoom.className = 'ui-render-zoom';
+    zoom.title = 'Camera height in world units, matching the map zoom level.';
+    Object.assign(zoom.style, { display: 'flex', justifyContent: 'space-between', gap: '8px' });
+    const zoomValue = document.createElement('span');
+    zoomValue.textContent = '—';
+    const zoomText = bindText(zoomValue, { width: '18ch' });
+    zoomValue.style.textAlign = 'right';
+    zoom.append(document.createTextNode('Zoom level'), zoomValue);
     const fpsPane = makePane("FPS", "#7ee0a3");
     const cpuPane = makePane("Render CPU", "#8eddea");
     const gpuPane = makePane("GPU", "#e0b07e");
-    element.append(fpsPane.wrap, cpuPane.wrap, gpuPane.wrap, draw);
+    element.append(zoom, fpsPane.wrap, cpuPane.wrap, gpuPane.wrap, draw);
     container.prepend(element);
     const sample = createRenderFrameRateSample();
     const fpsHist = new Float32Array(CHART_N);
@@ -70,21 +80,23 @@ export function createRenderPerformancePanel(container) {
             if (now < nextPaintAt)
                 return;
             nextPaintAt = now + 200;
+            setText(zoomText, Number.isFinite(snapshot.camera.eyeY) ? zoomFormat.format(snapshot.camera.eyeY) : '—');
             setText(fpsPane.text, lastFps > 0 ? lastFps.toFixed(0) : "—");
             setText(cpuPane.text, `${cpuMs.toFixed(2)} ms`);
             setText(gpuPane.text, gpuMs > 0 ? `${gpuMs.toFixed(2)} ms` : "—");
-            const scene = snapshot.metrics.sceneDraw;
-            const cap = snapshot.metrics.graphicsCap;
-            setText(drawText, scene
-                ? `SCENE ${scene.fleets} fleets · ${scene.ships} ships`
-                    + (cap ? ` · cap ${cap.shown}/${cap.cap}` : "")
-                : (cap ? `cap ${cap.shown}/${cap.cap}` : ""));
+            setText(drawText, drawSummary(snapshot.metrics));
             paintPane(fpsPane.ctx, fpsHist, histAt, 60, "#7ee0a3");
             paintPane(cpuPane.ctx, cpuHist, histAt, 4, "#8eddea");
             paintPane(gpuPane.ctx, gpuHist, histAt, 4, "#e0b07e");
         },
         dispose: () => element.remove(),
     };
+}
+function drawSummary(metrics) {
+    const scene = metrics.sceneDraw, cap = metrics.graphicsCap;
+    return scene ? `SCENE ${scene.fleets} fleets · ${scene.ships} ships`
+        + (cap ? ` · cap ${cap.shown}/${cap.cap}` : '')
+        : (cap ? `cap ${cap.shown}/${cap.cap}` : '');
 }
 function makePane(label, color) {
     const wrap = document.createElement("div");

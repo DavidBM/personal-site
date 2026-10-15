@@ -1,6 +1,6 @@
 /** Explicit dependencies supplement the bus graph; ordinary calls are not inferred. */
 export const GAME_STAGES = [
-    { id: 'ui.intent', service: 'online-ui', source: 'js/main/online-entry.ts' },
+    { id: 'ui.intent', service: 'online-ui', source: 'js/main/online-runtime.ts' },
     { id: 'network.command', service: 'network', source: 'js/network/session.ts' },
     { id: 'gateway.command', service: 'gateway', source: 'crates/server/src/session/mod.rs' },
     { id: 'system.command', service: 'system', source: 'crates/server/src/system/actor.rs' },

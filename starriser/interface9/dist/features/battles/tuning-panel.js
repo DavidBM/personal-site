@@ -1,3 +1,4 @@
+import { markTester } from '../../ui/tester-badge.js';
 import { mountBattleFx } from './fx-controls.js';
 import { bindText, setText } from '../../ui/dom-bindings.js';
 import { ensureMicroStyles } from '../../ui/micro.js';
@@ -87,6 +88,8 @@ export function buildBattleTuningPanel(ctx, actions) {
         buttons.append(b);
     }
     const disposeCopy = mountSettingsCopy(panel.content, rows, weaponControls.rows);
+    for (const label of panel.content.querySelectorAll('label,button,summary'))
+        markTester(label);
     const destroy = panel.destroy;
     panel.destroy = () => { for (const binding of values)
         binding.dispose(); weaponControls.dispose(); disposeCopy(); if (frame)

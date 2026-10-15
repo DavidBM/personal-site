@@ -23,6 +23,7 @@
  * (head/nozzle → left of atlas, tail → right), V across ribbon. Transparent-bg
  * texture uses **additive blend** (one/one; no alphaToCoverage — a2c dithers soft alpha badly).
  */
+import { SHIP_ENGINE_SHIP_VEC4, SHIP_FX_MAX_CLASSES, SHIP_FX_MAX_EMITTERS, SHIP_FX_WGSL } from "../visual/ship-fx.js";
 import { DEFAULT_TRAIL_LAYOUT, TRAIL_LINE_FLOATS_PER_SHIP, TRAIL_LINE_FLOATS_PER_VERT, TRAIL_LINE_STRIDE, TRAIL_SEGMENT_FLOATS, TRAIL_SEGMENT_STRIDE, TRAIL_SEGS_PER_SHIP, TRAIL_VERTS_PER_SHIP, } from "../visual/fleet-trail-ref.js";
 import { TRAIL_EXPOSURE_DEFAULT } from "./trail-fragment-color.js";
 import { TRAIL_WORLD_MIN_PX } from "./trail-width.js";
@@ -461,6 +462,13 @@ struct TrailUniforms {
 @group(0) @binding(0) var<uniform> u : TrailUniforms;
 @group(0) @binding(1) var trailTex : texture_2d<f32>;
 @group(0) @binding(2) var trailSamp : sampler;
+/** Authored ribbon styles from the hull catalog (ship-fx.ts), one layer each. */
+@group(0) @binding(3) var ribbonStyles : texture_2d_array<f32>;
+/** Engine copies (vs_engine): trail records, engine-ship centre segments at the end. */
+@group(0) @binding(6) var<storage, read> trailRecords : array<f32>;
+${SHIP_FX_WGSL(7)}
+/** The engine list (ship-fx.ts) as vec4: header, glow ships, engine ships. */
+@group(0) @binding(8) var<storage, read> engineList : array<vec4<f32>>;
 
 struct VSIn {
   // Template quad: position.x = side (±1), position.y = along (0 start, 1 end)
@@ -493,6 +501,8 @@ struct VSOut {
   @location(6) vRadial : f32,
   @location(7) @interpolate(flat) vThin : u32,
   @location(8) @interpolate(linear) vEdge:f32,
+  /** Authored ribbon styles: v across from the vertex (0 on one edge, 1 on the other). */
+  @location(9) vAcross : f32,
 };
 
 fn trailRadial(distance: f32, radius: f32) -> f32 {
@@ -609,15 +619,23 @@ fn trailViewSideAxis(trailDir: vec3<f32>, center: vec3<f32>) -> vec3<f32> {
 
 /** Path-ordered incident sides at one sample. Both neighboring segments pass
  * the same three points, including at short/folded joints, so their edge is
- * identical in XYZ (and depth). A segment-local fallback would reopen a wedge. */
-fn trailViewJoint(older: vec3<f32>, point: vec3<f32>, newer: vec3<f32>) -> vec3<f32> {
+ * identical in XYZ (and depth). A segment-local fallback would reopen a wedge.
+ * Where the two camera-facing sides point opposite ways (a sharp turn, or a
+ * trail seen along its length) the neighbour's side is flipped to this
+ * segment's (ownIncoming: this segment is the older one) before the miter: the
+ * shared edge keeps its two points, swapped, and its full width. Averaged as
+ * they were, the bisector ran along the trail and pinched the joint. */
+fn trailViewJoint(older: vec3<f32>, point: vec3<f32>, newer: vec3<f32>, ownIncoming: bool) -> vec3<f32> {
   let incoming = point - older; let outgoing = newer - point;
   let inLen = length(incoming); let outLen = length(outgoing);
   if (inLen < 1e-8 && outLen < 1e-8) { return vec3<f32>(1.0, 0.0, 0.0); }
   if (inLen < 1e-8) { return trailViewSideAxis(outgoing / outLen, point); }
-  let a = trailViewSideAxis(incoming / inLen, point);
-  if (outLen < 1e-8) { return a; }
-  let b = trailViewSideAxis(outgoing / outLen, point);
+  let a0 = trailViewSideAxis(incoming / inLen, point);
+  if (outLen < 1e-8) { return a0; }
+  let b0 = trailViewSideAxis(outgoing / outLen, point);
+  let flip = dot(a0, b0) < 0.0;
+  let a = select(a0, -a0, flip && !ownIncoming);
+  let b = select(b0, -b0, flip && ownIncoming);
   let sum = a + b; let sumLen = length(sum);
   if (sumLen < 1e-4) { return a; }
   let miter = sum / sumLen;
@@ -627,6 +645,55 @@ fn trailViewJoint(older: vec3<f32>, point: vec3<f32>, newer: vec3<f32>) -> vec3<
 
 @vertex
 fn vs_main(input : VSIn) -> VSOut {
+  return trailVertexBody(input);
+}
+
+fn engineRotate(q : vec4<f32>, v : vec3<f32>) -> vec3<f32> {
+  let t = 2.0 * cross(q.xyz, v);
+  return v + q.w * t + cross(q.xyz, t);
+}
+
+/**
+ * Catalog engine trails: each engine-ship centre segment (written from the end
+ * of the records, with its engine-ship index in the colour slots) is drawn once
+ * per catalog emitter of its class, moved to that engine by the ship's attitude
+ * and hull scale. Textured segments (mid/full) take the engine's ribbon width
+ * and style; thin ones (low) stay 1px lines in the ship's colour. Instances
+ * beyond the class's emitters collapse. The rest is the ordinary trail vertex.
+ */
+@vertex
+fn vs_engine(@builtin(instance_index) instance : u32, @location(0) position : vec3<f32>) -> VSOut {
+  var out : VSOut;
+  out.clip = vec4<f32>(0.0, 0.0, 2.0, 1.0);
+  let base = (arrayLength(&trailRecords) / 20u - 1u - instance / ${SHIP_FX_MAX_EMITTERS}u) * 20u;
+  let emitter = instance % ${SHIP_FX_MAX_EMITTERS}u;
+  let ship = ${SHIP_ENGINE_SHIP_VEC4}u + u32(trailRecords[base + 3u] + 0.5) * 2u;
+  let q = engineList[ship];
+  let scale = engineList[ship + 1u].x;
+  let cls = u32(engineList[ship + 1u].y + 0.5);
+  if (cls >= ${SHIP_FX_MAX_CLASSES}u || emitter >= min(shipFx.counts[cls].x, ${SHIP_FX_MAX_EMITTERS}u)) { return out; }
+  let item = (cls * 8u + emitter) * 2u;
+  let at = shipFx.emitters[item];
+  let offset = engineRotate(q, at.xyz * scale);
+  // Textured (mid/full): the engine's world width and style layer replace the
+  // colour. Thin (low, negative alpha): the ship's colour from the end slot.
+  let thin = trailRecords[base + 6u] < 0.0;
+  let style = select(vec3<f32>(-at.w * scale, shipFx.emitters[item + 1u].x, 0.0),
+    vec3<f32>(trailRecords[base + 10u], trailRecords[base + 11u], trailRecords[base + 12u]), thin);
+  var input : VSIn;
+  input.position = position;
+  input.instanceStart = vec3<f32>(trailRecords[base], trailRecords[base + 1u], trailRecords[base + 2u]) + offset;
+  input.instanceColorStart = style;
+  input.instanceAlphaStart = trailRecords[base + 6u];
+  input.instanceEnd = vec3<f32>(trailRecords[base + 7u], trailRecords[base + 8u], trailRecords[base + 9u]) + offset;
+  input.instanceColorEnd = style;
+  input.instanceAlphaEnd = trailRecords[base + 13u];
+  input.instancePrev = vec3<f32>(trailRecords[base + 14u], trailRecords[base + 15u], trailRecords[base + 16u]) + offset;
+  input.instanceNext = vec3<f32>(trailRecords[base + 17u], trailRecords[base + 18u], trailRecords[base + 19u]) + offset;
+  return trailVertexBody(input);
+}
+
+fn trailVertexBody(input : VSIn) -> VSOut {
   var out : VSOut;
   out.vViewPos = vec3<f32>(0.0);
   out.vSegStart = vec3<f32>(0.0);
@@ -635,6 +702,7 @@ fn vs_main(input : VSIn) -> VSOut {
   out.vHalfW = vec2<f32>(0.0);
   out.vRadial = 1.0;
   out.vThin = 0u;out.vEdge=0.0;
+  out.vAcross = 0.5;
 
   // Dead expand slots (MID/FAR / tombstone): bail before mat4 work.
   // Required at 10k×CAP_NEAR full high-water trail draws (~3M instances).
@@ -663,8 +731,10 @@ fn vs_main(input : VSIn) -> VSOut {
   let u1 = 1.0 - clamp(input.instanceAlphaEnd, 0.0, 1.0);
   out.vAtlasU = vec2<f32>(u0, u1);
 
-  let wFull0 = mix(u.widthTail, u.widthHead, clamp(input.instanceAlphaStart, 0.0, 1.0));
-  let wFull1 = mix(u.widthTail, u.widthHead, clamp(input.instanceAlphaEnd, 0.0, 1.0));
+  // Authored ribbon styles carry their own constant width as a negative red
+  // channel (their texture supplies the taper); other ribbons taper with alpha.
+  let wFull0 = select(mix(u.widthTail, u.widthHead, clamp(input.instanceAlphaStart, 0.0, 1.0)), -input.instanceColorStart.x, input.instanceColorStart.x < 0.0);
+  let wFull1 = select(mix(u.widthTail, u.widthHead, clamp(input.instanceAlphaEnd, 0.0, 1.0)), -input.instanceColorEnd.x, input.instanceColorEnd.x < 0.0);
   out.vRadial = trailRadial(length(mix(input.instanceStart, input.instanceEnd, 0.5)), u.jewelRadius);
 
   // Endpoints already origin-relative from integrate expand.
@@ -725,9 +795,9 @@ fn vs_main(input : VSIn) -> VSOut {
   if (select(trimmedEnd, trimmedStart, atStart)) {
     side = trailViewSideAxis(trailDir, mix(p0, p1, along));
   } else if (atStart) {
-    side = trailViewJoint(neighbor.xyz, originalStart.xyz, originalEnd.xyz);
+    side = trailViewJoint(neighbor.xyz, originalStart.xyz, originalEnd.xyz, false);
   } else {
-    side = trailViewJoint(originalStart.xyz, originalEnd.xyz, neighbor.xyz);
+    side = trailViewJoint(originalStart.xyz, originalEnd.xyz, neighbor.xyz, true);
   }
   let sideSign = input.position.x;
 
@@ -739,6 +809,7 @@ fn vs_main(input : VSIn) -> VSOut {
   let center = mix(p0, p1, along);
   let viewPos = center + side * sideSign * halfW;
   out.vViewPos = viewPos;
+  out.vAcross = 0.5 + 0.5 * sideSign;
   out.clip = u.projection * vec4<f32>(viewPos, 1.0);
   return out;
 }
@@ -761,7 +832,11 @@ fn fs_main(input : VSOut) -> @location(0) vec4<f32> {
   let center = input.vSegStart + trail * t;
   let s = dot(input.vViewPos - center, sideAxis);
   let halfW = mix(input.vHalfW.x, input.vHalfW.y, t);
-  let vTex = clamp(0.5 + 0.5 * (s / max(halfW, 1e-6)), 0.0, 1.0);
+  // Authored ribbon styles (red < 0) take v from their vertices, so the texture
+  // always spans the polygon. Reconstructed from distance to the segment's own
+  // centreline, a sharp turn's pinched corners showed only the texture's middle:
+  // the white core filled the ribbon up to hard purple edges.
+  let vTex = select(clamp(0.5 + 0.5 * (s / max(halfW, 1e-6)), 0.0, 1.0), input.vAcross, input.vColor.r < 0.0);
 
   // Strategic 2D (screen widthMode): solid line in ship triangle color.
   // Thin ≤2 px ribbons — no thruster atlas / exposure bloom.
@@ -787,14 +862,24 @@ fn fs_main(input : VSOut) -> @location(0) vec4<f32> {
   let expBoost = select(3.4, u.exposure, u.exposure > 0.0);
   let uTex = mix(input.vAtlasU.x, input.vAtlasU.y, t);
   // The trail atlas has one mip; explicit level permits the per-segment cheap path.
-  let texC = textureSampleLevel(trailTex, trailSamp, vec2<f32>(uTex, vTex), 0.0);
-  let alpha = texC.a;
+  var emit : vec3<f32>;
+  var alpha : f32;
+  if (input.vColor.r < 0.0) {
+    // Authored ribbon style (layer in green): its own colours, as the model viewer shows them.
+    let styled = textureSampleLevel(ribbonStyles, trailSamp, vec2<f32>(uTex, vTex), u32(input.vColor.g + 0.5), 0.0);
+    alpha = styled.a;
+    emit = styled.rgb * inten;
+  } else {
+    let texC = textureSampleLevel(trailTex, trailSamp, vec2<f32>(uTex, vTex), 0.0);
+    alpha = texC.a;
+    let tint = max(input.vColor.rgb, vec3<f32>(0.25));
+    let rgb = texC.rgb * tint * inten * expBoost;
+    emit = rgb * alpha;
+  }
   if (alpha <= 0.001) {
     discard;
   }
-  let tint = max(input.vColor.rgb, vec3<f32>(0.25));
-  let rgb = texC.rgb * tint * inten * expBoost;
-  return vec4<f32>(rgb * alpha, alpha);
+  return vec4<f32>(emit, alpha);
 }
 `;
 //# sourceMappingURL=fleet-trails.wgsl.js.map

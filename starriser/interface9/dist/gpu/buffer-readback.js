@@ -83,6 +83,10 @@ export async function readGpuBufferToDataView(device, src, byteOffset, byteLengt
     const ab = await readGpuBuffer(device, src, byteOffset, byteLength);
     return new DataView(ab);
 }
+/** Array layer of a texture copy (0 for plain 2D textures). */
+function copyLayer(opts) {
+    return Math.max(0, opts?.layer ?? 0) | 0;
+}
 /**
  * Copy a 2D 8-bit 4-channel texture into tight RGBA8 via MAP_READ staging.
  * `src` must include COPY_SRC. Does not re-encode — copies stored texels.
@@ -112,7 +116,7 @@ export async function readGpuTextureRgba8(device, src, opts) {
         const encoder = device.createCommandEncoder({
             label: "texture-readback-copy",
         });
-        encoder.copyTextureToBuffer({ texture: src, origin: { x: originX, y: originY, z: 0 } }, { buffer: gpuCopy, bytesPerRow, rowsPerImage: height }, { width, height, depthOrArrayLayers: 1 });
+        encoder.copyTextureToBuffer({ texture: src, origin: { x: originX, y: originY, z: copyLayer(opts) } }, { buffer: gpuCopy, bytesPerRow, rowsPerImage: height }, { width, height, depthOrArrayLayers: 1 });
         device.queue.submit([encoder.finish()]);
         const packed = await readGpuBuffer(device, gpuCopy, 0, byteLength);
         const srcBytes = new Uint8Array(packed);

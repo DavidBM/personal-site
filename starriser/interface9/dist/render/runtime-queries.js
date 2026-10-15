@@ -1,8 +1,11 @@
+import { clusterSurveyPage } from './cluster-survey.js';
 /** Explicit worker observations. Core measurement owns its success/failure lifecycle. */
 import { renderSnapshot, sceneDiagnostics, sceneFleetPage } from "./runtime-state.js";
 import { pickRuntimeSceneTarget, pickRuntimeFleetHalo } from './scene-picking.js';
 export async function queryRenderRuntime(state, query, remote = []) {
     switch (query.type) {
+        case 'mapLayerDiagnostics': return { options: state.view.survey.mapLayers.options, colonies: state.view.survey.mapLayers.count(), routes: state.mapRoutes?.inspect() };
+        case 'travelDiagnostics': return state.travel?.inspect() ?? null;
         case 'followDiagnostics': return state.view.followDiagnostics();
         case "qualitySample": return state.view.sampleQualityDiagnostics();
         case "snapshot": return renderSnapshot(state, remote);
@@ -10,6 +13,8 @@ export async function queryRenderRuntime(state, query, remote = []) {
         case "measureFrameTimings": return state.view.measureFrameTimings();
         case "pickShip": return state.view.pickRandomShipPose();
         case "fleetSlot": return state.view.readFleetGpuSlot(query.id);
+        case "pickClusterRibbon": return state.view.survey.hits.pick(query.x, query.y);
+        case "clusterSurveyPage": return clusterSurveyPage(state, remote, query);
         case "pickSceneTarget": return pickRuntimeSceneTarget(state, remote, query.x, query.y);
         case "fleetShipTypes": {
             const renderId = state.sceneFleetRenderIds.get(query.id) ?? query.id;

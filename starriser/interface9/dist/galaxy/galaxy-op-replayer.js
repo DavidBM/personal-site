@@ -4,6 +4,26 @@ import { applyOps } from "../worker/galaxy/apply-ops.js";
 export function replayGalaxyOps(galaxy, ops, state) {
     let maxSolarSystemId = state.maxSolarSystemId;
     applyOps(ops, {
+        setClusterAtlas: ({ clusterId, publicAtlas }) => {
+            const cluster = galaxy.getClusterById(clusterId);
+            if (cluster) {
+                cluster.publicAtlas = publicAtlas;
+                galaxy.hooks.onClusterMetadataChanged?.(cluster);
+            }
+        },
+        setSystemCatalog: ({ clusterId, solarSystemId, catalogId }) => {
+            const system = galaxy.getSolarSystemById(clusterId, solarSystemId);
+            if (system) {
+                system.catalogId = catalogId;
+                galaxy.hooks.onSystemCatalogChanged?.(system);
+            }
+        },
+        removeSolarSystemConnection: ({ clusterId, solarSystemId1, solarSystemId2 }) => {
+            const cluster = galaxy.getClusterById(clusterId);
+            const a = galaxy.getSolarSystemById(clusterId, solarSystemId1), b = galaxy.getSolarSystemById(clusterId, solarSystemId2);
+            if (cluster && a && b)
+                galaxy.removeSolarSystemConnection(cluster, a, b);
+        },
         addCluster: (payload) => {
             const cluster = new Cluster(payload);
             galaxy.addCluster(cluster);

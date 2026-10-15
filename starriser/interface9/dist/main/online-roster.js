@@ -1,6 +1,6 @@
 import { createOwnedRoster } from '../ui/owned-roster.js';
-export function createOnlineRoster(parent, query, onView) {
-    const panel = createOwnedRoster(parent, onView);
+export function createOnlineRoster(parent, query, onView, onJourney) {
+    const panel = createOwnedRoster(parent, onView, onJourney);
     let generation = 0, closed = false, timer;
     let names = new Map(), page;
     function clear() { generation++; clearTimeout(timer); timer = undefined; page = undefined; panel.clear(); }

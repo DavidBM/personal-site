@@ -1,0 +1,85 @@
+{
+  "classId": 1,
+  "key": "fighter",
+  "name": "Fighter",
+  "visualScale": 1.25,
+  "triangles": {
+    "high": 3971,
+    "low": 983,
+    "far": 290,
+    "dart": 14,
+    "veryHigh": 14929
+  },
+  "high": "fighter-high.glb",
+  "low": "fighter-low.glb",
+  "far": "fighter-far.glb",
+  "normalizedSize": [
+    1.655158,
+    0.52743,
+    1.794343
+  ],
+  "dart": "fighter-dart.glb",
+  "lod": {
+    "full": [
+      705,
+      null
+    ],
+    "mid": [
+      230,
+      820
+    ],
+    "low": [
+      14,
+      300
+    ],
+    "dart": [
+      2.7,
+      19
+    ],
+    "point": [
+      0,
+      4.2
+    ]
+  },
+  "trails": [
+    {
+      "at": [
+        0.4724,
+        -0.0055,
+        -0.7625
+      ],
+      "width": 0.201,
+      "style": "ribbon-1"
+    },
+    {
+      "at": [
+        -0.4747,
+        0.0066,
+        -0.7677
+      ],
+      "width": 0.201,
+      "style": "ribbon-1"
+    }
+  ],
+  "glows": [
+    {
+      "at": [
+        0.4748,
+        -0.0047,
+        -0.8193
+      ],
+      "size": 0.876,
+      "style": "glow-1"
+    },
+    {
+      "at": [
+        -0.4748,
+        0.0071,
+        -0.8263
+      ],
+      "size": 0.876,
+      "style": "glow-1"
+    }
+  ],
+  "veryHigh": "fighter-very-high.glb"
+}

@@ -1,3 +1,5 @@
+// @ts-nocheck
+import { remotePathPosition } from './remote-path.js';
 import { createSceneBattles, battleSphereRoutes, battleTacticLabel } from './scene-battles.mjs';
 import { battleArena } from '../../../features/battles/arena.js';
 import { BATTLE_RADIUS } from '../../../features/battles/contracts.js';
@@ -13,6 +15,7 @@ import { preparePipelines } from '../../../lib/ship-runtime/pipeline-preparation
 import { sceneCameraShader, sceneSelectionShader, bindSceneCamera } from "../../scene-camera.js";
 import { createCheckedShaderModule } from '../../checked-shader-module.js';
 import { SceneCameraGpu } from './scene-camera-gpu.js';
+import { DEFAULT_HULL_LOD, HULL_LOD_BYTES, packHullLod } from '../../../lib/fleet-sim/visual/hull-lod.js';
 import { WARP_RIM_ORBIT_MULTIPLIER } from "../../../lib/ship-runtime/scene-scale.mjs";
 import { DEFAULT_SHIP_CAPACITY, MAX_SHIP_CAPACITY } from '../../../lib/ship-runtime/ship-capacity.mjs';
 import { FLEET_MARKER_WGSL, SHIP_SELECTION_WGSL } from './fleet-marker.wgsl.js';
@@ -110,7 +113,7 @@ fn repelWorld(typeId: u32) -> f32 {
 `;
 export { MAX_SCENE_FLEETS, SCENE_KERNEL_COUNT, MAX_GROUP_VISUAL, directedTickDecision, sceneFleetFingerprint, buildInstanceMap, seedDirectedShips, SCENE_LAB_SCALE, };
 function planetOf(fleet) {
-    const idx = (fleet.bodyIndex ?? 1) | 0;
+    const idx = (fleet.remote?.orbit?.bodyIndex ?? fleet.bodyIndex ?? 1) | 0;
     return Math.max(1, Math.min(15, idx));
 }
 function combatSlotsOf(runtime) {
@@ -183,11 +186,12 @@ export function createDirectedSceneHost(injected = null, options = {}) {
     let centerTimeMs = 0;
     const presentWords = new Uint32Array(32);
     const presentFloats = new Float32Array(presentWords.buffer);
-    presentFloats[28] = 55;
-    presentFloats[29] = 50;
+    /** Per-class detail ranges shared by the present and follow-camera passes. */
+    let hullLodBuffer = null;
+    let hullLodTable = null;
     const centerWords = new Uint32Array(MAX_SCENE_FLEETS * 4);
     const centerParams = new Float32Array(4);
-    const pinUniformData = new ArrayBuffer(96);
+    const pinUniformData = new ArrayBuffer(112);
     const presentBinds = new Map();
     let presentInputs = [];
     let bindKey = "";
@@ -288,7 +292,7 @@ export function createDirectedSceneHost(injected = null, options = {}) {
                 points: [[center.x, center.y, center.z], [exit.x, exit.y, exit.z]], destination: [exit.x, exit.y, exit.z] }] : [];
     }
     function routeGuides() {
-        const out = [...localRoutes.rows.values()].filter(row => showsGuide(row.id) && row.fleet.state?.battle?.stage !== 'engaged').map(row => ({ ...row, waypoints: row.acceptedIntent?.waypoints ?? row.waypoints }));
+        const out = [...localRoutes.rows.values()].filter(row => (!row.remote || row.fleet.remote?.moving) && showsGuide(row.id) && row.fleet.state?.battle?.stage !== 'engaged').map(row => ({ ...row, waypoints: row.acceptedIntent?.waypoints ?? row.waypoints }));
         for (const fleet of fleets) {
             if (showsGuide(fleet.id) && fleet.state?.battle)
                 out.push(...battleSphereRoutes(fleet));
@@ -312,7 +316,14 @@ export function createDirectedSceneHost(injected = null, options = {}) {
         const battle = fleet.state?.battle;
         if (battle)
             return { action: battle.stage === 'pursuit' ? 'Intercept fleet' : 'Battle',
-                micro: battle.stage === 'pursuit' ? `Following target · ${localRoutes.rows.get(id)?.status ?? 'preparing route'}` : `${battleTacticLabel(battle)} · up to 16 squads/class · ${battle.opponent}` };
+                micro: battle.stage === 'pursuit' ? 'Following target' : battleTacticLabel(battle) };
+        if (fleet.remote) {
+            const seconds = Math.max(0, Math.ceil(fleet.remote.arrivalGpuMs / 1000 - keplerTime));
+            if (fleet.remote.orbit && keplerTime * 1000 >= fleet.remote.orbit.epochGpuMs)
+                return { action: 'Orbiting planet', micro: 'Ready for movement orders' };
+            return fleet.remote.moving ? { action: fleet.remote.orbit ? 'Approaching orbit' : 'Moving to destination', micro: seconds ? `${seconds}s remaining` : 'At destination · awaiting confirmation' }
+                : { action: 'Holding position', micro: 'Ready for movement orders' };
+        }
         const route = localRoutes.rows.get(id);
         if (route && !route.automatic)
             return routeActivity(route, telemetry?.freshTravel(fleet.slot ?? 0));
@@ -378,6 +389,10 @@ export function createDirectedSceneHost(injected = null, options = {}) {
         return labPressureHalfExtent(lab);
     }
     function attachPlan(fleet) {
+        if (fleet.remote && !fleet.state?.battle) {
+            fleet.plan = { phase: 'remote', exit: { x: fleet.remote.targetX, y: fleet.remote.targetY, z: fleet.remote.targetZ } };
+            return fleet.plan;
+        }
         if (fleet.retainedPlan) {
             fleet.plan = fleet.retainedPlan;
             return fleet.plan;
@@ -492,7 +507,7 @@ export function createDirectedSceneHost(injected = null, options = {}) {
         if ((plan.phase === "orbit" || plan.phase === "stage") && pendingOrbit.has(slot))
             return;
         const move = fleet.state?.state === 'awaiting' && fleet.state.localMove;
-        const key = move ? `move:${fleet.generation ?? 0}:${move.orderId ?? move.revision}` : phaseKey(plan, fleet);
+        const key = fleet.remote && !fleet.state?.battle ? `remote:${fleet.generation}:${fleet.remote.revision}:${fleet.remote.departureGpuMs}:${fleet.remote.arrivalGpuMs}:${fleet.remote.targetX}:${fleet.remote.targetY}:${fleet.remote.targetZ}:${fleet.remote.orbit?.epochGpuMs}` : move ? `move:${fleet.generation ?? 0}:${move.orderId ?? move.revision}` : phaseKey(plan, fleet);
         if (phaseKeys.get(slot) === key)
             return;
         phaseKeys.set(slot, key);
@@ -504,6 +519,14 @@ export function createDirectedSceneHost(injected = null, options = {}) {
         // A phase reserves journey, pressure and delayed orbit revisions. Reusing a
         // fleet slot must outrank that previous orbit, not repeat its revision.
         journeyRev += 3;
+        if (fleet.remote && !fleet.state?.battle) {
+            const path = fleet.remote;
+            queueCommands([{ fleet: slot, journey: { mode: 'route', linearProgress: true, planet: planetOf(fleet),
+                        at: path.moving ? path.departureGpuMs / 1000 : path.orbit ? path.orbit.epochGpuMs / 1000 - 1 : now,
+                        end: path.orbit ? path.orbit.epochGpuMs / 1000 : path.moving ? path.arrivalGpuMs / 1000 : now + 1,
+                        revision: journeyRev - 1, exit: [path.targetX, path.targetY, path.targetZ].map(compactToLab) } }]);
+            return;
+        }
         if (move) {
             queueCommands([{ fleet: slot, journey: { mode: 'route', at: now, end: now + 1e6,
                         planet: planetOf(fleet), revision: journeyRev - 1,
@@ -806,6 +829,10 @@ export function createDirectedSceneHost(injected = null, options = {}) {
         return layout;
     }
     function orbitBirthFor(fleet, layout) {
+        if (fleet.remote) {
+            const p = remotePathPosition(fleet.remote, keplerTime * 1000);
+            return [p.x, p.y, p.z].map(compactToLab);
+        }
         if (fleet.plan?.phase !== 'orbit')
             return undefined;
         if (fleet.state?.position) {
@@ -1154,13 +1181,30 @@ export function createDirectedSceneHost(injected = null, options = {}) {
             usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
         });
     }
+    /** Upload a new per-class table; the buffer itself is created with the present resources. */
+    function useHullLod(table) {
+        if (table === hullLodTable)
+            return;
+        hullLodTable = table;
+        if (hullLodBuffer && runtime)
+            runtime.device.queue.writeBuffer(hullLodBuffer, 0, packHullLod(table));
+    }
+    function ensureHullLod() {
+        if (!hullLodBuffer) {
+            hullLodBuffer = runtime.device.createBuffer({ label: 'scene-hull-lod', size: HULL_LOD_BYTES,
+                usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+            runtime.device.queue.writeBuffer(hullLodBuffer, 0, packHullLod(hullLodTable ?? [DEFAULT_HULL_LOD]));
+        }
+        return hullLodBuffer;
+    }
     function presentResources(source) {
         if (!presentUniform) {
             presentUniform = runtime.device.createBuffer({
-                size: 128,
+                size: presentWords.byteLength,
                 usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
             });
         }
+        ensureHullLod();
         presentationControls ?? (presentationControls = runtime.device.createBuffer({ label: 'scene-ship-controls', size: runtime.count * 16,
             usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC }));
         if (!shipSimBuffer)
@@ -1266,6 +1310,7 @@ export function createDirectedSceneHost(injected = null, options = {}) {
                 { binding: 9, resource: { buffer: fleetTintBuffer } },
                 { binding: 8, resource: { buffer: presentationControls } },
                 { binding: 7, resource: { buffer: kernelFleetBuffer } },
+                { binding: 10, resource: { buffer: ensureHullLod() } },
             ],
         });
         presentBinds.set(source, presentBind);
@@ -1538,7 +1583,7 @@ export function createDirectedSceneHost(injected = null, options = {}) {
         });
         altitudeUniform = device.createBuffer({
             label: "fleet-pin-uniform",
-            size: 96,
+            size: 112,
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         });
     }
@@ -1613,6 +1658,8 @@ export function createDirectedSceneHost(injected = null, options = {}) {
         pendingReframe = null;
         retainedWarpEnd.clear();
         presentUniform?.destroy();
+        hullLodBuffer?.destroy();
+        hullLodBuffer = null;
         fleetTintBuffer?.destroy();
         fleetTintBuffer = null;
         presentationControls?.destroy();
@@ -1898,7 +1945,7 @@ export function createDirectedSceneHost(injected = null, options = {}) {
                 presentCopy(encoder, runtime.state);
             }
         },
-        setPresentationCamera(viewProj, origin, height, projectionY, highEnterPx = 55, highExitPx = 50) {
+        setPresentationCamera(viewProj, origin, height, projectionY, hullLod) {
             // Projection-only scale: view rotation must not shrink a bounding sphere.
             presentFloats[7] = Math.abs(projectionY);
             for (let i = 0; i < 16; i++)
@@ -1907,8 +1954,8 @@ export function createDirectedSceneHost(injected = null, options = {}) {
             presentFloats[25] = origin.y;
             presentFloats[26] = origin.z;
             presentFloats[27] = height;
-            presentFloats[28] = highEnterPx;
-            presentFloats[29] = highExitPx;
+            if (hullLod)
+                useHullLod(hullLod);
             runtime?.setPilotView?.(viewProj, origin, Math.abs(projectionY) * height * SCENE_HULL_SIZE * SCENE_MODEL_SIZE_MUL, labToCompact(1), followedShip == null ? -1 : ships.resolve(followedShip)?.kernelIndex ?? -1, selectedId == null ? -1 : fleetSlot(selectedId));
         },
         setShipDetail(handle, detail) {
@@ -1992,8 +2039,10 @@ export function createDirectedSceneHost(injected = null, options = {}) {
             pass.setBindGroup(0, repelBind);
             pass.draw(6, runtime.count);
         },
-        encodeFleetAltitude(pass, viewProj, width = 1, height = 1) {
+        encodeFleetAltitude(pass, viewProj, width = 1, height = 1, hiddenMarkerId, labelsVisible = true, mergedMarkers) {
             encodeRouteOverlays(pass, viewProj, width, height);
+            if (!labelsVisible)
+                return;
             if (!runtime || !altitudePipeline || !altitudeUniform || !markBuffer || !typeBuffer || mappedCount() === 0)
                 return;
             const vp = viewProj instanceof Float32Array ? viewProj : new Float32Array(viewProj);
@@ -2007,6 +2056,14 @@ export function createDirectedSceneHost(injected = null, options = {}) {
             f[19] = COMPACT_SYSTEM_SPAN * 0.15;
             w[20] = fleetSlot(selectedId);
             w[21] = fleetSlot(hoveredId);
+            w[22] = fleetSlot(hiddenMarkerId ?? null);
+            w.fill(0, 24, 28);
+            if (mergedMarkers)
+                for (const id of mergedMarkers) {
+                    const slot = fleetSlot(id);
+                    if (slot < 128)
+                        w[24 + (slot >>> 5)] |= 1 << (slot & 31);
+                }
             runtime.device.queue.writeBuffer(altitudeUniform, 0, packed);
             if (!altitudeBind) {
                 altitudeBind = runtime.device.createBindGroup({
@@ -2070,7 +2127,7 @@ export function createDirectedSceneHost(injected = null, options = {}) {
             followCamera.encode(encoder, shipSimBuffer, follow, view, projection, eye, {
                 controls: presentationControls, count: runtime.count,
                 pixelGain: presentFloats[7] * SCENE_HULL_SIZE * SCENE_MODEL_SIZE_MUL * presentFloats[27],
-                enter: presentFloats[28], exit: presentFloats[29],
+                hullLod: ensureHullLod(),
             });
         },
         shipPose(handle, nowMs = lastNowMs) {

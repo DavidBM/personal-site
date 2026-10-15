@@ -10,7 +10,7 @@ import {
   labToCompact,
   compactOrbitPad,
 } from "../../../lib/ship-runtime/kepler-solar.mjs";
-import { SCENE_CLASS_TYPES, orbitRadius, orbitTilt } from "../../../lib/ship-runtime/flight-layout.mjs";
+import { SCENE_LAB, SCENE_CLASS_TYPES, orbitRadius, orbitTilt } from "../../../lib/ship-runtime/flight-layout.mjs";
 import { classOf } from "../../../lib/ship-runtime/classes.mjs";
 import { fleetComposition, visualParts } from "../../../lib/ship-runtime/fleet-mix.mjs";
 import { packSceneIdentity } from "../../../lib/ship-runtime/scene-identity.mjs";
@@ -309,15 +309,41 @@ export function sceneMotionPlan(input) {
   const nowMs = Number(input.nowMs) || 0;
   if (!state || state.state === "awaiting") return ORBIT_PLAN;
   if (state.state === "jumping") return sceneJumpPlan(input, state, nowMs);
-  const left = Math.max(0, (state.startTime || 0) + (state.durationMs || 0) - nowMs);
-  if (left > STAGE_LEAD_MS || !state.nextNode) return ORBIT_PLAN;
   const park = input.fromPos || { x: 0, y: 0, z: 0 };
   const { rim } = sceneWarpEndpoints(input, false);
+  const staging = departureApproachWindow(state.startTime, state.durationMs, nowMs, park, rim);
+  if (nowMs < staging.startMs || !state.nextNode) return ORBIT_PLAN;
   return { phase: "stage", seed: "local", paused: false, planet: true,
-    warpSec: compactCruiseSec(park, rim), origin: park, exit: rim, u: 0 };
+    warpSec: staging.remainingMs / 1000, staging, origin: park, exit: rim, u: 0 };
+}
+
+/** Accepted cooldown maps to a bounded presentation interval. Distance chooses
+ * natural approach time, but a shortened/expired interval can never extend the
+ * published departure. All values are presentation-clock milliseconds. */
+export function departureApproachWindow(startMs, durationMs, nowMs, from, to) {
+  if (![startMs, durationMs, nowMs].every(Number.isFinite) || durationMs < 0) {
+    throw new Error("Invalid departure interval");
+  }
+  const departureMs = startMs + durationMs;
+  const naturalMs = compactCruiseSec(from, to) * 1000;
+  if (!Number.isFinite(departureMs) || !Number.isFinite(naturalMs)) throw new Error("Invalid departure distance");
+  const spanMs = Math.min(durationMs, STAGE_LEAD_MS, naturalMs);
+  const approachStart = departureMs - spanMs;
+  return { startMs: approachStart, arrivalMs: departureMs, departureMs,
+    remainingMs: Math.min(spanMs, Math.max(0, departureMs - nowMs)) };
 }
 
 function sceneJumpPlan(input, state, nowMs) {
+  if (state.acceptedArrival && state.acceptedDeparture) {
+    const inbound=state.endNode?.solarSystemId===input.systemId;
+    const duration=inbound ? state.durationMs : sceneOutboundDurationMs(state.durationMs);
+    const elapsed=nowMs-state.startTime;
+    if (!inbound && (state.startNode?.solarSystemId!==input.systemId || elapsed>=duration)) return HIDDEN_PLAN;
+    const endpoints=sceneWarpEndpoints(input,inbound);
+    endpoints.rim=inbound ? state.acceptedArrival : state.acceptedDeparture;
+    const plan=timedWarpPlan(inbound,duration,elapsed,endpoints);
+    return {...plan,planet:false};
+  }
   const elapsed = nowMs - state.startTime;
   const inbound = state.endNode?.solarSystemId === input.systemId;
   const duration = inbound ? Math.max(1, state.durationMs || 1) : sceneOutboundDurationMs(state.durationMs);
@@ -627,6 +653,12 @@ function arrivalSeedPose(fleet, index, arrival, type) {
 }
 
 function seedPose(fleet, index, poseAt, poseScale, arrival, type) {
+  if (fleet.remote && fleet.orbitSeedOrigin) {
+    const o=index*4, delta=fleet.warpOffsets ? Array.from(fleet.warpOffsets.subarray(o,o+3)) : [0,0,0];
+    const radius=(fleet.remote.clearance??.0125)*SCENE_LAB*.9;
+    const scale=Math.min(1,radius/Math.max(1e-9,Math.hypot(...delta)));
+    return fleet.orbitSeedOrigin.map((v,i)=>v+delta[i]*scale);
+ }
   const planned = planSeedPose(fleet, index, poseAt, poseScale);
   if (planned) return planned;
   const arrivalPose = arrivalSeedPose(fleet, index, arrival, type);

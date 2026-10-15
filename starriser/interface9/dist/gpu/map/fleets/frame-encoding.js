@@ -1,8 +1,10 @@
 import { JEWEL_RADIUS } from "./directed-present.wgsl.js";
 const SCREEN_TRAILS = { depthAware: true, sceneTrailScale: false, screenPx: 1 };
 const HULL_TRAILS = { depthAware: true, sceneTrailScale: true };
-export function createFleetFrameEncoding(ships, models, coordinates, surface, directed = null, modelsLow = null, modelsTiny = null) {
-    const visibilityPeers = [modelsLow, modelsTiny].filter((layer) => layer !== null);
+export function createFleetFrameEncoding(ships, models, coordinates, surface, directed = null, modelsLow = null, modelsTiny = null, modelsFar = null, modelsPoint = null) {
+    // Partition order is the visibility bin order: full (MSAA composite), mid, low, dart, point.
+    const visibilityPeers = [modelsLow, modelsFar, modelsTiny, modelsPoint].filter((layer) => layer !== null);
+    const pixelLayers = [modelsTiny, modelsPoint].filter((layer) => layer !== null);
     const camera = {
         cameraY: 1, targetX: 0, targetZ: 0, viewportH: 1, viewportW: 1, tanHalfFov: 1, originX: 0, originY: 0, originZ: 0,
     };
@@ -29,8 +31,7 @@ export function createFleetFrameEncoding(ships, models, coordinates, surface, di
         const proj = frame.sceneOpen ? coordinates.sceneClip() : coordinates.projection;
         ships.prepareTrailVisibility(space.viewProj, space.view, frame.sceneOpen && !frame.referenceTrailVisibility, !frame.sceneOpen, proj, surface.height);
         ships.dispatchIntegrate(encoder, frame.nowMs, frame.dtMs, frame.fleetHighWater, frame.shipHighWater, camera, options);
-        const detail = models.getDetailThresholds?.();
-        directed?.setPresentationCamera?.(space.viewProj, space.origin, surface.height, proj[5], detail?.[0], detail?.[1]);
+        directed?.setPresentationCamera?.(space.viewProj, space.origin, surface.height, proj[5], models.getHullLod?.());
         directed?.encodeTick(encoder, frame.timeSec, Math.max(0, frame.dtMs) * 0.001, frame.sceneOpen, frame.nowMs);
         if (frame.sceneOpen)
             directed?.encodeFollowCamera?.(encoder, space.view, proj, coordinates.system.eye);
@@ -39,12 +40,13 @@ export function createFleetFrameEncoding(ships, models, coordinates, surface, di
     function prepareVisibility(encoder, frame) {
         const space = frame.sceneOpen ? coordinates.system : coordinates.galaxy;
         const hullSpace = frame.sceneOpen ? coordinates.hulls : space;
-        modelsTiny?.setPixelGain(Math.abs(coordinates.sceneClip()[5]) * surface.height);
+        const pixelGain = Math.abs(coordinates.sceneClip()[5]) * surface.height;
+        for (const layer of pixelLayers)
+            layer.setPixelGain(pixelGain);
         if (models.prepareSharedVisibility?.(encoder, hullSpace.viewProj, hullSpace.origin, visibilityPeers, frame.referenceModelVisibility))
             return;
-        models.prepareVisibility(encoder, hullSpace.viewProj, hullSpace.origin, frame.referenceModelVisibility);
-        modelsLow?.prepareVisibility(encoder, hullSpace.viewProj, hullSpace.origin, frame.referenceModelVisibility);
-        modelsTiny?.prepareVisibility(encoder, hullSpace.viewProj, hullSpace.origin, frame.referenceModelVisibility);
+        for (const layer of [models, ...visibilityPeers])
+            layer.prepareVisibility(encoder, hullSpace.viewProj, hullSpace.origin, frame.referenceModelVisibility);
     }
     function encodeStrategicTrails(pass, frame) {
         if (!frame.sceneOpen || frame.hullsOn)
@@ -67,8 +69,8 @@ export function createFleetFrameEncoding(ships, models, coordinates, surface, di
         // Lighting remains sun-local; hull matrices subtract the camera origin first.
         if (withHigh)
             encodeHighModels(pass, frame);
-        modelsLow?.encode(pass, coordinates.hulls.viewProj, undefined, coordinates.hulls.origin, space.eye, frame.timeSec);
-        modelsTiny?.encode(pass, coordinates.hulls.viewProj, undefined, coordinates.hulls.origin, space.eye, frame.timeSec);
+        for (const layer of visibilityPeers)
+            layer.encode(pass, coordinates.hulls.viewProj, undefined, coordinates.hulls.origin, space.eye, frame.timeSec);
         if (withTrails)
             encodeHullTrails(pass, frame);
     }
@@ -85,6 +87,16 @@ export function createFleetFrameEncoding(ships, models, coordinates, surface, di
             ...HULL_TRAILS, intensity: 1, jewelRadius: JEWEL_RADIUS, glowMode, opaqueDepth,
         });
     }
+    /** Glows need hulls in the scene (the GPU picks mid/full detail) and a catalog that defines them. */
+    function engineGlowsPossible(frame) {
+        return frame.sceneOpen && frame.hullsOn && frame.hullHighOn && models.hasDrawCandidates() && ships.hasEngineGlows();
+    }
+    /** Engine glows over hulls and trails, in a pass that reads (does not attach) the scene `depth`. */
+    function encodeEngineGlows(pass, frame, depth) {
+        if (!engineGlowsPossible(frame))
+            return;
+        ships.encodeEngineGlows(pass, coordinates.system.view, coordinates.sceneClip(), surface.width, surface.height, depth);
+    }
     function encodeDebug(pass, frame) {
         if (!frame.sceneOpen)
             return;
@@ -95,6 +107,7 @@ export function createFleetFrameEncoding(ships, models, coordinates, surface, di
         directed?.encodeRepulsion?.(pass, coordinates.system.viewProj, coordinates.system.view);
     }
     return { battleFxInputs: () => directed?.battleFxInputs?.() ?? null, prepare, integrate, prepareVisibility, encodeStrategicTrails, encodeShips, encodeModels, encodeHighModels, encodeHullTrails, encodeDebug,
+        engineGlowsPossible, encodeEngineGlows,
         highHullDrawArguments: () => models.compositeDrawArguments(),
         hasHighHullCandidates: () => models.hasDrawCandidates(),
         glowDrawArguments: () => ships.glowDrawArguments() };

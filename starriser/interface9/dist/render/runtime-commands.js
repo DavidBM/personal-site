@@ -1,9 +1,11 @@
+import { fleetOrbitTracking, remoteShipTracking } from './remote/camera-tracking.js';
 import { scheduleFxTuning, setFxEnabled } from '../features/battles/fx-tuning.js';
 /** Explicit feature commands; no reflection or arbitrary method RPC. */
 // @ts-expect-error Native GPU presentation module.
 import { scheduleBattleTuning } from '../lib/ship-runtime/battle-tuning.mjs';
 import { replayGalaxyOps } from "../galaxy/galaxy-op-replayer.js";
 import { createCameraDirectorHost } from "../render/camera-director-host.js";
+import { SCENE_FLEET_ORBIT_RADIUS, SCENE_FLEET_ORBIT_MIN_RADIUS } from '../gpu/camera-zoom.js';
 // @ts-expect-error declarations live in class-tuning.mjs.d.ts
 import { scheduleShipTuning } from "../lib/ship-runtime/class-tuning.mjs";
 function moveCluster(ctx, command) {
@@ -20,14 +22,66 @@ function moveCluster(ctx, command) {
     }
     state.view.updateEditOverlayPosition(cluster.id, command.position);
 }
+function applySurvey(ctx, command) {
+    const { state } = ctx;
+    switch (command.type) {
+        case 'planetPresence':
+            state.view.survey.planetMarkers.set(command.systemId, command.value);
+            return true;
+        case 'mapLayers':
+            state.view.survey.mapOptions = command.value;
+            state.mapRoutes?.options(command.value);
+            return true;
+        case 'mapColonies':
+            state.view.survey.setColonies(command.rows, command.reset);
+            return true;
+        case 'mapRoute':
+            state.mapRoutes?.update(command);
+            return true;
+        case 'journeyPath':
+            state.travel?.path(command.value);
+            return true;
+        case 'frameFleetJump':
+            state.travel?.frameJump(true);
+            return true;
+        case 'incomingFleets':
+            state.view.survey.incomingSystem = command.systemId;
+            state.view.survey.incoming = command.rows.slice(0, 32);
+            return true;
+        case 'surveyRoster':
+            state.view.survey.fleetTotals().setRoster(command.fleets);
+            return true;
+        case 'surveyPlanets':
+            state.view.survey.signals.setPlanets(command.value);
+            state.view.survey.planetMarkers.catalog(command.value);
+            return true;
+        case 'surveyAlerts':
+            state.view.survey.signals.setAlerts(command.rows, command.partial);
+            return true;
+        case 'surveyBattle':
+            state.view.survey.signals.setBattle(command.value);
+            return true;
+        case 'surveyBattleClear':
+            state.view.survey.signals.removeBattle(command.id);
+            return true;
+        case 'surveyLocalBattle':
+            applySurveyBattle(state, command.event);
+            return true;
+        default: return false;
+    }
+}
 function applyTopology(ctx, command) {
     const { state } = ctx;
     switch (command.type) {
         case "topology": {
+            state.topologyConnections = command.connections !== false;
             const result = replayGalaxyOps(state.galaxy, command.ops, ctx);
             ctx.maxSolarSystemId = result.maxSolarSystemId;
             return true;
         }
+        case "mapConnections":
+            applyMapConnections(state, command.patch);
+            return true;
         case "finalize":
             state.view.finalizeBuffers(state.galaxy);
             return true;
@@ -44,6 +98,16 @@ function applyTopology(ctx, command) {
             state.view.setSelectRing(command.ring);
             return true;
         default: return false;
+    }
+}
+function applyMapConnections(state, patch) {
+    if (patch.clear)
+        state.view.clearLines();
+    for (const key of patch.remove ?? [])
+        state.view.removeConnection(key);
+    for (const line of patch.upsert ?? []) {
+        if (!state.view.updateConnectionEndpoints(line.key, line.a, line.b))
+            state.view.addConnection(line.key, line.a, line.b, line.color);
     }
 }
 function applyEditing(ctx, command) {
@@ -96,6 +160,8 @@ function applyFleets(ctx, command) {
     }
 }
 function clearFleets(state) {
+    state.travel?.select(null);
+    state.focusedFleetId = null;
     state.fleets.clear();
     state.fleetIds.clear();
     state.view.clearFleets();
@@ -111,9 +177,13 @@ function resetDirector(state) {
     state.director = createCameraDirectorHost({ applyPose: (pose) => state.camera.applyDirectorPose(pose) });
 }
 function clearWorld(ctx) {
+    ctx.state.mapRoutes?.clear();
+    ctx.state.view.survey.setColonies([]);
     clearFleets(ctx.state);
     resetDirector(ctx.state);
     ctx.focus.clearFocus();
+    ctx.state.view.survey.incoming = [];
+    ctx.state.view.survey.incomingSystem = null;
     ctx.state.view.clear();
     ctx.state.galaxy.clear();
     ctx.state.edit = null;
@@ -156,8 +226,10 @@ function selectBody(ctx, command) {
     const catalogId = store.catalogIds[command.index] ?? store.defs[command.index]?.id;
     if (command.catalogId != null && command.catalogId !== catalogId)
         return;
+    resetDirector(ctx.state);
     stopFollowingShip(ctx.state, 'body-selected');
     ctx.state.selectedFleetId = null;
+    ctx.state.focusedFleetId = null;
     view.setSelectedFleetId(null);
     view.setFollowShipIndex(null);
     if (store.isSun[command.index]) {
@@ -179,6 +251,7 @@ function stopFollowingShip(state, reason) {
 }
 function clearSelection(ctx) {
     const { state } = ctx;
+    state.focusedFleetId = null;
     // Clearing only the GPU readback leaves the callback waiting forever for a
     // new pose. Stop the camera first, then release selection/hi-res residency.
     stopFollowingShip(state, 'selection-cleared');
@@ -216,6 +289,7 @@ function selectFleet(ctx, id) {
     if (id == null) {
         stopFollowingShip(state, 'fleet-deselected');
         state.selectedFleetId = null;
+        state.focusedFleetId = null;
         state.view.setSelectedFleetId(null);
         state.view.setFollowShipIndex(null);
         state.camera.setSystemOrbitFree();
@@ -226,17 +300,19 @@ function selectFleet(ctx, id) {
     const parked = sceneFleetFocusPoint(state, renderId);
     if (!visual || !parked)
         return;
+    resetDirector(state);
     stopFollowingShip(state, 'fleet-selected');
     ctx.focus.clearFocus();
     state.selectedFleetId = id;
+    state.focusedFleetId = id;
     state.view.setSelectedFleetId(renderId);
     if (state.view.solarBodies.systemId == null)
         return;
-    const camera = state.view.getCameraState();
     state.camera.setSystemOrbitTarget({
         targetId: -1,
-        radius: Math.hypot(camera.eyeX - camera.targetX, camera.eyeY - camera.targetY, camera.eyeZ - camera.targetZ),
-        getPosition: () => state.view.getFleetVisual(renderId) === visual ? sceneFleetFocusPoint(state, renderId) : null,
+        radius: SCENE_FLEET_ORBIT_RADIUS,
+        minRadius: SCENE_FLEET_ORBIT_MIN_RADIUS,
+        getPosition: fleetOrbitTracking(state, id, visual, renderId => sceneFleetFocusPoint(state, renderId)),
     });
 }
 function followFleet(ctx, id, shipType) {
@@ -265,10 +341,12 @@ function followFleet(ctx, id, shipType) {
     }
     // Acquire before releasing other camera targets. Reselecting during empty
     // transit must not temporarily drop the only lease that owns the local frame.
-    if (!followShip(state, handle, 'fleet-follow'))
+    if (state.view.setFollowShipIndex(handle, 'fleet-follow') === false)
         return;
+    state.camera.setFollowShip(remoteShipTracking(state, id, chosen.type, handle), 'fleet-follow');
     ctx.focus.clearFocus();
     state.selectedFleetId = id;
+    state.focusedFleetId = id;
     state.view.setSelectedFleetId(renderId);
 }
 function setSceneFleetIds(ctx, ids) {
@@ -290,11 +368,43 @@ function setSceneFleetIds(ctx, ids) {
 function applyFocus(ctx, command) {
     const { state } = ctx;
     switch (command.type) {
+        case 'planetDevelopment': {
+            if (command.open && command.live && !state.planetReturn) {
+                const store = state.view.solarBodies, index = ctx.focus.getFocusIndex();
+                state.planetReturn = { restore: state.camera.captureView(), systemId: store.systemId, catalogId: index == null ? undefined : store.catalogIds[index] };
+            }
+            if (!command.open && state.planetReturn) {
+                resetDirector(state);
+                ctx.focus.clearFocus();
+                const previous = state.planetReturn, store = state.view.solarBodies;
+                if (previous.catalogId && previous.systemId === store.systemId) {
+                    const index = store.catalogIds.indexOf(previous.catalogId);
+                    if (index >= 0)
+                        ctx.focus.lockBody(index, { moveCamera: false });
+                }
+                previous.restore();
+                state.planetReturn = undefined;
+            }
+            const old = state.planetDevelopment;
+            const acquired = old?.open && old.live && old.systemId === command.systemId && old.catalogId === command.catalogId && old.acquired;
+            state.planetDevelopment = { ...command, acquired };
+            state.view.setPlanetDepthFocus(command.open && command.live && command.systemId != null && command.catalogId ? { systemId: command.systemId, catalogId: command.catalogId } : null);
+            state.view.setSceneLabelsVisible(!command.open);
+            state.view.setPresentationFrozen(command.open && !command.live);
+            if (state.running && (!command.open || command.live))
+                state.view.startRenderLoop();
+            return true;
+        }
         case "selectBody":
             selectBody(ctx, command);
             return true;
         case "sceneFleetIds":
             setSceneFleetIds(ctx, command.ids);
+            return true;
+        case "markFleet":
+            state.selectedFleetId = command.id;
+            state.travel?.select(command.id);
+            state.view.setSelectedFleetId(command.id == null ? null : (state.sceneFleetRenderIds.get(command.id) ?? command.id));
             return true;
         case "selectFleet":
             selectFleet(ctx, command.id);
@@ -372,15 +482,20 @@ function applyNavigation(ctx, command) {
     const { state } = ctx;
     switch (command.type) {
         case "input":
+            if (command.input.type === 'reducedMotion')
+                state.view.survey.reducedMotion = command.input.value;
             if (command.input.type === 'touchGesture') {
                 if (state.director.isPlaying())
                     resetDirector(state);
             }
-            if (command.input.type === "doubleClick")
+            if (command.input.type === "doubleClick") {
+                state.focusedFleetId = null;
                 ctx.focus.clearFocus();
+            }
             state.camera.handleInput(command.input);
             return true;
         case "focusPoint":
+            state.focusedFleetId = null;
             state.camera.focusOnPoint(command.x, command.z, command.height);
             return true;
         case "cameraPose": {
@@ -390,12 +505,18 @@ function applyNavigation(ctx, command) {
             return true;
         }
         case "directorFly":
+            state.focusedFleetId = null;
+            resetDirector(state);
             state.director.flyToSystem(state.view.getCameraState(), command, command.height, command.durationMs);
             return true;
         default: return false;
     }
 }
 export function applyRenderCommand(ctx, command) {
+    if (command.type === 'input' && ctx.state.planetDevelopment?.open)
+        return;
+    if (applySurvey(ctx, command))
+        return;
     if (applyTopology(ctx, command))
         return;
     if (applyEditing(ctx, command))
@@ -409,5 +530,26 @@ export function applyRenderCommand(ctx, command) {
     if (applyNavigation(ctx, command))
         return;
     throw new Error(`Unknown render command: ${command.type}`);
+}
+function applySurveyBattle(state, e) {
+    const relationships = [e.attacker, e.defender].map(id => state.view.getFleetVisual(id)?.relationship);
+    const involvement = relationships.includes('own') ? 'own' : relationships.includes('ally') ? 'ally' : null;
+    state.view.survey.signals.setBattle({ id: `local:${e.id}`, revision: String(e.revision),
+        clusterId: e.node.clusterId, systemId: e.node.solarSystemId, involvement: involvement ?? 'own', active: e.stage === 'engaged' && involvement !== null });
+}
+/** Acquire once after system transit, using normal eased body focus and hi-res loading. */
+export function tickPlanetDevelopment(ctx) {
+    const { state } = ctx, p = state.planetDevelopment, store = state.view.solarBodies;
+    if (!p?.open || !p.live || p.acquired || !p.catalogId || state.director.isPlaying() || store.systemId !== p.systemId)
+        return;
+    const index = store.catalogIds.indexOf(p.catalogId);
+    if (index < 0 || index >= store.currentCount || store.isSun[index])
+        return;
+    resetDirector(state);
+    stopFollowingShip(state, 'planet-development');
+    state.focusedFleetId = null;
+    state.view.setFollowShipIndex(null);
+    ctx.focus.lockBody(index, { development: true });
+    p.acquired = true;
 }
 //# sourceMappingURL=runtime-commands.js.map
