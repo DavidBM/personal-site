@@ -145,6 +145,8 @@
     frame.title = 'StarChad, rendered live';
     frame.tabIndex = -1;
     frame.setAttribute('aria-hidden', 'true');
+    // This presentation frame must never open a blocking game dialog.
+    frame.setAttribute('sandbox', 'allow-scripts allow-same-origin');
     var failed = false, loading = loadingBar(), lastAct = null;
     function fail(reason) {
       if (failed) return;
