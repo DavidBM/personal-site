@@ -1,0 +1,316 @@
+<!doctype html>
+<!-- Built by build.mjs from src/lp/market.html; edit the source, not this file. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@300;400;500;600&family=Barlow+Condensed:wght@400;500;600&family=Michroma&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/starchad.css">
+<title>StarChad: Everything is for sale. Explore Universe Giga</title>
+<meta name="description" content="A persistent space strategy game in your browser, with one player market across the galaxy. Free to play, no pay-to-win. Enlist for the founding beta, Universe Giga.">
+<meta name="robots" content="noindex">
+<style>
+/* ---------- hero ---------- */
+.hero { position: relative; min-height: clamp(640px, 92vh, 880px); display: grid; align-items: end; overflow: hidden; isolation: isolate; }
+.hero .bg { position: absolute; inset: 0 0 0 28%; z-index: -2; background: url(../assets/img/02-war-table.jpg) 62% 40% / cover no-repeat;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 30%); mask-image: linear-gradient(90deg, transparent, #000 30%); }
+.hero::before { content: ""; position: absolute; inset: 0; z-index: -1;
+  background: linear-gradient(90deg, var(--void) 22%, rgba(5,7,10,.62) 44%, rgba(5,7,10,0) 64%), linear-gradient(0deg, var(--void) 0%, rgba(5,7,10,0) 40%); }
+.hero .wrap { padding: 140px 0 72px; }
+.hero h1 { font-size: clamp(38px, 4.6vw, 66px); line-height: 1.04; margin: 26px 0 14px; }
+.hero .second { font: 400 clamp(19px, 2.1vw, 28px)/1.25 var(--display); color: var(--text-3); margin: 0 0 28px; }
+.hero .second em { font-style: normal; color: var(--amber); }
+.hero .lede { margin: 0 0 34px; max-width: 46ch; }
+.trust { display: flex; flex-wrap: wrap; gap: 10px 26px; margin-top: 26px; list-style: none; padding: 0; }
+.trust li { display: flex; align-items: center; gap: 10px; font: 500 13px/1 var(--ui); letter-spacing: .2em; text-transform: uppercase; color: var(--text-3); }
+.trust .icon { color: var(--amber); width: 18px; height: 18px; }
+
+/* ---------- ticker ---------- */
+.ticker { border-block: 1px solid var(--line); background: var(--g900); overflow: hidden; }
+.ticker-track { display: flex; width: max-content; animation: tick 80s linear infinite; }
+.ticker:hover .ticker-track { animation-play-state: paused; }
+.tk { display: flex; gap: 10px; align-items: baseline; padding: 0 24px; height: 40px; line-height: 40px; border-right: 1px solid var(--line); font: 400 12.5px/40px var(--mono); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.tk .n { font: 500 12.5px/40px var(--ui); letter-spacing: .18em; text-transform: uppercase; color: var(--steel); }
+.tk .fee { font: 500 12.5px/40px var(--ui); letter-spacing: .18em; text-transform: uppercase; color: var(--ion); }
+.up { color: var(--ok); } .down { color: var(--alert); }
+@keyframes tick { to { transform: translateX(-50%); } }
+
+/* ---------- proof ---------- */
+.proof { padding: var(--space-section) 0; }
+.proof .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.block { display: flex; flex-direction: column; padding: 26px 24px 24px; }
+.block .lbl { display: flex; align-items: center; gap: 10px; }
+.block .lbl .icon { color: var(--amber); }
+.block h2 { font-size: clamp(20px, 1.9vw, 25px); line-height: 1.25; margin: 16px 0 12px; }
+.block > p { color: var(--text-3); font-size: 16px; margin: 0 0 22px; }
+.widget { margin-top: auto; border: 1px solid var(--line); background: var(--void); font: 400 12.5px/1.5 var(--mono); font-variant-numeric: tabular-nums; }
+.widget .wh { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+.mini { width: 100%; border-collapse: collapse; }
+.mini td { padding: 8px 14px; text-align: right; border-bottom: 1px solid rgba(233,227,214,.06); transition: background .5s; white-space: nowrap; }
+.mini td:first-child { text-align: left; font: 500 13px/1 var(--ui); letter-spacing: .12em; text-transform: uppercase; color: var(--bone); }
+.mini tr:last-child td { border-bottom: 0; }
+.mini td.flash-up { background: rgba(95,211,141,.13); }
+.mini td.flash-down { background: rgba(255,107,91,.13); }
+.widget .wf { padding: 9px 14px; border-top: 1px solid var(--line); color: var(--ion); }
+.report .ln { display: grid; grid-template-columns: 1fr auto auto; gap: 14px; padding: 7px 14px; border-bottom: 1px solid rgba(233,227,214,.06); color: var(--text-2); }
+.report .ln:last-child { border-bottom: 0; }
+.report .ln .lost { color: var(--alert); min-width: 54px; text-align: right; }
+.report .ln .kept { color: var(--steel); min-width: 54px; text-align: right; }
+.report .who { padding: 12px 14px; border-bottom: 1px solid var(--line); }
+.report .who b { display: block; font: 500 15px/1.2 var(--ui); letter-spacing: .08em; text-transform: uppercase; color: var(--bone); }
+.report .who span { color: var(--steel); }
+.coinrow { display: grid; grid-template-columns: 96px 1fr; gap: 14px; padding: 14px; align-items: center; border-bottom: 1px solid var(--line); }
+.coinrow img { width: 96px; height: 96px; object-fit: cover; object-position: 38% 62%; }
+.coinrow p { margin: 0; color: var(--text-3); font: 400 12.5px/1.5 var(--mono); }
+.flow { padding: 12px 14px; display: grid; gap: 8px; }
+.flow .path { display: flex; align-items: center; gap: 4px 6px; flex-wrap: wrap; color: var(--text-2); font-size: 12px; }
+.flow .path .who { width: 100%; font: 500 10.5px/1.4 var(--ui); letter-spacing: .22em; text-transform: uppercase; color: var(--steel); }
+.flow .path .s { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.flow .path .icon { width: 13px; height: 13px; color: var(--steel); }
+.flow .hl { color: var(--ion); }
+
+.again { display: flex; justify-content: space-between; align-items: center; gap: 24px; flex-wrap: wrap; margin-top: 16px; padding: 26px 28px;
+  border: 1px solid var(--line); background: linear-gradient(90deg, rgba(240,138,36,.09), transparent 60%), var(--g900); }
+.again p { margin: 0; font: 400 clamp(17px, 1.7vw, 22px)/1.35 var(--display); }
+
+/* ---------- sign-up ---------- */
+.signup { position: relative; overflow: hidden; isolation: isolate; padding: var(--space-section) 0; border-top: 1px solid var(--line); }
+.signup::before { content: ""; position: absolute; inset: 0; z-index: -2; background: url(../assets/img/09-monument.jpg) 80% 30% / cover no-repeat; opacity: .4; }
+.signup::after { content: ""; position: absolute; inset: 0; z-index: -1; background: linear-gradient(90deg, var(--void) 30%, rgba(5,7,10,.55) 70%, rgba(5,7,10,.2)), linear-gradient(0deg, var(--void), transparent 30%), linear-gradient(180deg, var(--void), transparent 30%); }
+.signup .grid { display: grid; grid-template-columns: 260px 1fr; gap: clamp(32px, 5vw, 72px); align-items: center; }
+.signup .seal { max-width: 260px; filter: drop-shadow(0 30px 60px rgba(0,0,0,.7)); }
+.signup h2 { margin: 18px 0; }
+.signup .lede { margin-bottom: 26px; }
+form.enlist { display: grid; grid-template-columns: 1fr 1fr auto; gap: 12px; align-items: end; max-width: 760px; scroll-margin-top: 120px; }
+form.enlist .btn { min-height: 50px; }
+.received { display: none; margin-top: 14px; font: 500 14px/1.4 var(--mono); color: var(--ok); align-items: center; gap: 10px; }
+form.sent ~ .received { display: flex; }
+
+/* ---------- FAQ ---------- */
+.faq { padding: var(--space-section) 0; }
+.faq .grid { display: grid; grid-template-columns: 340px 1fr; gap: 56px; }
+
+@media (max-width: 980px) {
+  .proof .grid { grid-template-columns: minmax(0, 1fr); }
+  .signup .grid { grid-template-columns: minmax(0, 1fr); }
+  .signup .seal { max-width: 190px; }
+  form.enlist { grid-template-columns: 1fr; }
+  .faq .grid { grid-template-columns: 1fr; gap: 24px; }
+}
+@media (max-width: 560px) {
+  .hero .bg { inset: 0; -webkit-mask-image: none; mask-image: none; background-position: 64% 0; background-size: auto 56%; }
+  .hero::before { background: linear-gradient(0deg, var(--void) 48%, rgba(5,7,10,.55) 64%, rgba(5,7,10,0) 80%); }
+  .hero .wrap { padding-top: 320px; padding-bottom: 56px; }
+  .hero .btn, .again .btn { width: 100%; }
+  .block { padding: 22px 18px 18px; }
+  .mini .hide-sm { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ticker { overflow-x: auto; }
+}
+</style>
+</head>
+<body class="grain" data-landing="market">
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">
+  <!-- 24 px grid, 2 px margin, 1.5 px line, mitred joins; filled marks only where the brand chevron appears -->
+  <symbol id="i-planet" viewBox="0 0 24 24"><circle cx="12" cy="12" r="6"/><path d="M17.28 6.66A10.5 3.5 -25 0 1 21.51 7.56A10.5 3.5 -25 0 1 2.49 16.44A10.5 3.5 -25 0 1 4.52 12.62"/></symbol>
+  <symbol id="i-hero" viewBox="0 0 24 24"><path fill="currentColor" stroke="none" d="M7 17.5L12 8.5l5 9h-2.9L12 13.6l-2.1 3.9z"/><path d="M4.2 9.6A9 9 0 0 1 19.8 9.6M20.6 14.6A9 9 0 0 1 16 19.8M8 19.8a9 9 0 0 1-4.6-5.2"/></symbol>
+  <symbol id="i-fleet" viewBox="0 0 24 24"><path fill="currentColor" stroke="none" d="M8.5 10L12 4l3.5 6h-2.1L12 7.5 10.6 10zM3 19l3.5-6 3.5 6H7.9l-1.4-2.5L5.1 19zM14 19l3.5-6 3.5 6h-2.1l-1.4-2.5-1.4 2.5z"/></symbol>
+  <symbol id="i-cargo" viewBox="0 0 24 24"><path d="M4 7h16l1 1v10l-1 1H4l-1-1V8z"/><path d="M7.5 10v6M12 10v6M16.5 10v6"/></symbol>
+  <symbol id="i-credits" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="6.25" stroke-width="1" opacity=".55"/><path d="M8.8 14.6L12 9.2l3.2 5.4"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M4.5 3.5h15V12l-4.75 8.5h-5.5L4.5 12z"/><path d="M8.75 14.25L12 8.75l3.25 5.5"/></symbol>
+  <symbol id="i-federation" viewBox="0 0 24 24"><path d="M8.3 2.75h7.4l5.55 5.55v7.4l-5.55 5.55H8.3L2.75 15.7V8.3z"/><path fill="currentColor" stroke="none" d="M12 6.5l1.4 4.1 4.1 1.4-4.1 1.4L12 17.5l-1.4-4.1L6.5 12l4.1-1.4z"/></symbol>
+  <symbol id="i-route" viewBox="0 0 24 24"><path d="M6.4 16.2l4-5.6M13.2 9.2l3.8 2.6" /><path fill="currentColor" stroke="none" d="M5 15.2l2.3 2.3L5 19.8l-2.3-2.3z"/><circle cx="11.75" cy="8.5" r="1.9"/><circle cx="19" cy="13.25" r="2.6"/><circle cx="19" cy="13.25" r=".9" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-galaxy" viewBox="0 0 24 24"><path d="M12 12c2.4-.5 3.4-2.5 1.3-3.8C10.6 6.6 5.2 7.5 3.25 10.75"/><path d="M12 12c-2.4.5-3.4 2.5-1.3 3.8 2.7 1.6 8.1.7 10.05-2.55"/><ellipse cx="12" cy="12" rx="9.25" ry="5.25" opacity=".35" stroke-dasharray="1.4 2.2"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-market" viewBox="0 0 24 24"><path d="M3 20.25h18"/><path d="M3.5 16l5-5 4 3 7.5-8"/><path d="M15.5 6h4.5v4.5"/></symbol>
+  <symbol id="i-convoy" viewBox="0 0 24 24"><path d="M2.5 8.5h5v6.5h-5zM9.5 8.5h5v6.5h-5z"/><path d="M16.5 8.5h2.75l2.25 3.25-2.25 3.25H16.5z"/><path d="M2.5 18.75h19" stroke-dasharray="1.6 1.8" opacity=".6"/></symbol>
+  <symbol id="i-crew" viewBox="0 0 24 24"><circle cx="12" cy="7.75" r="3.75"/><path d="M4.5 21v-1.5c0-3.3 2.8-5.5 5-5.5h5c2.2 0 5 2.2 5 5.5V21"/><path d="M10 14l2 2.5 2-2.5"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.25 2"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 3.5l9.25 16.5H2.75z"/><path d="M12 9.5v5"/><path d="M12 16.5v1.75"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 12.25l2.75 2.75L16.25 9.5"/></symbol>
+  <symbol id="i-signal" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1.75" fill="currentColor" stroke="none"/><path d="M8.5 8.5a5 5 0 0 0 0 7M15.5 8.5a5 5 0 0 1 0 7M5.5 5.5a9.2 9.2 0 0 0 0 13M18.5 5.5a9.2 9.2 0 0 1 0 13"/></symbol>
+  <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M3.5 12h16M13.5 6l6 6-6 6"/></symbol>
+  <symbol id="i-external" viewBox="0 0 24 24"><path d="M13.5 3.5h7v7M20.5 3.5l-9 9"/><path d="M18 14v6.5H3.5V6H10"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 4v16M4 12h16"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path d="M5.5 5.5l13 13M18.5 5.5l-13 13"/></symbol>
+  <symbol id="i-menu" viewBox="0 0 24 24"><path d="M3.5 7h17M3.5 12h17M3.5 17h11"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4.5l12.5 7.5L7 19.5z"/></symbol>
+  <symbol id="i-mail" viewBox="0 0 24 24"><path d="M3 5.5h18v13H3z"/><path d="M3 6l9 7 9-7"/></symbol>
+  <symbol id="i-browser" viewBox="0 0 24 24"><path d="M2.75 4.5h18.5v15H2.75z"/><path d="M2.75 8.5h18.5"/><path d="M5.5 6.5h1M8 6.5h1" stroke-width="1.75"/><path fill="currentColor" stroke="none" d="M8.5 17l3.5-6 3.5 6h-2.1L12 14.5 10.6 17z"/></symbol>
+</svg>
+<header class="nav">
+  <div class="wrap">
+    <a class="logo" href="../index.html" aria-label="StarChad"><svg xmlns="http://www.w3.org/2000/svg" viewBox="-2 -2 564 44" fill="none" stroke="currentColor" stroke-width="7" role="img" aria-label="StarChad"><path d="M56 3.5H12Q3.5 3.5 3.5 12Q3.5 20 12 20H44Q52.5 20 52.5 28.25Q52.5 36.5 44 36.5H0"/><path transform="translate(72 0)" d="M0 3.5H56M28 3.5V40"/><path transform="translate(144 0)" fill="currentColor" stroke="none" d="M0 40L24 0H32L56 40H47.8L28 7L8.2 40Z"/><path transform="translate(216 0)" d="M3.5 40V3.5H44Q52.5 3.5 52.5 12Q52.5 20.5 44 20.5H3.5M44 20.5Q52.5 20.5 52.5 29V40"/><path transform="translate(288 0)" d="M56 3.5H12Q3.5 3.5 3.5 12V28Q3.5 36.5 12 36.5H56"/><path transform="translate(360 0)" d="M3.5 0V40M52.5 0V40M3.5 20H52.5"/><path transform="translate(432 0)" style="fill:var(--amber)" stroke="none" d="M0 40L24 0H32L56 40H47.8L28 7L8.2 40Z"/><path transform="translate(504 0)" d="M3.5 3.5H42Q52.5 3.5 52.5 14V26Q52.5 36.5 42 36.5H3.5Z"/></svg></a>
+    <span class="clock" data-clock aria-hidden="true" style="margin-left:auto">GST 0000.00.00 00:00</span>
+    <div class="actions"><a class="btn primary sm" href="#enlist">Enlist</a></div>
+  </div>
+</header>
+
+<main>
+  <section class="hero">
+    <div class="bg" role="img" aria-label="A broad-shouldered commander leans over a holographic galaxy table in a dark command office aboard a capital ship"></div>
+    <div class="wrap">
+      <div class="kicker">Persistent space strategy · In your browser</div>
+      <h1>Everything is<br>for sale.</h1>
+      <p class="second">Everything has to be <em>flown.</em></p>
+      <p class="lede">One player market across a persistent galaxy. Buy anything, from ore to a whole flagship. Then get it home by ship.</p>
+      <a class="btn primary lg" href="#enlist">Explore Universe Giga <svg class="icon go"><use href="#i-arrow"/></svg></a>
+      <ul class="trust">
+        <li><svg class="icon"><use href="#i-check"/></svg>Free to play</li>
+        <li><svg class="icon"><use href="#i-browser"/></svg>Runs in your browser</li>
+        <li><svg class="icon"><use href="#i-credits"/></svg>No pay-to-win</li>
+      </ul>
+    </div>
+  </section>
+
+  <div class="ticker" aria-label="Illustrative market ticker"><div class="ticker-track" id="ticker"></div></div>
+
+  <section class="proof">
+    <div class="wrap">
+      <div class="grid">
+        <article class="block panel">
+          <div class="lbl"><svg class="icon"><use href="#i-market"/></svg><span class="label">The exchange</span></div>
+          <h2>Prices set by players.</h2>
+          <p>One market across the Core. The Federation takes a visible 0.5% on every trade, and that's all.</p>
+          <div class="widget">
+            <div class="wh"><span class="label">Core exchange</span><span class="tag ion dot live">Illustrative</span></div>
+            <table class="mini"><tbody id="mini"></tbody></table>
+            <div class="wf">Federation fee 0.5% · shown before you confirm</div>
+          </div>
+        </article>
+        <article class="block panel">
+          <div class="lbl"><svg class="icon"><use href="#i-convoy"/></svg><span class="label">Piracy</span></div>
+          <h2>Piracy is a train robbery.</h2>
+          <p>Raiders clamp onto a moving convoy, force a hold and run with what they can load. The convoy keeps going and arrives short.</p>
+          <div class="widget report">
+            <div class="wh"><span class="label">Convoy incident</span><span class="tag alert dot">Arrived short</span></div>
+            <div class="who"><b>Convoy H-7 · Halden Freight</b><span>5 freighters · 1 escort · illustrative</span></div>
+            <div class="ln"><span>Refined alloy</span><span>480 t</span><span class="lost">−160 t</span></div>
+            <div class="ln"><span>Fusion cores</span><span>24</span><span class="lost">−9</span></div>
+            <div class="ln"><span>Medical supplies</span><span>60 crates</span><span class="kept">0</span></div>
+          </div>
+        </article>
+        <article class="block panel">
+          <div class="lbl"><svg class="icon"><use href="#i-credits"/></svg><span class="label">Fair money</span></div>
+          <h2>No pay-to-win.</h2>
+          <p>Real money buys tradable items that players sell for credits. Everything they give can be reached by playing.</p>
+          <div class="widget">
+            <div class="coinrow"><img loading="lazy" src="../assets/img/07-credit-coin-720.jpg" alt="A heavy gunmetal and gold credit coin with a commander's profile"><p>Credits: the one currency. Whatever you hold, someone earned it or bought it from someone who did.</p></div>
+            <div class="flow">
+              <div class="path"><span class="who">Pays</span>Real money <span class="s"><svg class="icon"><use href="#i-arrow"/></svg>Premium item</span> <span class="s"><svg class="icon"><use href="#i-arrow"/></svg><span class="hl">Market</span></span> <span class="s"><svg class="icon"><use href="#i-arrow"/></svg>Credits</span></div>
+              <div class="path"><span class="who">Plays</span>Trade · mine · haul <span class="s"><svg class="icon"><use href="#i-arrow"/></svg>Credits</span> <span class="s"><svg class="icon"><use href="#i-arrow"/></svg><span class="hl">Market</span></span> <span class="s"><svg class="icon"><use href="#i-arrow"/></svg>Premium item</span></div>
+            </div>
+          </div>
+        </article>
+      </div>
+      <div class="again">
+        <p>The first market opens in Universe Giga.</p>
+        <a class="btn primary" href="#enlist">Explore Universe Giga <svg class="icon go"><use href="#i-arrow"/></svg></a>
+      </div>
+    </div>
+  </section>
+
+  <section class="signup">
+    <div class="wrap grid">
+      <svg class="seal gold" viewBox="2.1 -15.2 1240 1240" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="The StarChad seal: a commander in profile on a gold medallion. Motto: Per mandibulam ad astra.">
+  <!-- generated by tools/seals.mjs from concepts/seal/S1-gunmetal.png: centre 622.1,604.8, edge 614×595, band inner edge 511×505 -->
+  <defs>
+    <clipPath id="seal-gold-clip"><ellipse cx="622.1" cy="604.8" rx="617" ry="598"/></clipPath>
+    <path id="seal-gold-top" d="M88.6 604.8A533.5 521 0 1 1 1155.6 604.8"/>
+    <path id="seal-gold-bottom" d="M58.6 604.8A563.5 551 0 0 0 1185.6 604.8"/>
+  </defs>
+  <image href="../assets/img/seal-gold.jpg" width="1254" height="1254" clip-path="url(#seal-gold-clip)"/>
+  <g font-family="Michroma, Eurostile, sans-serif" text-anchor="middle">
+    <text class="engrave-hi" font-size="50" transform="translate(0 2.5)"><textPath href="#seal-gold-top" startOffset="50%" textLength="640" lengthAdjust="spacing">STARCHAD</textPath></text>
+    <text class="engrave" font-size="50"><textPath href="#seal-gold-top" startOffset="50%" textLength="640" lengthAdjust="spacing">STARCHAD</textPath></text>
+    <text class="engrave-hi" font-size="34" transform="translate(0 2.5)"><textPath href="#seal-gold-bottom" startOffset="50%" textLength="1180" lengthAdjust="spacing">PER MANDIBULAM · AD ASTRA</textPath></text>
+    <text class="engrave" font-size="34"><textPath href="#seal-gold-bottom" startOffset="50%" textLength="1180" lengthAdjust="spacing">PER MANDIBULAM · AD ASTRA</textPath></text>
+  </g>
+</svg>
+      <div>
+        <div class="kicker">Universe Giga · Founding beta</div>
+        <h2>Open your account in the first universe.</h2>
+        <p class="lede">Universe Giga is StarChad's founding beta at stargigachad.com. Progress may be wiped before launch. Every Founder's commander name is engraved on the Founder's Monument in the launch universe.</p>
+        <div class="registration-closed" id="enlist">
+  <button class="btn primary" type="button" disabled>Registration closed</button>
+  <p class="fine" style="margin-top:14px">Universe Giga is in development. Registration is not open yet.</p>
+</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="faq">
+    <div class="wrap grid">
+      <div><div class="kicker">Questions</div><h2 style="margin-top:18px">Short answers.</h2></div>
+      <div class="faq-list">
+        <details open><summary>Is it free to play?<svg class="icon"><use href="#i-plus"/></svg></summary><div class="a"><span class="yes">Yes.</span></div></details>
+        <details><summary>Is it pay-to-win?<svg class="icon"><use href="#i-plus"/></svg></summary><div class="a"><span class="yes">No.</span>Real money buys tradable items that other players buy with credits. Everything they give can be reached by playing.</div></details>
+        <details><summary>Does the universe keep going when I log off?<svg class="icon"><use href="#i-plus"/></svg></summary><div class="a"><span class="yes">Yes.</span>That's what the 8-hour and 24-hour shields are for.</div></details>
+        <details><summary>Do I need to install anything?<svg class="icon"><use href="#i-plus"/></svg></summary><div class="a"><span class="yes">No.</span>A full 3D galaxy in a browser tab, on desktop and phone.</div></details>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="footer lp">
+  <div class="wrap" style="grid-template-columns:1fr auto;align-items:end">
+    <div class="brand"><svg xmlns="http://www.w3.org/2000/svg" viewBox="-2 -2 564 44" fill="none" stroke="currentColor" stroke-width="7" role="img" aria-label="StarChad"><path d="M56 3.5H12Q3.5 3.5 3.5 12Q3.5 20 12 20H44Q52.5 20 52.5 28.25Q52.5 36.5 44 36.5H0"/><path transform="translate(72 0)" d="M0 3.5H56M28 3.5V40"/><path transform="translate(144 0)" fill="currentColor" stroke="none" d="M0 40L24 0H32L56 40H47.8L28 7L8.2 40Z"/><path transform="translate(216 0)" d="M3.5 40V3.5H44Q52.5 3.5 52.5 12Q52.5 20.5 44 20.5H3.5M44 20.5Q52.5 20.5 52.5 29V40"/><path transform="translate(288 0)" d="M56 3.5H12Q3.5 3.5 3.5 12V28Q3.5 36.5 12 36.5H56"/><path transform="translate(360 0)" d="M3.5 0V40M52.5 0V40M3.5 20H52.5"/><path transform="translate(432 0)" style="fill:var(--amber)" stroke="none" d="M0 40L24 0H32L56 40H47.8L28 7L8.2 40Z"/><path transform="translate(504 0)" d="M3.5 3.5H42Q52.5 3.5 52.5 14V26Q52.5 36.5 42 36.5H3.5Z"/></svg><div class="motto">PER MANDIBULAM AD ASTRA</div></div>
+    <ul style="display:flex;gap:24px;flex-wrap:wrap"><li><a href="../index.html">starchad.com</a></li><li><a href="#">Privacy</a></li><li><a href="#">Terms</a></li></ul>
+    <small>© 2026 StarChad · Registration is currently closed. Every image on this page is concept art, not in-game footage.</small>
+  </div>
+</footer>
+<!-- The site's music, off until the reader turns it on (assets/music.js). -->
+<button class="btn sm music" type="button" data-music="../assets/audio/hacia-un-planeta-distante.mp3" data-state="off" aria-pressed="false" aria-label="Music: Hacia un planeta distante" hidden>
+  <span class="eq" aria-hidden="true"><i></i><i></i><i></i><i></i></span><span class="music-name">Music</span><span class="music-title">Hacia un planeta distante</span>
+</button>
+<script defer src="../assets/music.js"></script>
+<script>
+  // Galactic standard time (UTC) wherever a [data-clock] appears, once a minute.
+  (() => {
+    const els = document.querySelectorAll('[data-clock]');
+    const p = n => String(n).padStart(2, '0');
+    const tick = () => { const d = new Date(); els.forEach(el => el.textContent = `GST ${d.getUTCFullYear()}.${p(d.getUTCMonth() + 1)}.${p(d.getUTCDate())} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}`); };
+    if (els.length) { tick(); setInterval(tick, 60000); }
+  })();
+</script>
+
+<script>
+(() => {
+  const fmt = (n, d = 2) => n.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
+  // Illustrative commodities: names and prices are invented for the draft.
+  const goods = [['Iron ore', 6.4], ['Refined alloy', 84.2], ['Hull plating', 142.5], ['Fusion cores', 1260], ['Crew contracts', 310]]
+    .map(([name, p], k) => ({ name, mid: p, open: p * (1 + Math.sin(k * 2.1) * 0.008) }));
+  const change = g => (g.mid - g.open) / g.open * 100;
+
+  const ticker = document.getElementById('ticker');
+  const drawTicker = () => {
+    const h = goods.map(g => { const c = change(g);
+      return `<span class="tk"><span class="n">${g.name}</span><span>${fmt(g.mid)} cr</span><span class="${c >= 0 ? 'up' : 'down'}">${c >= 0 ? '▲' : '▼'} ${fmt(Math.abs(c))}%</span></span>`; }).join('')
+      + '<span class="tk"><span class="fee">Federation fee 0.5% · shown on every price</span></span><span class="tk"><span class="n">Illustrative prices</span></span>';
+    ticker.innerHTML = h + h + h;
+  };
+
+  const mini = document.getElementById('mini');
+  const drawMini = (flash = []) => {
+    mini.innerHTML = goods.map((g, i) => { const c = change(g), f = flash[i] ? `flash-${flash[i]}` : '';
+      return `<tr><td>${g.name}</td><td class="${f}">${fmt(g.mid)}</td><td class="hide-sm ${c >= 0 ? 'up' : 'down'}">${c >= 0 ? '+' : '−'}${fmt(Math.abs(c))}%</td></tr>`; }).join('');
+  };
+
+  // a slow random walk so the board feels alive; colour changes only
+  setInterval(() => {
+    const flash = goods.map(g => {
+      if (Math.random() < 0.5) return null;
+      const d = (Math.random() - 0.48) * 0.006; g.mid *= 1 + d;
+      return d >= 0 ? 'up' : 'down';
+    });
+    drawMini(flash); drawTicker();
+  }, 2600);
+  drawTicker(); drawMini();
+
+})();
+</script>
+</body>
+</html>

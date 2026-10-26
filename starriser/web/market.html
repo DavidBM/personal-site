@@ -1,0 +1,606 @@
+<!doctype html>
+<!-- Built by build.mjs from src/market.html; edit the source, not this file. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@300;400;500;600&family=Barlow+Condensed:wght@400;500;600&family=Michroma&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/starchad.css">
+<title>StarChad: The Market. Everything is for sale, everything has to be flown</title>
+<meta name="description" content="StarChad's galaxy is one player market: everything can be bought and sold, the Federation fee is a visible 0.5%, and every ton of cargo has to be flown by ship.">
+<style>
+/* ---------- hero ---------- */
+.hero { position: relative; min-height: clamp(680px, 100vh, 940px); display: grid; align-items: end; overflow: hidden; isolation: isolate; }
+.hero .bg { position: absolute; inset: 0 0 0 28%; z-index: -2; background: url(assets/img/02-war-table.jpg) 62% 40% / cover no-repeat;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 30%); mask-image: linear-gradient(90deg, transparent, #000 30%); }
+.hero::before { content: ""; position: absolute; inset: 0; z-index: -1;
+  background: linear-gradient(90deg, var(--void) 22%, rgba(5,7,10,.62) 44%, rgba(5,7,10,0) 64%), linear-gradient(0deg, var(--void) 0%, rgba(5,7,10,0) 40%); }
+.hero .wrap { padding: 150px 0 64px; }
+.hero h1 { font-size: clamp(38px, 4.6vw, 66px); line-height: 1.04; margin: 26px 0 14px; }
+.hero .second { font: 400 clamp(19px, 2.1vw, 28px)/1.25 var(--display); color: var(--text-3); margin: 0 0 28px; }
+.hero .second em { font-style: normal; color: var(--amber); }
+.hero .lede { margin: 0 0 36px; }
+.hero .ctas { display: flex; flex-wrap: wrap; gap: 14px; }
+.readout { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin-top: 64px; border-top: 1px solid var(--line); }
+.readout div { padding: 20px 22px 4px 0; display: grid; grid-template-columns: auto 1fr; column-gap: 14px; align-items: start; }
+.readout div + div { padding-left: 22px; border-left: 1px solid var(--line); }
+.readout .icon { grid-row: span 2; color: var(--amber); margin-top: 2px; }
+.readout b { display: block; font: 400 clamp(18px, 1.8vw, 24px)/1.15 var(--display); }
+.readout span { display: block; margin-top: 8px; font: 500 12px/1.3 var(--ui); letter-spacing: .2em; text-transform: uppercase; color: var(--steel); }
+
+/* ---------- ticker ---------- */
+.ticker { border-block: 1px solid var(--line); background: var(--g900); overflow: hidden; }
+.ticker-track { display: flex; width: max-content; animation: tick 80s linear infinite; }
+.ticker:hover .ticker-track { animation-play-state: paused; }
+.tk { display: flex; gap: 10px; align-items: baseline; padding: 0 24px; height: 40px; line-height: 40px; border-right: 1px solid var(--line); font: 400 12.5px/40px var(--mono); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.tk .n { font: 500 12.5px/40px var(--ui); letter-spacing: .18em; text-transform: uppercase; color: var(--steel); }
+.tk .fee { font: 500 12.5px/40px var(--ui); letter-spacing: .18em; text-transform: uppercase; color: var(--ion); }
+.up { color: var(--ok); } .down { color: var(--alert); }
+@keyframes tick { to { transform: translateX(-50%); } }
+
+/* ---------- section heads ---------- */
+.sec-head { display: flex; align-items: baseline; gap: 18px; flex-wrap: wrap; border-top: 1px solid var(--line); padding-top: 18px; margin-bottom: 48px; }
+.sec-head .num { font: 500 12px/1 var(--mono); color: var(--amber); }
+.sec-head .kicker { flex: 1; }
+.sec-head .fine { margin: 0; }
+
+/* ---------- exchange ---------- */
+.exchange { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: clamp(32px, 4.5vw, 64px); align-items: start; }
+.exchange h2 { margin-bottom: 22px; }
+.exchange .lead p { color: var(--text-2); }
+.ticket { margin-top: 30px; padding: 22px 24px 24px; }
+.ticket .head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 16px; }
+.ticket .head b { color: var(--bone); font-weight: 500; }
+.ticket .qty { display: grid; grid-template-columns: 1fr 150px; gap: 14px; align-items: center; margin-bottom: 10px; }
+.ticket .qty .input { height: 42px; text-align: right; font: 500 15px var(--mono); }
+.ticket .row { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; border-bottom: 1px dashed var(--line); font: 400 13.5px/1.4 var(--mono); color: var(--text-3); font-variant-numeric: tabular-nums; }
+.ticket .row span:last-child { color: var(--bone); }
+.ticket .row.fee span { color: var(--ion); }
+.ticket .row.total { border-bottom: 0; }
+.ticket .row.total span { color: var(--bone); font-weight: 500; }
+.ticket .go { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; margin-top: 18px; }
+.ticket .status { font: 400 12.5px/1.5 var(--mono); color: var(--steel); margin: 0; flex: 1; min-width: 200px; }
+.ticket .status.done { color: var(--ok); }
+
+.board { border: 1px solid var(--line); background: var(--g900); }
+.board-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 18px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.board table { width: 100%; border-collapse: collapse; font: 400 13.5px/1 var(--mono); font-variant-numeric: tabular-nums; }
+.board th { font: 500 10.5px/1 var(--ui); letter-spacing: .22em; text-transform: uppercase; color: var(--steel); text-align: right; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+.board th:first-child, .board td:first-child { text-align: left; }
+.board td { padding: 11px 16px; text-align: right; border-bottom: 1px solid rgba(233,227,214,.06); color: var(--text-2); white-space: nowrap; transition: background .5s; }
+.board td:first-child { font: 500 14px/1 var(--ui); letter-spacing: .12em; text-transform: uppercase; color: var(--bone); }
+.board tbody tr { cursor: pointer; }
+.board tbody tr:hover td { background: rgba(233,227,214,.035); }
+.board tbody tr[aria-selected="true"] td { background: rgba(240,138,36,.08); }
+.board tbody tr[aria-selected="true"] td:first-child { box-shadow: inset 2px 0 var(--amber); }
+.board tbody tr:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--bone); }
+.board td.flash-up { background: rgba(95,211,141,.13); }
+.board td.flash-down { background: rgba(255,107,91,.13); }
+.board .spark { width: 84px; height: 22px; display: inline-block; vertical-align: middle; }
+.book { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--line); border-top: 1px solid var(--line); }
+.book > div { background: var(--g800); padding: 14px 16px 16px; }
+.book .label { display: block; margin-bottom: 8px; }
+.book .label b { color: var(--bone); font-weight: 500; }
+.book .lv { display: grid; grid-template-columns: 1fr 1fr; font: 400 12.5px/26px var(--mono); padding: 0 8px; margin: 0 -8px; font-variant-numeric: tabular-nums; }
+.book .lv span:last-child { text-align: right; color: var(--text-3); }
+.book .ask .lv { background: linear-gradient(270deg, rgba(255,107,91,.13) var(--d), transparent var(--d)); }
+.book .bid .lv { background: linear-gradient(270deg, rgba(95,211,141,.11) var(--d), transparent var(--d)); }
+.book .ask .lv span:first-child { color: var(--alert); }
+.book .bid .lv span:first-child { color: var(--ok); }
+
+/* ---------- prospectus ---------- */
+.cards { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.card { display: flex; flex-direction: column; }
+.card .img { position: relative; aspect-ratio: 16 / 8; overflow: hidden; }
+.card .img img { width: 100%; height: 100%; object-fit: cover; transition: transform 1.2s var(--ease); }
+.card:hover .img img { transform: scale(1.03); }
+.card .img .tag { position: absolute; left: 14px; bottom: 12px; background: rgba(5,7,10,.8); color: var(--bone); border-color: var(--line-strong); }
+.card .img .tag.shot { left: auto; right: 14px; top: 12px; bottom: auto; color: var(--ion); border-color: currentColor; }
+.card .body { padding: 24px 26px 26px; }
+.card .lbl { display: flex; align-items: center; gap: 10px; }
+.card .lbl .icon { color: var(--amber); }
+.card h3 { margin: 12px 0; }
+.card p { color: var(--text-3); margin: 0; }
+.card dl { display: grid; grid-template-columns: auto 1fr; gap: 6px 18px; margin: 18px 0 0; padding-top: 14px; border-top: 1px solid var(--line); font: 400 12.5px/1.4 var(--mono); }
+.card dt { color: var(--steel); }
+.card dd { margin: 0; color: var(--ion); }
+.notice { margin-top: 16px; display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); }
+.notice .txt { padding: 32px 34px 30px; }
+.notice .txt h3 { font-size: clamp(22px, 2.4vw, 32px); margin: 14px 0; }
+.notice .txt p { color: var(--text-2); margin: 0; }
+.notice .log { border-left: 1px solid var(--line); padding: 28px 30px; font: 400 12.5px/1.9 var(--mono); }
+.notice .log .hd { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+.notice .log div.row { display: flex; justify-content: space-between; gap: 4px 12px; flex-wrap: wrap; border-bottom: 1px dashed var(--line); }
+.notice .log div.row span:last-child { margin-left: auto; text-align: right; }
+.notice .log div.row span:first-child { color: var(--steel); }
+
+/* ---------- incident ---------- */
+.incident { display: grid; grid-template-columns: minmax(0, 1fr) 440px; align-items: stretch; }
+.incident .shot { position: relative; min-height: 560px; overflow: hidden; }
+.incident .shot img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 40% 50%; }
+.incident .shot::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, transparent 60%, rgba(5,7,10,.85)), linear-gradient(0deg, rgba(5,7,10,.95), rgba(5,7,10,.6) 30%, transparent 56%); }
+.incident .cap { position: absolute; left: 30px; right: 30px; bottom: 28px; z-index: 1; max-width: 520px; }
+.incident .cap h2 { margin: 14px 0 12px; }
+.incident .cap p { color: var(--text-2); margin: 0; }
+.km { margin-left: -1px; padding: 0 0 18px; font: 400 12.5px/1.5 var(--mono); }
+.km .top { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 16px 20px; border-bottom: 1px solid var(--line); }
+.km .victim { display: grid; grid-template-columns: 64px 1fr; gap: 16px; padding: 18px 20px; border-bottom: 1px solid var(--line); }
+.km .victim .ico { width: 64px; height: 64px; background: var(--void); border: 1px solid var(--line-mid); display: grid; place-items: center; color: var(--text-3); }
+.km .victim b { display: block; font: 500 19px/1.15 var(--ui); letter-spacing: .06em; text-transform: uppercase; color: var(--bone); margin-bottom: 4px; }
+.km .victim span { color: var(--steel); }
+.km h4 { margin: 16px 20px 8px; font: 500 11px/1 var(--ui); letter-spacing: .22em; text-transform: uppercase; color: var(--steel); }
+.km .ln { display: grid; grid-template-columns: 1fr auto auto; gap: 16px; padding: 5px 20px; border-bottom: 1px solid rgba(233,227,214,.06); color: var(--text-2); }
+.km .ln .lost { color: var(--alert); min-width: 62px; text-align: right; }
+.km .ln .kept { color: var(--steel); min-width: 62px; text-align: right; }
+.km .party { display: flex; justify-content: space-between; padding: 5px 20px; color: var(--text-3); }
+.km .party span:last-child { color: var(--bone); }
+.km .counter { margin: 16px 20px 0; padding: 12px 14px; border: 1px solid var(--line); color: var(--text-3); display: grid; grid-template-columns: 20px 1fr; gap: 10px; }
+.km .counter .icon { color: var(--ion); width: 18px; height: 18px; }
+.km .counter b { color: var(--bone); font-weight: 500; }
+
+/* ---------- fair money ---------- */
+.money { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: clamp(32px, 5vw, 72px); align-items: center; }
+.money .coin { aspect-ratio: 4 / 3; overflow: hidden; }
+.money .coin img { width: 100%; height: 100%; object-fit: cover; object-position: 40% 60%; }
+.money h2 { margin: 16px 0 20px; }
+.money p { color: var(--text-2); }
+.flow { display: grid; gap: 18px; margin-top: 28px; }
+.flow .label { display: block; margin-bottom: 10px; }
+.flow .path { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.flow .step { display: inline-flex; align-items: center; min-height: 34px; padding: 0 12px; border: 1px solid var(--line-mid); font: 500 12px/1 var(--mono); letter-spacing: .04em; color: var(--text-2); white-space: nowrap; }
+.flow .step.hl { border-color: var(--ion); color: var(--ion); }
+.flow .pair { display: inline-flex; align-items: center; gap: 10px; }
+.flow .pair > .icon { width: 16px; height: 16px; color: var(--steel); flex: none; }
+
+/* ---------- universe giga ---------- */
+.giga { position: relative; overflow: hidden; isolation: isolate; padding: var(--space-section) 0; }
+.giga::before { content: ""; position: absolute; inset: 0; z-index: -2; background: url(assets/img/09-monument.jpg) 80% 30% / cover no-repeat; opacity: .42; }
+.giga::after { content: ""; position: absolute; inset: 0; z-index: -1; background: linear-gradient(90deg, var(--void) 30%, rgba(5,7,10,.55) 70%, rgba(5,7,10,.2)), linear-gradient(0deg, var(--void), transparent 30%), linear-gradient(180deg, var(--void), transparent 30%); }
+.giga .grid { display: grid; grid-template-columns: 280px 1fr; gap: clamp(32px, 5vw, 72px); align-items: center; }
+.giga .seal { max-width: 280px; filter: drop-shadow(0 30px 60px rgba(0,0,0,.7)); }
+.giga h2 { margin: 18px 0; }
+.giga .lede { margin-bottom: 26px; }
+form.enlist { display: grid; grid-template-columns: 1fr 1fr auto; gap: 12px; align-items: end; max-width: 760px; }
+form.enlist .btn { min-height: 50px; }
+.received { display: none; margin-top: 14px; font: 500 14px/1.4 var(--mono); color: var(--ok); align-items: center; gap: 10px; }
+form.sent ~ .received { display: flex; }
+.perks { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-top: 30px; max-width: 760px; }
+.perks div { padding-left: 16px; border-left: 2px solid var(--gold); color: var(--text-3); font-size: 15px; }
+.perks b { display: block; font: 500 12px/1.2 var(--ui); letter-spacing: .24em; text-transform: uppercase; color: var(--bone); margin-bottom: 6px; }
+
+/* ---------- FAQ ---------- */
+.faq .grid { display: grid; grid-template-columns: 340px 1fr; gap: 56px; }
+
+@media (max-width: 1080px) {
+  .incident { grid-template-columns: minmax(0, 1fr); }
+  .incident .shot { min-height: 440px; }
+  .km { margin: -1px 0 0; }
+}
+@media (max-width: 980px) {
+  .readout { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .readout div:nth-child(3) { padding-left: 0; border-left: 0; }
+  .exchange, .money { grid-template-columns: minmax(0, 1fr); }
+  .cards, .notice { grid-template-columns: minmax(0, 1fr); }
+  .notice .log { border-left: 0; border-top: 1px solid var(--line); }
+  .giga .grid { grid-template-columns: 1fr; }
+  .giga .seal { max-width: 200px; }
+  form.enlist { grid-template-columns: 1fr; }
+  .faq .grid { grid-template-columns: 1fr; gap: 24px; }
+}
+@media (max-width: 560px) {
+  .hero .bg { inset: 0; -webkit-mask-image: none; mask-image: none; background-position: 64% 0; background-size: auto 58%; }
+  .hero::before { background: linear-gradient(0deg, var(--void) 46%, rgba(5,7,10,.55) 62%, rgba(5,7,10,0) 80%); }
+  .hero .wrap { padding-top: 330px; }
+  .hero .btn { width: 100%; }
+  .readout div { grid-template-columns: 1fr; }
+  .readout .icon { grid-row: auto; margin-bottom: 10px; }
+  .board .hide-sm { display: none; }
+  .board td, .board th { padding-inline: 12px; }
+  .book { grid-template-columns: 1fr; }
+  .ticket { padding: 18px; }
+  .ticket .qty { grid-template-columns: 1fr 120px; }
+  .incident .shot { min-height: 520px; }
+  .incident .cap { left: 20px; right: 20px; bottom: 20px; }
+  .perks { grid-template-columns: 1fr; }
+  .card dl { grid-template-columns: 1fr; gap: 2px; }
+  .card dd { margin-bottom: 8px; }
+  .flow .step { white-space: normal; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ticker { overflow-x: auto; }
+}
+</style>
+</head>
+<body class="grain">
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">
+  <!-- 24 px grid, 2 px margin, 1.5 px line, mitred joins; filled marks only where the brand chevron appears -->
+  <symbol id="i-planet" viewBox="0 0 24 24"><circle cx="12" cy="12" r="6"/><path d="M17.28 6.66A10.5 3.5 -25 0 1 21.51 7.56A10.5 3.5 -25 0 1 2.49 16.44A10.5 3.5 -25 0 1 4.52 12.62"/></symbol>
+  <symbol id="i-hero" viewBox="0 0 24 24"><path fill="currentColor" stroke="none" d="M7 17.5L12 8.5l5 9h-2.9L12 13.6l-2.1 3.9z"/><path d="M4.2 9.6A9 9 0 0 1 19.8 9.6M20.6 14.6A9 9 0 0 1 16 19.8M8 19.8a9 9 0 0 1-4.6-5.2"/></symbol>
+  <symbol id="i-fleet" viewBox="0 0 24 24"><path fill="currentColor" stroke="none" d="M8.5 10L12 4l3.5 6h-2.1L12 7.5 10.6 10zM3 19l3.5-6 3.5 6H7.9l-1.4-2.5L5.1 19zM14 19l3.5-6 3.5 6h-2.1l-1.4-2.5-1.4 2.5z"/></symbol>
+  <symbol id="i-cargo" viewBox="0 0 24 24"><path d="M4 7h16l1 1v10l-1 1H4l-1-1V8z"/><path d="M7.5 10v6M12 10v6M16.5 10v6"/></symbol>
+  <symbol id="i-credits" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="6.25" stroke-width="1" opacity=".55"/><path d="M8.8 14.6L12 9.2l3.2 5.4"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M4.5 3.5h15V12l-4.75 8.5h-5.5L4.5 12z"/><path d="M8.75 14.25L12 8.75l3.25 5.5"/></symbol>
+  <symbol id="i-federation" viewBox="0 0 24 24"><path d="M8.3 2.75h7.4l5.55 5.55v7.4l-5.55 5.55H8.3L2.75 15.7V8.3z"/><path fill="currentColor" stroke="none" d="M12 6.5l1.4 4.1 4.1 1.4-4.1 1.4L12 17.5l-1.4-4.1L6.5 12l4.1-1.4z"/></symbol>
+  <symbol id="i-route" viewBox="0 0 24 24"><path d="M6.4 16.2l4-5.6M13.2 9.2l3.8 2.6" /><path fill="currentColor" stroke="none" d="M5 15.2l2.3 2.3L5 19.8l-2.3-2.3z"/><circle cx="11.75" cy="8.5" r="1.9"/><circle cx="19" cy="13.25" r="2.6"/><circle cx="19" cy="13.25" r=".9" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-galaxy" viewBox="0 0 24 24"><path d="M12 12c2.4-.5 3.4-2.5 1.3-3.8C10.6 6.6 5.2 7.5 3.25 10.75"/><path d="M12 12c-2.4.5-3.4 2.5-1.3 3.8 2.7 1.6 8.1.7 10.05-2.55"/><ellipse cx="12" cy="12" rx="9.25" ry="5.25" opacity=".35" stroke-dasharray="1.4 2.2"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-market" viewBox="0 0 24 24"><path d="M3 20.25h18"/><path d="M3.5 16l5-5 4 3 7.5-8"/><path d="M15.5 6h4.5v4.5"/></symbol>
+  <symbol id="i-convoy" viewBox="0 0 24 24"><path d="M2.5 8.5h5v6.5h-5zM9.5 8.5h5v6.5h-5z"/><path d="M16.5 8.5h2.75l2.25 3.25-2.25 3.25H16.5z"/><path d="M2.5 18.75h19" stroke-dasharray="1.6 1.8" opacity=".6"/></symbol>
+  <symbol id="i-crew" viewBox="0 0 24 24"><circle cx="12" cy="7.75" r="3.75"/><path d="M4.5 21v-1.5c0-3.3 2.8-5.5 5-5.5h5c2.2 0 5 2.2 5 5.5V21"/><path d="M10 14l2 2.5 2-2.5"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.25 2"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 3.5l9.25 16.5H2.75z"/><path d="M12 9.5v5"/><path d="M12 16.5v1.75"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 12.25l2.75 2.75L16.25 9.5"/></symbol>
+  <symbol id="i-signal" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1.75" fill="currentColor" stroke="none"/><path d="M8.5 8.5a5 5 0 0 0 0 7M15.5 8.5a5 5 0 0 1 0 7M5.5 5.5a9.2 9.2 0 0 0 0 13M18.5 5.5a9.2 9.2 0 0 1 0 13"/></symbol>
+  <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M3.5 12h16M13.5 6l6 6-6 6"/></symbol>
+  <symbol id="i-external" viewBox="0 0 24 24"><path d="M13.5 3.5h7v7M20.5 3.5l-9 9"/><path d="M18 14v6.5H3.5V6H10"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 4v16M4 12h16"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path d="M5.5 5.5l13 13M18.5 5.5l-13 13"/></symbol>
+  <symbol id="i-menu" viewBox="0 0 24 24"><path d="M3.5 7h17M3.5 12h17M3.5 17h11"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4.5l12.5 7.5L7 19.5z"/></symbol>
+  <symbol id="i-mail" viewBox="0 0 24 24"><path d="M3 5.5h18v13H3z"/><path d="M3 6l9 7 9-7"/></symbol>
+  <symbol id="i-browser" viewBox="0 0 24 24"><path d="M2.75 4.5h18.5v15H2.75z"/><path d="M2.75 8.5h18.5"/><path d="M5.5 6.5h1M8 6.5h1" stroke-width="1.75"/><path fill="currentColor" stroke="none" d="M8.5 17l3.5-6 3.5 6h-2.1L12 14.5 10.6 17z"/></symbol>
+</svg>
+<header class="nav">
+  <div class="wrap">
+    <a class="logo" href="index.html" aria-label="StarChad home"><svg xmlns="http://www.w3.org/2000/svg" viewBox="-2 -2 564 44" fill="none" stroke="currentColor" stroke-width="7" role="img" aria-label="StarChad"><path d="M56 3.5H12Q3.5 3.5 3.5 12Q3.5 20 12 20H44Q52.5 20 52.5 28.25Q52.5 36.5 44 36.5H0"/><path transform="translate(72 0)" d="M0 3.5H56M28 3.5V40"/><path transform="translate(144 0)" fill="currentColor" stroke="none" d="M0 40L24 0H32L56 40H47.8L28 7L8.2 40Z"/><path transform="translate(216 0)" d="M3.5 40V3.5H44Q52.5 3.5 52.5 12Q52.5 20.5 44 20.5H3.5M44 20.5Q52.5 20.5 52.5 29V40"/><path transform="translate(288 0)" d="M56 3.5H12Q3.5 3.5 3.5 12V28Q3.5 36.5 12 36.5H56"/><path transform="translate(360 0)" d="M3.5 0V40M52.5 0V40M3.5 20H52.5"/><path transform="translate(432 0)" style="fill:var(--amber)" stroke="none" d="M0 40L24 0H32L56 40H47.8L28 7L8.2 40Z"/><path transform="translate(504 0)" d="M3.5 3.5H42Q52.5 3.5 52.5 14V26Q52.5 36.5 42 36.5H3.5Z"/></svg></a>
+    <nav class="links" aria-label="Main">
+      <a href="index.html#codex">Codex</a>
+      <a href="market.html" aria-current="page">The Market</a>
+      <a href="beta.html">Universe Giga</a>
+      <a href="index.html#faq">Questions</a>
+    </nav>
+    <span class="clock" data-clock aria-hidden="true">GST 0000.00.00 00:00</span>
+    <div class="actions">
+      <a class="btn primary sm" href="beta.html#enlist">Beta status</a>
+      <details class="menu">
+        <summary class="btn sm" aria-label="Menu"><svg class="icon"><use href="#i-menu"/></svg></summary>
+        <nav aria-label="Main">
+          <a href="index.html#codex">Codex</a>
+          <a href="market.html">The Market</a>
+          <a href="beta.html">Universe Giga</a>
+          <a href="index.html#faq">Questions</a>
+        </nav>
+      </details>
+    </div>
+  </div>
+</header>
+
+<main id="top">
+  <section class="hero">
+    <div class="bg" role="img" aria-label="A broad-shouldered commander leans over a holographic galaxy table in a dark command office aboard a capital ship"></div>
+    <div class="wrap">
+      <div class="kicker">The market · Core exchange</div>
+      <h1>Everything is<br>for sale.</h1>
+      <p class="second">Everything has to be <em>flown.</em></p>
+      <p class="lede">One persistent universe of tens of thousands of star systems, priced by its players. Credits, licences and orders cross the galaxy instantly. Every ton of cargo goes by ship: yours, or someone else's.</p>
+      <div class="ctas">
+        <a class="btn primary lg" href="#enlist">Explore Universe Giga <svg class="icon go"><use href="#i-arrow"/></svg></a>
+        <a class="btn lg" href="#exchange">Open the exchange</a>
+      </div>
+      <div class="readout hud">
+        <div><svg class="icon"><use href="#i-planet"/></svg><b>1</b><span>Home planet, all of it yours</span></div>
+        <div><svg class="icon"><use href="#i-market"/></svg><b>0.5%</b><span>Federation fee, and that's all</span></div>
+        <div><svg class="icon"><use href="#i-shield"/></svg><b>8 h / 24 h</b><span>Shields while you sleep</span></div>
+        <div><svg class="icon"><use href="#i-browser"/></svg><b>0</b><span>Installs. It runs in a tab</span></div>
+      </div>
+    </div>
+  </section>
+
+  <div class="ticker" aria-label="Illustrative market ticker"><div class="ticker-track" id="ticker"></div></div>
+
+  <section class="section" id="exchange">
+    <div class="wrap">
+      <div class="sec-head"><span class="num">01</span><span class="kicker">The exchange</span><span class="fine">Illustrative prices · not live data</span></div>
+      <div class="exchange">
+        <div class="lead">
+          <h2>The galaxy is a market.</h2>
+          <p>Everything can be bought and sold: ore, hulls, crews' contracts, a whole flagship. Federation markets charge a visible 0.5% fee, and that's all. What other games call an exploit, this galaxy calls business.</p>
+          <p>A purchase is a promise, not a teleport. The credits move instantly over the galactic network; the cargo waits in a hold until a ship carries it home.</p>
+          <div class="ticket panel">
+            <div class="head"><span class="label">Order ticket · <b id="tk-name">Refined alloy</b></span><span class="tag">Illustrative</span></div>
+            <div class="qty"><label class="label" for="qty">Quantity (t)</label><input class="input" id="qty" type="number" min="1" step="10" value="1200" inputmode="numeric"></div>
+            <div class="row"><span>Unit price</span><span id="tk-price">—</span></div>
+            <div class="row"><span>Order value</span><span id="tk-value">—</span></div>
+            <div class="row fee"><span>Federation fee · 0.5%</span><span id="tk-fee">—</span></div>
+            <div class="row total"><span>Total</span><span id="tk-total">—</span></div>
+            <div class="go">
+              <button class="btn primary sm" type="button" id="place">Place order</button>
+              <p class="status" id="tk-status" role="status">Delivery: by ship. Arrange transport.</p>
+            </div>
+          </div>
+        </div>
+        <div class="board hud">
+          <div class="board-head"><span class="label">Core exchange · price board</span><span class="fine" style="margin:0">Select a row for its order book</span></div>
+          <table>
+            <thead><tr><th>Commodity</th><th>Bid</th><th>Ask</th><th class="hide-sm">24 h</th><th class="hide-sm">Trend</th></tr></thead>
+            <tbody id="board"></tbody>
+          </table>
+          <div class="book">
+            <div class="ask"><span class="label">Sell orders · <b id="bk-name">Refined alloy</b></span><div id="asks"></div></div>
+            <div class="bid"><span class="label">Buy orders</span><div id="bids"></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="prospectus" style="padding-top:0">
+    <div class="wrap">
+      <div class="sec-head"><span class="num">02</span><span class="kicker">Prospectus</span><span class="fine">What a commander owns, builds and moves</span></div>
+      <div class="cards">
+        <article class="card panel">
+          <div class="img"><img loading="lazy" src="assets/img/game-planet-ship-720.jpg" alt="A home planet in the game, its cities lit on the night side, a ship under way beside it"><span class="tag">Asset · home planet</span><span class="tag ion shot">In game</span></div>
+          <div class="body">
+            <div class="lbl"><svg class="icon"><use href="#i-planet"/></svg><span class="label">01 · Holdings</span></div>
+            <h3>One home planet, all of it yours</h3>
+            <p>Your civilization was born on one world in the Federation Core. You own every coast, mine and city on it, and you spend your first year making it the envy of the Core.</p>
+            <dl><dt>Location</dt><dd>Federation Core</dd><dt>Ownership</dt><dd>Entire planet</dd><dt>Research</dt><dd>On planets only</dd></dl>
+          </div>
+        </article>
+        <article class="card panel">
+          <div class="img"><img loading="lazy" src="assets/img/06-hero-city-720.jpg" alt="A colossal mothership surrounded by factory ships, mining barges and escorts"><span class="tag">Asset · hero</span></div>
+          <div class="body">
+            <div class="lbl"><svg class="icon"><use href="#i-hero"/></svg><span class="label">02 · Growth</span></div>
+            <h3>Heroes are moving cities</h3>
+            <p>Growth comes from heroes rather than more planets. A hero is a flagship, a city of factory and mining ships, and the fleet that flies with it. Point one at the dark and it brings civilization along.</p>
+            <dl><dt>Outposts, asteroid mining</dt><dd>From week two</dd><dt>Factory ships</dt><dd>Around month three</dd></dl>
+          </div>
+        </article>
+        <article class="card panel">
+          <div class="img"><img loading="lazy" src="assets/img/game-battleship-night-720.jpg" alt="A battleship under full thrust past the night side of a planet, the ships of its fleet marked around it"><span class="tag">Logistics · fleet</span><span class="tag ion shot">In game</span></div>
+          <div class="body">
+            <div class="lbl"><svg class="icon"><use href="#i-cargo"/></svg><span class="label">03 · Logistics</span></div>
+            <h3>Ships are the only link between worlds</h3>
+            <p>Credits, licences and orders travel instantly over the galactic network. Everything else, every ton of cargo, has to be flown, which is why fleets, routes and escorts are worth something.</p>
+            <dl><dt>Instant</dt><dd>Credits · licences · orders</dd><dt>By ship</dt><dd>Everything else</dd></dl>
+          </div>
+        </article>
+        <article class="card panel">
+          <div class="img"><img loading="lazy" src="assets/img/game-far-world-720.jpg" alt="A planet outside the Core against a red nebula, its sun behind it, marked owner unknown"><span class="tag">Expansion · regions</span><span class="tag ion shot">In game</span></div>
+          <div class="body">
+            <div class="lbl"><svg class="icon"><use href="#i-galaxy"/></svg><span class="label">04 · Expansion</span></div>
+            <h3>Beyond the Core</h3>
+            <p>Around the end of the first year, control-centre ships land on other worlds and claim regions outside the Core. One persistent universe of tens of thousands of star systems, the same rivals for years.</p>
+            <dl><dt>Claims</dt><dd>Control-centre ships</dd><dt>Opens</dt><dd>Around the end of year one</dd></dl>
+          </div>
+        </article>
+      </div>
+      <div class="notice panel">
+        <div class="txt">
+          <div class="lbl" style="display:flex;gap:10px;align-items:center"><svg class="icon" style="color:var(--amber)"><use href="#i-federation"/></svg><span class="label">05 · Law</span></div>
+          <h3>The world answers, not the interface.</h3>
+          <p>Nothing is greyed out. Break Federation law and the Federation sends a fleet, a real one, flying in from a real station. Large enough alliances can beat it. Whether that is wise is a separate question.</p>
+        </div>
+        <div class="log">
+          <div class="hd"><span class="tag alert dot">Federation notice</span><span class="tag">Illustrative</span></div>
+          <div class="row"><span>Offence</span><span>Armed boarding, Core lane</span></div>
+          <div class="row"><span>Response</span><span>Patrol squadron dispatched</span></div>
+          <div class="row"><span>Origin</span><span>Nearest Federation station</span></div>
+          <div class="row"><span>Interface lockout</span><span>None</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="incident" style="padding-top:0">
+    <div class="wrap">
+      <div class="sec-head"><span class="num">03</span><span class="kicker">Incident report</span><span class="fine">Illustrative example · names and numbers invented</span></div>
+      <div class="incident">
+        <div class="shot">
+          <img loading="lazy" src="assets/img/04-convoy-raid.jpg" alt="Two black raider ships clamped onto a moving freighter in a convoy, pulling cargo containers from a forced hatch">
+          <div class="cap">
+            <div class="kicker">Piracy</div>
+            <h2>Piracy is a train robbery.</h2>
+            <p>Raiders clamp onto a moving convoy, fight off the guards, force a hold, load what they can and run. The convoy keeps going and arrives short. Escorts, routes and timing are the counters.</p>
+          </div>
+        </div>
+        <div class="km panel">
+          <div class="top"><span class="label">Convoy incident · report</span><span class="tag alert dot">Arrived short</span></div>
+          <div class="victim">
+            <div class="ico"><svg class="icon lg"><use href="#i-convoy"/></svg></div>
+            <div><b>Convoy H-7 · Halden Freight</b><span>5 freighters · 1 escort frigate<br>Core exchange → outer lane</span></div>
+          </div>
+          <h4>Cargo manifest</h4>
+          <div class="ln"><span>Refined alloy</span><span>480 t</span><span class="lost">−160 t</span></div>
+          <div class="ln"><span>Fusion cores</span><span>24</span><span class="lost">−9</span></div>
+          <div class="ln"><span>Hull plating</span><span>120 t</span><span class="lost">−38 t</span></div>
+          <div class="ln"><span>Medical supplies</span><span>60 crates</span><span class="kept">0</span></div>
+          <h4>Involved</h4>
+          <div class="party"><span>Raiders (clamp fit)</span><span>2</span></div>
+          <div class="party"><span>Escorts engaged</span><span>1</span></div>
+          <div class="party"><span>Ships destroyed</span><span>0</span></div>
+          <div class="party"><span>Duration</span><span>9 min</span></div>
+          <div class="counter"><svg class="icon"><use href="#i-route"/></svg><span>Counters: <b>a second escort</b>, a route that avoids open lanes, or leaving at a better hour.</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="money" style="padding-top:0">
+    <div class="wrap">
+      <div class="sec-head"><span class="num">04</span><span class="kicker">Fair money</span></div>
+      <div class="money">
+        <div class="coin hud"><img loading="lazy" src="assets/img/07-credit-coin.jpg" alt="A heavy gunmetal and gold coin embossed with the profile of a stoic commander"></div>
+        <div>
+          <span class="label">Credits · the currency that matters</span>
+          <h2>No pay-to-win. Money is a market too.</h2>
+          <p>Real money buys tradable premium items, and players sell them to other players for credits. Players who prefer to grind can reach the same benefits. Whatever you hold, someone earned it or bought it from someone who did.</p>
+          <div class="flow">
+            <div><span class="label">One commander pays</span>
+              <div class="path"><span class="step">Real money</span><span class="pair"><svg class="icon"><use href="#i-arrow"/></svg><span class="step">Premium item</span></span><span class="pair"><svg class="icon"><use href="#i-arrow"/></svg><span class="step hl">Sold on the market</span></span><span class="pair"><svg class="icon"><use href="#i-arrow"/></svg><span class="step">Credits</span></span></div></div>
+            <div><span class="label">Another commander plays</span>
+              <div class="path"><span class="step">Trade · mine · haul</span><span class="pair"><svg class="icon"><use href="#i-arrow"/></svg><span class="step">Credits</span></span><span class="pair"><svg class="icon"><use href="#i-arrow"/></svg><span class="step hl">Bought on the market</span></span><span class="pair"><svg class="icon"><use href="#i-arrow"/></svg><span class="step">Premium item</span></span></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="giga" id="giga">
+    <div class="wrap grid">
+      <svg class="seal gold" viewBox="2.1 -15.2 1240 1240" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="The StarChad seal: a commander in profile on a gold medallion. Motto: Per mandibulam ad astra.">
+  <!-- generated by tools/seals.mjs from concepts/seal/S1-gunmetal.png: centre 622.1,604.8, edge 614×595, band inner edge 511×505 -->
+  <defs>
+    <clipPath id="seal-gold-clip"><ellipse cx="622.1" cy="604.8" rx="617" ry="598"/></clipPath>
+    <path id="seal-gold-top" d="M88.6 604.8A533.5 521 0 1 1 1155.6 604.8"/>
+    <path id="seal-gold-bottom" d="M58.6 604.8A563.5 551 0 0 0 1185.6 604.8"/>
+  </defs>
+  <image href="assets/img/seal-gold.jpg" width="1254" height="1254" clip-path="url(#seal-gold-clip)"/>
+  <g font-family="Michroma, Eurostile, sans-serif" text-anchor="middle">
+    <text class="engrave-hi" font-size="50" transform="translate(0 2.5)"><textPath href="#seal-gold-top" startOffset="50%" textLength="640" lengthAdjust="spacing">STARCHAD</textPath></text>
+    <text class="engrave" font-size="50"><textPath href="#seal-gold-top" startOffset="50%" textLength="640" lengthAdjust="spacing">STARCHAD</textPath></text>
+    <text class="engrave-hi" font-size="34" transform="translate(0 2.5)"><textPath href="#seal-gold-bottom" startOffset="50%" textLength="1180" lengthAdjust="spacing">PER MANDIBULAM · AD ASTRA</textPath></text>
+    <text class="engrave" font-size="34"><textPath href="#seal-gold-bottom" startOffset="50%" textLength="1180" lengthAdjust="spacing">PER MANDIBULAM · AD ASTRA</textPath></text>
+  </g>
+</svg>
+      <div>
+        <div class="kicker">Universe Giga · Founding beta</div>
+        <h2>Open your first account in Universe Giga.</h2>
+        <p class="lede">The first universe opens to a limited number of commanders at stargigachad.com. Progress may be wiped before launch. The Founders' names will not be.</p>
+        <div class="registration-closed" id="enlist">
+  <button class="btn primary" type="button" disabled>Registration closed</button>
+  <p class="fine" style="margin-top:14px">Universe Giga is in development. Registration is not open yet.</p>
+</div>
+        <div class="perks">
+          <div><b>Founder's insignia</b>A gold-rimmed crest beside your name. It says you were here first; it does not make you stronger.</div>
+          <div><b>Your name on the monument</b>Engraved on the Founder's Monument in the launch universe, where no wipe reaches it.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="faq" id="faq" style="padding:var(--space-section) 0">
+    <div class="wrap grid">
+      <div><div class="kicker">Questions</div><h2 style="margin-top:18px">Short answers.</h2></div>
+      <div class="faq-list">
+        <details open><summary>Is it free to play?<svg class="icon"><use href="#i-plus"/></svg></summary><div class="a"><span class="yes">Yes.</span></div></details>
+        <details><summary>Does the universe keep going when I log off?<svg class="icon"><use href="#i-plus"/></svg></summary><div class="a"><span class="yes">Yes.</span>That's what shields are for.</div></details>
+        <details><summary>Can I rob a convoy and sell the cargo back to its owner?<svg class="icon"><use href="#i-plus"/></svg></summary><div class="a"><span class="yes">Yes.</span></div></details>
+        <details><summary>Is it pay-to-win?<svg class="icon"><use href="#i-plus"/></svg></summary><div class="a"><span class="yes">No.</span>Real money buys tradable items that other players buy with credits. Everything they give can be reached by playing.</div></details>
+        <details><summary>Can I play it at work?<svg class="icon"><use href="#i-plus"/></svg></summary><div class="a">It runs in a browser tab. We have no further comment.</div></details>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="footer">
+  <div class="wrap">
+    <div class="brand"><svg xmlns="http://www.w3.org/2000/svg" viewBox="-2 -2 564 44" fill="none" stroke="currentColor" stroke-width="7" role="img" aria-label="StarChad"><path d="M56 3.5H12Q3.5 3.5 3.5 12Q3.5 20 12 20H44Q52.5 20 52.5 28.25Q52.5 36.5 44 36.5H0"/><path transform="translate(72 0)" d="M0 3.5H56M28 3.5V40"/><path transform="translate(144 0)" fill="currentColor" stroke="none" d="M0 40L24 0H32L56 40H47.8L28 7L8.2 40Z"/><path transform="translate(216 0)" d="M3.5 40V3.5H44Q52.5 3.5 52.5 12Q52.5 20.5 44 20.5H3.5M44 20.5Q52.5 20.5 52.5 29V40"/><path transform="translate(288 0)" d="M56 3.5H12Q3.5 3.5 3.5 12V28Q3.5 36.5 12 36.5H56"/><path transform="translate(360 0)" d="M3.5 0V40M52.5 0V40M3.5 20H52.5"/><path transform="translate(432 0)" style="fill:var(--amber)" stroke="none" d="M0 40L24 0H32L56 40H47.8L28 7L8.2 40Z"/><path transform="translate(504 0)" d="M3.5 3.5H42Q52.5 3.5 52.5 14V26Q52.5 36.5 42 36.5H3.5Z"/></svg><div class="motto">PER MANDIBULAM AD ASTRA</div></div>
+    <div><h4>The game</h4><ul><li><a href="index.html#codex">Codex</a></li><li><a href="market.html">The Market</a></li><li><a href="index.html#faq">Questions</a></li></ul></div>
+    <div><h4>Universe Giga</h4><ul><li><a href="beta.html#enlist">Beta status</a></li><li><a href="beta.html">Founders</a></li><li><a href="beta.html">stargigachad.com</a></li></ul></div>
+    <div><h4>StarChad</h4><ul><li><a href="#">Press kit</a></li><li><a href="#">Privacy</a></li><li><a href="#">Terms</a></li><li><a href="#">Contact</a></li><li><a href="ette/index.html">starchadette.com</a></li></ul></div>
+    <small>© 2026 StarChad · starchad.com · Registration is currently closed. Images marked In game are screenshots of the game in development; the rest is concept art.</small>
+  </div>
+</footer>
+<!-- The site's music, off until the reader turns it on (assets/music.js). -->
+<button class="btn sm music" type="button" data-music="assets/audio/hacia-un-planeta-distante.mp3" data-state="off" aria-pressed="false" aria-label="Music: Hacia un planeta distante" hidden>
+  <span class="eq" aria-hidden="true"><i></i><i></i><i></i><i></i></span><span class="music-name">Music</span><span class="music-title">Hacia un planeta distante</span>
+</button>
+<script defer src="assets/music.js"></script>
+<script>
+  // Galactic standard time (UTC) wherever a [data-clock] appears, once a minute.
+  (() => {
+    const els = document.querySelectorAll('[data-clock]');
+    const p = n => String(n).padStart(2, '0');
+    const tick = () => { const d = new Date(); els.forEach(el => el.textContent = `GST ${d.getUTCFullYear()}.${p(d.getUTCMonth() + 1)}.${p(d.getUTCDate())} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}`); };
+    if (els.length) { tick(); setInterval(tick, 60000); }
+  })();
+</script>
+
+<script>
+(() => {
+  const fmt = (n, d = 2) => n.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
+  // Illustrative commodities: names and prices are invented for the draft.
+  const goods = [
+    ['Iron ore', 6.4], ['Refined alloy', 84.2], ['Propellant', 21.7], ['Hull plating', 142.5],
+    ['Fusion cores', 1260], ['Compute cores', 980], ['Medical supplies', 58.9], ['Crew contracts', 310]
+  ].map(([name, p], k) => ({ name, mid: p, open: p * (1 + Math.sin(k * 2.1) * 0.008), hist: Array.from({ length: 24 }, (_, i) => p * (1 + Math.sin(i / 3 + p) * 0.02)) }));
+  let sel = 1;
+  const change = g => (g.mid - g.open) / g.open * 100;
+
+  // ticker: content doubled so the strip loops seamlessly
+  const ticker = document.getElementById('ticker');
+  const drawTicker = () => {
+    const h = goods.map(g => { const c = change(g);
+      return `<span class="tk"><span class="n">${g.name}</span><span>${fmt(g.mid)} cr</span><span class="${c >= 0 ? 'up' : 'down'}">${c >= 0 ? '▲' : '▼'} ${fmt(Math.abs(c))}%</span></span>`; }).join('')
+      + '<span class="tk"><span class="fee">Federation fee 0.5% · shown on every price</span></span><span class="tk"><span class="n">Illustrative prices</span></span>';
+    ticker.innerHTML = h + h;
+  };
+
+  // price board
+  const board = document.getElementById('board');
+  const spark = h => {
+    const lo = Math.min(...h), hi = Math.max(...h), r = hi - lo || 1;
+    const pts = h.map((v, i) => `${(i / (h.length - 1) * 84).toFixed(1)},${(20 - (v - lo) / r * 18).toFixed(1)}`).join(' ');
+    return `<svg class="spark" viewBox="0 0 84 22" aria-hidden="true"><polyline fill="none" stroke="${h[h.length - 1] >= h[0] ? '#5fd38d' : '#ff6b5b'}" stroke-width="1.3" points="${pts}"/></svg>`;
+  };
+  const drawBoard = (flash = []) => {
+    const focused = document.activeElement?.closest?.('#board tr')?.dataset.i;
+    board.innerHTML = goods.map((g, i) => {
+      const c = change(g), f = flash[i] ? `flash-${flash[i]}` : '';
+      return `<tr data-i="${i}" tabindex="0" aria-selected="${i === sel}"><td>${g.name}</td><td class="${f}">${fmt(g.mid * 0.997)}</td><td class="${f}">${fmt(g.mid * 1.003)}</td><td class="hide-sm ${c >= 0 ? 'up' : 'down'}">${c >= 0 ? '+' : '−'}${fmt(Math.abs(c))}%</td><td class="hide-sm">${spark(g.hist)}</td></tr>`;
+    }).join('');
+    if (focused !== undefined) board.querySelector(`tr[data-i="${focused}"]`).focus();
+  };
+  const choose = tr => { if (!tr) return; sel = +tr.dataset.i; drawBoard(); drawBook(); drawTicket(); resetStatus(); };
+  board.addEventListener('click', e => choose(e.target.closest('tr')));
+  board.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); choose(e.target.closest('tr')); } });
+
+  // order book for the selected commodity
+  const drawBook = () => {
+    const g = goods[sel];
+    document.getElementById('bk-name').textContent = g.name;
+    const lv = side => Array.from({ length: 5 }, (_, k) => {
+      const i = side === 'ask' ? 4 - k : k;
+      const price = g.mid * (side === 'ask' ? 1.003 + i * 0.004 : 0.997 - i * 0.004);
+      const vol = Math.round((140 + ((i * 97 + sel * 53) % 260)) * (g.mid > 500 ? 0.1 : 1));
+      return `<div class="lv" style="--d:${Math.min(100, vol / (g.mid > 500 ? 40 : 400) * 100)}%"><span>${fmt(price)}</span><span>${vol.toLocaleString('en-US')}</span></div>`;
+    }).join('');
+    document.getElementById('asks').innerHTML = lv('ask');
+    document.getElementById('bids').innerHTML = lv('bid');
+  };
+
+  // order ticket with the visible Federation fee
+  const qty = document.getElementById('qty');
+  const drawTicket = () => {
+    const g = goods[sel], price = g.mid * 1.003, q = Math.max(0, +qty.value || 0), value = price * q, fee = value * 0.005;
+    document.getElementById('tk-name').textContent = g.name;
+    document.getElementById('tk-price').textContent = fmt(price) + ' cr';
+    document.getElementById('tk-value').textContent = fmt(value) + ' cr';
+    document.getElementById('tk-fee').textContent = fmt(fee) + ' cr';
+    document.getElementById('tk-total').textContent = fmt(value + fee) + ' cr';
+  };
+  const status = document.getElementById('tk-status'), place = document.getElementById('place');
+  const resetStatus = () => { status.textContent = 'Delivery: by ship. Arrange transport.'; status.classList.remove('done'); place.textContent = 'Place order'; };
+  qty.addEventListener('input', () => { drawTicket(); resetStatus(); });
+  place.addEventListener('click', () => {
+    const q = Math.max(0, Math.round(+qty.value || 0));
+    if (!q) { qty.setAttribute('aria-invalid', 'true'); qty.focus(); return; }
+    qty.removeAttribute('aria-invalid');
+    place.setAttribute('aria-busy', 'true'); place.textContent = 'Placing';
+    setTimeout(() => {
+      place.removeAttribute('aria-busy'); place.textContent = 'Order filled';
+      status.textContent = `${q.toLocaleString('en-US')} t of ${goods[sel].name.toLowerCase()} waiting in the Core exchange hold. It moves when a ship carries it.`;
+      status.classList.add('done');
+    }, 800);
+  });
+
+  // a slow random walk so the board feels alive; colour changes only
+  const step = () => {
+    const flash = goods.map(g => {
+      if (Math.random() < 0.55) return null;
+      const d = (Math.random() - 0.48) * 0.006;
+      g.mid *= 1 + d; g.hist.push(g.mid); g.hist.shift();
+      return d >= 0 ? 'up' : 'down';
+    });
+    drawBoard(flash); drawBook(); drawTicket(); drawTicker();
+  };
+  drawTicker(); drawBoard(); drawBook(); drawTicket();
+  setInterval(step, 2600);
+
+})();
+</script>
+</body>
+</html>

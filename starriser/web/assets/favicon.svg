@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">
+  <title>StarChad app icon</title>
+  <defs><linearGradient id="sc-icon-bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1a1f26"/><stop offset="1" stop-color="#07090c"/></linearGradient></defs>
+  <path fill="url(#sc-icon-bg)" d="M18 0H120V102L102 120H0V18Z"/>
+  <path fill="none" stroke="#f08a24" stroke-opacity=".5" stroke-width="1.5" d="M18.6 1.5H118.5V101.4L101.4 118.5H1.5V18.6Z"/>
+  <g transform="translate(20 18) scale(.8)" fill="#e9e3d6">
+    <path d="M8 92L44 34H56L92 92H77L50 49L23 92Z"/>
+    <path fill="#f08a24" d="M50 2L54.2 17.8L70 22L54.2 26.2L50 42L45.8 26.2L30 22L45.8 17.8Z"/>
+  </g>
+</svg>

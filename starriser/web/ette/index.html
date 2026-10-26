@@ -1,0 +1,596 @@
+<!doctype html>
+<!-- Built by build.mjs from src/index.html; edit the source, not this file. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@300;400;500;600&family=Barlow+Condensed:wght@400;500;600&family=Michroma&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/starchad.css">
+<title>StarChadette: Command, unbothered</title>
+<meta name="description" content="A persistent space strategy game in your browser. One home planet, heroes that move like cities, and a galaxy-wide market where every ton of cargo has to be flown.">
+<style>
+/* ---------- hero ---------- */
+.hero { position: relative; min-height: clamp(700px, 100vh, 980px); display: grid; align-items: end; overflow: hidden; isolation: isolate; }
+.hero .bg { position: absolute; inset: 0 0 0 30%; z-index: -2; background: url(../assets/img/13-commander-mono-f.jpg) 72% 24% / cover no-repeat;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 26%); mask-image: linear-gradient(90deg, transparent, #000 26%); }
+.hero::before { content: ""; position: absolute; inset: 0; z-index: -1;
+  background: linear-gradient(90deg, rgba(5,7,10,.62) 20%, rgba(5,7,10,.45) 42%, rgba(5,7,10,0) 62%), linear-gradient(0deg, var(--void) 0%, rgba(5,7,10,0) 38%); }
+.hero .wrap { padding: 150px 0 72px; }
+.hero h1 { font-size: clamp(42px, 6.4vw, 92px); line-height: 1.02; margin: 26px 0 28px; letter-spacing: -.005em; }
+.hero h1 em { font-style: normal; color: var(--amber); }
+.hero .lede { margin: 0 0 40px; }
+.hero .ctas { display: flex; flex-wrap: wrap; gap: 14px; }
+.hero .note { margin-top: 18px; font: 400 13px/1.4 var(--mono); color: var(--steel); }
+.hero .note a { color: var(--ion); text-decoration: none; }
+.hero .note a:hover { text-decoration: underline; }
+.readout { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin-top: 72px; border-top: 1px solid var(--line); }
+.readout div { padding: 20px 22px 4px 0; display: grid; grid-template-columns: auto 1fr; column-gap: 14px; align-items: start; }
+.readout div + div { padding-left: 22px; border-left: 1px solid var(--line); }
+.readout .icon { grid-row: span 2; color: var(--amber); margin-top: 2px; }
+.readout b { display: block; font: 400 clamp(18px, 1.8vw, 24px)/1.15 var(--display); }
+.readout span { display: block; margin-top: 8px; font: 500 12px/1.3 var(--ui); letter-spacing: .2em; text-transform: uppercase; color: var(--steel); }
+
+/* ---------- standing order, and the other commander who gives it ---------- */
+.order { padding: var(--space-section) 0; }
+.order .wrap { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: center; gap: clamp(32px, 5vw, 72px); }
+.order .commander { margin: 0; aspect-ratio: 5 / 6; background: url(../assets/img/10-commander-mono.jpg) 60% 24% / cover no-repeat;
+  -webkit-mask-image: radial-gradient(75% 70% at 55% 42%, #000 52%, transparent 100%); mask-image: radial-gradient(75% 70% at 55% 42%, #000 52%, transparent 100%); }
+.order .said { text-align: center; }
+.order .seal { width: clamp(150px, 16vw, 210px); margin: 0 auto 32px; filter: drop-shadow(0 24px 50px rgba(0,0,0,.7)); }
+.order blockquote { margin: 0 auto; max-width: 18ch; font: 400 clamp(28px, 4.2vw, 56px)/1.18 var(--display); text-shadow: 0 0 28px rgba(5,7,10,.95), 0 0 8px rgba(5,7,10,.9); }
+.order cite { display: block; margin-top: 28px; font: 500 13px/1 var(--ui); font-style: normal; letter-spacing: .3em; text-transform: uppercase; color: var(--steel); }
+
+/* ---------- the stage: the live engine, seen through the page ----------
+   Every section is solid except the windows (.window), which show the engine
+   fixed behind the page. The stage is two screens tall and its copy stays
+   pinned, so the reel plays on while the reader scrolls past it. */
+.stage { height: 210vh; }
+.stage .pin { position: sticky; top: 0; height: 100vh; min-height: 620px; display: grid; align-items: start; overflow: hidden; }
+.stage .pin::before { content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: radial-gradient(62% 78% at 0 0, rgba(5,7,10,.94) 30%, rgba(5,7,10,.6) 62%, rgba(5,7,10,0) 100%), linear-gradient(0deg, rgba(5,7,10,.8) 0%, rgba(5,7,10,0) 30%); }
+.stage .wrap { position: relative; padding-top: clamp(96px, 15vh, 150px); }
+/* two commanders, seen from behind, watching the same fleet as the reader */
+.stage .watchers { position: absolute; left: max(8px, calc(50% - 700px)); bottom: 0; height: min(40vh, 460px); width: auto; max-width: none; pointer-events: none;
+  filter: drop-shadow(0 0 40px rgba(5,7,10,.6)); }
+@media (max-height: 760px) { .stage .watchers { display: none; } }
+.stage-copy { max-width: 600px; }
+.stage-copy .lede { max-width: 48ch; }
+.stage h2 { margin: 18px 0 16px; font-size: clamp(32px, 3.9vw, 56px); text-wrap: balance; }
+.stage-copy .lede { text-wrap: pretty; }
+.stage .live-caption, .stage .engine-live { margin-top: 22px; }
+.stage .engine-live .live-caption { margin-top: 0; }
+.stage .live-caption.still::before { animation: none; background: var(--steel); }
+
+/* ---------- the closing window ---------- */
+.closing { min-height: 78vh; display: grid; align-items: center; }
+.closing .wrap { position: relative; }
+.closing::before { content: ""; position: absolute; inset: 0; pointer-events: none; background: linear-gradient(90deg, rgba(5,7,10,.8) 0%, rgba(5,7,10,.3) 40%, rgba(5,7,10,0) 60%); }
+.closing h2 { margin: 18px 0 30px; font-size: clamp(34px, 4.6vw, 64px); max-width: 14ch; }
+.closing .engine-live { margin-top: 26px; }
+
+/* ---------- codex ---------- */
+.codex { padding: 0 0 var(--space-section); }
+.codex header { display: flex; justify-content: space-between; align-items: end; gap: 32px; margin-bottom: 32px; flex-wrap: wrap; }
+.codex header p { margin: 0; max-width: 46ch; color: var(--text-3); }
+.codex-body { display: grid; grid-template-columns: 300px 1fr; border: 1px solid var(--line); background: linear-gradient(180deg, rgba(16,20,26,.9), rgba(10,13,17,.9)); }
+.codex-nav { border-right: 1px solid var(--line); padding: 14px 0; }
+.codex-nav .group { padding: 16px 26px 8px; font: 500 11px/1 var(--ui); letter-spacing: .3em; text-transform: uppercase; color: var(--steel); }
+.codex-nav button { all: unset; box-sizing: border-box; cursor: pointer; display: flex; align-items: center; gap: 14px; width: 100%; padding: 12px 24px;
+  font: 500 17px/1.2 var(--ui); letter-spacing: .05em; color: var(--text-3); border-left: 2px solid transparent; transition: color var(--fast), background var(--fast); }
+.codex-nav button .icon { color: var(--steel); transition: color var(--fast); }
+.codex-nav button:hover { color: var(--bone); background: rgba(233,227,214,.035); }
+.codex-nav button:hover .icon { color: var(--bone); }
+.codex-nav button[aria-selected="true"], .codex-nav button[aria-selected="true"]:hover { color: var(--bone); background: linear-gradient(90deg, rgba(240,138,36,.14), transparent); border-left-color: var(--amber); }
+.codex-nav button[aria-selected="true"] .icon { color: var(--amber); }
+.codex-nav button:focus-visible { box-shadow: inset 0 0 0 2px var(--bone); }
+.codex-entry { display: none; }
+.codex-entry.on { display: grid; grid-template-rows: auto 1fr; animation: fade .45s var(--ease) both; }
+.codex-entry figure { margin: 0; position: relative; aspect-ratio: 16 / 7.2; overflow: hidden; border-bottom: 1px solid var(--line); }
+.codex-entry figure img { width: 100%; height: 100%; object-fit: cover; }
+.codex-entry figcaption { position: absolute; left: 0; right: 0; bottom: 0; padding: 36px 22px 16px; background: linear-gradient(0deg, rgba(5,7,10,.85), transparent); font: 400 11px/1 var(--mono); color: rgba(233,227,214,.75); letter-spacing: .08em; }
+.codex-entry .text { padding: 34px 40px 40px; display: grid; grid-template-columns: 1fr 240px; gap: 40px; }
+.codex-entry h3 { margin-bottom: 16px; }
+.codex-entry p { color: var(--text-2); }
+.codex-entry aside { border-left: 1px solid var(--line); padding-left: 24px; font: 400 13px/1.55 var(--mono); color: var(--steel); }
+.codex-entry aside b { display: block; color: var(--ion); font-weight: 500; letter-spacing: .1em; margin-bottom: 10px; }
+.codex-entry aside span { display: block; margin-bottom: 8px; }
+.codex-entry .more { margin-top: 8px; }
+@keyframes fade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+/* ---------- the desk ---------- */
+.desk { position: relative; min-height: clamp(560px, 80vh, 820px); display: grid; align-items: center; overflow: hidden; isolation: isolate; }
+.desk .bg { position: absolute; inset: 0; z-index: -2; background: url(../assets/img/02-war-table.jpg) 60% 50% / cover no-repeat; }
+.desk::before { content: ""; position: absolute; inset: 0; z-index: -1; background: linear-gradient(90deg, rgba(5,7,10,.94) 0%, rgba(5,7,10,.78) 36%, rgba(5,7,10,.05) 66%), linear-gradient(0deg, var(--void), transparent 22%), linear-gradient(180deg, var(--void), transparent 18%); }
+.desk .panel-text { max-width: 520px; }
+.desk h2 { margin: 22px 0; }
+.desk ul { list-style: none; padding: 0; margin: 30px 0 0; display: grid; gap: 16px; }
+.desk li { display: grid; grid-template-columns: 22px 1fr; gap: 14px; color: var(--text-2); align-items: start; }
+.desk li .icon { color: var(--amber); margin-top: 3px; }
+
+/* ---------- market teaser ---------- */
+.teaser .grid { display: grid; grid-template-columns: 1fr 1.1fr; gap: clamp(32px, 6vw, 90px); align-items: center; }
+.teaser h2 { margin: 20px 0; }
+.teaser .ctas { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 30px; }
+.board { border: 1px solid var(--line); background: var(--g900); }
+.board header { display: flex; justify-content: space-between; align-items: center; padding: 14px 18px; border-bottom: 1px solid var(--line); }
+.board table { width: 100%; border-collapse: collapse; font: 400 14px/1 var(--mono); }
+.board th { text-align: right; padding: 12px 18px; font: 500 10.5px/1 var(--ui); letter-spacing: .22em; text-transform: uppercase; color: var(--steel); font-weight: 500; border-bottom: 1px solid var(--line); }
+.board th:first-child, .board td:first-child { text-align: left; }
+.board td { text-align: right; padding: 13px 18px; border-bottom: 1px solid rgba(233,227,214,.06); font-variant-numeric: tabular-nums; }
+.board td:first-child { font: 500 14px/1 var(--ui); letter-spacing: .14em; text-transform: uppercase; }
+.board tr:last-child td { border-bottom: 0; }
+.board .up { color: var(--ok); } .board .down { color: var(--alert); }
+.board footer { padding: 12px 18px; border-top: 1px solid var(--line); display: flex; justify-content: space-between; gap: 12px; }
+
+/* ---------- gallery strip ---------- */
+.strip + .strip { padding-top: clamp(44px, 5vw, 72px); }
+.strip header { margin-bottom: 30px; display: flex; justify-content: space-between; align-items: end; gap: 24px; flex-wrap: wrap; }
+.tiles { display: grid; grid-template-columns: 1.4fr 1fr 1fr; grid-template-rows: 250px 250px; gap: 12px; }
+.tiles figure { margin: 0; position: relative; overflow: hidden; background: var(--g800); }
+.tiles figure:first-child { grid-row: span 2; }
+.tiles img { width: 100%; height: 100%; object-fit: cover; transition: transform .8s var(--ease); }
+.tiles figure:hover img { transform: scale(1.04); }
+.tiles figcaption { position: absolute; left: 0; right: 0; bottom: 0; padding: 40px 18px 14px; background: linear-gradient(0deg, rgba(5,7,10,.9), transparent);
+  font: 500 13px/1.2 var(--ui); letter-spacing: .2em; text-transform: uppercase; }
+
+/* ---------- founders ---------- */
+.founders .card { display: grid; grid-template-columns: 340px 1fr; gap: clamp(32px, 5vw, 72px); align-items: center; padding: clamp(28px, 4vw, 56px);
+  background: linear-gradient(135deg, rgba(217,164,65,.08), transparent 40%), linear-gradient(180deg, var(--g800), var(--g900)); border: 1px solid var(--line); }
+/* two Founders' seals, one resting behind the other */
+.founders .coins { position: relative; width: 100%; max-width: 330px; margin: auto; aspect-ratio: 1 / 1.08; }
+.founders .coins .seal { position: absolute; width: 78%; filter: drop-shadow(0 26px 50px rgba(0,0,0,.7)); }
+.founders .coins .seal:first-child { right: 0; top: 0; filter: brightness(.62) drop-shadow(0 20px 40px rgba(0,0,0,.6)); }
+.founders .coins .seal:last-child { left: 0; bottom: 0; }
+.founders h2 { margin: 18px 0; }
+.founders .promise { margin: 26px 0; padding: 18px 20px; border-left: 2px solid var(--gold); background: rgba(217,164,65,.06); color: #ddd6c8; }
+.founders .promise b { color: #f0c870; font-weight: 500; }
+form.enlist { display: grid; grid-template-columns: 1fr 1fr auto; gap: 12px; align-items: end; }
+form.enlist .btn { min-height: 50px; }
+.received { display: none; margin-top: 14px; font: 500 14px/1.4 var(--mono); color: var(--ok); align-items: center; gap: 10px; }
+form.sent ~ .received { display: flex; }
+
+/* ---------- FAQ ---------- */
+.faq .grid { display: grid; grid-template-columns: 340px 1fr; gap: 56px; }
+
+@media (max-width: 980px) {
+  .readout { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .readout div:nth-child(3) { padding-left: 0; border-left: 0; }
+  .codex-body { grid-template-columns: 1fr; }
+  .codex-nav { display: flex; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--line); padding: 0; scrollbar-width: none; }
+  .codex-nav .group { display: none; }
+  .codex-nav button { width: auto; flex: none; padding: 16px 18px; border-left: 0; border-bottom: 2px solid transparent; font-size: 15px; }
+  .codex-nav button[aria-selected="true"], .codex-nav button[aria-selected="true"]:hover { border-bottom-color: var(--amber); background: rgba(240,138,36,.1); }
+  .codex-entry .text { grid-template-columns: 1fr; gap: 22px; padding: 26px 22px 30px; }
+  .codex-entry aside { border-left: 0; border-top: 1px solid var(--line); padding: 18px 0 0; }
+  .teaser .grid { grid-template-columns: 1fr; }
+  .tiles { grid-template-columns: 1fr 1fr; grid-template-rows: 280px 180px 180px; }
+  .tiles figure:first-child { grid-column: span 2; grid-row: auto; }
+  .founders .card { grid-template-columns: 1fr; }
+  .founders .coins { max-width: 240px; }
+  form.enlist { grid-template-columns: 1fr; }
+  .faq .grid { grid-template-columns: 1fr; gap: 24px; }
+  .order .wrap { grid-template-columns: 1fr; }
+  .order .commander { width: min(100%, 420px); margin-inline: auto; }
+  .stage { height: 160vh; }
+}
+@media (max-width: 560px) {
+  .hero { min-height: 0; }
+  .hero .bg { inset: 0; -webkit-mask-image: none; mask-image: none; background-position: 72% 0; background-size: auto 440px; }
+  .hero::before { background: linear-gradient(180deg, rgba(5,7,10,0) 250px, rgba(5,7,10,.88) 370px, var(--void) 440px); }
+  .hero .wrap { padding-top: 390px; padding-bottom: 56px; }
+  .stage .pin { align-items: end; }
+  .stage .wrap { padding-bottom: 48px; }
+  .stage .watchers { display: none; }
+  .stage .pin::before { background: linear-gradient(0deg, rgba(5,7,10,.92) 0%, rgba(5,7,10,.6) 42%, rgba(5,7,10,0) 70%); }
+  .hero .btn { width: 100%; }
+  .readout div { grid-template-columns: 1fr; }
+  .readout .icon { grid-row: auto; margin-bottom: 10px; }
+  .desk .bg { background-position: 70% 0; background-size: auto 56%; }
+  .desk::before { background: linear-gradient(0deg, var(--void) 44%, rgba(5,7,10,.4) 62%, transparent 80%), linear-gradient(180deg, var(--void), transparent 12%); }
+  .desk .wrap { padding-top: 300px; padding-bottom: 40px; }
+  .board td, .board th { padding-inline: 12px; }
+  .board .hide-sm { display: none; }
+  .tiles { grid-template-columns: 1fr; grid-template-rows: none; grid-auto-rows: 200px; }
+  .tiles figure:first-child { grid-column: auto; }
+}
+</style>
+</head>
+<body class="grain">
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">
+  <!-- 24 px grid, 2 px margin, 1.5 px line, mitred joins; filled marks only where the brand chevron appears -->
+  <symbol id="i-planet" viewBox="0 0 24 24"><circle cx="12" cy="12" r="6"/><path d="M17.28 6.66A10.5 3.5 -25 0 1 21.51 7.56A10.5 3.5 -25 0 1 2.49 16.44A10.5 3.5 -25 0 1 4.52 12.62"/></symbol>
+  <symbol id="i-hero" viewBox="0 0 24 24"><path fill="currentColor" stroke="none" d="M7 17.5L12 8.5l5 9h-2.9L12 13.6l-2.1 3.9z"/><path d="M4.2 9.6A9 9 0 0 1 19.8 9.6M20.6 14.6A9 9 0 0 1 16 19.8M8 19.8a9 9 0 0 1-4.6-5.2"/></symbol>
+  <symbol id="i-fleet" viewBox="0 0 24 24"><path fill="currentColor" stroke="none" d="M8.5 10L12 4l3.5 6h-2.1L12 7.5 10.6 10zM3 19l3.5-6 3.5 6H7.9l-1.4-2.5L5.1 19zM14 19l3.5-6 3.5 6h-2.1l-1.4-2.5-1.4 2.5z"/></symbol>
+  <symbol id="i-cargo" viewBox="0 0 24 24"><path d="M4 7h16l1 1v10l-1 1H4l-1-1V8z"/><path d="M7.5 10v6M12 10v6M16.5 10v6"/></symbol>
+  <symbol id="i-credits" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="6.25" stroke-width="1" opacity=".55"/><path d="M8.8 14.6L12 9.2l3.2 5.4"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M4.5 3.5h15V12l-4.75 8.5h-5.5L4.5 12z"/><path d="M8.75 14.25L12 8.75l3.25 5.5"/></symbol>
+  <symbol id="i-federation" viewBox="0 0 24 24"><path d="M8.3 2.75h7.4l5.55 5.55v7.4l-5.55 5.55H8.3L2.75 15.7V8.3z"/><path fill="currentColor" stroke="none" d="M12 6.5l1.4 4.1 4.1 1.4-4.1 1.4L12 17.5l-1.4-4.1L6.5 12l4.1-1.4z"/></symbol>
+  <symbol id="i-route" viewBox="0 0 24 24"><path d="M6.4 16.2l4-5.6M13.2 9.2l3.8 2.6" /><path fill="currentColor" stroke="none" d="M5 15.2l2.3 2.3L5 19.8l-2.3-2.3z"/><circle cx="11.75" cy="8.5" r="1.9"/><circle cx="19" cy="13.25" r="2.6"/><circle cx="19" cy="13.25" r=".9" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-galaxy" viewBox="0 0 24 24"><path d="M12 12c2.4-.5 3.4-2.5 1.3-3.8C10.6 6.6 5.2 7.5 3.25 10.75"/><path d="M12 12c-2.4.5-3.4 2.5-1.3 3.8 2.7 1.6 8.1.7 10.05-2.55"/><ellipse cx="12" cy="12" rx="9.25" ry="5.25" opacity=".35" stroke-dasharray="1.4 2.2"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-market" viewBox="0 0 24 24"><path d="M3 20.25h18"/><path d="M3.5 16l5-5 4 3 7.5-8"/><path d="M15.5 6h4.5v4.5"/></symbol>
+  <symbol id="i-convoy" viewBox="0 0 24 24"><path d="M2.5 8.5h5v6.5h-5zM9.5 8.5h5v6.5h-5z"/><path d="M16.5 8.5h2.75l2.25 3.25-2.25 3.25H16.5z"/><path d="M2.5 18.75h19" stroke-dasharray="1.6 1.8" opacity=".6"/></symbol>
+  <symbol id="i-crew" viewBox="0 0 24 24"><circle cx="12" cy="7.75" r="3.75"/><path d="M4.5 21v-1.5c0-3.3 2.8-5.5 5-5.5h5c2.2 0 5 2.2 5 5.5V21"/><path d="M10 14l2 2.5 2-2.5"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.25 2"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 3.5l9.25 16.5H2.75z"/><path d="M12 9.5v5"/><path d="M12 16.5v1.75"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 12.25l2.75 2.75L16.25 9.5"/></symbol>
+  <symbol id="i-signal" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1.75" fill="currentColor" stroke="none"/><path d="M8.5 8.5a5 5 0 0 0 0 7M15.5 8.5a5 5 0 0 1 0 7M5.5 5.5a9.2 9.2 0 0 0 0 13M18.5 5.5a9.2 9.2 0 0 1 0 13"/></symbol>
+  <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M3.5 12h16M13.5 6l6 6-6 6"/></symbol>
+  <symbol id="i-external" viewBox="0 0 24 24"><path d="M13.5 3.5h7v7M20.5 3.5l-9 9"/><path d="M18 14v6.5H3.5V6H10"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 4v16M4 12h16"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path d="M5.5 5.5l13 13M18.5 5.5l-13 13"/></symbol>
+  <symbol id="i-menu" viewBox="0 0 24 24"><path d="M3.5 7h17M3.5 12h17M3.5 17h11"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4.5l12.5 7.5L7 19.5z"/></symbol>
+  <symbol id="i-mail" viewBox="0 0 24 24"><path d="M3 5.5h18v13H3z"/><path d="M3 6l9 7 9-7"/></symbol>
+  <symbol id="i-browser" viewBox="0 0 24 24"><path d="M2.75 4.5h18.5v15H2.75z"/><path d="M2.75 8.5h18.5"/><path d="M5.5 6.5h1M8 6.5h1" stroke-width="1.75"/><path fill="currentColor" stroke="none" d="M8.5 17l3.5-6 3.5 6h-2.1L12 14.5 10.6 17z"/></symbol>
+</svg>
+<div class="engine" data-engine="/web/engine/showcase.html" aria-hidden="true">
+  <!-- The still (tools/install-still.sh), 8:3, covering the frame .engine lays
+       out: 150vw wide on screens wider than 16:9, otherwise as tall as the
+       window (170% of it at 700px and under), so 267vh or 453vh wide. -->
+  <picture>
+    <source type="image/avif" sizes="(max-width: 700px) 453vh, (min-aspect-ratio: 16/9) 150vw, 267vh"
+      srcset="../assets/img/engine-fleet-1920.avif 1920w, ../assets/img/engine-fleet-2880.avif 2880w, ../assets/img/engine-fleet-4320.avif 4320w, ../assets/img/engine-fleet-5760.avif 5760w">
+    <img src="../assets/img/engine-fleet-2880.jpg" sizes="(max-width: 700px) 453vh, (min-aspect-ratio: 16/9) 150vw, 267vh"
+      srcset="../assets/img/engine-fleet-1920.jpg 1920w, ../assets/img/engine-fleet-2880.jpg 2880w, ../assets/img/engine-fleet-4320.jpg 4320w, ../assets/img/engine-fleet-5760.jpg 5760w"
+      alt="" decoding="async" fetchpriority="low">
+  </picture>
+</div>
+<script defer src="../assets/engine.js"></script>
+<header class="nav">
+  <div class="wrap">
+    <a class="logo" href="index.html" aria-label="StarChadette home"><svg xmlns="http://www.w3.org/2000/svg" viewBox="-2 -2 852 44" fill="none" stroke="currentColor" stroke-width="7" role="img" aria-label="StarChadette"><path d="M56 3.5H12Q3.5 3.5 3.5 12Q3.5 20 12 20H44Q52.5 20 52.5 28.25Q52.5 36.5 44 36.5H0"/><path transform="translate(72 0)" d="M0 3.5H56M28 3.5V40"/><path transform="translate(144 0)" fill="currentColor" stroke="none" d="M0 40L24 0H32L56 40H47.8L28 7L8.2 40Z"/><path transform="translate(216 0)" d="M3.5 40V3.5H44Q52.5 3.5 52.5 12Q52.5 20.5 44 20.5H3.5M44 20.5Q52.5 20.5 52.5 29V40"/><path transform="translate(288 0)" d="M56 3.5H12Q3.5 3.5 3.5 12V28Q3.5 36.5 12 36.5H56"/><path transform="translate(360 0)" d="M3.5 0V40M52.5 0V40M3.5 20H52.5"/><path transform="translate(432 0)" style="fill:var(--amber)" stroke="none" d="M0 40L24 0H32L56 40H47.8L28 7L8.2 40Z"/><path transform="translate(504 0)" d="M3.5 3.5H42Q52.5 3.5 52.5 14V26Q52.5 36.5 42 36.5H3.5Z"/><path transform="translate(576 0)" d="M56 3.5H3.5V36.5H56M3.5 20H44"/><path transform="translate(648 0)" d="M0 3.5H56M28 3.5V40"/><path transform="translate(720 0)" d="M0 3.5H56M28 3.5V40"/><path transform="translate(792 0)" d="M56 3.5H3.5V36.5H56M3.5 20H44"/></svg></a>
+    <nav class="links" aria-label="Main">
+      <a href="index.html#codex">Codex</a>
+      <a href="market.html">The Market</a>
+      <a href="beta.html">Universe Giga</a>
+      <a href="index.html#faq">Questions</a>
+    </nav>
+    <span class="clock" data-clock aria-hidden="true">GST 0000.00.00 00:00</span>
+    <div class="actions">
+      <a class="btn primary sm" href="beta.html#enlist">Beta status</a>
+      <details class="menu">
+        <summary class="btn sm" aria-label="Menu"><svg class="icon"><use href="#i-menu"/></svg></summary>
+        <nav aria-label="Main">
+          <a href="index.html#codex">Codex</a>
+          <a href="market.html">The Market</a>
+          <a href="beta.html">Universe Giga</a>
+          <a href="index.html#faq">Questions</a>
+        </nav>
+      </details>
+    </div>
+  </div>
+</header>
+
+<main id="top">
+  <section class="hero">
+    <div class="bg" role="img" aria-label="A black-and-white portrait of a woman commander with dark hair tied back, lit by a thin amber rim light"></div>
+    <div class="wrap">
+      <div class="kicker">Persistent space strategy · In your browser</div>
+      <h1>Command,<br><em>unbothered.</em></h1>
+      <p class="lede">One home planet. Heroes that move like cities. A galaxy-wide market where every ton of cargo has to be flown. The universe never pauses, and the one who runs it never panics.</p>
+      <div class="ctas">
+        <a class="btn primary lg" href="#founders">Explore Universe Giga <svg class="icon go"><use href="#i-arrow"/></svg></a>
+        <a class="btn lg" href="#codex">Read the codex</a>
+      </div>
+      <p class="note">Founding beta · <a href="beta.html">stargigachadette.com</a></p>
+      <div class="readout hud">
+        <div><svg class="icon"><use href="#i-signal"/></svg><b>1</b><span>Persistent universe</span></div>
+        <div><svg class="icon"><use href="#i-galaxy"/></svg><b>10,000s</b><span>Star systems</span></div>
+        <div><svg class="icon"><use href="#i-browser"/></svg><b>0</b><span>Installs. It runs in a tab</span></div>
+        <div><svg class="icon"><use href="#i-shield"/></svg><b>8 h / 24 h</b><span>Shields while you sleep</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="stage window" id="fleet" aria-labelledby="fleet-h">
+    <div class="pin">
+      <img class="watchers" src="../assets/img/watchers.png" alt="" aria-hidden="true">
+      <div class="wrap">
+        <div class="stage-copy">
+          <div class="kicker">The engine</div>
+          <h2 id="fleet-h">This is the real game.</h2>
+          <p class="lede gpu-on">The game's own engine, running in your browser: a galaxy made by its generator and fleets on patrol, drawn live with WebGPU. Every hull in those trails flies on its own. Nothing here is a video.</p>
+          <p class="lede gpu-off">In a browser with WebGPU, the game's own engine runs here, from the whole galaxy down to a single ship in a patrolling fleet. This frame is what it draws.</p>
+          <p class="fine gpu-off" data-engine-why hidden></p>
+          <div class="engine-live gpu-on" data-engine-live><p class="live-caption" data-engine-caption><b>Live</b><span>Starting the engine</span><em data-engine-pct aria-hidden="true"></em></p></div>
+          <p class="live-caption still gpu-off"><b>Still</b><span>A frame rendered by the game's engine</span></p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="order" aria-label="Standing order">
+    <div class="wrap">
+      <figure class="commander" role="img" aria-label="A black-and-white portrait of a commander with a sculpted jaw, lit by a thin amber rim light"></figure>
+      <div class="said">
+        <svg class="seal" viewBox="8.2 -0.5 1228 1228" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="The StarChadette seal: a woman commander in profile on a silver medallion. Motto: Per mandibulam ad astra.">
+  <!-- generated by tools/seals.mjs from concepts/seal/F-silver.png: centre 622.2,613.5, edge 608×601, band inner edge 483×490 -->
+  <defs>
+    <clipPath id="seal-silver-f-clip"><ellipse cx="622.2" cy="613.5" rx="611" ry="604"/></clipPath>
+    <path id="seal-silver-f-top" d="M105.7 613.5A516.5 516.5 0 1 1 1138.7 613.5"/>
+    <path id="seal-silver-f-bottom" d="M75.7 613.5A546.5 546.5 0 0 0 1168.7 613.5"/>
+  </defs>
+  <image href="../assets/img/seal-silver-f.jpg" width="1254" height="1254" clip-path="url(#seal-silver-f-clip)"/>
+  <g font-family="Michroma, Eurostile, sans-serif" text-anchor="middle">
+    <text class="engrave-hi" font-size="50" transform="translate(0 2.5)"><textPath href="#seal-silver-f-top" startOffset="50%" textLength="880" lengthAdjust="spacing">STARCHADETTE</textPath></text>
+    <text class="engrave" font-size="50"><textPath href="#seal-silver-f-top" startOffset="50%" textLength="880" lengthAdjust="spacing">STARCHADETTE</textPath></text>
+    <text class="engrave-hi" font-size="34" transform="translate(0 2.5)"><textPath href="#seal-silver-f-bottom" startOffset="50%" textLength="1180" lengthAdjust="spacing">PER MANDIBULAM · AD ASTRA</textPath></text>
+    <text class="engrave" font-size="34"><textPath href="#seal-silver-f-bottom" startOffset="50%" textLength="1180" lengthAdjust="spacing">PER MANDIBULAM · AD ASTRA</textPath></text>
+  </g>
+</svg>
+        <blockquote>The galaxy belongs to the composed.</blockquote>
+        <cite>Federation Admiralty · Standing Order One</cite>
+      </div>
+    </div>
+  </section>
+
+  <section class="codex" id="codex">
+    <div class="wrap">
+      <header>
+        <div><div class="kicker">Codex · Primary entries</div><h2 style="margin-top:18px">What you will command</h2></div>
+        <p>Eight entries, one rule underneath them all: the galaxy is real. Cargo has weight, fleets take time, and nobody greys out a button to stop you.</p>
+      </header>
+      <div class="codex-body hud">
+        <div class="codex-nav" role="tablist" aria-label="Codex entries">
+          <div class="group">Your civilization</div>
+          <button role="tab" aria-selected="true" aria-controls="cx-planet" id="t-planet"><svg class="icon"><use href="#i-planet"/></svg>The Home Planet</button>
+          <button role="tab" aria-selected="false" aria-controls="cx-heroes" id="t-heroes"><svg class="icon"><use href="#i-hero"/></svg>Heroes</button>
+          <button role="tab" aria-selected="false" aria-controls="cx-ships" id="t-ships"><svg class="icon"><use href="#i-cargo"/></svg>Ships &amp; Cargo</button>
+          <div class="group">The galaxy</div>
+          <button role="tab" aria-selected="false" aria-controls="cx-market" id="t-market"><svg class="icon"><use href="#i-market"/></svg>The Market</button>
+          <button role="tab" aria-selected="false" aria-controls="cx-piracy" id="t-piracy"><svg class="icon"><use href="#i-convoy"/></svg>Piracy</button>
+          <button role="tab" aria-selected="false" aria-controls="cx-federation" id="t-federation"><svg class="icon"><use href="#i-federation"/></svg>The Federation</button>
+          <button role="tab" aria-selected="false" aria-controls="cx-beyond" id="t-beyond"><svg class="icon"><use href="#i-galaxy"/></svg>Beyond the Core</button>
+          <button role="tab" aria-selected="false" aria-controls="cx-shields" id="t-shields"><svg class="icon"><use href="#i-shield"/></svg>Shields</button>
+        </div>
+        <div>
+          <article class="codex-entry on" id="cx-planet" role="tabpanel" aria-labelledby="t-planet">
+            <figure><img src="../assets/img/game-home-planet.jpg" alt="A home planet in the game: its regions outlined across the night side, its cities lit, the day side towards the sun"><figcaption>IN GAME · A HOME PLANET AND ITS REGIONS</figcaption></figure>
+            <div class="text"><div><h3>One world. All of it yours.</h3>
+              <p>Your civilization was born on a single planet in the Federation Core. Every coast, mine and city on it belongs to you, and the planet itself is your interface: you work on the real globe, not on a flat menu.</p>
+              <p>Your first year is spent making it the envy of the Core.</p></div>
+              <aside><b>FIELD NOTES</b><span>Owned outright, free</span><span>Research happens on planets</span><span>Planets never run dry</span></aside></div>
+          </article>
+          <article class="codex-entry" id="cx-heroes" role="tabpanel" aria-labelledby="t-heroes">
+            <figure><img loading="lazy" src="../assets/img/06-hero-city.jpg" alt="A colossal mothership surrounded by factory ships, mining barges and escorts"><figcaption>CONCEPT · A HERO ON THE MOVE</figcaption></figure>
+            <div class="text"><div><h3>Heroes are moving cities.</h3>
+              <p>Growth does not come from more planets. It comes from heroes: a flagship, a city of factory and mining ships around it, and the fleet that flies with it.</p>
+              <p>Point a hero at the dark and it brings civilization along.</p></div>
+              <aside><b>FIELD NOTES</b><span>Outposts &amp; asteroid mining: week two</span><span>Factory ships: around month three</span><span>Crewed by your home world</span></aside></div>
+          </article>
+          <article class="codex-entry" id="cx-ships" role="tabpanel" aria-labelledby="t-ships">
+            <figure><img loading="lazy" src="../assets/img/game-battleship.jpg" alt="A battleship seen from behind under full thrust, the ships of its fleet marked around it"><figcaption>IN GAME · A BATTLESHIP AND ITS FLEET</figcaption></figure>
+            <div class="text"><div><h3>Every ton has to be flown.</h3>
+              <p>Credits, licences and orders travel instantly over the galactic network. Everything else does not. Ships are the only link between worlds, so every trade ends with a hold, a route and a pilot.</p></div>
+              <aside><b>FIELD NOTES</b><span>Six combat classes, interceptor to colossus</span><span>Base travel is free</span><span>Propellant is a booster</span></aside></div>
+          </article>
+          <article class="codex-entry" id="cx-market" role="tabpanel" aria-labelledby="t-market">
+            <figure><img loading="lazy" src="../assets/img/07-credit-coin.jpg" alt="A heavy gunmetal and gold credit coin with a commander's profile"><figcaption>CONCEPT · THE CREDIT</figcaption></figure>
+            <div class="text"><div><h3>Everything is for sale.</h3>
+              <p>Ships, cargo, maps, licences: everything can be bought and sold. Federation markets charge a visible 0.5% fee, and that is all. What other games call an exploit, this galaxy calls business.</p>
+              <p>No pay-to-win. Real money buys tradable premium items, which players sell for credits. If you would rather grind, the same benefits are within reach.</p>
+              <a class="btn sm more" href="market.html">Open the market <svg class="icon go"><use href="#i-arrow"/></svg></a></div>
+              <aside><b>FIELD NOTES</b><span>Market fee: 0.5%, visible</span><span>Premium items are tradable</span><span>Fair play is what you can pull off</span></aside></div>
+          </article>
+          <article class="codex-entry" id="cx-piracy" role="tabpanel" aria-labelledby="t-piracy">
+            <figure><img loading="lazy" src="../assets/img/04-convoy-raid.jpg" alt="Raiders clamped onto a moving freighter convoy, pulling out containers"><figcaption>CONCEPT · CONVOY BOARDING</figcaption></figure>
+            <div class="text"><div><h3>Piracy is a train robbery.</h3>
+              <p>Raiders clamp onto a moving convoy, fight off the guards, force a hold, load what they can and run. The convoy keeps going and arrives short.</p>
+              <p>Escorts, routes and timing are the answer. So is becoming the raider.</p></div>
+              <aside><b>FIELD NOTES</b><span>Boarding, not just destruction</span><span>Wrecks can be stripped</span><span>Heroes keep a protected hold</span></aside></div>
+          </article>
+          <article class="codex-entry" id="cx-federation" role="tabpanel" aria-labelledby="t-federation">
+            <figure><img loading="lazy" src="../assets/img/01-commander-profile.jpg" alt="A commander on a bridge watching a fleet over a planet"><figcaption>CONCEPT · THE BRIDGE</figcaption></figure>
+            <div class="text"><div><h3>The world answers. The interface doesn't.</h3>
+              <p>Nothing is greyed out. Break Federation law and the Federation sends a fleet, in person. Large enough alliances have been known to send it back.</p>
+              <p>And whatever you do out there, the Core will still take you home.</p></div>
+              <aside><b>FIELD NOTES</b><span>No blocked actions</span><span>Consequences arrive by ship</span><span>The Federation can be beaten</span></aside></div>
+          </article>
+          <article class="codex-entry" id="cx-beyond" role="tabpanel" aria-labelledby="t-beyond">
+            <figure><img loading="lazy" src="../assets/img/game-galaxy-map.jpg" alt="The galaxy map: thousands of star systems joined by their links, densest at the core"><figcaption>IN GAME · THE GALAXY MAP</figcaption></figure>
+            <div class="text"><div><h3>The Core is only the beginning.</h3>
+              <p>Around the end of your first year, control-centre ships carry your flag outward. They land, become buildings and claim regions of other worlds, in a universe of tens of thousands of star systems.</p></div>
+              <aside><b>FIELD NOTES</b><span>One persistent universe</span><span>Regions from about year one</span><span>Maps are earned or bought</span></aside></div>
+          </article>
+          <article class="codex-entry" id="cx-shields" role="tabpanel" aria-labelledby="t-shields">
+            <figure><img loading="lazy" src="../assets/img/11-desk-at-night.jpg" alt="A player at a desk at night, the star map glowing on the screen"><figcaption>CONCEPT · 02:00, LOCAL TIME</figcaption></figure>
+            <div class="text"><div><h3>Shields, not vacation mode.</h3>
+              <p>The universe keeps going when you log off. Raise an 8-hour or 24-hour shield while you sleep, work or live your life, and come back to an empire that is still yours.</p></div>
+              <aside><b>FIELD NOTES</b><span>8 h and 24 h shields</span><span>Plan around them. So will they.</span></aside></div>
+          </article>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="desk" id="desk">
+    <div class="bg" role="img" aria-label="A commander leaning over a holographic galaxy table in a dark office"></div>
+    <div class="wrap">
+      <div class="panel-text">
+        <div class="kicker">The desk</div>
+        <h2>Your empire runs in a tab.</h2>
+        <p class="lede">Remember checking your fleet between classes? It's back, and it finally looks the way you imagined it: a full 3D galaxy, on desktop and phone, with nothing to install.</p>
+        <ul>
+          <li><svg class="icon"><use href="#i-signal"/></svg><span>Same universe, same rivals, years at a time.</span></li>
+          <li><svg class="icon"><use href="#i-clock"/></svg><span>Quick orders between meetings; deep planning when you have the evening.</span></li>
+          <li><svg class="icon"><use href="#i-fleet"/></svg><span>Built by people who set alarms for fleet saves.</span></li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="section teaser" id="market">
+    <div class="wrap grid">
+      <div>
+        <div class="kicker">The market</div>
+        <h2>Everything is for sale. Everything has to be flown.</h2>
+        <p class="lede">One market across the Core, priced by players. Buy anywhere, then move it: the credits travel instantly, the cargo waits in a hold until a ship carries it home.</p>
+        <div class="ctas">
+          <a class="btn" href="market.html">Open the market <svg class="icon go"><use href="#i-arrow"/></svg></a>
+        </div>
+      </div>
+      <div class="board hud" aria-label="Illustrative price board">
+        <header><span class="label">Core exchange · price board</span><span class="tag ion dot live">Illustrative</span></header>
+        <table>
+          <thead><tr><th>Commodity</th><th>Bid</th><th class="hide-sm">Ask</th><th>24 h</th></tr></thead>
+          <tbody>
+            <tr><td>Iron ore</td><td>6.36</td><td class="hide-sm">6.40</td><td class="down">−0.29%</td></tr>
+            <tr><td>Refined alloy</td><td>83.95</td><td class="hide-sm">84.45</td><td class="up">+1.12%</td></tr>
+            <tr><td>Hull plating</td><td>142.07</td><td class="hide-sm">142.93</td><td class="up">+0.60%</td></tr>
+            <tr><td>Fusion cores</td><td>1,256.22</td><td class="hide-sm">1,263.78</td><td class="down">−0.84%</td></tr>
+            <tr><td>Crew contracts</td><td>309.47</td><td class="hide-sm">311.33</td><td class="up">+0.13%</td></tr>
+          </tbody>
+        </table>
+        <footer><span class="fine">Federation fee 0.5% · shown before you confirm</span><span class="fine">Credits</span></footer>
+      </div>
+    </div>
+  </section>
+
+  <section class="strip">
+    <div class="wrap">
+      <header><h2>From the game</h2><p class="fine">In game · Screenshots of the game in development</p></header>
+      <div class="tiles">
+        <figure><img loading="lazy" src="../assets/img/game-fleet.jpg" alt="A battleship under full thrust, smaller ships of its fleet streaming past a planet"><figcaption>A battleship and its fleet</figcaption></figure>
+        <figure><img loading="lazy" src="../assets/img/game-eclipse-720.jpg" alt="A planet in front of its sun, the cities on its night side lit"><figcaption>Cities on the night side</figcaption></figure>
+        <figure><img loading="lazy" src="../assets/img/game-orbit-720.jpg" alt="A ship under way beside a blue and green world"><figcaption>Under way</figcaption></figure>
+        <figure><img loading="lazy" src="../assets/img/game-red-world-720.jpg" alt="A planet rimmed red by its sun, its cities gold, each marked owner unknown"><figcaption>Owner unknown</figcaption></figure>
+        <figure><img loading="lazy" src="../assets/img/game-system-720.jpg" alt="A star system's orbits and planets inside a blue-grey nebula"><figcaption>A star system</figcaption></figure>
+      </div>
+    </div>
+  </section>
+
+  <section class="strip">
+    <div class="wrap">
+      <header><h2>Concept transmissions</h2><p class="fine">Concept art · Not in-game footage</p></header>
+      <div class="tiles">
+        <figure><img loading="lazy" src="../assets/img/14-monument-pair.jpg" alt="Two commanders' profiles, a woman and a man, carved into asteroids facing each other as ships pass between them"><figcaption>The Founders' Gate</figcaption></figure>
+        <figure><img loading="lazy" src="../assets/img/06-hero-city-720.jpg" alt="A hero's city of ships"><figcaption>A hero on the move</figcaption></figure>
+        <figure><img loading="lazy" src="../assets/img/04-convoy-raid-720.jpg" alt="A convoy under boarding"><figcaption>Convoy boarding</figcaption></figure>
+        <figure><img loading="lazy" src="../assets/img/32-battle-line-720.jpg" alt="Four battleships firing their spinal guns in line, frigates ahead of them"><figcaption>The battle line</figcaption></figure>
+        <figure><img loading="lazy" src="../assets/img/08-commanders-720.jpg" alt="Four commanders in dark uniforms"><figcaption>Commanders</figcaption></figure>
+      </div>
+    </div>
+  </section>
+
+  <section class="section founders" id="founders">
+    <div class="wrap">
+      <div class="card hud">
+        <div class="coins"><svg class="seal gold" viewBox="2.1 -15.2 1240 1240" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="The StarChadette seal: a commander in profile on a gold medallion. Motto: Per mandibulam ad astra.">
+  <!-- generated by tools/seals.mjs from concepts/seal/S1-gunmetal.png: centre 622.1,604.8, edge 614×595, band inner edge 511×505 -->
+  <defs>
+    <clipPath id="seal-gold-clip"><ellipse cx="622.1" cy="604.8" rx="617" ry="598"/></clipPath>
+    <path id="seal-gold-top" d="M88.6 604.8A533.5 521 0 1 1 1155.6 604.8"/>
+    <path id="seal-gold-bottom" d="M58.6 604.8A563.5 551 0 0 0 1185.6 604.8"/>
+  </defs>
+  <image href="../assets/img/seal-gold.jpg" width="1254" height="1254" clip-path="url(#seal-gold-clip)"/>
+  <g font-family="Michroma, Eurostile, sans-serif" text-anchor="middle">
+    <text class="engrave-hi" font-size="50" transform="translate(0 2.5)"><textPath href="#seal-gold-top" startOffset="50%" textLength="880" lengthAdjust="spacing">STARCHADETTE</textPath></text>
+    <text class="engrave" font-size="50"><textPath href="#seal-gold-top" startOffset="50%" textLength="880" lengthAdjust="spacing">STARCHADETTE</textPath></text>
+    <text class="engrave-hi" font-size="34" transform="translate(0 2.5)"><textPath href="#seal-gold-bottom" startOffset="50%" textLength="1180" lengthAdjust="spacing">PER MANDIBULAM · AD ASTRA</textPath></text>
+    <text class="engrave" font-size="34"><textPath href="#seal-gold-bottom" startOffset="50%" textLength="1180" lengthAdjust="spacing">PER MANDIBULAM · AD ASTRA</textPath></text>
+  </g>
+</svg><svg class="seal gold" viewBox="2.8 -14.6 1238 1238" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="The StarChadette seal: a woman commander in profile on a gold medallion. Motto: Per mandibulam ad astra.">
+  <!-- generated by tools/seals.mjs from concepts/seal/F-gold.png: centre 621.8,604.4, edge 613×594, band inner edge 511×505 -->
+  <defs>
+    <clipPath id="seal-gold-f-clip"><ellipse cx="621.8" cy="604.4" rx="616" ry="597"/></clipPath>
+    <path id="seal-gold-f-top" d="M88.8 604.4A533 520.5 0 1 1 1154.8 604.4"/>
+    <path id="seal-gold-f-bottom" d="M58.8 604.4A563 550.5 0 0 0 1184.8 604.4"/>
+  </defs>
+  <image href="../assets/img/seal-gold-f.jpg" width="1254" height="1254" clip-path="url(#seal-gold-f-clip)"/>
+  <g font-family="Michroma, Eurostile, sans-serif" text-anchor="middle">
+    <text class="engrave-hi" font-size="50" transform="translate(0 2.5)"><textPath href="#seal-gold-f-top" startOffset="50%" textLength="880" lengthAdjust="spacing">STARCHADETTE</textPath></text>
+    <text class="engrave" font-size="50"><textPath href="#seal-gold-f-top" startOffset="50%" textLength="880" lengthAdjust="spacing">STARCHADETTE</textPath></text>
+    <text class="engrave-hi" font-size="34" transform="translate(0 2.5)"><textPath href="#seal-gold-f-bottom" startOffset="50%" textLength="1180" lengthAdjust="spacing">PER MANDIBULAM · AD ASTRA</textPath></text>
+    <text class="engrave" font-size="34"><textPath href="#seal-gold-f-bottom" startOffset="50%" textLength="1180" lengthAdjust="spacing">PER MANDIBULAM · AD ASTRA</textPath></text>
+  </g>
+</svg></div>
+        <div>
+          <div class="kicker">Universe Giga · Founding beta</div>
+          <h2>The first universe needs founders.</h2>
+          <p class="lede">Universe Giga is where StarChadette is proven: the first commanders, the first markets, the first convoys that arrive short. It lives at stargigachadette.com.</p>
+          <div class="promise">Progress in Giga may be wiped before launch. <b>Your name will not.</b> Every Founder's commander name is engraved on the Founder's Monument in the launch universe.</div>
+          <div class="registration-closed" id="enlist">
+  <button class="btn primary" type="button" disabled>Registration closed</button>
+  <p class="fine" style="margin-top:14px">Universe Giga is in development. Registration is not open yet.</p>
+</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="faq" id="faq" style="padding-bottom:var(--space-section)">
+    <div class="wrap grid">
+      <div><div class="kicker">Questions</div><h2 style="margin-top:18px">Short answers.</h2></div>
+      <div class="faq-list">
+        <details open><summary>Is it free to play?<svg class="icon"><use href="#i-plus"/></svg></summary><div class="a"><span class="yes">Yes.</span></div></details>
+        <details><summary>Does the universe keep going when I log off?<svg class="icon"><use href="#i-plus"/></svg></summary><div class="a"><span class="yes">Yes.</span>That's what shields are for.</div></details>
+        <details><summary>Can I rob a convoy and sell the cargo back to its owner?<svg class="icon"><use href="#i-plus"/></svg></summary><div class="a"><span class="yes">Yes.</span></div></details>
+        <details><summary>Is it pay-to-win?<svg class="icon"><use href="#i-plus"/></svg></summary><div class="a"><span class="yes">No.</span>Real money buys tradable items that other players buy with credits. Everything they give can be reached by playing.</div></details>
+        <details><summary>Can I play it at work?<svg class="icon"><use href="#i-plus"/></svg></summary><div class="a">It runs in a browser tab. We have no further comment.</div></details>
+      </div>
+    </div>
+  </section>
+
+  <section class="closing window" aria-labelledby="closing-h">
+    <div class="wrap">
+      <div class="kicker">Universe Giga · Founding beta</div>
+      <h2 id="closing-h">Progress never stops.</h2>
+      <a class="btn primary lg" href="#founders">Explore Universe Giga <svg class="icon go"><use href="#i-arrow"/></svg></a>
+      <div class="engine-live gpu-on" data-engine-live><p class="live-caption" data-engine-caption><b>Live</b><span>Starting the engine</span><em data-engine-pct aria-hidden="true"></em></p></div>
+    </div>
+  </section>
+</main>
+
+<footer class="footer">
+  <div class="wrap">
+    <div class="brand"><svg xmlns="http://www.w3.org/2000/svg" viewBox="-2 -2 852 44" fill="none" stroke="currentColor" stroke-width="7" role="img" aria-label="StarChadette"><path d="M56 3.5H12Q3.5 3.5 3.5 12Q3.5 20 12 20H44Q52.5 20 52.5 28.25Q52.5 36.5 44 36.5H0"/><path transform="translate(72 0)" d="M0 3.5H56M28 3.5V40"/><path transform="translate(144 0)" fill="currentColor" stroke="none" d="M0 40L24 0H32L56 40H47.8L28 7L8.2 40Z"/><path transform="translate(216 0)" d="M3.5 40V3.5H44Q52.5 3.5 52.5 12Q52.5 20.5 44 20.5H3.5M44 20.5Q52.5 20.5 52.5 29V40"/><path transform="translate(288 0)" d="M56 3.5H12Q3.5 3.5 3.5 12V28Q3.5 36.5 12 36.5H56"/><path transform="translate(360 0)" d="M3.5 0V40M52.5 0V40M3.5 20H52.5"/><path transform="translate(432 0)" style="fill:var(--amber)" stroke="none" d="M0 40L24 0H32L56 40H47.8L28 7L8.2 40Z"/><path transform="translate(504 0)" d="M3.5 3.5H42Q52.5 3.5 52.5 14V26Q52.5 36.5 42 36.5H3.5Z"/><path transform="translate(576 0)" d="M56 3.5H3.5V36.5H56M3.5 20H44"/><path transform="translate(648 0)" d="M0 3.5H56M28 3.5V40"/><path transform="translate(720 0)" d="M0 3.5H56M28 3.5V40"/><path transform="translate(792 0)" d="M56 3.5H3.5V36.5H56M3.5 20H44"/></svg><div class="motto">PER MANDIBULAM AD ASTRA</div></div>
+    <div><h4>The game</h4><ul><li><a href="index.html#codex">Codex</a></li><li><a href="market.html">The Market</a></li><li><a href="index.html#faq">Questions</a></li></ul></div>
+    <div><h4>Universe Giga</h4><ul><li><a href="beta.html#enlist">Beta status</a></li><li><a href="beta.html">Founders</a></li><li><a href="beta.html">stargigachadette.com</a></li></ul></div>
+    <div><h4>StarChadette</h4><ul><li><a href="#">Press kit</a></li><li><a href="#">Privacy</a></li><li><a href="#">Terms</a></li><li><a href="#">Contact</a></li><li><a href="../index.html">starchad&#46;com</a></li></ul></div>
+    <small>© 2026 StarChadette · starchadette.com · Registration is currently closed. Images marked In game are screenshots of the game in development; the rest is concept art.</small>
+  </div>
+</footer>
+<!-- The site's music, off until the reader turns it on (assets/music.js). -->
+<button class="btn sm music" type="button" data-music="../assets/audio/hacia-un-planeta-distante.mp3" data-state="off" aria-pressed="false" aria-label="Music: Hacia un planeta distante" hidden>
+  <span class="eq" aria-hidden="true"><i></i><i></i><i></i><i></i></span><span class="music-name">Music</span><span class="music-title">Hacia un planeta distante</span>
+</button>
+<script defer src="../assets/music.js"></script>
+<script>
+  // Galactic standard time (UTC) wherever a [data-clock] appears, once a minute.
+  (() => {
+    const els = document.querySelectorAll('[data-clock]');
+    const p = n => String(n).padStart(2, '0');
+    const tick = () => { const d = new Date(); els.forEach(el => el.textContent = `GST ${d.getUTCFullYear()}.${p(d.getUTCMonth() + 1)}.${p(d.getUTCDate())} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}`); };
+    if (els.length) { tick(); setInterval(tick, 60000); }
+  })();
+</script>
+
+<script>
+// Codex tabs: one entry visible; arrow keys move between tabs.
+const tabs = [...document.querySelectorAll('.codex-nav [role="tab"]')];
+function select(tab) {
+  tabs.forEach(t => {
+    const on = t === tab;
+    t.setAttribute('aria-selected', on);
+    t.tabIndex = on ? 0 : -1;
+    document.getElementById(t.getAttribute('aria-controls')).classList.toggle('on', on);
+  });
+}
+tabs.forEach((t, i) => {
+  t.tabIndex = i ? -1 : 0;
+  t.addEventListener('click', () => select(t));
+  t.addEventListener('keydown', e => {
+    const step = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 }[e.key];
+    if (!step) return;
+    e.preventDefault();
+    const next = tabs[(i + step + tabs.length) % tabs.length];
+    select(next); next.focus();
+  });
+});
+
+</script>
+</body>
+</html>

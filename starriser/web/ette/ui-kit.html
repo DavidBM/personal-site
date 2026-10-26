@@ -1,0 +1,414 @@
+<!doctype html>
+<!-- Built by build.mjs from src/ui-kit.html; edit the source, not this file. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@300;400;500;600&family=Barlow+Condensed:wght@400;500;600&family=Michroma&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/starchad.css">
+<title>StarChadette UI kit (internal)</title>
+<meta name="robots" content="noindex">
+<style>
+.kit-head { padding: 64px 0 24px; }
+.kit-head h1 { font-size: clamp(32px, 4vw, 52px); margin: 18px 0 16px; }
+.rules { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin-top: 28px; }
+.rule { border: 1px solid var(--line); background: var(--g900); padding: 18px 20px; display: grid; grid-template-columns: 22px 1fr; gap: 14px; font-size: 15px; color: var(--text-2); }
+.rule b { color: var(--bone); font-weight: 500; }
+.rule i { width: 12px; height: 12px; margin-top: 6px; display: block; }
+.block { padding: 48px 0; border-top: 1px solid var(--line); }
+.block > .wrap > h2 { font-size: 22px; margin-bottom: 6px; }
+.block > .wrap > p { color: var(--steel); font-size: 15px; max-width: 70ch; margin-bottom: 26px; }
+.matrix { display: grid; grid-template-columns: 120px repeat(6, minmax(0, 1fr)); gap: 14px 12px; align-items: center; overflow-x: auto; }
+.matrix .h { font: 500 10.5px/1.2 var(--ui); letter-spacing: .22em; text-transform: uppercase; color: var(--steel); }
+.matrix .btn { justify-self: start; }
+.cell-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 18px 16px; }
+.cell { display: grid; gap: 10px; align-content: start; }
+.cell > .label { color: var(--text-3); }
+.swatches { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.sw { border: 1px solid var(--line); background: var(--g900); }
+.sw i { display: block; height: 70px; }
+.sw div { padding: 12px 14px 14px; }
+.sw b { display: block; font: 600 13px/1.2 var(--ui); letter-spacing: .14em; text-transform: uppercase; }
+.sw span { display: block; margin-top: 4px; font: 400 11.5px/1.5 var(--mono); color: var(--steel); }
+.type .row { display: grid; grid-template-columns: 200px 1fr; gap: 20px; align-items: baseline; padding: 16px 0; border-top: 1px solid var(--line); }
+.icons { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; }
+.icons > div { display: grid; justify-items: center; gap: 10px; padding: 16px 6px 12px; border: 1px solid var(--line); background: var(--g900); }
+.icons .sizes { display: flex; gap: 12px; align-items: center; }
+.icons code { font: 400 10.5px var(--mono); color: var(--steel); }
+.seals { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+.seals figure { margin: 0; text-align: center; }
+.seals figure > svg, .seals figure > img { max-width: 220px; margin: 0 auto 12px; border-radius: 50%; }
+.seals figcaption { font-size: 14px; color: var(--text-3); }
+.seals figcaption b { display: block; color: var(--bone); font: 600 13px/1.4 var(--ui); letter-spacing: .16em; text-transform: uppercase; }
+.logos { display: grid; grid-template-columns: 1.5fr 1fr; gap: 12px; }
+.logos > div { border: 1px solid var(--line); background: var(--g900); padding: 28px; display: grid; place-items: center; min-height: 140px; color: var(--bone); }
+.logos .marks { display: flex; gap: 28px; align-items: center; }
+.marks-list { display: grid; gap: 26px; justify-items: center; }
+.marks-list svg { height: 18px; width: auto; max-width: 100%; }
+/* game-flavoured components */
+.resbar { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: 1px solid var(--line); background: var(--void); }
+.res { display: grid; grid-template-columns: 22px 1fr; column-gap: 12px; padding: 14px 16px; align-items: center; }
+.res + .res { border-left: 1px solid var(--line); }
+.res .icon { color: var(--amber); grid-row: span 2; }
+.res b { font: 500 16px/1.2 var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.res b small { font-size: 11px; color: var(--ok); margin-left: 6px; }
+.res span { font: 500 10px/1.2 var(--ui); letter-spacing: .22em; text-transform: uppercase; color: var(--steel); }
+.toast { display: grid; grid-template-columns: 22px 1fr; gap: 14px; padding: 15px 16px; background: var(--g800); border: 1px solid var(--line); border-left: 2px solid var(--c, var(--ion)); }
+.toast .icon { color: var(--c, var(--ion)); margin-top: 1px; }
+.toast b { display: block; font: 600 13.5px/1.2 var(--ui); letter-spacing: .14em; text-transform: uppercase; margin-bottom: 4px; }
+.toast p { margin: 0; font-size: 14.5px; color: var(--text-2); }
+.toast small { display: block; margin-top: 6px; font: 400 11px var(--mono); color: var(--steel); }
+.hero-card { border: 1px solid var(--line); background: linear-gradient(135deg, rgba(240,138,36,.08), transparent 45%), var(--g800);
+  clip-path: polygon(16px 0, 100% 0, 100% calc(100% - 16px), calc(100% - 16px) 100%, 0 100%, 0 16px); }
+.hero-card .img { height: 130px; background: url(../assets/img/06-hero-city-720.jpg) 60% 40% / cover; border-bottom: 1px solid var(--line); }
+.hero-card .bd { padding: 16px 18px 18px; display: grid; gap: 12px; }
+.hero-card h4 { margin: 0; font: 400 16px/1.25 var(--display); }
+.hero-card .tags { display: flex; gap: 6px; flex-wrap: wrap; }
+.hero-card .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.hero-card .stats span { display: block; font: 500 9.5px/1 var(--ui); letter-spacing: .2em; text-transform: uppercase; color: var(--steel); margin-bottom: 6px; }
+.hero-card .stats b { font: 500 14px var(--mono); font-variant-numeric: tabular-nums; }
+.bar { height: 4px; background: var(--g600); position: relative; }
+.bar i { position: absolute; inset: 0 auto 0 0; width: var(--p); background: linear-gradient(90deg, var(--amber-lo), var(--amber)); }
+.bar + .meta { display: flex; justify-content: space-between; font: 400 11.5px var(--mono); color: var(--steel); }
+.count { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.count div { text-align: center; padding: 12px 0 10px; border: 1px solid var(--line); background: var(--void); }
+.count b { display: block; font: 400 26px/1 var(--display); font-variant-numeric: tabular-nums; }
+.count span { font: 500 9.5px/1 var(--ui); letter-spacing: .22em; color: var(--steel); }
+.ranks { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; text-align: center; }
+.ranks div { padding: 16px 4px 12px; border: 1px solid var(--line); background: var(--g900); }
+.ranks svg { width: 40px; height: 40px; }
+.ranks span { display: block; margin-top: 10px; font: 500 10.5px/1.2 var(--ui); letter-spacing: .16em; text-transform: uppercase; color: var(--steel); }
+@media (max-width: 900px) {
+  .seals { grid-template-columns: 1fr 1fr; }
+  .logos { grid-template-columns: 1fr; }
+  .resbar { grid-template-columns: 1fr 1fr; }
+  .res:nth-child(3) { border-left: 0; }
+  .res:nth-child(n+3) { border-top: 1px solid var(--line); }
+  .type .row { grid-template-columns: 1fr; gap: 6px; }
+}
+</style>
+</head>
+<body class="grain">
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">
+  <!-- 24 px grid, 2 px margin, 1.5 px line, mitred joins; filled marks only where the brand chevron appears -->
+  <symbol id="i-planet" viewBox="0 0 24 24"><circle cx="12" cy="12" r="6"/><path d="M17.28 6.66A10.5 3.5 -25 0 1 21.51 7.56A10.5 3.5 -25 0 1 2.49 16.44A10.5 3.5 -25 0 1 4.52 12.62"/></symbol>
+  <symbol id="i-hero" viewBox="0 0 24 24"><path fill="currentColor" stroke="none" d="M7 17.5L12 8.5l5 9h-2.9L12 13.6l-2.1 3.9z"/><path d="M4.2 9.6A9 9 0 0 1 19.8 9.6M20.6 14.6A9 9 0 0 1 16 19.8M8 19.8a9 9 0 0 1-4.6-5.2"/></symbol>
+  <symbol id="i-fleet" viewBox="0 0 24 24"><path fill="currentColor" stroke="none" d="M8.5 10L12 4l3.5 6h-2.1L12 7.5 10.6 10zM3 19l3.5-6 3.5 6H7.9l-1.4-2.5L5.1 19zM14 19l3.5-6 3.5 6h-2.1l-1.4-2.5-1.4 2.5z"/></symbol>
+  <symbol id="i-cargo" viewBox="0 0 24 24"><path d="M4 7h16l1 1v10l-1 1H4l-1-1V8z"/><path d="M7.5 10v6M12 10v6M16.5 10v6"/></symbol>
+  <symbol id="i-credits" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="6.25" stroke-width="1" opacity=".55"/><path d="M8.8 14.6L12 9.2l3.2 5.4"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M4.5 3.5h15V12l-4.75 8.5h-5.5L4.5 12z"/><path d="M8.75 14.25L12 8.75l3.25 5.5"/></symbol>
+  <symbol id="i-federation" viewBox="0 0 24 24"><path d="M8.3 2.75h7.4l5.55 5.55v7.4l-5.55 5.55H8.3L2.75 15.7V8.3z"/><path fill="currentColor" stroke="none" d="M12 6.5l1.4 4.1 4.1 1.4-4.1 1.4L12 17.5l-1.4-4.1L6.5 12l4.1-1.4z"/></symbol>
+  <symbol id="i-route" viewBox="0 0 24 24"><path d="M6.4 16.2l4-5.6M13.2 9.2l3.8 2.6" /><path fill="currentColor" stroke="none" d="M5 15.2l2.3 2.3L5 19.8l-2.3-2.3z"/><circle cx="11.75" cy="8.5" r="1.9"/><circle cx="19" cy="13.25" r="2.6"/><circle cx="19" cy="13.25" r=".9" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-galaxy" viewBox="0 0 24 24"><path d="M12 12c2.4-.5 3.4-2.5 1.3-3.8C10.6 6.6 5.2 7.5 3.25 10.75"/><path d="M12 12c-2.4.5-3.4 2.5-1.3 3.8 2.7 1.6 8.1.7 10.05-2.55"/><ellipse cx="12" cy="12" rx="9.25" ry="5.25" opacity=".35" stroke-dasharray="1.4 2.2"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-market" viewBox="0 0 24 24"><path d="M3 20.25h18"/><path d="M3.5 16l5-5 4 3 7.5-8"/><path d="M15.5 6h4.5v4.5"/></symbol>
+  <symbol id="i-convoy" viewBox="0 0 24 24"><path d="M2.5 8.5h5v6.5h-5zM9.5 8.5h5v6.5h-5z"/><path d="M16.5 8.5h2.75l2.25 3.25-2.25 3.25H16.5z"/><path d="M2.5 18.75h19" stroke-dasharray="1.6 1.8" opacity=".6"/></symbol>
+  <symbol id="i-crew" viewBox="0 0 24 24"><circle cx="12" cy="7.75" r="3.75"/><path d="M4.5 21v-1.5c0-3.3 2.8-5.5 5-5.5h5c2.2 0 5 2.2 5 5.5V21"/><path d="M10 14l2 2.5 2-2.5"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.25 2"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 3.5l9.25 16.5H2.75z"/><path d="M12 9.5v5"/><path d="M12 16.5v1.75"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 12.25l2.75 2.75L16.25 9.5"/></symbol>
+  <symbol id="i-signal" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1.75" fill="currentColor" stroke="none"/><path d="M8.5 8.5a5 5 0 0 0 0 7M15.5 8.5a5 5 0 0 1 0 7M5.5 5.5a9.2 9.2 0 0 0 0 13M18.5 5.5a9.2 9.2 0 0 1 0 13"/></symbol>
+  <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M3.5 12h16M13.5 6l6 6-6 6"/></symbol>
+  <symbol id="i-external" viewBox="0 0 24 24"><path d="M13.5 3.5h7v7M20.5 3.5l-9 9"/><path d="M18 14v6.5H3.5V6H10"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 4v16M4 12h16"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path d="M5.5 5.5l13 13M18.5 5.5l-13 13"/></symbol>
+  <symbol id="i-menu" viewBox="0 0 24 24"><path d="M3.5 7h17M3.5 12h17M3.5 17h11"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4.5l12.5 7.5L7 19.5z"/></symbol>
+  <symbol id="i-mail" viewBox="0 0 24 24"><path d="M3 5.5h18v13H3z"/><path d="M3 6l9 7 9-7"/></symbol>
+  <symbol id="i-browser" viewBox="0 0 24 24"><path d="M2.75 4.5h18.5v15H2.75z"/><path d="M2.75 8.5h18.5"/><path d="M5.5 6.5h1M8 6.5h1" stroke-width="1.75"/><path fill="currentColor" stroke="none" d="M8.5 17l3.5-6 3.5 6h-2.1L12 14.5 10.6 17z"/></symbol>
+</svg>
+<header class="nav solid">
+  <div class="wrap">
+    <a class="logo" href="index.html" aria-label="StarChadette home"><svg xmlns="http://www.w3.org/2000/svg" viewBox="-2 -2 852 44" fill="none" stroke="currentColor" stroke-width="7" role="img" aria-label="StarChadette"><path d="M56 3.5H12Q3.5 3.5 3.5 12Q3.5 20 12 20H44Q52.5 20 52.5 28.25Q52.5 36.5 44 36.5H0"/><path transform="translate(72 0)" d="M0 3.5H56M28 3.5V40"/><path transform="translate(144 0)" fill="currentColor" stroke="none" d="M0 40L24 0H32L56 40H47.8L28 7L8.2 40Z"/><path transform="translate(216 0)" d="M3.5 40V3.5H44Q52.5 3.5 52.5 12Q52.5 20.5 44 20.5H3.5M44 20.5Q52.5 20.5 52.5 29V40"/><path transform="translate(288 0)" d="M56 3.5H12Q3.5 3.5 3.5 12V28Q3.5 36.5 12 36.5H56"/><path transform="translate(360 0)" d="M3.5 0V40M52.5 0V40M3.5 20H52.5"/><path transform="translate(432 0)" style="fill:var(--amber)" stroke="none" d="M0 40L24 0H32L56 40H47.8L28 7L8.2 40Z"/><path transform="translate(504 0)" d="M3.5 3.5H42Q52.5 3.5 52.5 14V26Q52.5 36.5 42 36.5H3.5Z"/><path transform="translate(576 0)" d="M56 3.5H3.5V36.5H56M3.5 20H44"/><path transform="translate(648 0)" d="M0 3.5H56M28 3.5V40"/><path transform="translate(720 0)" d="M0 3.5H56M28 3.5V40"/><path transform="translate(792 0)" d="M56 3.5H3.5V36.5H56M3.5 20H44"/></svg></a>
+    <nav class="links" aria-label="Main">
+      <a href="index.html#codex">Codex</a>
+      <a href="market.html">The Market</a>
+      <a href="beta.html">Universe Giga</a>
+      <a href="index.html#faq">Questions</a>
+    </nav>
+    <span class="clock" data-clock aria-hidden="true">GST 0000.00.00 00:00</span>
+    <div class="actions">
+      <a class="btn primary sm" href="beta.html#enlist">Beta status</a>
+      <details class="menu">
+        <summary class="btn sm" aria-label="Menu"><svg class="icon"><use href="#i-menu"/></svg></summary>
+        <nav aria-label="Main">
+          <a href="index.html#codex">Codex</a>
+          <a href="market.html">The Market</a>
+          <a href="beta.html">Universe Giga</a>
+          <a href="index.html#faq">Questions</a>
+        </nav>
+      </details>
+    </div>
+  </div>
+</header>
+
+<main>
+  <section class="kit-head">
+    <div class="wrap">
+      <div class="kicker">Internal · design system</div>
+      <h1>UI kit</h1>
+      <p class="lede">Every component here is drawn by <code>assets/starchad.css</code>, the same stylesheet the pages use. The states shown side by side are the real rules, forced on with <code>.is-hover</code>, <code>.is-active</code> and <code>.is-focus</code>.</p>
+      <div class="rules">
+        <div class="rule"><i style="background:var(--amber)"></i><span><b>Amber means you can act.</b> One amber button per view. It is never used for decoration.</span></div>
+        <div class="rule"><i style="background:var(--ion)"></i><span><b>Blue informs; it never reacts.</b> Data, live status and links inside data are blue. Hover, focus and selection never turn anything blue.</span></div>
+        <div class="rule"><i style="background:var(--bone)"></i><span><b>Focus is a bone ring.</b> The same ring on every control, inside the chamfer on buttons.</span></div>
+        <div class="rule"><i style="background:linear-gradient(90deg,var(--amber),#ffd2a3,var(--amber))"></i><span><b>Working keeps its colour.</b> A busy button shows a sweep and ignores the pointer. Nothing in the interface is disabled; the world answers instead.</span></div>
+        <div class="rule"><i style="background:var(--gold)"></i><span><b>Gold belongs to Founders.</b> The gold seal, crest and tags appear only around the beta and Founder rewards.</span></div>
+        <div class="rule"><i style="border:1px solid var(--bone)"></i><span><b>Hover never changes a choice.</b> Selected chips, tabs and toggles look the same under the pointer.</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block">
+    <div class="wrap">
+      <h2>Buttons</h2>
+      <p>Three variants and three sizes. The chamfer comes from the ships' faceted hulls. The "Working" column is what a button shows after you press it while the request is on its way.</p>
+      <div class="matrix">
+        <span></span><span class="h">Rest</span><span class="h">Hover</span><span class="h">Pressed</span><span class="h">Focus</span><span class="h">Working</span><span class="h">Selected</span>
+        <span class="h">Primary</span>
+        <a class="btn primary">Enlist</a><a class="btn primary is-hover">Enlist</a><a class="btn primary is-active">Enlist</a><a class="btn primary is-focus">Enlist</a><a class="btn primary" aria-busy="true">Sending</a><span class="fine">n/a</span>
+        <span class="h">Outline</span>
+        <a class="btn">Read the codex</a><a class="btn is-hover">Read the codex</a><a class="btn is-active">Read the codex</a><a class="btn is-focus">Read the codex</a><a class="btn" aria-busy="true">Loading</a><a class="btn" aria-pressed="true">Desktop</a>
+        <span class="h">Quiet</span>
+        <a class="btn quiet">Log in</a><a class="btn quiet is-hover">Log in</a><a class="btn quiet is-active">Log in</a><a class="btn quiet is-focus">Log in</a><span class="fine">n/a</span><span class="fine">n/a</span>
+        <span class="h">With icon</span>
+        <a class="btn primary">Enlist <svg class="icon go"><use href="#i-arrow"/></svg></a><a class="btn primary is-hover">Enlist <svg class="icon go"><use href="#i-arrow"/></svg></a><a class="btn sm">Open <svg class="icon"><use href="#i-external"/></svg></a><a class="btn sm is-focus"><svg class="icon"><use href="#i-play"/></svg> Trailer</a><span></span><span></span>
+      </div>
+      <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:26px"><span class="label" style="width:120px">Sizes</span><a class="btn primary sm">Small</a><a class="btn primary">Default</a><a class="btn primary lg">Large</a></div>
+    </div>
+  </section>
+
+  <section class="block">
+    <div class="wrap">
+      <h2>Fields and choices</h2>
+      <p>Labels sit above the field in small capitals. An invalid field turns red and says what it needs in plain words; nothing is blocked before the commander tries.</p>
+      <div class="cell-grid">
+        <div class="cell"><span class="label">Rest</span><div class="field"><label>Commander name</label><input class="input" placeholder="The name they will remember"></div></div>
+        <div class="cell"><span class="label">Hover</span><div class="field"><label>Commander name</label><input class="input is-hover" placeholder="The name they will remember"></div></div>
+        <div class="cell"><span class="label">Focus</span><div class="field"><label>Commander name</label><input class="input is-focus" value="Vale of Hadley"></div></div>
+        <div class="cell"><span class="label">Invalid</span><div class="field"><label>Email</label><input class="input" aria-invalid="true" value="vale@"><span class="error">An address we can write to, please.</span></div></div>
+        <div class="cell"><span class="label">Select</span><div class="field"><label>Universe</label><select class="input"><option>Giga · founding beta</option><option>Universe 1 · launch</option></select></div></div>
+        <div class="cell"><span class="label">Chips · rest, hover, selected, focus</span><div class="chips">
+          <label class="chip"><input type="radio" name="c1"><span>Phone</span></label>
+          <label class="chip is-hover"><input type="radio" name="c1"><span>Both</span></label>
+          <label class="chip"><input type="radio" name="c2" checked><span>Desktop</span></label>
+          <label class="chip is-focus"><input type="radio" name="c3"><span>Focus</span></label></div></div>
+        <div class="cell"><span class="label">Checkbox</span><label class="check"><input type="checkbox"><span>Tell me when Wave 2 opens</span></label><label class="check"><input type="checkbox" checked><span>Tell me when Wave 1 opens</span></label></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block">
+    <div class="wrap">
+      <h2>Tags and tabs</h2>
+      <p>Tags are mono, upper case and outlined in their own colour. A pulsing dot means the value is live.</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:34px">
+        <span class="tag ok dot live">Online</span><span class="tag amber">Beta</span><span class="tag gold">Founder</span><span class="tag ion dot">In transit</span><span class="tag ion">Shield 8 h</span><span class="tag alert dot">Under boarding</span><span class="tag">Concept art</span><span class="tag">Illustrative</span>
+      </div>
+      <div class="tabs" role="tablist" style="max-width:620px">
+        <button class="tab" role="tab" aria-selected="true">Planet</button><button class="tab is-hover" role="tab" aria-selected="false">Heroes · hover</button><button class="tab" role="tab" aria-selected="false">Market</button><button class="tab is-focus" role="tab" aria-selected="false">Piracy · focus</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="block">
+    <div class="wrap">
+      <h2>Icons</h2>
+      <p>One sprite (<code>src/partials/icons.html</code>), drawn on a 24 px grid with a 1.5 px line and mitred corners. Filled marks appear only where the brand chevron does: hero, fleet, browser. Use with <code>&lt;svg class="icon"&gt;&lt;use href="#i-planet"/&gt;&lt;/svg&gt;</code>.</p>
+      <div class="icons" id="icons"></div>
+    </div>
+  </section>
+
+  <section class="block">
+    <div class="wrap">
+      <h2>Seals</h2>
+      <p>Medallion images from the Codex image tool, with the lettering set as live text on the blank band, so it stays sharp and can be translated. Silver is the seal of the game; gold is the Founders' seal.</p>
+      <div class="seals">
+        <figure><svg class="seal" viewBox="8.3 -0.5 1228 1228" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="The StarChadette seal: a commander in profile on a silver medallion. Motto: Per mandibulam ad astra.">
+  <!-- generated by tools/seals.mjs from concepts/seal/S3-silver.png: centre 622.3,613.5, edge 608×601, band inner edge 483×489 -->
+  <defs>
+    <clipPath id="seal-silver-clip"><ellipse cx="622.3" cy="613.5" rx="611" ry="604"/></clipPath>
+    <path id="seal-silver-top" d="M105.8 613.5A516.5 516 0 1 1 1138.8 613.5"/>
+    <path id="seal-silver-bottom" d="M75.8 613.5A546.5 546 0 0 0 1168.8 613.5"/>
+  </defs>
+  <image href="../assets/img/seal-silver.jpg" width="1254" height="1254" clip-path="url(#seal-silver-clip)"/>
+  <g font-family="Michroma, Eurostile, sans-serif" text-anchor="middle">
+    <text class="engrave-hi" font-size="50" transform="translate(0 2.5)"><textPath href="#seal-silver-top" startOffset="50%" textLength="880" lengthAdjust="spacing">STARCHADETTE</textPath></text>
+    <text class="engrave" font-size="50"><textPath href="#seal-silver-top" startOffset="50%" textLength="880" lengthAdjust="spacing">STARCHADETTE</textPath></text>
+    <text class="engrave-hi" font-size="34" transform="translate(0 2.5)"><textPath href="#seal-silver-bottom" startOffset="50%" textLength="1180" lengthAdjust="spacing">PER MANDIBULAM · AD ASTRA</textPath></text>
+    <text class="engrave" font-size="34"><textPath href="#seal-silver-bottom" startOffset="50%" textLength="1180" lengthAdjust="spacing">PER MANDIBULAM · AD ASTRA</textPath></text>
+  </g>
+</svg><figcaption><b>Silver</b>The game's seal on starchadette.com</figcaption></figure>
+        <figure><svg class="seal" viewBox="8.2 -0.5 1228 1228" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="The StarChadette seal: a woman commander in profile on a silver medallion. Motto: Per mandibulam ad astra.">
+  <!-- generated by tools/seals.mjs from concepts/seal/F-silver.png: centre 622.2,613.5, edge 608×601, band inner edge 483×490 -->
+  <defs>
+    <clipPath id="seal-silver-f-clip"><ellipse cx="622.2" cy="613.5" rx="611" ry="604"/></clipPath>
+    <path id="seal-silver-f-top" d="M105.7 613.5A516.5 516.5 0 1 1 1138.7 613.5"/>
+    <path id="seal-silver-f-bottom" d="M75.7 613.5A546.5 546.5 0 0 0 1168.7 613.5"/>
+  </defs>
+  <image href="../assets/img/seal-silver-f.jpg" width="1254" height="1254" clip-path="url(#seal-silver-f-clip)"/>
+  <g font-family="Michroma, Eurostile, sans-serif" text-anchor="middle">
+    <text class="engrave-hi" font-size="50" transform="translate(0 2.5)"><textPath href="#seal-silver-f-top" startOffset="50%" textLength="880" lengthAdjust="spacing">STARCHADETTE</textPath></text>
+    <text class="engrave" font-size="50"><textPath href="#seal-silver-f-top" startOffset="50%" textLength="880" lengthAdjust="spacing">STARCHADETTE</textPath></text>
+    <text class="engrave-hi" font-size="34" transform="translate(0 2.5)"><textPath href="#seal-silver-f-bottom" startOffset="50%" textLength="1180" lengthAdjust="spacing">PER MANDIBULAM · AD ASTRA</textPath></text>
+    <text class="engrave" font-size="34"><textPath href="#seal-silver-f-bottom" startOffset="50%" textLength="1180" lengthAdjust="spacing">PER MANDIBULAM · AD ASTRA</textPath></text>
+  </g>
+</svg><figcaption><b>Silver · her</b>The game's seal on starchadette.com</figcaption></figure>
+        <figure><svg class="seal gold" viewBox="2.1 -15.2 1240 1240" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="The StarChadette seal: a commander in profile on a gold medallion. Motto: Per mandibulam ad astra.">
+  <!-- generated by tools/seals.mjs from concepts/seal/S1-gunmetal.png: centre 622.1,604.8, edge 614×595, band inner edge 511×505 -->
+  <defs>
+    <clipPath id="seal-gold-clip"><ellipse cx="622.1" cy="604.8" rx="617" ry="598"/></clipPath>
+    <path id="seal-gold-top" d="M88.6 604.8A533.5 521 0 1 1 1155.6 604.8"/>
+    <path id="seal-gold-bottom" d="M58.6 604.8A563.5 551 0 0 0 1185.6 604.8"/>
+  </defs>
+  <image href="../assets/img/seal-gold.jpg" width="1254" height="1254" clip-path="url(#seal-gold-clip)"/>
+  <g font-family="Michroma, Eurostile, sans-serif" text-anchor="middle">
+    <text class="engrave-hi" font-size="50" transform="translate(0 2.5)"><textPath href="#seal-gold-top" startOffset="50%" textLength="880" lengthAdjust="spacing">STARCHADETTE</textPath></text>
+    <text class="engrave" font-size="50"><textPath href="#seal-gold-top" startOffset="50%" textLength="880" lengthAdjust="spacing">STARCHADETTE</textPath></text>
+    <text class="engrave-hi" font-size="34" transform="translate(0 2.5)"><textPath href="#seal-gold-bottom" startOffset="50%" textLength="1180" lengthAdjust="spacing">PER MANDIBULAM · AD ASTRA</textPath></text>
+    <text class="engrave" font-size="34"><textPath href="#seal-gold-bottom" startOffset="50%" textLength="1180" lengthAdjust="spacing">PER MANDIBULAM · AD ASTRA</textPath></text>
+  </g>
+</svg><figcaption><b>Gold · Founders</b>Beta, commission, Founder rewards</figcaption></figure>
+        <figure><svg class="seal gold" viewBox="2.8 -14.6 1238 1238" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="The StarChadette seal: a woman commander in profile on a gold medallion. Motto: Per mandibulam ad astra.">
+  <!-- generated by tools/seals.mjs from concepts/seal/F-gold.png: centre 621.8,604.4, edge 613×594, band inner edge 511×505 -->
+  <defs>
+    <clipPath id="seal-gold-f-clip"><ellipse cx="621.8" cy="604.4" rx="616" ry="597"/></clipPath>
+    <path id="seal-gold-f-top" d="M88.8 604.4A533 520.5 0 1 1 1154.8 604.4"/>
+    <path id="seal-gold-f-bottom" d="M58.8 604.4A563 550.5 0 0 0 1184.8 604.4"/>
+  </defs>
+  <image href="../assets/img/seal-gold-f.jpg" width="1254" height="1254" clip-path="url(#seal-gold-f-clip)"/>
+  <g font-family="Michroma, Eurostile, sans-serif" text-anchor="middle">
+    <text class="engrave-hi" font-size="50" transform="translate(0 2.5)"><textPath href="#seal-gold-f-top" startOffset="50%" textLength="880" lengthAdjust="spacing">STARCHADETTE</textPath></text>
+    <text class="engrave" font-size="50"><textPath href="#seal-gold-f-top" startOffset="50%" textLength="880" lengthAdjust="spacing">STARCHADETTE</textPath></text>
+    <text class="engrave-hi" font-size="34" transform="translate(0 2.5)"><textPath href="#seal-gold-f-bottom" startOffset="50%" textLength="1180" lengthAdjust="spacing">PER MANDIBULAM · AD ASTRA</textPath></text>
+    <text class="engrave" font-size="34"><textPath href="#seal-gold-f-bottom" startOffset="50%" textLength="1180" lengthAdjust="spacing">PER MANDIBULAM · AD ASTRA</textPath></text>
+  </g>
+</svg><figcaption><b>Gold · Founders, her</b>Shown together with his on both sites</figcaption></figure>
+      </div>
+    </div>
+  </section>
+
+  <section class="block">
+    <div class="wrap">
+      <h2>Wordmarks and marks</h2>
+      <p>The Λ letters double as rank chevrons and ship prows. The amber marks the chad in StarChadette and StarChadette, and the word GIGA in the beta marks. Logos are sized by height so the editions match.</p>
+      <div class="logos">
+        <div class="marks-list"><svg xmlns="http://www.w3.org/2000/svg" viewBox="-2 -2 564 44" fill="none" stroke="currentColor" stroke-width="7" role="img" aria-label="StarChadette"><path d="M56 3.5H12Q3.5 3.5 3.5 12Q3.5 20 12 20H44Q52.5 20 52.5 28.25Q52.5 36.5 44 36.5H0"/><path transform="translate(72 0)" d="M0 3.5H56M28 3.5V40"/><path transform="translate(144 0)" fill="currentColor" stroke="none" d="M0 40L24 0H32L56 40H47.8L28 7L8.2 40Z"/><path transform="translate(216 0)" d="M3.5 40V3.5H44Q52.5 3.5 52.5 12Q52.5 20.5 44 20.5H3.5M44 20.5Q52.5 20.5 52.5 29V40"/><path transform="translate(288 0)" d="M56 3.5H12Q3.5 3.5 3.5 12V28Q3.5 36.5 12 36.5H56"/><path transform="translate(360 0)" d="M3.5 0V40M52.5 0V40M3.5 20H52.5"/><path transform="translate(432 0)" style="fill:var(--amber)" stroke="none" d="M0 40L24 0H32L56 40H47.8L28 7L8.2 40Z"/><path transform="translate(504 0)" d="M3.5 3.5H42Q52.5 3.5 52.5 14V26Q52.5 36.5 42 36.5H3.5Z"/></svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="-2 -2 852 44" fill="none" stroke="currentColor" stroke-width="7" role="img" aria-label="StarChadette"><path d="M56 3.5H12Q3.5 3.5 3.5 12Q3.5 20 12 20H44Q52.5 20 52.5 28.25Q52.5 36.5 44 36.5H0"/><path transform="translate(72 0)" d="M0 3.5H56M28 3.5V40"/><path transform="translate(144 0)" fill="currentColor" stroke="none" d="M0 40L24 0H32L56 40H47.8L28 7L8.2 40Z"/><path transform="translate(216 0)" d="M3.5 40V3.5H44Q52.5 3.5 52.5 12Q52.5 20.5 44 20.5H3.5M44 20.5Q52.5 20.5 52.5 29V40"/><path transform="translate(288 0)" d="M56 3.5H12Q3.5 3.5 3.5 12V28Q3.5 36.5 12 36.5H56"/><path transform="translate(360 0)" d="M3.5 0V40M52.5 0V40M3.5 20H52.5"/><path transform="translate(432 0)" style="fill:var(--amber)" stroke="none" d="M0 40L24 0H32L56 40H47.8L28 7L8.2 40Z"/><path transform="translate(504 0)" d="M3.5 3.5H42Q52.5 3.5 52.5 14V26Q52.5 36.5 42 36.5H3.5Z"/><path transform="translate(576 0)" d="M56 3.5H3.5V36.5H56M3.5 20H44"/><path transform="translate(648 0)" d="M0 3.5H56M28 3.5V40"/><path transform="translate(720 0)" d="M0 3.5H56M28 3.5V40"/><path transform="translate(792 0)" d="M56 3.5H3.5V36.5H56M3.5 20H44"/></svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="-2 -2 803 44" fill="none" stroke="currentColor" stroke-width="7" role="img" aria-label="StarGigaChadette"><path d="M56 3.5H12Q3.5 3.5 3.5 12Q3.5 20 12 20H44Q52.5 20 52.5 28.25Q52.5 36.5 44 36.5H0"/><path transform="translate(72 0)" d="M0 3.5H56M28 3.5V40"/><path transform="translate(144 0)" fill="currentColor" stroke="none" d="M0 40L24 0H32L56 40H47.8L28 7L8.2 40Z"/><path transform="translate(216 0)" d="M3.5 40V3.5H44Q52.5 3.5 52.5 12Q52.5 20.5 44 20.5H3.5M44 20.5Q52.5 20.5 52.5 29V40"/><g style="stroke:var(--amber)"><path transform="translate(288 0)" d="M56 3.5H12Q3.5 3.5 3.5 12V28Q3.5 36.5 12 36.5H52.5V20H30"/><path transform="translate(360 0)" d="M3.5 0V40"/><path transform="translate(383 0)" d="M56 3.5H12Q3.5 3.5 3.5 12V28Q3.5 36.5 12 36.5H52.5V20H30"/><path transform="translate(455 0)" style="fill:var(--amber)" stroke="none" d="M0 40L24 0H32L56 40H47.8L28 7L8.2 40Z"/></g><path transform="translate(527 0)" d="M56 3.5H12Q3.5 3.5 3.5 12V28Q3.5 36.5 12 36.5H56"/><path transform="translate(599 0)" d="M3.5 0V40M52.5 0V40M3.5 20H52.5"/><path transform="translate(671 0)" fill="currentColor" stroke="none" d="M0 40L24 0H32L56 40H47.8L28 7L8.2 40Z"/><path transform="translate(743 0)" d="M3.5 3.5H42Q52.5 3.5 52.5 14V26Q52.5 36.5 42 36.5H3.5Z"/></svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="-2 -2 1091 44" fill="none" stroke="currentColor" stroke-width="7" role="img" aria-label="StarGigaChadette"><path d="M56 3.5H12Q3.5 3.5 3.5 12Q3.5 20 12 20H44Q52.5 20 52.5 28.25Q52.5 36.5 44 36.5H0"/><path transform="translate(72 0)" d="M0 3.5H56M28 3.5V40"/><path transform="translate(144 0)" fill="currentColor" stroke="none" d="M0 40L24 0H32L56 40H47.8L28 7L8.2 40Z"/><path transform="translate(216 0)" d="M3.5 40V3.5H44Q52.5 3.5 52.5 12Q52.5 20.5 44 20.5H3.5M44 20.5Q52.5 20.5 52.5 29V40"/><path transform="translate(288 0)" style="stroke:var(--amber)" d="M56 3.5H12Q3.5 3.5 3.5 12V28Q3.5 36.5 12 36.5H52.5V20H30"/><path transform="translate(360 0)" style="stroke:var(--amber)" d="M3.5 0V40"/><path transform="translate(383 0)" style="stroke:var(--amber)" d="M56 3.5H12Q3.5 3.5 3.5 12V28Q3.5 36.5 12 36.5H52.5V20H30"/><path transform="translate(455 0)" style="fill:var(--amber)" stroke="none" d="M0 40L24 0H32L56 40H47.8L28 7L8.2 40Z"/><path transform="translate(527 0)" d="M56 3.5H12Q3.5 3.5 3.5 12V28Q3.5 36.5 12 36.5H56"/><path transform="translate(599 0)" d="M3.5 0V40M52.5 0V40M3.5 20H52.5"/><path transform="translate(671 0)" fill="currentColor" stroke="none" d="M0 40L24 0H32L56 40H47.8L28 7L8.2 40Z"/><path transform="translate(743 0)" d="M3.5 3.5H42Q52.5 3.5 52.5 14V26Q52.5 36.5 42 36.5H3.5Z"/><path transform="translate(815 0)" d="M56 3.5H3.5V36.5H56M3.5 20H44"/><path transform="translate(887 0)" d="M0 3.5H56M28 3.5V40"/><path transform="translate(959 0)" d="M0 3.5H56M28 3.5V40"/><path transform="translate(1031 0)" d="M56 3.5H3.5V36.5H56M3.5 20H44"/></svg></div>
+        <div><div class="marks">
+          <svg style="width:72px" viewBox="0 0 100 100" fill="currentColor" aria-label="Chevron star"><path d="M8 92L44 34H56L92 92H77L50 49L23 92Z"/><path fill="#f08a24" d="M50 2L54.2 17.8L70 22L54.2 26.2L50 42L45.8 26.2L30 22L45.8 17.8Z"/></svg>
+          <img src="../assets/favicon.svg" alt="App icon" style="width:64px">
+          <svg style="width:64px" viewBox="0 0 100 106" aria-label="Founder crest"><path fill="#d9a441" fill-rule="evenodd" d="M10 6H90V58L66 100H34L10 58ZM16 12V56.4L37.5 94H62.5L84 56.4V12ZM49.3 97H50.7V100H49.3Z"/><path fill="#e9e3d6" d="M27 74L50 38L73 74H63L50 53L37 74Z"/><path fill="#f08a24" d="M50 14L52.6 22.4L61 25L52.6 27.6L50 36L47.4 27.6L39 25L47.4 22.4Z"/></svg>
+        </div></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block">
+    <div class="wrap">
+      <h2>Colour</h2>
+      <p>From the approved ship livery: graphite hulls, amber team panels, blue-white engines.</p>
+      <div class="swatches">
+        <div class="sw"><i style="background:var(--void)"></i><div><b>Void</b><span>#05070A · page</span></div></div>
+        <div class="sw"><i style="background:var(--g800)"></i><div><b>Graphite</b><span>#10141A · panels</span></div></div>
+        <div class="sw"><i style="background:var(--g600)"></i><div><b>Gunmetal</b><span>#232A33 · tracks</span></div></div>
+        <div class="sw"><i style="background:var(--steel)"></i><div><b>Steel</b><span>#8E969F · labels</span></div></div>
+        <div class="sw"><i style="background:var(--bone)"></i><div><b>Bone</b><span>#E9E3D6 · text, focus</span></div></div>
+        <div class="sw"><i style="background:var(--amber)"></i><div><b>Amber</b><span>#F08A24 · action</span></div></div>
+        <div class="sw"><i style="background:var(--ion)"></i><div><b>Ion</b><span>#9FD3FF · information</span></div></div>
+        <div class="sw"><i style="background:var(--gold)"></i><div><b>Founder gold</b><span>#D9A441 · beta only</span></div></div>
+        <div class="sw"><i style="background:var(--ok)"></i><div><b>Signal green</b><span>#5FD38D · done, live</span></div></div>
+        <div class="sw"><i style="background:var(--alert)"></i><div><b>Alert</b><span>#FF6B5B · errors, attacks</span></div></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block type">
+    <div class="wrap">
+      <h2>Type</h2>
+      <p>Four free Google Fonts.</p>
+      <div class="row"><span class="label">Display · Michroma</span><span style="font:400 clamp(28px,4vw,44px)/1.1 var(--display)">Command, <span class="accent">unbothered.</span></span></div>
+      <div class="row"><span class="label">Labels · Barlow Condensed</span><span style="font:600 17px/1.2 var(--ui);letter-spacing:.28em;text-transform:uppercase">Universe Giga · Founding beta</span></div>
+      <div class="row"><span class="label">Body · Barlow</span><span style="color:var(--text-2)">Raiders clamp onto a moving convoy, force a hold, load what they can and run. The convoy keeps going and arrives short.</span></div>
+      <div class="row"><span class="label">Data · JetBrains Mono</span><span style="font:400 14px/1.6 var(--mono);color:var(--ion)">GST 2026.10.22 · FEE 0.5% · ETA 00:14:46</span></div>
+    </div>
+  </section>
+
+  <section class="block">
+    <div class="wrap">
+      <h2>Game-flavoured components</h2>
+      <p>For pages that show the game: numbers in tabular mono, units after the value, one icon per row. All data is illustrative.</p>
+      <div class="resbar" style="margin-bottom:22px">
+        <div class="res"><svg class="icon"><use href="#i-credits"/></svg><b>1,284,740<small>+38/s</small></b><span>Credits</span></div>
+        <div class="res"><svg class="icon"><use href="#i-cargo"/></svg><b>3,420 t</b><span>Cargo in flight</span></div>
+        <div class="res"><svg class="icon"><use href="#i-clock"/></svg><b>00:14:46</b><span>Next arrival</span></div>
+        <div class="res"><svg class="icon"><use href="#i-shield"/></svg><b>07:42:13</b><span>Shield</span></div>
+      </div>
+      <div class="cell-grid">
+        <div class="cell">
+          <span class="label">Notifications</span>
+          <div class="toast" style="--c:var(--alert)"><svg class="icon"><use href="#i-alert"/></svg><div><b>Convoy arrived short</b><p>Convoy C-17 reached Hadley Port missing 12 containers. The raiders broke off toward Ostra.</p><small>2 min ago · Lane 4</small></div></div>
+          <div class="toast" style="--c:var(--ok)"><svg class="icon"><use href="#i-check"/></svg><div><b>Sale settled</b><p>400 t of alloys sold at the Core exchange. The 0.5% fee was shown before you confirmed.</p></div></div>
+          <div class="toast"><svg class="icon"><use href="#i-route"/></svg><div><b>Route plotted</b><p>Hadley to Ostra Reach, 3 jumps. Two lanes report raiders this hour.</p></div></div>
+        </div>
+        <div class="cell">
+          <span class="label">Hero card</span>
+          <div class="hero-card"><div class="img" role="img" aria-label="A hero's city of ships"></div><div class="bd">
+            <h4>Hero · The Long Patience</h4>
+            <div class="tags"><span class="tag ion dot">In transit</span><span class="tag">City of 42 ships</span></div>
+            <div class="stats"><div><span>Crew wages</span><b>1.9k/h</b></div><div><span>Hold</span><b>68%</b></div><div><span>ETA</span><b>3 h 12 m</b></div></div>
+            <div class="bar" style="--p:62%"><i></i></div><div class="meta"><span>Hadley → Ostra Reach</span><span>62%</span></div>
+          </div></div>
+        </div>
+        <div class="cell">
+          <span class="label">Countdown</span>
+          <div class="count"><div><b>14</b><span>DAYS</span></div><div><b>06</b><span>HRS</span></div><div><b>42</b><span>MIN</span></div><div><b>09</b><span>SEC</span></div></div>
+          <span class="label" style="margin-top:18px">Rank insignia</span>
+          <div class="ranks">
+            <div><svg viewBox="0 0 40 40"><path fill="#8e969f" d="M6 30L18 14h4l12 16h-5.2L20 18.6 11.2 30z"/></svg><span>Ensign</span></div>
+            <div><svg viewBox="0 0 40 40"><path fill="#e9e3d6" d="M6 36L18 20h4l12 16h-5.2L20 24.6 11.2 36zM6 24L18 8h4l12 16h-5.2L20 12.6 11.2 24z"/></svg><span>Lieutenant</span></div>
+            <div><svg viewBox="0 0 40 40"><path fill="#e9e3d6" d="M6 38L18 24h4l12 14h-5.2L20 28.2 11.2 38zM6 29L18 15h4l12 14h-5.2L20 19.2 11.2 29z"/><path fill="#f08a24" d="M20 1.5l1.6 5L26.5 8l-4.9 1.5L20 14.5l-1.6-5L13.5 8l4.9-1.5z"/></svg><span>Commander</span></div>
+            <div><svg viewBox="0 0 40 40"><path fill="none" stroke="#e9e3d6" stroke-width="2" d="M13.8 3.5h12.4l9.3 9.3v12.4l-9.3 9.3H13.8l-9.3-9.3V12.8z"/><path fill="#f08a24" d="M20 9.5l2.3 7.2L29.5 19l-7.2 2.3L20 28.5l-2.3-7.2L10.5 19l7.2-2.3z"/></svg><span>Admiral</span></div>
+            <div><svg viewBox="0 0 100 106"><path fill="#d9a441" fill-rule="evenodd" d="M10 6H90V58L66 100H34L10 58ZM16 12V56.4L37.5 94H62.5L84 56.4V12ZM49.3 97H50.7V100H49.3Z"/><path fill="#e9e3d6" d="M27 74L50 38L73 74H63L50 53L37 74Z"/><path fill="#f08a24" d="M50 14L52.6 22.4L61 25L52.6 27.6L50 36L47.4 27.6L39 25L47.4 22.4Z"/></svg><span>Founder</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="footer">
+  <div class="wrap">
+    <div class="brand"><svg xmlns="http://www.w3.org/2000/svg" viewBox="-2 -2 852 44" fill="none" stroke="currentColor" stroke-width="7" role="img" aria-label="StarChadette"><path d="M56 3.5H12Q3.5 3.5 3.5 12Q3.5 20 12 20H44Q52.5 20 52.5 28.25Q52.5 36.5 44 36.5H0"/><path transform="translate(72 0)" d="M0 3.5H56M28 3.5V40"/><path transform="translate(144 0)" fill="currentColor" stroke="none" d="M0 40L24 0H32L56 40H47.8L28 7L8.2 40Z"/><path transform="translate(216 0)" d="M3.5 40V3.5H44Q52.5 3.5 52.5 12Q52.5 20.5 44 20.5H3.5M44 20.5Q52.5 20.5 52.5 29V40"/><path transform="translate(288 0)" d="M56 3.5H12Q3.5 3.5 3.5 12V28Q3.5 36.5 12 36.5H56"/><path transform="translate(360 0)" d="M3.5 0V40M52.5 0V40M3.5 20H52.5"/><path transform="translate(432 0)" style="fill:var(--amber)" stroke="none" d="M0 40L24 0H32L56 40H47.8L28 7L8.2 40Z"/><path transform="translate(504 0)" d="M3.5 3.5H42Q52.5 3.5 52.5 14V26Q52.5 36.5 42 36.5H3.5Z"/><path transform="translate(576 0)" d="M56 3.5H3.5V36.5H56M3.5 20H44"/><path transform="translate(648 0)" d="M0 3.5H56M28 3.5V40"/><path transform="translate(720 0)" d="M0 3.5H56M28 3.5V40"/><path transform="translate(792 0)" d="M56 3.5H3.5V36.5H56M3.5 20H44"/></svg><div class="motto">PER MANDIBULAM AD ASTRA</div></div>
+    <div><h4>The game</h4><ul><li><a href="index.html#codex">Codex</a></li><li><a href="market.html">The Market</a></li><li><a href="index.html#faq">Questions</a></li></ul></div>
+    <div><h4>Universe Giga</h4><ul><li><a href="beta.html#enlist">Beta status</a></li><li><a href="beta.html">Founders</a></li><li><a href="beta.html">stargigachadette.com</a></li></ul></div>
+    <div><h4>StarChadette</h4><ul><li><a href="#">Press kit</a></li><li><a href="#">Privacy</a></li><li><a href="#">Terms</a></li><li><a href="#">Contact</a></li><li><a href="../index.html">starchad&#46;com</a></li></ul></div>
+    <small>© 2026 StarChadette · starchadette.com · Registration is currently closed. Images marked In game are screenshots of the game in development; the rest is concept art.</small>
+  </div>
+</footer>
+<!-- The site's music, off until the reader turns it on (assets/music.js). -->
+<button class="btn sm music" type="button" data-music="../assets/audio/hacia-un-planeta-distante.mp3" data-state="off" aria-pressed="false" aria-label="Music: Hacia un planeta distante" hidden>
+  <span class="eq" aria-hidden="true"><i></i><i></i><i></i><i></i></span><span class="music-name">Music</span><span class="music-title">Hacia un planeta distante</span>
+</button>
+<script defer src="../assets/music.js"></script>
+<script>
+  // Galactic standard time (UTC) wherever a [data-clock] appears, once a minute.
+  (() => {
+    const els = document.querySelectorAll('[data-clock]');
+    const p = n => String(n).padStart(2, '0');
+    const tick = () => { const d = new Date(); els.forEach(el => el.textContent = `GST ${d.getUTCFullYear()}.${p(d.getUTCMonth() + 1)}.${p(d.getUTCDate())} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}`); };
+    if (els.length) { tick(); setInterval(tick, 60000); }
+  })();
+</script>
+<script>
+// Lists every symbol in the sprite at three sizes, so new icons appear here automatically.
+const grid = document.getElementById('icons');
+document.querySelectorAll('svg symbol[id^="i-"]').forEach(s => {
+  const id = s.id, cell = document.createElement('div');
+  cell.innerHTML = `<div class="sizes">${['sm', '', 'lg'].map(c => `<svg class="icon ${c}"><use href="#${id}"/></svg>`).join('')}</div><code>${id}</code>`;
+  grid.append(cell);
+});
+</script>
+</body>
+</html>

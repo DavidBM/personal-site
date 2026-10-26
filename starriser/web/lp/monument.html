@@ -1,0 +1,311 @@
+<!doctype html>
+<!-- Built by build.mjs from src/lp/monument.html; edit the source, not this file. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@300;400;500;600&family=Barlow+Condensed:wght@400;500;600&family=Michroma&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/starchad.css">
+<title>StarChad: Some build empires. You build monuments.</title>
+<meta name="description" content="Explore Universe Giga, the founding beta of StarChad: a persistent space strategy universe in your browser.">
+<style>
+/* Campaign landing "monument": V4's cinematic first impact on the shared system.
+   One goal, enlisting. Ochre grading on the images, gold for the founders. */
+:root {
+  --bar: 80px;
+  --gold-dim: rgba(217, 164, 65, .5);
+  --grade: sepia(.32) saturate(.72) contrast(1.06) brightness(.86);
+}
+
+/* letterboxed scenes */
+.scene { position: relative; overflow: hidden; isolation: isolate; background: var(--void); }
+.scene .bg { position: absolute; inset: 0; z-index: -2; overflow: hidden; }
+.scene .bg img { width: 100%; height: 100%; object-fit: cover; filter: var(--grade); transform: scale(1.07); transition: transform 16s cubic-bezier(.2, .6, .2, 1); }
+.scene.in .bg img { transform: scale(1); }
+.scene .bg::after { content: ""; position: absolute; inset: 0; }
+.scene.left .bg::after { background: linear-gradient(90deg, rgba(5,7,10,.95) 0%, rgba(5,7,10,.74) 32%, rgba(5,7,10,0) 62%), linear-gradient(180deg, rgba(5,7,10,.45), transparent 24%, transparent 72%, rgba(5,7,10,.9)); }
+.scene.right .bg::after { background: linear-gradient(270deg, rgba(5,7,10,.95) 0%, rgba(5,7,10,.74) 34%, rgba(5,7,10,0) 64%), linear-gradient(180deg, rgba(5,7,10,.45), transparent 24%, transparent 72%, rgba(5,7,10,.9)); }
+.letterbox::before, .letterbox::after { content: ""; position: absolute; left: 0; right: 0; height: var(--bar); background: var(--void); z-index: 1; }
+.letterbox::before { top: 0; } .letterbox::after { bottom: 0; }
+.caption { position: absolute; z-index: 2; left: 0; right: 0; display: flex; justify-content: space-between; gap: 20px;
+  font: 500 10.5px/1 var(--mono); letter-spacing: .26em; text-transform: uppercase; color: rgba(233,227,214,.46); }
+.caption.top { top: calc(var(--bar) / 2 - 5px); } .caption.bottom { bottom: calc(var(--bar) / 2 - 5px); }
+
+.label-gold { font: 500 11px/1.4 var(--mono); letter-spacing: .24em; text-transform: uppercase; color: var(--gold); }
+.display { font-family: var(--display); text-transform: uppercase; letter-spacing: .12em; line-height: 1.2; }
+
+/* hero */
+.hero { min-height: clamp(660px, 100vh, 980px); display: flex; align-items: flex-end; }
+.hero .bg img { object-position: 70% 40%; }
+.hero .copy { padding-bottom: calc(var(--bar) + clamp(40px, 7vh, 80px)); }
+.hero .copy > * { max-width: 760px; }
+.hero h1 { font-size: clamp(26px, 3.5vw, 52px); margin: 20px 0 26px; }
+.hero h1 span { display: block; }
+.hero h1 span + span { color: var(--gold); }
+.hero .lede { margin: 0 0 34px; max-width: 34rem; }
+.ctas { display: flex; flex-wrap: wrap; gap: 14px 24px; align-items: center; }
+.btn .icon.down { transform: rotate(90deg); }
+.btn:hover .icon.down { transform: rotate(90deg) translateX(3px); }
+
+/* narration */
+.narration { padding: var(--space-section) 0; text-align: center; background: radial-gradient(60% 70% at 50% 50%, rgba(217,164,65,.06), transparent 70%); }
+.narration .mark { width: 40px; margin: 0 auto 40px; color: rgba(233,227,214,.46); }
+.narration p { font: 300 clamp(19px, 1.9vw, 25px)/1.65 var(--body); letter-spacing: .02em; color: var(--text-3); max-width: 40rem; margin: 0 auto; }
+.narration p + p { margin-top: .9em; }
+.narration p.final { color: var(--bone); }
+.narration .ctas { justify-content: center; margin-top: 40px; }
+
+/* chapters: three condensed image bands */
+.band { --bar: 44px; min-height: clamp(440px, 56vh, 540px); display: flex; align-items: center; }
+.band .copy { padding-block: calc(var(--bar) + 26px); display: flex; }
+.band.right .copy { justify-content: flex-end; }
+.band .text { max-width: 30rem; }
+.numeral { font: 400 clamp(52px, 5.4vw, 80px)/.8 var(--display); letter-spacing: .04em; color: transparent; -webkit-text-stroke: 1px var(--gold-dim); margin: 0 0 20px; }
+.band h2 { font-size: clamp(21px, 2.2vw, 32px); margin: 14px 0 20px; }
+.band .lede { font-size: 17px; }
+.brief { list-style: none; margin: 26px 0 0; padding: 18px 0 0; border-top: 1px solid var(--line); display: grid; gap: 8px; }
+.brief li { display: grid; grid-template-columns: 150px 1fr; gap: 16px; font: 400 11.5px/1.5 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: rgba(233,227,214,.5); }
+.brief b { font-weight: 500; color: var(--gold); }
+.c1 .bg img { object-position: 70% 50%; }
+.c2 .bg img { object-position: 40% 50%; }
+.c3 .bg img { object-position: 40% 46%; }
+
+/* founders */
+.founders { position: relative; padding: var(--space-section) 0; text-align: center; overflow: hidden; isolation: isolate; }
+.founders .ghost { position: absolute; inset: 0; z-index: -1; }
+.founders .ghost img { width: 100%; height: 100%; object-fit: cover; object-position: 78% 30%; opacity: .16; filter: grayscale(1) sepia(.5) blur(1px); }
+.founders .ghost::after { content: ""; position: absolute; inset: 0; background: radial-gradient(70% 60% at 50% 45%, rgba(5,7,10,.4), var(--void) 85%); }
+.founders .seal { width: clamp(170px, 16vw, 220px); margin: 0 auto 36px; filter: drop-shadow(0 30px 60px rgba(0,0,0,.7)); }
+.founders h2 { margin: 16px 0 24px; }
+.founders .lede { margin: 0 auto; max-width: 40rem; }
+.founders .terms { margin: 18px auto 0; max-width: 34rem; }
+form.enlist { display: grid; grid-template-columns: 1fr 1fr auto; gap: 12px; align-items: end; max-width: 820px; margin: 46px auto 0; text-align: left; }
+form.enlist .btn { min-height: 50px; }
+.received { display: none; justify-content: center; align-items: center; gap: 10px; margin-top: 18px; font: 500 14px/1.4 var(--mono); color: var(--ok); }
+form.sent ~ .received { display: flex; }
+.domains { display: flex; justify-content: center; gap: 28px; flex-wrap: wrap; margin-top: 30px; }
+
+/* questions */
+.faq { padding: var(--space-section) 0; border-top: 1px solid var(--line); background: var(--g900); }
+.faq .grid { display: grid; grid-template-columns: 340px 1fr; gap: 56px; }
+
+/* reveal: hidden only once script has confirmed IntersectionObserver works */
+.reveal-on .rv { opacity: 0; transform: translateY(18px); transition: opacity 1.4s ease, transform 1.4s cubic-bezier(.2, .6, .2, 1); }
+.reveal-on .rv.d1 { transition-delay: .2s; } .reveal-on .rv.d2 { transition-delay: .4s; } .reveal-on .rv.d3 { transition-delay: .6s; }
+.reveal-on .in .rv, .reveal-on .rv.in { opacity: 1; transform: none; }
+@media (prefers-reduced-motion: reduce) {
+  .scene .bg img { transform: none !important; }
+  .reveal-on .rv { opacity: 1; transform: none; }
+}
+
+/* narrow screens: the image first, the text beneath on solid ground */
+@media (max-width: 900px) {
+  .hero, .band { display: block; min-height: 0; }
+  .scene .bg { position: relative; inset: auto; z-index: 0; aspect-ratio: 4 / 3; }
+  .hero .bg { aspect-ratio: 4 / 5; }
+  .scene.left .bg::after, .scene.right .bg::after { background: linear-gradient(180deg, rgba(5,7,10,.45) 0%, transparent 26%, transparent 55%, var(--void) 100%); }
+  .letterbox::after, .hero .caption.bottom { display: none; }
+  .hero .copy, .band .copy { position: relative; z-index: 1; margin-top: -70px; padding-block: 0 64px; }
+  .band.right .copy { justify-content: flex-start; }
+  .numeral { font-size: 46px; margin-bottom: 12px; }
+  .caption .hide-s { display: none; }
+  .faq .grid { grid-template-columns: 1fr; gap: 24px; }
+}
+@media (max-width: 680px) {
+  form.enlist { grid-template-columns: 1fr; }
+}
+@media (max-width: 560px) {
+  :root { --bar: 68px; }
+  .hero .bg img { object-position: 74% 40%; }
+  .hero h1 { font-size: 24px; letter-spacing: .09em; }
+  .hero .btn, .narration .btn { width: 100%; }
+  .brief li { grid-template-columns: 1fr; gap: 2px; }
+}
+</style>
+</head>
+<body class="grain" data-landing="monument">
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">
+  <!-- 24 px grid, 2 px margin, 1.5 px line, mitred joins; filled marks only where the brand chevron appears -->
+  <symbol id="i-planet" viewBox="0 0 24 24"><circle cx="12" cy="12" r="6"/><path d="M17.28 6.66A10.5 3.5 -25 0 1 21.51 7.56A10.5 3.5 -25 0 1 2.49 16.44A10.5 3.5 -25 0 1 4.52 12.62"/></symbol>
+  <symbol id="i-hero" viewBox="0 0 24 24"><path fill="currentColor" stroke="none" d="M7 17.5L12 8.5l5 9h-2.9L12 13.6l-2.1 3.9z"/><path d="M4.2 9.6A9 9 0 0 1 19.8 9.6M20.6 14.6A9 9 0 0 1 16 19.8M8 19.8a9 9 0 0 1-4.6-5.2"/></symbol>
+  <symbol id="i-fleet" viewBox="0 0 24 24"><path fill="currentColor" stroke="none" d="M8.5 10L12 4l3.5 6h-2.1L12 7.5 10.6 10zM3 19l3.5-6 3.5 6H7.9l-1.4-2.5L5.1 19zM14 19l3.5-6 3.5 6h-2.1l-1.4-2.5-1.4 2.5z"/></symbol>
+  <symbol id="i-cargo" viewBox="0 0 24 24"><path d="M4 7h16l1 1v10l-1 1H4l-1-1V8z"/><path d="M7.5 10v6M12 10v6M16.5 10v6"/></symbol>
+  <symbol id="i-credits" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="6.25" stroke-width="1" opacity=".55"/><path d="M8.8 14.6L12 9.2l3.2 5.4"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M4.5 3.5h15V12l-4.75 8.5h-5.5L4.5 12z"/><path d="M8.75 14.25L12 8.75l3.25 5.5"/></symbol>
+  <symbol id="i-federation" viewBox="0 0 24 24"><path d="M8.3 2.75h7.4l5.55 5.55v7.4l-5.55 5.55H8.3L2.75 15.7V8.3z"/><path fill="currentColor" stroke="none" d="M12 6.5l1.4 4.1 4.1 1.4-4.1 1.4L12 17.5l-1.4-4.1L6.5 12l4.1-1.4z"/></symbol>
+  <symbol id="i-route" viewBox="0 0 24 24"><path d="M6.4 16.2l4-5.6M13.2 9.2l3.8 2.6" /><path fill="currentColor" stroke="none" d="M5 15.2l2.3 2.3L5 19.8l-2.3-2.3z"/><circle cx="11.75" cy="8.5" r="1.9"/><circle cx="19" cy="13.25" r="2.6"/><circle cx="19" cy="13.25" r=".9" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-galaxy" viewBox="0 0 24 24"><path d="M12 12c2.4-.5 3.4-2.5 1.3-3.8C10.6 6.6 5.2 7.5 3.25 10.75"/><path d="M12 12c-2.4.5-3.4 2.5-1.3 3.8 2.7 1.6 8.1.7 10.05-2.55"/><ellipse cx="12" cy="12" rx="9.25" ry="5.25" opacity=".35" stroke-dasharray="1.4 2.2"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-market" viewBox="0 0 24 24"><path d="M3 20.25h18"/><path d="M3.5 16l5-5 4 3 7.5-8"/><path d="M15.5 6h4.5v4.5"/></symbol>
+  <symbol id="i-convoy" viewBox="0 0 24 24"><path d="M2.5 8.5h5v6.5h-5zM9.5 8.5h5v6.5h-5z"/><path d="M16.5 8.5h2.75l2.25 3.25-2.25 3.25H16.5z"/><path d="M2.5 18.75h19" stroke-dasharray="1.6 1.8" opacity=".6"/></symbol>
+  <symbol id="i-crew" viewBox="0 0 24 24"><circle cx="12" cy="7.75" r="3.75"/><path d="M4.5 21v-1.5c0-3.3 2.8-5.5 5-5.5h5c2.2 0 5 2.2 5 5.5V21"/><path d="M10 14l2 2.5 2-2.5"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.25 2"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 3.5l9.25 16.5H2.75z"/><path d="M12 9.5v5"/><path d="M12 16.5v1.75"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 12.25l2.75 2.75L16.25 9.5"/></symbol>
+  <symbol id="i-signal" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1.75" fill="currentColor" stroke="none"/><path d="M8.5 8.5a5 5 0 0 0 0 7M15.5 8.5a5 5 0 0 1 0 7M5.5 5.5a9.2 9.2 0 0 0 0 13M18.5 5.5a9.2 9.2 0 0 1 0 13"/></symbol>
+  <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M3.5 12h16M13.5 6l6 6-6 6"/></symbol>
+  <symbol id="i-external" viewBox="0 0 24 24"><path d="M13.5 3.5h7v7M20.5 3.5l-9 9"/><path d="M18 14v6.5H3.5V6H10"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 4v16M4 12h16"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path d="M5.5 5.5l13 13M18.5 5.5l-13 13"/></symbol>
+  <symbol id="i-menu" viewBox="0 0 24 24"><path d="M3.5 7h17M3.5 12h17M3.5 17h11"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4.5l12.5 7.5L7 19.5z"/></symbol>
+  <symbol id="i-mail" viewBox="0 0 24 24"><path d="M3 5.5h18v13H3z"/><path d="M3 6l9 7 9-7"/></symbol>
+  <symbol id="i-browser" viewBox="0 0 24 24"><path d="M2.75 4.5h18.5v15H2.75z"/><path d="M2.75 8.5h18.5"/><path d="M5.5 6.5h1M8 6.5h1" stroke-width="1.75"/><path fill="currentColor" stroke="none" d="M8.5 17l3.5-6 3.5 6h-2.1L12 14.5 10.6 17z"/></symbol>
+</svg>
+<header class="nav">
+  <div class="wrap">
+    <a class="logo" href="../index.html" aria-label="StarChad"><svg xmlns="http://www.w3.org/2000/svg" viewBox="-2 -2 564 44" fill="none" stroke="currentColor" stroke-width="7" role="img" aria-label="StarChad"><path d="M56 3.5H12Q3.5 3.5 3.5 12Q3.5 20 12 20H44Q52.5 20 52.5 28.25Q52.5 36.5 44 36.5H0"/><path transform="translate(72 0)" d="M0 3.5H56M28 3.5V40"/><path transform="translate(144 0)" fill="currentColor" stroke="none" d="M0 40L24 0H32L56 40H47.8L28 7L8.2 40Z"/><path transform="translate(216 0)" d="M3.5 40V3.5H44Q52.5 3.5 52.5 12Q52.5 20.5 44 20.5H3.5M44 20.5Q52.5 20.5 52.5 29V40"/><path transform="translate(288 0)" d="M56 3.5H12Q3.5 3.5 3.5 12V28Q3.5 36.5 12 36.5H56"/><path transform="translate(360 0)" d="M3.5 0V40M52.5 0V40M3.5 20H52.5"/><path transform="translate(432 0)" style="fill:var(--amber)" stroke="none" d="M0 40L24 0H32L56 40H47.8L28 7L8.2 40Z"/><path transform="translate(504 0)" d="M3.5 3.5H42Q52.5 3.5 52.5 14V26Q52.5 36.5 42 36.5H3.5Z"/></svg></a>
+    <span class="clock" data-clock aria-hidden="true" style="margin-left:auto">GST 0000.00.00 00:00</span>
+    <div class="actions"><a class="btn primary sm" href="#enlist">Enlist</a></div>
+  </div>
+</header>
+
+<main id="top">
+  <section class="scene left letterbox hero" aria-label="StarChad">
+    <div class="bg"><img src="../assets/img/09-monument.jpg" alt="A colossal stone profile of a commander carved into an asteroid, with freighters passing beneath its jaw"></div>
+    <div class="wrap copy">
+      <span class="label-gold rv">A persistent strategy universe · In your browser</span>
+      <h1 class="display rv d1"><span>Some build empires.</span><span>You build monuments.</span></h1>
+      <p class="lede rv d2">One home planet. Heroes that are moving cities. A market where everything can be bought, and everything has to be flown. One universe that never pauses.</p>
+      <div class="ctas rv d3">
+        <a class="btn primary lg" href="#enlist">Explore Universe Giga <svg class="icon go"><use href="#i-arrow"/></svg></a>
+        <a class="btn quiet" href="#briefing">Begin the briefing <svg class="icon down"><use href="#i-arrow"/></svg></a>
+      </div>
+    </div>
+    <div class="wrap caption bottom"><span>Transmission 00</span><span class="hide-s">The Founder's Monument · Core approach</span></div>
+  </section>
+
+  <section class="narration" id="briefing">
+    <div class="wrap">
+      <svg class="mark rv" viewBox="0 0 100 100" fill="currentColor" aria-hidden="true"><path d="M8 92L44 34H56L92 92H77L50 49L23 92Z"/><path style="fill:var(--amber)" d="M50 2L54.2 17.8L70 22L54.2 26.2L50 42L45.8 26.2L30 22L45.8 17.8Z"/></svg>
+      <p class="rv">The Federation holds the Core. Every world inside it has an owner.</p>
+      <p class="rv d1">Every ton that leaves it has to be carried, by someone, past someone.</p>
+      <p class="rv d2">Beyond the last beacon, the dark belongs to whoever is patient enough to keep it.</p>
+      <p class="rv d3 final">This is where your civilization begins.</p>
+      <div class="ctas rv d3"><a class="btn primary" href="#enlist">Explore Universe Giga <svg class="icon go"><use href="#i-arrow"/></svg></a></div>
+    </div>
+  </section>
+
+  <section class="scene left letterbox band c1" id="chapter-1">
+    <div class="bg"><img loading="lazy" src="../assets/img/03-fleet-departure.jpg" alt="A battleship and its escorts leave a home planet at sunrise, its cities lit below"></div>
+    <div class="wrap caption top"><span>Chapter I</span><span class="hide-s">Home world · Federation Core</span></div>
+    <div class="wrap copy"><div class="text">
+      <p class="numeral rv" aria-hidden="true">01</p>
+      <span class="label-gold rv">The planet</span>
+      <h2 class="display rv d1">One world.<br>All of it yours.</h2>
+      <p class="lede rv d2">Your civilization was born on a single world in the Federation Core. Every coast, mine and city on it belongs to you. Spend your first year making it the envy of the Core.</p>
+      <ul class="brief rv d3"><li><b>Ownership</b><span>The entire planet</span></li><li><b>Location</b><span>Federation Core</span></li></ul>
+    </div></div>
+  </section>
+
+  <section class="scene right letterbox band c2" id="chapter-2">
+    <div class="bg"><img loading="lazy" src="../assets/img/06-hero-city.jpg" alt="A colossal mothership surrounded by factory ships, mining barges and escorts, travelling as one city"></div>
+    <div class="wrap caption top"><span>Chapter II</span><span class="hide-s">Hero formation · In transit</span></div>
+    <div class="wrap copy"><div class="text">
+      <p class="numeral rv" aria-hidden="true">02</p>
+      <span class="label-gold rv">The hero</span>
+      <h2 class="display rv d1">A city<br>that moves.</h2>
+      <p class="lede rv d2">Growth comes from heroes, not from more planets: a flagship, a city of factory and mining ships, and the fleet that flies with it. Point one at the dark, and civilization goes with it.</p>
+      <ul class="brief rv d3"><li><b>Week two</b><span>Outposts and asteroid mining</span></li><li><b>Month three</b><span>Factory ships</span></li></ul>
+    </div></div>
+  </section>
+
+  <section class="scene left letterbox band c3" id="chapter-3">
+    <div class="bg"><img loading="lazy" src="../assets/img/04-convoy-raid.jpg" alt="Two raiders clamped onto a moving freighter, pulling cargo containers from a forced hatch"></div>
+    <div class="wrap caption top"><span>Chapter III</span><span class="hide-s">Convoy · Outer lane · Under attack</span></div>
+    <div class="wrap copy"><div class="text">
+      <p class="numeral rv" aria-hidden="true">03</p>
+      <span class="label-gold rv">The convoy</span>
+      <h2 class="display rv d1">Everything has<br>to be flown.</h2>
+      <p class="lede rv d2">Credits and orders cross the galaxy in an instant; every ton of cargo travels in a hold. So there are raiders: they clamp onto a moving convoy, force a hold, load what they can and run. The convoy arrives short.</p>
+      <ul class="brief rv d3"><li><b>Instant</b><span>Credits, licences, orders</span></li><li><b>Counters</b><span>Escorts, routes and timing</span></li></ul>
+    </div></div>
+  </section>
+
+  <section class="founders" id="founders">
+    <div class="ghost"><img loading="lazy" src="../assets/img/09-monument.jpg" alt=""></div>
+    <div class="wrap">
+      <div class="rv"><svg class="seal gold" viewBox="2.1 -15.2 1240 1240" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="The StarChad seal: a commander in profile on a gold medallion. Motto: Per mandibulam ad astra.">
+  <!-- generated by tools/seals.mjs from concepts/seal/S1-gunmetal.png: centre 622.1,604.8, edge 614×595, band inner edge 511×505 -->
+  <defs>
+    <clipPath id="seal-gold-clip"><ellipse cx="622.1" cy="604.8" rx="617" ry="598"/></clipPath>
+    <path id="seal-gold-top" d="M88.6 604.8A533.5 521 0 1 1 1155.6 604.8"/>
+    <path id="seal-gold-bottom" d="M58.6 604.8A563.5 551 0 0 0 1185.6 604.8"/>
+  </defs>
+  <image href="../assets/img/seal-gold.jpg" width="1254" height="1254" clip-path="url(#seal-gold-clip)"/>
+  <g font-family="Michroma, Eurostile, sans-serif" text-anchor="middle">
+    <text class="engrave-hi" font-size="50" transform="translate(0 2.5)"><textPath href="#seal-gold-top" startOffset="50%" textLength="640" lengthAdjust="spacing">STARCHAD</textPath></text>
+    <text class="engrave" font-size="50"><textPath href="#seal-gold-top" startOffset="50%" textLength="640" lengthAdjust="spacing">STARCHAD</textPath></text>
+    <text class="engrave-hi" font-size="34" transform="translate(0 2.5)"><textPath href="#seal-gold-bottom" startOffset="50%" textLength="1180" lengthAdjust="spacing">PER MANDIBULAM · AD ASTRA</textPath></text>
+    <text class="engrave" font-size="34"><textPath href="#seal-gold-bottom" startOffset="50%" textLength="1180" lengthAdjust="spacing">PER MANDIBULAM · AD ASTRA</textPath></text>
+  </g>
+</svg></div>
+      <span class="label-gold rv">The Founders · Universe Giga</span>
+      <h2 class="display rv d1">Your name,<br>in stone.</h2>
+      <p class="lede rv d2">Universe Giga is StarChad's founding beta. Progress there may be wiped before launch. Your name will not: every Founder's commander name is engraved on the Founder's Monument in the launch universe.</p>
+      <div class="registration-closed" id="enlist">
+  <button class="btn primary" type="button" disabled>Registration closed</button>
+  <p class="fine" style="margin-top:14px">Universe Giga is in development. Registration is not open yet.</p>
+</div>
+      <div class="domains"><span class="fine">stargigachad.com · founding beta</span><span class="fine">starchad.com · launch</span></div>
+    </div>
+  </section>
+
+  <section class="faq" id="questions">
+    <div class="wrap grid">
+      <div><div class="kicker">Questions</div><h2 style="margin-top:18px">Short answers.</h2></div>
+      <div class="faq-list">
+        <details open><summary>Is it free to play?<svg class="icon"><use href="#i-plus"/></svg></summary><div class="a"><span class="yes">Yes.</span></div></details>
+        <details><summary>Does the universe keep going when I log off?<svg class="icon"><use href="#i-plus"/></svg></summary><div class="a"><span class="yes">Yes.</span>That's what shields are for.</div></details>
+        <details><summary>Can I rob a convoy and sell the cargo back to its owner?<svg class="icon"><use href="#i-plus"/></svg></summary><div class="a"><span class="yes">Yes.</span></div></details>
+        <details><summary>Is it pay-to-win?<svg class="icon"><use href="#i-plus"/></svg></summary><div class="a"><span class="yes">No.</span>Real money buys tradable items that other players buy with credits. Everything they give can be reached by playing.</div></details>
+        <details><summary>Will my progress in the beta last?<svg class="icon"><use href="#i-plus"/></svg></summary><div class="a">Universe Giga may be wiped before launch, with notice. Your commander name is carried into the launch universe, engraved on the Founder's Monument.</div></details>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="footer lp">
+  <div class="wrap" style="grid-template-columns:1fr auto;align-items:end">
+    <div class="brand"><svg xmlns="http://www.w3.org/2000/svg" viewBox="-2 -2 564 44" fill="none" stroke="currentColor" stroke-width="7" role="img" aria-label="StarChad"><path d="M56 3.5H12Q3.5 3.5 3.5 12Q3.5 20 12 20H44Q52.5 20 52.5 28.25Q52.5 36.5 44 36.5H0"/><path transform="translate(72 0)" d="M0 3.5H56M28 3.5V40"/><path transform="translate(144 0)" fill="currentColor" stroke="none" d="M0 40L24 0H32L56 40H47.8L28 7L8.2 40Z"/><path transform="translate(216 0)" d="M3.5 40V3.5H44Q52.5 3.5 52.5 12Q52.5 20.5 44 20.5H3.5M44 20.5Q52.5 20.5 52.5 29V40"/><path transform="translate(288 0)" d="M56 3.5H12Q3.5 3.5 3.5 12V28Q3.5 36.5 12 36.5H56"/><path transform="translate(360 0)" d="M3.5 0V40M52.5 0V40M3.5 20H52.5"/><path transform="translate(432 0)" style="fill:var(--amber)" stroke="none" d="M0 40L24 0H32L56 40H47.8L28 7L8.2 40Z"/><path transform="translate(504 0)" d="M3.5 3.5H42Q52.5 3.5 52.5 14V26Q52.5 36.5 42 36.5H3.5Z"/></svg><div class="motto">PER MANDIBULAM AD ASTRA</div></div>
+    <ul style="display:flex;gap:24px;flex-wrap:wrap"><li><a href="../index.html">starchad.com</a></li><li><a href="#">Privacy</a></li><li><a href="#">Terms</a></li></ul>
+    <small>© 2026 StarChad · Registration is currently closed. Every image on this page is concept art, not in-game footage.</small>
+  </div>
+</footer>
+<!-- The site's music, off until the reader turns it on (assets/music.js). -->
+<button class="btn sm music" type="button" data-music="../assets/audio/hacia-un-planeta-distante.mp3" data-state="off" aria-pressed="false" aria-label="Music: Hacia un planeta distante" hidden>
+  <span class="eq" aria-hidden="true"><i></i><i></i><i></i><i></i></span><span class="music-name">Music</span><span class="music-title">Hacia un planeta distante</span>
+</button>
+<script defer src="../assets/music.js"></script>
+<script>
+  // Galactic standard time (UTC) wherever a [data-clock] appears, once a minute.
+  (() => {
+    const els = document.querySelectorAll('[data-clock]');
+    const p = n => String(n).padStart(2, '0');
+    const tick = () => { const d = new Date(); els.forEach(el => el.textContent = `GST ${d.getUTCFullYear()}.${p(d.getUTCMonth() + 1)}.${p(d.getUTCDate())} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}`); };
+    if (els.length) { tick(); setInterval(tick, 60000); }
+  })();
+</script>
+
+<script>
+(() => {
+  const root = document.documentElement;
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  // Reveal on scroll; content stays visible unless IntersectionObserver works.
+  if ('IntersectionObserver' in window && !reduced) {
+    root.classList.add('reveal-on');
+    const io = new IntersectionObserver(entries => {
+      for (const e of entries) if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
+    }, { rootMargin: '0px 0px -8% 0px', threshold: 0.12 });
+    document.querySelectorAll('.scene, .narration, .founders, .rv').forEach(el => io.observe(el));
+  } else {
+    document.querySelectorAll('.scene').forEach(el => el.classList.add('in'));
+  }
+
+})();
+</script>
+</body>
+</html>
